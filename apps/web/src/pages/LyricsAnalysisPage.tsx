@@ -15,7 +15,6 @@ export default function LyricsAnalysisPage() {
   const [albumId, setAlbumId] = useState('');
   const [songId, setSongId] = useState('');
   const [topN, setTopN] = useState(50);
-  const [runAnalysis, setRunAnalysis] = useState(false);
 
   const { data: bands } = useQuery({ queryKey: ['bands'], queryFn: () => bandsApi.list() });
   const { data: albums } = useQuery({

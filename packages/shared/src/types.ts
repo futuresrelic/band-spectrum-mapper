@@ -147,6 +147,8 @@ export interface AlbumWithSongs extends Album {
 export interface SongWithLyrics extends Song {
   lyrics: Lyric[];
   score: SongAxisScore | null;
+  band?: Pick<Band, 'id' | 'name' | 'slug'>;
+  album?: Pick<Album, 'id' | 'title' | 'slug'> | null;
 }
 
 export interface AxisScoreMap {
