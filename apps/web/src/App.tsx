@@ -10,10 +10,17 @@ import LyricsAnalysisPage from './pages/LyricsAnalysisPage';
 import ComparePage from './pages/ComparePage';
 import ImportsPage from './pages/ImportsPage';
 import SettingsPage from './pages/SettingsPage';
+import ViewerIndexPage from './pages/ViewerIndexPage';
+import ViewerBandPage from './pages/ViewerBandPage';
 
 export default function App() {
   return (
     <Routes>
+      {/* Public read-only viewer — no nav shell */}
+      <Route path="/view" element={<ViewerIndexPage />} />
+      <Route path="/view/:bandSlug" element={<ViewerBandPage />} />
+
+      {/* Main app with nav */}
       <Route path="/" element={<Layout />}>
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />

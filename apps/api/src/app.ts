@@ -7,6 +7,8 @@ import { lyricsRouter } from './routes/lyrics.js';
 import { analysisRouter } from './routes/analysis.js';
 import { importsRouter } from './routes/imports.js';
 import { settingsRouter } from './routes/settings.js';
+import { exportRouter } from './routes/export.js';
+import { publicRouter } from './routes/public.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 export function createApp() {
@@ -29,6 +31,8 @@ export function createApp() {
   app.use('/api/analysis', analysisRouter);
   app.use('/api/imports', importsRouter);
   app.use('/api/settings', settingsRouter);
+  app.use('/api/export', exportRouter);
+  app.use('/api/public', publicRouter);
 
   // 404 handler
   app.use((_req, res) => {

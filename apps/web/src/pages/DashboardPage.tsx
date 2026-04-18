@@ -4,6 +4,15 @@ import { bandsApi } from '../api/bands';
 import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
 
+const BASE_URL = import.meta.env['VITE_API_URL'] ?? '';
+
+function handleExport() {
+  const a = document.createElement('a');
+  a.href = `${BASE_URL}/api/export`;
+  a.download = `band-spectrum-export-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+}
+
 export default function DashboardPage() {
   const { data: bands, isLoading, error } = useQuery({
     queryKey: ['bands'],
@@ -16,9 +25,11 @@ export default function DashboardPage() {
         title="Dashboard"
         subtitle="Overview of your music library"
         actions={
-          <Link to="/library" className="btn-primary">
-            Open Library
-          </Link>
+          <div className="flex gap-2">
+            <button className="btn-secondary" onClick={handleExport}>Export JSON</button>
+            <Link to="/view" target="_blank" className="btn-secondary">Public Viewer ↗</Link>
+            <Link to="/library" className="btn-primary">Open Library</Link>
+          </div>
         }
       />
 
