@@ -1,0 +1,216 @@
+// Band Spectrum Mapper — Prisma Schema
+// Source of truth for all database entities.
+// Use `prisma migrate dev --name <name>` for all schema changes.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Core library entities
+// ---------------------------------------------------------------------------
+
+model Band {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  albums  Album[]
+  songs   Song[]
+  scores  SongAxisScore[]
+
+  @@map("bands")
+}
+
+model Album {
+  id          String    @id @default(cuid())
+  bandId      String
+  title       String
+  slug        String
+  year        Int?
+  releaseDate DateTime?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  band  Band   @relation(fields: [bandId], references: [id], onDelete: Cascade)
+  songs Song[]
+
+  @@unique([bandId, slug])
+  @@map("albums")
+}
+
+model Song {
+  id              String   @id @default(cuid())
+  bandId          String
+  albumId         String?
+  title           String
+  slug            String
+  trackNumber     Int?
+  durationSeconds Int?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  band   Band    @relation(fields: [bandId], references: [id], onDelete: Cascade)
+  album  Album?  @relation(fields: [albumId], references: [id], onDelete: SetNull)
+
+  lyrics    Lyric[]
+  score     SongAxisScore?
+  songTags  SongTag[]
+
+  @@unique([bandId, slug])
+  @@map("songs")
+}
+
+// ---------------------------------------------------------------------------
+// Lyrics — separate from songs for editability, versioning, and provenance
+// ---------------------------------------------------------------------------
+
+model Lyric {
+  id          String      @id @default(cuid())
+  songId      String
+  sourceType  SourceType
+  sourceLabel String?
+  text        String
+  isPrimary   Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  song      Song            @relation(fields: [songId], references: [id], onDelete: Cascade)
+  revisions LyricRevision[]
+
+  @@map("lyrics")
+}
+
+enum SourceType {
+  manual
+  paste
+  file_import
+  licensed
+  user_provided
+
+  @@map("source_type")
+}
+
+model LyricRevision {
+  id           String   @id @default(cuid())
+  lyricId      String
+  previousText String
+  newText      String
+  changeNote   String?
+  createdAt    DateTime @default(now())
+
+  lyric Lyric @relation(fields: [lyricId], references: [id], onDelete: Cascade)
+
+  @@map("lyric_revisions")
+}
+
+// ---------------------------------------------------------------------------
+// Spectrum scoring — 6 axes, kept separate from song for schema flexibility
+// ---------------------------------------------------------------------------
+
+model SongAxisScore {
+  id          String   @id @default(cuid())
+  songId      String   @unique
+  bandId      String
+  aggression  Float    @default(0)
+  complexity  Float    @default(0)
+  atmosphere  Float    @default(0)
+  emotion     Float    @default(0)
+  psychedelic Float    @default(0)
+  concept     Float    @default(0)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+  band Band @relation(fields: [bandId], references: [id], onDelete: Cascade)
+
+  @@map("song_axis_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Tags — reusable labels for songs
+// ---------------------------------------------------------------------------
+
+model Tag {
+  id       String    @id @default(cuid())
+  name     String    @unique
+  slug     String    @unique
+  songTags SongTag[]
+
+  @@map("tags")
+}
+
+model SongTag {
+  id     String @id @default(cuid())
+  songId String
+  tagId  String
+
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([songId, tagId])
+  @@map("song_tags")
+}
+
+// ---------------------------------------------------------------------------
+// Analysis configuration
+// ---------------------------------------------------------------------------
+
+model CustomStopword {
+  id        String   @id @default(cuid())
+  word      String   @unique
+  createdAt DateTime @default(now())
+
+  @@map("custom_stopwords")
+}
+
+// ---------------------------------------------------------------------------
+// Import tracking
+// ---------------------------------------------------------------------------
+
+model Import {
+  id         String       @id @default(cuid())
+  importType String
+  filename   String
+  mimeType   String
+  status     ImportStatus @default(pending)
+  summary    Json?
+  createdAt  DateTime     @default(now())
+
+  @@map("imports")
+}
+
+enum ImportStatus {
+  pending
+  processing
+  success
+  partial
+  failed
+
+  @@map("import_status")
+}
+
+// ---------------------------------------------------------------------------
+// Saved comparisons
+// ---------------------------------------------------------------------------
+
+model Comparison {
+  id         String   @id @default(cuid())
+  name       String
+  configJson Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("comparisons")
+}
