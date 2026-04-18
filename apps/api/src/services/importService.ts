@@ -34,13 +34,13 @@ function parseCsv(content: string, bandId: string): ParsedLyricRow[] {
   }
 
   return lines.slice(1).map((line) => {
-    // Simple CSV parse — handles quoted fields containing commas
     const cols = parseCsvLine(line);
+    const albumTitle = albumIdx !== -1 ? cols[albumIdx] : undefined;
     return {
       songTitle: cols[songIdx] ?? '',
       lyrics: cols[lyricsIdx] ?? '',
-      albumTitle: albumIdx !== -1 ? cols[albumIdx] : undefined,
       bandId,
+      ...(albumTitle !== undefined && { albumTitle }),
     };
   });
 }
@@ -83,11 +83,12 @@ function parseJson(content: string, bandId: string): ParsedLyricRow[] {
     if (typeof row['songTitle'] !== 'string' || typeof row['lyrics'] !== 'string') {
       throw new HttpError(400, `Row ${i + 1}: requires "songTitle" and "lyrics" string fields`);
     }
+    const albumTitle = typeof row['albumTitle'] === 'string' ? row['albumTitle'] : undefined;
     return {
       songTitle: row['songTitle'],
       lyrics: row['lyrics'],
-      albumTitle: typeof row['albumTitle'] === 'string' ? row['albumTitle'] : undefined,
       bandId,
+      ...(albumTitle !== undefined && { albumTitle }),
     };
   });
 }

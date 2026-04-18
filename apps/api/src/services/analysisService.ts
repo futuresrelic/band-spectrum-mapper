@@ -146,9 +146,9 @@ export const analysisService = {
     }));
 
     return {
-      songId: query.songId,
-      albumId: query.albumId,
-      bandId: query.bandId,
+      ...(query.songId !== undefined && { songId: query.songId }),
+      ...(query.albumId !== undefined && { albumId: query.albumId }),
+      ...(query.bandId !== undefined && { bandId: query.bandId }),
       totalWords,
       uniqueWords,
       topWords,

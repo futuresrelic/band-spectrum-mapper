@@ -6,9 +6,7 @@ import { HttpError } from '../middleware/errorHandler.js';
 export const bandService = {
   async list(search?: string) {
     return prisma.band.findMany({
-      where: search
-        ? { name: { contains: search, mode: 'insensitive' } }
-        : undefined,
+      ...(search && { where: { name: { contains: search, mode: 'insensitive' } } }),
       include: {
         _count: { select: { albums: true, songs: true } },
       },
