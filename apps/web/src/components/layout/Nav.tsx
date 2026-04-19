@@ -7,7 +7,6 @@ const links = [
   { to: '/spectrum',    label: 'Spectrum' },
   { to: '/analysis',    label: 'Analysis' },
   { to: '/compare',     label: 'Compare' },
-  { to: '/rate',        label: 'Rate Songs' },
   { to: '/imports',     label: 'Imports' },
   { to: '/discography', label: 'Discography' },
   { to: '/settings',    label: 'Settings' },

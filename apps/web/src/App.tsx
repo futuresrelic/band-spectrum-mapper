@@ -1,6 +1,9 @@
+import { type ReactNode } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import { useAuth } from './contexts/AuthContext';
 import Layout from './components/layout/Layout';
+import UserLayout from './components/layout/UserLayout';
 import DashboardPage from './pages/DashboardPage';
 import LibraryPage from './pages/LibraryPage';
 import BandDetailPage from './pages/BandDetailPage';
@@ -14,20 +17,57 @@ import SettingsPage from './pages/SettingsPage';
 import DiscographyImportPage from './pages/DiscographyImportPage';
 import ViewerIndexPage from './pages/ViewerIndexPage';
 import ViewerBandPage from './pages/ViewerBandPage';
-import RatePage from './pages/RatePage';
 import AdminUsersPage from './pages/AdminUsersPage';
+import UserRatePage from './pages/UserRatePage';
+
+// Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/view
+function RootRedirect() {
+  const { user, isLoading } = useAuth();
+  if (isLoading) return null;
+  if (!user) return <Navigate to="/view" replace />;
+  if (user.isAdmin) return <Navigate to="/dashboard" replace />;
+  return <Navigate to="/my/rate" replace />;
+}
+
+// Wraps admin routes — non-admin users are redirected away
+function AdminGuard({ children }: { children: ReactNode }) {
+  const { user, isLoading } = useAuth();
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-surface-500 text-sm">
+        Loading...
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/view" replace />;
+  if (!user.isAdmin) return <Navigate to="/my/rate" replace />;
+  return <>{children}</>;
+}
 
 export default function App() {
   return (
     <AuthProvider>
       <Routes>
-        {/* Public read-only viewer — no nav shell */}
+        {/* ── PUBLIC: read-only viewer, no login needed ── */}
         <Route path="/view" element={<ViewerIndexPage />} />
         <Route path="/view/:bandSlug" element={<ViewerBandPage />} />
 
-        {/* Main app with nav */}
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
+        {/* ── USER: rating surface, any logged-in Google user ── */}
+        <Route path="/my" element={<UserLayout />}>
+          <Route index element={<Navigate to="/my/rate" replace />} />
+          <Route path="rate" element={<UserRatePage />} />
+        </Route>
+
+        {/* ── ADMIN: full app, isAdmin required ── */}
+        <Route
+          path="/"
+          element={
+            <AdminGuard>
+              <Layout />
+            </AdminGuard>
+          }
+        >
+          <Route index element={<RootRedirect />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="library" element={<LibraryPage />} />
           <Route path="library/bands/:bandId" element={<BandDetailPage />} />
@@ -39,7 +79,6 @@ export default function App() {
           <Route path="imports" element={<ImportsPage />} />
           <Route path="discography" element={<DiscographyImportPage />} />
           <Route path="settings" element={<SettingsPage />} />
-          <Route path="rate" element={<RatePage />} />
           <Route path="admin/users" element={<AdminUsersPage />} />
         </Route>
       </Routes>
