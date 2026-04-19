@@ -187,17 +187,17 @@ export default function SpectrumPage() {
                   <div className="flex justify-between mb-1">
                     <label className="label mb-0">{AXIS_LABELS[axis]}</label>
                     <span className="text-xs font-mono text-surface-700">
-                      {(scores[axis] ?? 0).toFixed(1)} / {SCORE_MAX}
+                      {Math.round(scores[axis] ?? 0)} / {SCORE_MAX}
                     </span>
                   </div>
                   <input
                     type="range"
                     min="0"
                     max="10"
-                    step="0.5"
-                    value={scores[axis] ?? 0}
+                    step="1"
+                    value={Math.round(scores[axis] ?? 0)}
                     onChange={(e) =>
-                      setScores((prev) => ({ ...prev, [axis]: parseFloat(e.target.value) }))
+                      setScores((prev) => ({ ...prev, [axis]: parseInt(e.target.value, 10) }))
                     }
                     className="w-full accent-surface-900"
                   />

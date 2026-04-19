@@ -9,6 +9,7 @@ import { importsRouter } from './routes/imports.js';
 import { settingsRouter } from './routes/settings.js';
 import { exportRouter } from './routes/export.js';
 import { publicRouter } from './routes/public.js';
+import { discographyRouter } from './routes/discography.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 export function createApp() {
@@ -33,6 +34,7 @@ export function createApp() {
   app.use('/api/settings', settingsRouter);
   app.use('/api/export', exportRouter);
   app.use('/api/public', publicRouter);
+  app.use('/api/discography', discographyRouter);
 
   // 404 handler
   app.use((_req, res) => {

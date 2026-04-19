@@ -7,6 +7,7 @@ const links = [
   { to: '/analysis', label: 'Analysis' },
   { to: '/compare', label: 'Compare' },
   { to: '/imports', label: 'Imports' },
+  { to: '/discography', label: 'Discography' },
   { to: '/settings', label: 'Settings' },
 ];
 

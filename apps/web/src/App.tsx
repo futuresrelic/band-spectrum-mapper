@@ -10,6 +10,7 @@ import LyricsAnalysisPage from './pages/LyricsAnalysisPage';
 import ComparePage from './pages/ComparePage';
 import ImportsPage from './pages/ImportsPage';
 import SettingsPage from './pages/SettingsPage';
+import DiscographyImportPage from './pages/DiscographyImportPage';
 import ViewerIndexPage from './pages/ViewerIndexPage';
 import ViewerBandPage from './pages/ViewerBandPage';
 
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="analysis" element={<LyricsAnalysisPage />} />
         <Route path="compare" element={<ComparePage />} />
         <Route path="imports" element={<ImportsPage />} />
+        <Route path="discography" element={<DiscographyImportPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
     </Routes>
