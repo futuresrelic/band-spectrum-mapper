@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
+import { ratingsApi } from '../api/ratings';
+import { useAuth } from '../contexts/AuthContext';
 import RadarChart from '../components/charts/RadarChart';
-import type { Band, Album, Song, Lyric, SongAxisScore, AxisScoreMap } from '@band-spectrum-mapper/shared';
+import type { Band, Album, Song, Lyric, SongAxisScore, AxisScoreMap, CommunityScore, UserSongRating } from '@band-spectrum-mapper/shared';
 import { SCORE_AXES } from '@band-spectrum-mapper/shared';
 
 type PublicAlbum = Album & {
@@ -18,21 +20,32 @@ type PublicBand = Band & {
   _count: { albums: number; songs: number };
 };
 
-function SongRow({ song }: { song: PublicAlbum['songs'][number] }) {
+type ScoreMode = 'core' | 'community' | 'mine';
+
+function toAxisScoreMap(r: UserSongRating): AxisScoreMap {
+  return {
+    aggression: r.aggression,
+    complexity: r.complexity,
+    atmosphere: r.atmosphere,
+    emotion: r.emotion,
+    psychedelic: r.psychedelic,
+    concept: r.concept,
+  };
+}
+
+function SongRow({
+  song,
+  scoreMode,
+  activeScore,
+  scoreLabel,
+}: {
+  song: PublicAlbum['songs'][number];
+  scoreMode: ScoreMode;
+  activeScore: AxisScoreMap | null;
+  scoreLabel: string;
+}) {
   const [expanded, setExpanded] = useState(false);
   const primaryLyric = song.lyrics[0];
-  const hasScore = !!song.score;
-
-  const scoreMap: AxisScoreMap | null = song.score
-    ? {
-        aggression: song.score.aggression,
-        complexity: song.score.complexity,
-        atmosphere: song.score.atmosphere,
-        emotion: song.score.emotion,
-        psychedelic: song.score.psychedelic,
-        concept: song.score.concept,
-      }
-    : null;
 
   return (
     <li className="border-b border-surface-100 last:border-0">
@@ -51,24 +64,32 @@ function SongRow({ song }: { song: PublicAlbum['songs'][number] }) {
 
       {expanded && (
         <div className="px-4 pb-5 space-y-5">
-          {hasScore && scoreMap && (
+          {activeScore ? (
             <div>
-              <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-2">Spectrum</p>
+              <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-2">
+                Spectrum · {scoreLabel}
+              </p>
               <div className="max-w-xs">
-                <RadarChart datasets={[{ label: song.title, scores: scoreMap, color: '#374151' }]} />
+                <RadarChart datasets={[{ label: song.title, scores: activeScore, color: '#374151' }]} />
               </div>
               <div className="grid grid-cols-3 gap-2 mt-2">
                 {SCORE_AXES.map((axis) => (
                   <div key={axis} className="text-xs">
                     <span className="text-surface-700 capitalize">{axis}</span>
-                    <span className="ml-1 font-mono font-medium">{scoreMap[axis].toFixed(1)}</span>
+                    <span className="ml-1 font-mono font-medium">{activeScore[axis]}</span>
                   </div>
                 ))}
               </div>
-              {song.score?.notes && (
+              {scoreMode === 'core' && song.score?.notes && (
                 <p className="text-xs text-surface-700 mt-2 italic">{song.score.notes}</p>
               )}
             </div>
+          ) : (
+            <p className="text-sm text-surface-500 italic">
+              {scoreMode === 'core' && 'No core scores yet.'}
+              {scoreMode === 'community' && 'No community ratings yet.'}
+              {scoreMode === 'mine' && 'You haven\'t rated this song yet.'}
+            </p>
           )}
 
           {primaryLyric && (
@@ -80,7 +101,7 @@ function SongRow({ song }: { song: PublicAlbum['songs'][number] }) {
             </div>
           )}
 
-          {!primaryLyric && !hasScore && (
+          {!primaryLyric && !activeScore && (
             <p className="text-sm text-surface-700">No content added yet.</p>
           )}
         </div>
@@ -91,6 +112,8 @@ function SongRow({ song }: { song: PublicAlbum['songs'][number] }) {
 
 export default function ViewerBandPage() {
   const { bandSlug } = useParams<{ bandSlug: string }>();
+  const { user } = useAuth();
+  const [scoreMode, setScoreMode] = useState<ScoreMode>('core');
 
   const { data: band, isLoading: loadingBand } = useQuery({
     queryKey: ['public-band', bandSlug],
@@ -104,7 +127,53 @@ export default function ViewerBandPage() {
     enabled: !!bandSlug,
   });
 
+  const allSongIds = useMemo(
+    () => albums?.flatMap((a) => a.songs.map((s) => s.id)) ?? [],
+    [albums],
+  );
+
+  const { data: communityMap } = useQuery({
+    queryKey: ['public-community', allSongIds],
+    queryFn: () => ratingsApi.getCommunityRatings(allSongIds),
+    enabled: scoreMode === 'community' && allSongIds.length > 0,
+  });
+
+  const { data: mineMap } = useQuery({
+    queryKey: ['my-ratings', allSongIds],
+    queryFn: () => ratingsApi.getMyRatings(allSongIds),
+    enabled: scoreMode === 'mine' && !!user && allSongIds.length > 0,
+  });
+
   const isLoading = loadingBand || loadingAlbums;
+
+  function getActiveScore(song: PublicAlbum['songs'][number]): AxisScoreMap | null {
+    if (scoreMode === 'core') {
+      if (!song.score) return null;
+      return {
+        aggression: song.score.aggression,
+        complexity: song.score.complexity,
+        atmosphere: song.score.atmosphere,
+        emotion: song.score.emotion,
+        psychedelic: song.score.psychedelic,
+        concept: song.score.concept,
+      };
+    }
+    if (scoreMode === 'community') {
+      const cs: CommunityScore | undefined = communityMap?.[song.id];
+      return cs?.scores ?? null;
+    }
+    if (scoreMode === 'mine') {
+      const r: UserSongRating | undefined = mineMap?.[song.id];
+      return r ? toAxisScoreMap(r) : null;
+    }
+    return null;
+  }
+
+  const scoreLabel: Record<ScoreMode, string> = {
+    core: 'Core',
+    community: 'Community',
+    mine: 'Mine',
+  };
 
   return (
     <div className="min-h-screen bg-surface-50">
@@ -116,7 +185,7 @@ export default function ViewerBandPage() {
         {isLoading && <p className="text-surface-700 mt-4">Loading...</p>}
 
         {band && (
-          <div className="mb-8">
+          <div className="mb-6">
             <h1 className="text-3xl font-bold tracking-tight">{band.name}</h1>
             {band.description && (
               <p className="text-surface-700 mt-1">{band.description}</p>
@@ -124,6 +193,38 @@ export default function ViewerBandPage() {
             <p className="text-xs text-surface-700 mt-2">
               {band._count.albums} albums · {band._count.songs} songs
             </p>
+          </div>
+        )}
+
+        {/* Score mode selector */}
+        {albums && albums.length > 0 && (
+          <div className="flex gap-1 rounded-lg border border-surface-200 bg-white p-1 mb-8 w-fit">
+            {(['core', 'community', 'mine'] as const).map((mode) => (
+              <button
+                key={mode}
+                className={`rounded px-4 py-1.5 text-sm font-medium transition-colors ${
+                  scoreMode === mode
+                    ? 'bg-surface-900 text-white'
+                    : 'text-surface-600 hover:text-surface-900'
+                }`}
+                onClick={() => setScoreMode(mode)}
+              >
+                {scoreLabel[mode]}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Mine mode — unauthenticated prompt */}
+        {scoreMode === 'mine' && !user && (
+          <div className="rounded-lg border border-surface-200 bg-white px-6 py-5 text-center mb-6">
+            <p className="text-sm text-surface-700 mb-3">Sign in to see your personal ratings.</p>
+            <a
+              href="/dashboard"
+              className="inline-block rounded bg-surface-900 px-4 py-2 text-sm font-medium text-white hover:bg-surface-700 transition-colors"
+            >
+              Go to app to sign in
+            </a>
           </div>
         )}
 
@@ -144,7 +245,13 @@ export default function ViewerBandPage() {
               <div className="bg-white rounded-lg border border-surface-200 overflow-hidden">
                 <ul>
                   {album.songs.map((song) => (
-                    <SongRow key={song.id} song={song} />
+                    <SongRow
+                      key={song.id}
+                      song={song}
+                      scoreMode={scoreMode}
+                      activeScore={getActiveScore(song)}
+                      scoreLabel={scoreLabel[scoreMode]}
+                    />
                   ))}
                 </ul>
               </div>

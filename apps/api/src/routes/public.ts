@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
+import { userRatingService } from '../services/userRatingService.js';
 
 // Read-only public endpoints — no write access, no auth required.
 // Safe to share. Returns only what viewers need to see.
@@ -73,4 +74,14 @@ publicRouter.get('/songs/:id', async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+});
+
+// GET /api/public/community?songIds=id1,id2,id3
+// Batch community averages — no auth required
+publicRouter.get('/community', async (req, res, next) => {
+  try {
+    const raw = typeof req.query['songIds'] === 'string' ? req.query['songIds'] : '';
+    const songIds = raw.split(',').map((s) => s.trim()).filter(Boolean);
+    res.json(await userRatingService.getCommunityRatings(songIds));
+  } catch (e) { next(e); }
 });

@@ -153,6 +153,27 @@ export type CompareQueryInput = z.infer<typeof compareQuerySchema>;
 // Settings schemas
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// User rating schema — integers only, 0-10
+// ---------------------------------------------------------------------------
+
+const intAxis = z.number().int().min(SCORE_MIN).max(SCORE_MAX);
+
+export const upsertUserRatingSchema = z.object({
+  aggression:  intAxis,
+  complexity:  intAxis,
+  atmosphere:  intAxis,
+  emotion:     intAxis,
+  psychedelic: intAxis,
+  concept:     intAxis,
+});
+
+export type UpsertUserRatingInput = z.infer<typeof upsertUserRatingSchema>;
+
+// ---------------------------------------------------------------------------
+// Settings schemas
+// ---------------------------------------------------------------------------
+
 export const addStopwordSchema = z.object({
   word: z.string().min(1).max(100).toLowerCase(),
 });

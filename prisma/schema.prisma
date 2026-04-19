@@ -66,6 +66,7 @@ model Song {
   lyrics    Lyric[]
   score     SongAxisScore?
   songTags  SongTag[]
+  ratings   UserSongRating[]
 
   @@unique([bandId, slug])
   @@map("songs")
@@ -213,4 +214,46 @@ model Comparison {
   updatedAt  DateTime @updatedAt
 
   @@map("comparisons")
+}
+
+// ---------------------------------------------------------------------------
+// Users — created on first Google login
+// ---------------------------------------------------------------------------
+
+model User {
+  id        String   @id @default(cuid())
+  googleId  String   @unique
+  email     String   @unique
+  name      String?
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ratings UserSongRating[]
+
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// User song ratings — one row per (user, song), integers 0-10
+// ---------------------------------------------------------------------------
+
+model UserSongRating {
+  id          String   @id @default(cuid())
+  userId      String
+  songId      String
+  aggression  Int      @default(0)
+  complexity  Int      @default(0)
+  atmosphere  Int      @default(0)
+  emotion     Int      @default(0)
+  psychedelic Int      @default(0)
+  concept     Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, songId])
+  @@map("user_song_ratings")
 }

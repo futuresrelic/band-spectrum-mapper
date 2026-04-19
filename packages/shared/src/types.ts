@@ -217,5 +217,35 @@ export interface PaginatedResponse<T> {
   pageSize: number;
 }
 
+// ---------------------------------------------------------------------------
+// Auth / user types
+// ---------------------------------------------------------------------------
+
+export interface AuthUser {
+  userId: string;
+  email: string;
+  name?: string;
+  avatarUrl?: string;
+}
+
+export interface UserSongRating {
+  id: string;
+  userId: string;
+  songId: string;
+  aggression: number;
+  complexity: number;
+  atmosphere: number;
+  emotion: number;
+  psychedelic: number;
+  concept: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CommunityScore {
+  count: number;
+  scores: AxisScoreMap;
+}
+
 // Re-export axis type for convenience
 export type { ScoreAxis, SourceType, ImportStatus };

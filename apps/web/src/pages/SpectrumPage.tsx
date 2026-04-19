@@ -4,9 +4,12 @@ import { useSearchParams } from 'react-router-dom';
 import { bandsApi } from '../api/bands';
 import { songsApi } from '../api/songs';
 import { analysisApi } from '../api/analysis';
+import { ratingsApi } from '../api/ratings';
+import { useAuth } from '../contexts/AuthContext';
 import RadarChart from '../components/charts/RadarChart';
 import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
+import SignInPrompt from '../components/auth/SignInPrompt';
 import { SCORE_AXES, SCORE_MAX } from '@band-spectrum-mapper/shared';
 import type { UpsertScoreInput, AxisScoreMap } from '@band-spectrum-mapper/shared';
 
@@ -19,8 +22,17 @@ const AXIS_LABELS: Record<string, string> = {
   concept: 'Concept',
 };
 
+type ScoreMode = 'core' | 'community' | 'mine';
+
+const SCORE_MODE_LABELS: Record<ScoreMode, string> = {
+  core: 'Core',
+  community: 'Community',
+  mine: 'Mine',
+};
+
 export default function SpectrumPage() {
   const qc = useQueryClient();
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [selectedBandId, setSelectedBandId] = useState(searchParams.get('bandId') ?? '');
   const [selectedSongId, setSelectedSongId] = useState(searchParams.get('songId') ?? '');
@@ -29,6 +41,7 @@ export default function SpectrumPage() {
   const [scoreInitialized, setScoreInitialized] = useState(false);
   const [viewMode, setViewMode] = useState<'song' | 'band' | 'album'>('song');
   const [selectedAlbumId, setSelectedAlbumId] = useState('');
+  const [scoreMode, setScoreMode] = useState<ScoreMode>('core');
 
   const { data: bands } = useQuery({ queryKey: ['bands'], queryFn: () => bandsApi.list() });
 
@@ -71,6 +84,13 @@ export default function SpectrumPage() {
     enabled: !!selectedAlbumId && viewMode === 'album',
   });
 
+  // Community + mine scores for song mode
+  const { data: songRatings } = useQuery({
+    queryKey: ['song-ratings', selectedSongId],
+    queryFn: () => ratingsApi.getSongRatings(selectedSongId),
+    enabled: !!selectedSongId && viewMode === 'song' && (scoreMode === 'community' || scoreMode === 'mine'),
+  });
+
   const saveMutation = useMutation({
     mutationFn: () => {
       const data: UpsertScoreInput = {
@@ -90,7 +110,7 @@ export default function SpectrumPage() {
     },
   });
 
-  const currentScoreMap: AxisScoreMap = {
+  const coreScoreMap: AxisScoreMap = {
     aggression: scores['aggression'] ?? 0,
     complexity: scores['complexity'] ?? 0,
     atmosphere: scores['atmosphere'] ?? 0,
@@ -98,6 +118,27 @@ export default function SpectrumPage() {
     psychedelic: scores['psychedelic'] ?? 0,
     concept: scores['concept'] ?? 0,
   };
+
+  const communityScoreMap: AxisScoreMap | null = songRatings?.communityRating?.scores ?? null;
+  const communityCount = songRatings?.communityRating?.count ?? 0;
+
+  const mineScoreMap: AxisScoreMap | null = songRatings?.myRating
+    ? {
+        aggression: songRatings.myRating.aggression,
+        complexity: songRatings.myRating.complexity,
+        atmosphere: songRatings.myRating.atmosphere,
+        emotion: songRatings.myRating.emotion,
+        psychedelic: songRatings.myRating.psychedelic,
+        concept: songRatings.myRating.concept,
+      }
+    : null;
+
+  const activeScoreMap: AxisScoreMap | null =
+    scoreMode === 'core'
+      ? coreScoreMap
+      : scoreMode === 'community'
+      ? communityScoreMap
+      : mineScoreMap;
 
   const bandAvgMap: AxisScoreMap | null = bandAverages
     ? {
@@ -179,9 +220,32 @@ export default function SpectrumPage() {
             )}
           </div>
 
+          {/* Score mode selector — song mode only */}
           {viewMode === 'song' && selectedSongId && (
+            <div className="flex gap-1 rounded-lg border border-surface-200 bg-surface-50 p-1">
+              {(['core', 'community', 'mine'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  className={`flex-1 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                    scoreMode === mode
+                      ? 'bg-surface-900 text-white'
+                      : 'text-surface-600 hover:text-surface-900'
+                  }`}
+                  onClick={() => setScoreMode(mode)}
+                >
+                  {SCORE_MODE_LABELS[mode]}
+                  {mode === 'community' && communityCount > 0 && scoreMode === 'community' && (
+                    <span className="ml-1 text-xs opacity-70">({communityCount})</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Core editing sliders */}
+          {viewMode === 'song' && selectedSongId && scoreMode === 'core' && (
             <div className="card space-y-4">
-              <h3>Edit Scores</h3>
+              <h3>Edit Core Scores</h3>
               {SCORE_AXES.map((axis) => (
                 <div key={axis}>
                   <div className="flex justify-between mb-1">
@@ -223,16 +287,48 @@ export default function SpectrumPage() {
               {saveMutation.isSuccess && <p className="text-green-700 text-sm">Saved.</p>}
             </div>
           )}
+
+          {/* Mine empty state */}
+          {viewMode === 'song' && selectedSongId && scoreMode === 'mine' && !user && (
+            <SignInPrompt message="Sign in to see your personal ratings." />
+          )}
+
+          {viewMode === 'song' && selectedSongId && scoreMode === 'mine' && user && !mineScoreMap && (
+            <div className="card text-center py-6 text-surface-500 text-sm">
+              You haven't rated this song yet.{' '}
+              <a href={`/rate?songId=${selectedSongId}`} className="underline hover:text-surface-900">
+                Rate it on the Rate page
+              </a>
+            </div>
+          )}
+
+          {/* Community empty state */}
+          {viewMode === 'song' && selectedSongId && scoreMode === 'community' && !communityScoreMap && (
+            <div className="card text-center py-6 text-surface-500 text-sm">
+              No community ratings yet for this song.
+            </div>
+          )}
         </div>
 
         {/* Chart panel */}
         <div className="space-y-4">
-          {viewMode === 'song' && selectedSongId && (
+          {viewMode === 'song' && selectedSongId && activeScoreMap && (
             <div className="card">
-              <h3 className="mb-4">Song Radar</h3>
+              <div className="flex items-baseline justify-between mb-4">
+                <h3>Song Radar</h3>
+                <span className="text-xs text-surface-500">{SCORE_MODE_LABELS[scoreMode]} scores</span>
+              </div>
               <RadarChart
-                datasets={[{ label: 'This Song', scores: currentScoreMap, color: '#374151' }]}
+                datasets={[{ label: SCORE_MODE_LABELS[scoreMode], scores: activeScoreMap, color: '#374151' }]}
               />
+              <div className="grid grid-cols-3 gap-2 mt-3">
+                {SCORE_AXES.map((axis) => (
+                  <div key={axis} className="text-xs">
+                    <span className="text-surface-600 capitalize">{axis}</span>
+                    <span className="ml-1 font-mono font-medium">{activeScoreMap[axis]}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
