@@ -47,12 +47,12 @@ importsRouter.post('/', upload.single('file'), async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// Paste-based score import
+// Paste-based score import — accepts a flat array OR a nested { artist, albums } discography object
 importsRouter.post('/scores', async (req, res, next) => {
   try {
     const { bandId, scores } = req.body as { bandId?: string; scores?: unknown };
     if (!bandId || typeof bandId !== 'string') throw new HttpError(400, 'bandId is required');
-    if (!Array.isArray(scores)) throw new HttpError(400, 'scores must be an array');
+    if (scores === undefined || scores === null) throw new HttpError(400, 'scores is required');
     res.json(await scoreImportService.importScores(bandId, scores));
   } catch (e) { next(e); }
 });

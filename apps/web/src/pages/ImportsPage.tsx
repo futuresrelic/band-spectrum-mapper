@@ -45,11 +45,14 @@ export default function ImportsPage() {
     try {
       parsed = JSON.parse(scorePaste.trim());
     } catch {
-      setScoreParseError('Invalid JSON — paste a valid JSON array');
+      setScoreParseError('Invalid JSON — paste a valid JSON array or discography object');
       return;
     }
-    if (!Array.isArray(parsed)) { setScoreParseError('JSON must be an array of song score objects'); return; }
-    scoreMutation.mutate({ bandId: scoreBandId, scores: parsed });
+    if (typeof parsed !== 'object' || parsed === null) {
+      setScoreParseError('JSON must be an array or a discography object');
+      return;
+    }
+    scoreMutation.mutate({ bandId: scoreBandId, scores: parsed as unknown[] });
   };
 
   const { data: bands } = useQuery({ queryKey: ['bands'], queryFn: () => bandsApi.list() });
@@ -136,10 +139,13 @@ export default function ImportsPage() {
       <div className="card mb-6 space-y-4">
         <h2>Paste Score Data</h2>
         <p className="text-sm text-surface-700">
-          Paste a JSON array of song scores (e.g. from ChatGPT). Each object needs a <code>song</code> field
-          and axis scores: <code>Aggression</code>, <code>Complexity</code>, <code>Atmosphere</code>,{' '}
-          <code>Emotion</code>, <code>Psychedelic</code>, <code>Concept</code> (0–10).
+          Paste JSON from ChatGPT or similar. Two formats are accepted:
         </p>
+        <ul className="text-xs text-surface-700 space-y-1 list-disc list-inside">
+          <li><strong>Flat array</strong> — <code>{'[{ "song": "Title", "Aggression": 8, ... }]'}</code></li>
+          <li><strong>Nested discography</strong> — <code>{'{ "artist": "...", "albums": [{ "album_title": "...", "tracks": [{ "song_title": "...", "Aggression": 8, ... }] }] }'}</code></li>
+        </ul>
+        <p className="text-xs text-surface-700">Axis keys can be capitalised (<code>Aggression</code>) or lowercase (<code>aggression</code>). Values 0–10.</p>
 
         <div>
           <label className="label">Band *</label>
@@ -154,7 +160,7 @@ export default function ImportsPage() {
           <textarea
             className="input font-mono text-xs"
             rows={10}
-            placeholder={'[\n  { "song": "Undertow", "Aggression": 7.5, "Complexity": 8, "Atmosphere": 6, "Emotion": 5, "Psychedelic": 4, "Concept": 6 }\n]'}
+            placeholder={'{ "artist": "Band Name", "albums": [{ "album_title": "Album", "tracks": [{ "song_title": "Song", "Aggression": 8, "Complexity": 7, "Atmosphere": 6, "Emotion": 7, "Psychedelic": 4, "Concept": 7 }] }] }'}
             value={scorePaste}
             onChange={(e) => { setScorePaste(e.target.value); setScoreResult(null); setScoreParseError(''); }}
           />
