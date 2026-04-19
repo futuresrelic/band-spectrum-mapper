@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { bandsApi } from '../api/bands';
 import { importsApi } from '../api/imports';
+import type { ScoreImportResult } from '../api/imports';
 import PageHeader from '../components/layout/PageHeader';
 import type { ImportSummary } from '@band-spectrum-mapper/shared';
 
@@ -18,6 +19,38 @@ export default function ImportsPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [bandId, setBandId] = useState('');
   const [uploadError, setUploadError] = useState('');
+
+  // Score paste import state
+  const [scoreBandId, setScoreBandId] = useState('');
+  const [scorePaste, setScorePaste] = useState('');
+  const [scoreParseError, setScoreParseError] = useState('');
+  const [scoreResult, setScoreResult] = useState<ScoreImportResult | null>(null);
+
+  const scoreMutation = useMutation({
+    mutationFn: ({ bandId, scores }: { bandId: string; scores: unknown[] }) =>
+      importsApi.importScores(bandId, scores),
+    onSuccess: (data) => {
+      setScoreResult(data);
+      setScoreParseError('');
+      qc.invalidateQueries({ queryKey: ['songs'] });
+    },
+    onError: (e) => setScoreParseError(e instanceof Error ? e.message : 'Import failed'),
+  });
+
+  const handleScoreImport = () => {
+    setScoreResult(null);
+    setScoreParseError('');
+    if (!scoreBandId) { setScoreParseError('Please select a band'); return; }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(scorePaste.trim());
+    } catch {
+      setScoreParseError('Invalid JSON — paste a valid JSON array');
+      return;
+    }
+    if (!Array.isArray(parsed)) { setScoreParseError('JSON must be an array of song score objects'); return; }
+    scoreMutation.mutate({ bandId: scoreBandId, scores: parsed });
+  };
 
   const { data: bands } = useQuery({ queryKey: ['bands'], queryFn: () => bandsApi.list() });
   const { data: imports, isLoading } = useQuery({
@@ -95,6 +128,68 @@ export default function ImportsPage() {
                 {(uploadMutation.data.summary as ImportSummary).successRows} rows imported,{' '}
                 {(uploadMutation.data.summary as ImportSummary).failedRows} failed
               </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="card mb-6 space-y-4">
+        <h2>Paste Score Data</h2>
+        <p className="text-sm text-surface-700">
+          Paste a JSON array of song scores (e.g. from ChatGPT). Each object needs a <code>song</code> field
+          and axis scores: <code>Aggression</code>, <code>Complexity</code>, <code>Atmosphere</code>,{' '}
+          <code>Emotion</code>, <code>Psychedelic</code>, <code>Concept</code> (0–10).
+        </p>
+
+        <div>
+          <label className="label">Band *</label>
+          <select className="input" value={scoreBandId} onChange={(e) => setScoreBandId(e.target.value)}>
+            <option value="">Select band...</option>
+            {bands?.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <label className="label">JSON Scores *</label>
+          <textarea
+            className="input font-mono text-xs"
+            rows={10}
+            placeholder={'[\n  { "song": "Undertow", "Aggression": 7.5, "Complexity": 8, "Atmosphere": 6, "Emotion": 5, "Psychedelic": 4, "Concept": 6 }\n]'}
+            value={scorePaste}
+            onChange={(e) => { setScorePaste(e.target.value); setScoreResult(null); setScoreParseError(''); }}
+          />
+        </div>
+
+        {scoreParseError && <p className="text-red-600 text-sm">{scoreParseError}</p>}
+
+        <button
+          className="btn-primary"
+          onClick={handleScoreImport}
+          disabled={scoreMutation.isPending || !scorePaste.trim()}
+        >
+          {scoreMutation.isPending ? 'Importing...' : 'Import Scores'}
+        </button>
+
+        {scoreResult && (
+          <div className="rounded p-4 bg-surface-50 border border-surface-200 text-sm space-y-2">
+            <div className="flex gap-6">
+              <span><strong>{scoreResult.total}</strong> rows in paste</span>
+              <span className="text-green-700"><strong>{scoreResult.matched}</strong> matched &amp; updated</span>
+              {scoreResult.notFound.length > 0 && (
+                <span className="text-yellow-700"><strong>{scoreResult.notFound.length}</strong> not found</span>
+              )}
+            </div>
+            {scoreResult.updated.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-surface-700 mb-1">Updated songs:</p>
+                <p className="text-xs text-surface-900">{scoreResult.updated.join(', ')}</p>
+              </div>
+            )}
+            {scoreResult.notFound.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-yellow-700 mb-1">Not found (title mismatch):</p>
+                <p className="text-xs text-yellow-800">{scoreResult.notFound.join(', ')}</p>
+              </div>
             )}
           </div>
         )}

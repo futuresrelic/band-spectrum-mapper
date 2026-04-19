@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { importService } from '../services/importService.js';
+import { scoreImportService } from '../services/scoreImportService.js';
 import { HttpError } from '../middleware/errorHandler.js';
 
 export const importsRouter = Router();
@@ -43,5 +44,15 @@ importsRouter.post('/', upload.single('file'), async (req, res, next) => {
     });
 
     res.status(201).json(result);
+  } catch (e) { next(e); }
+});
+
+// Paste-based score import
+importsRouter.post('/scores', async (req, res, next) => {
+  try {
+    const { bandId, scores } = req.body as { bandId?: string; scores?: unknown };
+    if (!bandId || typeof bandId !== 'string') throw new HttpError(400, 'bandId is required');
+    if (!Array.isArray(scores)) throw new HttpError(400, 'scores must be an array');
+    res.json(await scoreImportService.importScores(bandId, scores));
   } catch (e) { next(e); }
 });
