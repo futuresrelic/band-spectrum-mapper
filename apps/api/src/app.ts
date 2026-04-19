@@ -13,6 +13,7 @@ import { publicRouter } from './routes/public.js';
 import { discographyRouter } from './routes/discography.js';
 import { authRouter } from './routes/auth.js';
 import { ratingsRouter } from './routes/ratings.js';
+import { adminRouter } from './routes/admin.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 export function createApp() {
@@ -34,6 +35,9 @@ export function createApp() {
 
   // User ratings (auth required)
   app.use('/api/ratings', ratingsRouter);
+
+  // Admin: user moderation (auth + isAdmin required)
+  app.use('/api/admin', adminRouter);
 
   // Admin / data routes
   app.use('/api/bands', bandsRouter);

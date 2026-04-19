@@ -42,7 +42,9 @@ export const userRatingService = {
   },
 
   async getCommunityRating(songId: string): Promise<CommunityScore | null> {
-    const rows = await prisma.userSongRating.findMany({ where: { songId } });
+    const rows = await prisma.userSongRating.findMany({
+      where: { songId, user: { isCommunityExcluded: false, isActive: true } },
+    });
     return computeCommunity(rows);
   },
 
@@ -50,7 +52,7 @@ export const userRatingService = {
   async getCommunityRatings(songIds: string[]): Promise<Record<string, CommunityScore>> {
     if (!songIds.length) return {};
     const rows = await prisma.userSongRating.findMany({
-      where: { songId: { in: songIds } },
+      where: { songId: { in: songIds }, user: { isCommunityExcluded: false, isActive: true } },
     });
     const grouped: Record<string, RatingRow[]> = {};
     for (const r of rows) {

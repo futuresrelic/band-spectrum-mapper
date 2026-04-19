@@ -15,6 +15,7 @@ import DiscographyImportPage from './pages/DiscographyImportPage';
 import ViewerIndexPage from './pages/ViewerIndexPage';
 import ViewerBandPage from './pages/ViewerBandPage';
 import RatePage from './pages/RatePage';
+import AdminUsersPage from './pages/AdminUsersPage';
 
 export default function App() {
   return (
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="discography" element={<DiscographyImportPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="rate" element={<RatePage />} />
+          <Route path="admin/users" element={<AdminUsersPage />} />
         </Route>
       </Routes>
     </AuthProvider>

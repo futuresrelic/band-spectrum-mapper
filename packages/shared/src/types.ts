@@ -226,6 +226,39 @@ export interface AuthUser {
   email: string;
   name?: string;
   avatarUrl?: string;
+  isAdmin?: boolean;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string | null;
+  avatarUrl: string | null;
+  isAdmin: boolean;
+  isCommunityExcluded: boolean;
+  isActive: boolean;
+  createdAt: string;
+  _count: { ratings: number };
+}
+
+export interface AdminUserDetail extends AdminUser {
+  ratings: Array<{
+    id: string;
+    songId: string;
+    aggression: number;
+    complexity: number;
+    atmosphere: number;
+    emotion: number;
+    psychedelic: number;
+    concept: number;
+    updatedAt: string;
+    song: {
+      id: string;
+      title: string;
+      band: { name: string } | null;
+      album: { title: string } | null;
+    };
+  }>;
 }
 
 export interface UserSongRating {

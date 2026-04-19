@@ -50,13 +50,14 @@ authRouter.get(
   '/google/callback',
   passport.authenticate('google', { session: false, failureRedirect: `${WEB_URL}?authError=true` }),
   (req, res) => {
-    // req.user is set by passport after the strategy callback
-    const u = req.user as unknown as { id: string; email: string; name: string | null; avatarUrl: string | null };
+    // req.user is set by passport after the strategy callback (full User row)
+    const u = req.user as unknown as { id: string; email: string; name: string | null; avatarUrl: string | null; isAdmin: boolean };
     const payload: AuthTokenPayload = {
       userId: u.id,
       email: u.email,
       ...(u.name ? { name: u.name } : {}),
       ...(u.avatarUrl ? { avatarUrl: u.avatarUrl } : {}),
+      ...(u.isAdmin ? { isAdmin: true } : {}),
     };
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' });
     res.redirect(`${WEB_URL}?token=${encodeURIComponent(token)}`);

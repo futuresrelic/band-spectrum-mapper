@@ -221,13 +221,16 @@ model Comparison {
 // ---------------------------------------------------------------------------
 
 model User {
-  id        String   @id @default(cuid())
-  googleId  String   @unique
-  email     String   @unique
-  name      String?
-  avatarUrl String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  googleId            String   @unique
+  email               String   @unique
+  name                String?
+  avatarUrl           String?
+  isAdmin             Boolean  @default(false)
+  isCommunityExcluded Boolean  @default(false)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   ratings UserSongRating[]
 

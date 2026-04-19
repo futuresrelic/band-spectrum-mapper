@@ -6,6 +6,7 @@ export interface AuthTokenPayload {
   email: string;
   name?: string;
   avatarUrl?: string;
+  isAdmin?: boolean;
 }
 
 // Augment Express Request so downstream handlers get typed req.user

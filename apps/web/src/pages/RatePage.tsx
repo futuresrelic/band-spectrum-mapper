@@ -254,11 +254,32 @@ export default function RatePage() {
 
               {/* Rating sliders */}
               <div className="card space-y-5">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <h3>Your Rating</h3>
-                  {songRatings?.myRating && (
-                    <span className="text-xs text-surface-400">Previously rated — editing</span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {songRatings?.myRating && (
+                      <span className="text-xs text-surface-400">Previously rated — editing</span>
+                    )}
+                    {coreScores && (
+                      <button
+                        className="btn-ghost text-xs"
+                        onClick={() => {
+                          setMyScores({
+                            aggression: Math.round(coreScores.aggression),
+                            complexity: Math.round(coreScores.complexity),
+                            atmosphere: Math.round(coreScores.atmosphere),
+                            emotion: Math.round(coreScores.emotion),
+                            psychedelic: Math.round(coreScores.psychedelic),
+                            concept: Math.round(coreScores.concept),
+                          });
+                          setSaved(false);
+                        }}
+                        title="Copy the Core baseline values to your sliders as a starting point"
+                      >
+                        Copy Core to Mine
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {SCORE_AXES.map((axis) => (

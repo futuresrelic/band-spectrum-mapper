@@ -24,36 +24,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Pick up token from OAuth redirect (?token=...) or localStorage
-    const params   = new URLSearchParams(window.location.search);
-    const urlToken = params.get('token');
-
-    const token = urlToken ?? localStorage.getItem(STORAGE_KEY);
-
-    if (urlToken) {
-      localStorage.setItem(STORAGE_KEY, urlToken);
-      // Remove token from URL without a page reload
-      const clean = new URL(window.location.href);
-      clean.searchParams.delete('token');
-      window.history.replaceState({}, '', clean.toString());
-    }
-
+    // Token is captured from ?token= URL param into localStorage by main.tsx
+    // before React renders, so we only need to read from localStorage here.
+    const token = localStorage.getItem(STORAGE_KEY);
     if (token) {
       try {
-        // Decode the JWT payload (no signature verification needed on frontend)
         const raw = JSON.parse(atob(token.split('.')[1]!));
-        // Check expiry
         if (raw.exp && Date.now() / 1000 > raw.exp) {
           clearAuth();
         } else {
           setAuthToken(token);
-          setUser({ userId: raw.userId, email: raw.email, name: raw.name, avatarUrl: raw.avatarUrl });
+          setUser({
+            userId: raw.userId,
+            email: raw.email,
+            ...(raw.name ? { name: raw.name } : {}),
+            ...(raw.avatarUrl ? { avatarUrl: raw.avatarUrl } : {}),
+            ...(raw.isAdmin ? { isAdmin: true } : {}),
+          });
         }
       } catch {
         clearAuth();
       }
     }
-
     setIsLoading(false);
   }, []);
 

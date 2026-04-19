@@ -13,6 +13,10 @@ const links = [
   { to: '/settings',    label: 'Settings' },
 ];
 
+const adminLinks = [
+  { to: '/admin/users', label: 'User Moderation' },
+];
+
 export default function Nav() {
   const { user, login, logout } = useAuth();
 
@@ -42,6 +46,30 @@ export default function Nav() {
             </NavLink>
           </li>
         ))}
+
+        {user?.isAdmin && (
+          <>
+            <li className="pt-3 pb-1 px-4">
+              <span className="text-xs font-semibold uppercase tracking-widest text-surface-600">Admin</span>
+            </li>
+            {adminLinks.map(({ to, label }) => (
+              <li key={to}>
+                <NavLink
+                  to={to}
+                  className={({ isActive }) =>
+                    `block px-4 py-2 text-sm transition-colors ${
+                      isActive
+                        ? 'bg-surface-800 text-white font-medium'
+                        : 'text-surface-400 hover:bg-surface-800 hover:text-white'
+                    }`
+                  }
+                >
+                  {label}
+                </NavLink>
+              </li>
+            ))}
+          </>
+        )}
       </ul>
 
       {/* Auth section at sidebar bottom */}
@@ -60,9 +88,14 @@ export default function Nav() {
                   {(user.name ?? user.email)[0]?.toUpperCase()}
                 </div>
               )}
-              <span className="text-xs text-surface-200 truncate">
-                {user.name ?? user.email}
-              </span>
+              <div className="min-w-0">
+                <span className="text-xs text-surface-200 truncate block">
+                  {user.name ?? user.email}
+                </span>
+                {user.isAdmin && (
+                  <span className="text-xs text-surface-500">Admin</span>
+                )}
+              </div>
             </div>
             <button
               className="text-xs text-surface-500 hover:text-surface-200 transition-colors"
