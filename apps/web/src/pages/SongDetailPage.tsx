@@ -62,31 +62,20 @@ function LyricEditor({
     <div className="card space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {lyric.isPrimary && (
-            <span className="badge badge-gray">Primary</span>
-          )}
+          {lyric.isPrimary && <span className="badge badge-gray">Primary</span>}
           <span className="badge badge-gray">{lyric.sourceType}</span>
-          {lyric.sourceLabel && (
-            <span className="text-xs text-surface-700">{lyric.sourceLabel}</span>
-          )}
+          {lyric.sourceLabel && <span className="text-xs text-surface-700">{lyric.sourceLabel}</span>}
         </div>
         <div className="flex gap-2">
           {!lyric.isPrimary && (
-            <button className="btn-ghost text-xs" onClick={() => setPrimary.mutate()}>
-              Set as Primary
-            </button>
+            <button className="btn-ghost text-xs" onClick={() => setPrimary.mutate()}>Set as Primary</button>
           )}
-          <button
-            className="btn-ghost text-xs"
-            onClick={() => setShowRevisions(!showRevisions)}
-          >
+          <button className="btn-ghost text-xs" onClick={() => setShowRevisions(!showRevisions)}>
             {showRevisions ? 'Hide History' : 'History'}
           </button>
           <button
             className="btn-ghost text-xs text-red-600"
-            onClick={() => {
-              if (confirm('Delete this lyric record?')) deleteMutation.mutate();
-            }}
+            onClick={() => { if (confirm('Delete this lyric record?')) deleteMutation.mutate(); }}
           >
             Delete
           </button>
@@ -96,10 +85,7 @@ function LyricEditor({
       <textarea
         className="textarea w-full min-h-[300px]"
         value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          setIsDirty(e.target.value !== lyric.text);
-        }}
+        onChange={(e) => { setText(e.target.value); setIsDirty(e.target.value !== lyric.text); }}
       />
 
       {isDirty && (
@@ -132,10 +118,7 @@ function LyricEditor({
                     {new Date(rev.createdAt).toLocaleString()}
                     {rev.changeNote && ` — ${rev.changeNote}`}
                   </span>
-                  <button
-                    className="btn-ghost text-xs"
-                    onClick={() => restoreRevision.mutate(rev.id)}
-                  >
+                  <button className="btn-ghost text-xs" onClick={() => restoreRevision.mutate(rev.id)}>
                     Restore
                   </button>
                 </div>
@@ -159,14 +142,36 @@ export default function SongDetailPage() {
   const { songId } = useParams<{ songId: string }>();
   const qc = useQueryClient();
   const navigate = useNavigate();
+
   const [showAddLyric, setShowAddLyric] = useState(false);
   const [newLyricText, setNewLyricText] = useState('');
   const [newSourceType, setNewSourceType] = useState<'manual' | 'paste' | 'user_provided'>('manual');
+
+  // Edit song state
+  const [showEdit, setShowEdit] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editTrack, setEditTrack] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editError, setEditError] = useState('');
 
   const { data: song, isLoading, error } = useQuery({
     queryKey: ['song', songId],
     queryFn: () => songsApi.getById(songId!),
     enabled: !!songId,
+  });
+
+  const updateSong = useMutation({
+    mutationFn: () => songsApi.update(songId!, {
+      title: editTitle.trim() || undefined,
+      trackNumber: editTrack ? parseInt(editTrack) : null,
+      notes: editNotes.trim() || null,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['song', songId] });
+      setShowEdit(false);
+      setEditError('');
+    },
+    onError: (e) => setEditError(e instanceof Error ? e.message : 'Failed to save'),
   });
 
   const addLyric = useMutation({
@@ -188,6 +193,14 @@ export default function SongDetailPage() {
     onSuccess: () => navigate(song?.albumId ? `/library/albums/${song.albumId}` : `/library/bands/${song?.bandId}`),
   });
 
+  const openEdit = () => {
+    setEditTitle(song?.title ?? '');
+    setEditTrack(song?.trackNumber ? String(song.trackNumber) : '');
+    setEditNotes(song?.notes ?? '');
+    setEditError('');
+    setShowEdit(true);
+  };
+
   if (isLoading) return <p className="text-surface-700 text-sm">Loading...</p>;
   if (error) return <ErrorMessage error={error} />;
   if (!song) return null;
@@ -203,6 +216,7 @@ export default function SongDetailPage() {
               ? <Link to={`/library/albums/${song.albumId}`} className="btn-secondary">← Album</Link>
               : <Link to={`/library/bands/${song.bandId}`} className="btn-secondary">← Band</Link>
             }
+            <button className="btn-secondary" onClick={openEdit}>Edit</button>
             <Link to={`/spectrum?songId=${song.id}`} className="btn-secondary">Score</Link>
             <button className="btn-danger" onClick={() => { if (confirm('Delete this song?')) deleteSong.mutate(); }}>
               Delete
@@ -210,6 +224,41 @@ export default function SongDetailPage() {
           </div>
         }
       />
+
+      {/* Edit form */}
+      {showEdit && (
+        <div className="card mb-6">
+          <h3 className="mb-3 font-medium">Edit Song</h3>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!editTitle.trim()) { setEditError('Title is required'); return; }
+              updateSong.mutate();
+            }}
+            className="space-y-3"
+          >
+            <div>
+              <label className="label">Title *</label>
+              <input className="input" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Track #</label>
+              <input className="input" type="number" value={editTrack} onChange={(e) => setEditTrack(e.target.value)} placeholder="Optional" min="1" />
+            </div>
+            <div>
+              <label className="label">Notes</label>
+              <textarea className="textarea w-full" rows={2} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Optional notes" />
+            </div>
+            {editError && <p className="text-red-600 text-sm">{editError}</p>}
+            <div className="flex gap-2">
+              <button className="btn-primary" type="submit" disabled={updateSong.isPending}>
+                {updateSong.isPending ? 'Saving...' : 'Save'}
+              </button>
+              <button className="btn-secondary" type="button" onClick={() => setShowEdit(false)}>Cancel</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="flex items-center justify-between mb-4">
         <h2>Lyrics</h2>
@@ -265,7 +314,7 @@ export default function SongDetailPage() {
         ))}
       </div>
 
-      {song.notes && (
+      {song.notes && !showEdit && (
         <div className="card mt-6">
           <h3 className="mb-2">Notes</h3>
           <p className="text-sm whitespace-pre-wrap">{song.notes}</p>

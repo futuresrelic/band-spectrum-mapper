@@ -11,11 +11,18 @@ export default function BandDetailPage() {
   const { bandId } = useParams<{ bandId: string }>();
   const qc = useQueryClient();
   const navigate = useNavigate();
+
   const [showAlbumForm, setShowAlbumForm] = useState(false);
   const [albumTitle, setAlbumTitle] = useState('');
   const [albumYear, setAlbumYear] = useState('');
   const [formError, setFormError] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Edit band state
+  const [showEdit, setShowEdit] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editError, setEditError] = useState('');
 
   const { data: band, isLoading, error } = useQuery({
     queryKey: ['band', bandId],
@@ -27,6 +34,20 @@ export default function BandDetailPage() {
     queryKey: ['albums', bandId],
     queryFn: () => bandsApi.listAlbums(bandId!),
     enabled: !!bandId,
+  });
+
+  const updateBand = useMutation({
+    mutationFn: () => bandsApi.update(bandId!, {
+      name: editName.trim() || undefined,
+      description: editDescription.trim() || null,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['band', bandId] });
+      qc.invalidateQueries({ queryKey: ['bands'] });
+      setShowEdit(false);
+      setEditError('');
+    },
+    onError: (e) => setEditError(e instanceof Error ? e.message : 'Failed to save'),
   });
 
   const createAlbum = useMutation({
@@ -46,6 +67,13 @@ export default function BandDetailPage() {
     onSuccess: () => navigate('/library'),
   });
 
+  const openEdit = () => {
+    setEditName(band?.name ?? '');
+    setEditDescription(band?.description ?? '');
+    setEditError('');
+    setShowEdit(true);
+  };
+
   if (isLoading) return <p className="text-surface-700 text-sm">Loading...</p>;
   if (error) return <ErrorMessage error={error} />;
   if (!band) return null;
@@ -58,28 +86,52 @@ export default function BandDetailPage() {
         actions={
           <div className="flex gap-2">
             <Link to="/library" className="btn-secondary">← Library</Link>
-            <button
-              className="btn-danger"
-              onClick={() => setShowDeleteConfirm(true)}
-            >
-              Delete Band
-            </button>
+            <button className="btn-secondary" onClick={openEdit}>Edit</button>
+            <button className="btn-danger" onClick={() => setShowDeleteConfirm(true)}>Delete Band</button>
           </div>
         }
       />
 
+      {/* Edit form */}
+      {showEdit && (
+        <div className="card mb-6">
+          <h3 className="mb-3 font-medium">Edit Band</h3>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!editName.trim()) { setEditError('Name is required'); return; }
+              updateBand.mutate();
+            }}
+            className="space-y-3"
+          >
+            <div>
+              <label className="label">Name *</label>
+              <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Description</label>
+              <input className="input" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder="Optional" />
+            </div>
+            {editError && <p className="text-red-600 text-sm">{editError}</p>}
+            <div className="flex gap-2">
+              <button className="btn-primary" type="submit" disabled={updateBand.isPending}>
+                {updateBand.isPending ? 'Saving...' : 'Save'}
+              </button>
+              <button className="btn-secondary" type="button" onClick={() => setShowEdit(false)}>Cancel</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Delete confirmation */}
       {showDeleteConfirm && (
         <div className="card mb-6 border-red-200 bg-red-50">
           <p className="text-sm mb-3">
             Delete <strong>{band.name}</strong>? This will also delete all albums, songs, and lyrics. This cannot be undone.
           </p>
           <div className="flex gap-2">
-            <button className="btn-danger" onClick={() => deleteBand.mutate()}>
-              Yes, delete
-            </button>
-            <button className="btn-secondary" onClick={() => setShowDeleteConfirm(false)}>
-              Cancel
-            </button>
+            <button className="btn-danger" onClick={() => deleteBand.mutate()}>Yes, delete</button>
+            <button className="btn-secondary" onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
           </div>
         </div>
       )}
