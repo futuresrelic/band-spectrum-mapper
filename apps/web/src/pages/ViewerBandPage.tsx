@@ -3,8 +3,10 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { ratingsApi } from '../api/ratings';
+import { analysisApi } from '../api/analysis';
 import { useAuth } from '../contexts/AuthContext';
 import RadarChart from '../components/charts/RadarChart';
+import CommentSection from '../components/CommentSection';
 import type { Band, Album, Song, Lyric, SongAxisScore, AxisScoreMap, CommunityScore, UserSongRating } from '@band-spectrum-mapper/shared';
 import { SCORE_AXES } from '@band-spectrum-mapper/shared';
 
@@ -31,6 +33,119 @@ function toAxisScoreMap(r: UserSongRating): AxisScoreMap {
     psychedelic: r.psychedelic,
     concept: r.concept,
   };
+}
+
+function SongExpanded({
+  song,
+  scoreMode,
+  activeScore,
+  scoreLabel,
+  primaryLyric,
+}: {
+  song: PublicAlbum['songs'][number];
+  scoreMode: ScoreMode;
+  activeScore: AxisScoreMap | null;
+  scoreLabel: string;
+  primaryLyric: Lyric | undefined;
+}) {
+  const { data: research } = useQuery({
+    queryKey: ['song-research', song.id],
+    queryFn: () => analysisApi.getSongResearch(song.id),
+    retry: false,
+  });
+
+  const { data: context } = useQuery({
+    queryKey: ['song-context', song.id],
+    queryFn: () => analysisApi.getSongContext(song.id),
+    retry: false,
+  });
+
+  return (
+    <div className="px-4 pb-5 space-y-5">
+      {/* Spectrum */}
+      {activeScore ? (
+        <div>
+          <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-2">
+            Spectrum · {scoreLabel}
+          </p>
+          <div className="max-w-xs">
+            <RadarChart datasets={[{ label: song.title, scores: activeScore, color: '#374151' }]} />
+          </div>
+          <div className="grid grid-cols-3 gap-2 mt-2">
+            {SCORE_AXES.map((axis) => (
+              <div key={axis} className="text-xs">
+                <span className="text-surface-700 capitalize">{axis}</span>
+                <span className="ml-1 font-mono font-medium">{activeScore[axis]}</span>
+              </div>
+            ))}
+          </div>
+          {scoreMode === 'core' && song.score?.notes && (
+            <p className="text-xs text-surface-700 mt-2 italic">{song.score.notes}</p>
+          )}
+        </div>
+      ) : (
+        <p className="text-sm text-surface-500 italic">
+          {scoreMode === 'core' && 'No core scores yet.'}
+          {scoreMode === 'community' && 'No community ratings yet.'}
+          {scoreMode === 'mine' && "You haven't rated this song yet."}
+        </p>
+      )}
+
+      {/* Lyrics */}
+      {primaryLyric && (
+        <div>
+          <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-2">Lyrics</p>
+          <pre className="font-mono text-sm whitespace-pre-wrap leading-relaxed text-surface-900 bg-surface-50 rounded p-3 border border-surface-200 max-h-96 overflow-auto">
+            {primaryLyric.text}
+          </pre>
+        </div>
+      )}
+
+      {/* Music style + research */}
+      {research && (research.musicStyle || research.summary) && (
+        <div className="space-y-3">
+          {research.musicStyle && (
+            <div>
+              <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-1">Music Style</p>
+              <p className="text-sm leading-relaxed text-surface-900">{research.musicStyle}</p>
+            </div>
+          )}
+          <div>
+            <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-1">Background</p>
+            <p className="text-sm leading-relaxed text-surface-900">{research.summary}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Deep analysis highlights */}
+      {context && (
+        <div className="space-y-3 border-t border-surface-100 pt-4">
+          {context.titleSignificance && (
+            <div>
+              <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-1">Title</p>
+              <p className="text-sm leading-relaxed text-surface-900">{context.titleSignificance}</p>
+            </div>
+          )}
+          {context.overallNarrative && (
+            <div>
+              <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-1">Analysis</p>
+              <p className="text-sm leading-relaxed text-surface-900">{context.overallNarrative}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!primaryLyric && !activeScore && !research && !context && (
+        <p className="text-sm text-surface-700">No content added yet.</p>
+      )}
+
+      {/* Comments */}
+      <div className="border-t border-surface-100 pt-4">
+        <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-3">Discussion</p>
+        <CommentSection songId={song.id} card={false} />
+      </div>
+    </div>
+  );
 }
 
 function SongRow({
@@ -63,48 +178,13 @@ function SongRow({
       </button>
 
       {expanded && (
-        <div className="px-4 pb-5 space-y-5">
-          {activeScore ? (
-            <div>
-              <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-2">
-                Spectrum · {scoreLabel}
-              </p>
-              <div className="max-w-xs">
-                <RadarChart datasets={[{ label: song.title, scores: activeScore, color: '#374151' }]} />
-              </div>
-              <div className="grid grid-cols-3 gap-2 mt-2">
-                {SCORE_AXES.map((axis) => (
-                  <div key={axis} className="text-xs">
-                    <span className="text-surface-700 capitalize">{axis}</span>
-                    <span className="ml-1 font-mono font-medium">{activeScore[axis]}</span>
-                  </div>
-                ))}
-              </div>
-              {scoreMode === 'core' && song.score?.notes && (
-                <p className="text-xs text-surface-700 mt-2 italic">{song.score.notes}</p>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-surface-500 italic">
-              {scoreMode === 'core' && 'No core scores yet.'}
-              {scoreMode === 'community' && 'No community ratings yet.'}
-              {scoreMode === 'mine' && 'You haven\'t rated this song yet.'}
-            </p>
-          )}
-
-          {primaryLyric && (
-            <div>
-              <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-2">Lyrics</p>
-              <pre className="font-mono text-sm whitespace-pre-wrap leading-relaxed text-surface-900 bg-surface-50 rounded p-3 border border-surface-200 max-h-96 overflow-auto">
-                {primaryLyric.text}
-              </pre>
-            </div>
-          )}
-
-          {!primaryLyric && !activeScore && (
-            <p className="text-sm text-surface-700">No content added yet.</p>
-          )}
-        </div>
+        <SongExpanded
+          song={song}
+          scoreMode={scoreMode}
+          activeScore={activeScore}
+          scoreLabel={scoreLabel}
+          primaryLyric={primaryLyric}
+        />
       )}
     </li>
   );

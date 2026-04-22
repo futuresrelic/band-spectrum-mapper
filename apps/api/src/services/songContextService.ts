@@ -41,7 +41,7 @@ export const songContextService = {
 
   async regenerate(songId: string): Promise<SongContextAnalysis> {
     // Gather all available data in parallel
-    const [song, research, aiAnalysis, aiSpectrum, coreScore, communityAgg] = await Promise.all([
+    const [song, research, aiAnalysis, aiSpectrum, coreScore, communityAgg, comments] = await Promise.all([
       prisma.song.findUnique({
         where: { id: songId },
         include: {
@@ -58,6 +58,12 @@ export const songContextService = {
         where: { songId, user: { isCommunityExcluded: false, isActive: true } },
         _avg: { aggression: true, complexity: true, atmosphere: true, emotion: true, psychedelic: true, concept: true },
         _count: { _all: true },
+      }),
+      prisma.songComment.findMany({
+        where: { songId },
+        select: { text: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
       }),
     ]);
 
@@ -113,7 +119,11 @@ export const songContextService = {
       ? `=== SPECTRUM SCORES (0–10) ===\n${scoreLines.join('\n')}`
       : '';
 
-    const contextSections = [lyricsSection, researchSection, analysisSection, scoresSection]
+    const commentsSection = comments.length > 0
+      ? `=== COMMUNITY DISCUSSION (${comments.length} comments) ===\n${comments.map((c) => `- "${c.text}"`).join('\n')}`
+      : '';
+
+    const contextSections = [lyricsSection, researchSection, analysisSection, scoresSection, commentsSection]
       .filter(Boolean)
       .join('\n\n');
 
@@ -140,9 +150,9 @@ Provide your analysis as a JSON object with these exact string fields:
 
 - lyricalInterpretation: What the lyrics actually mean beneath the surface — metaphors decoded, the narrative unpacked, the subtext named. Be specific about language and imagery in the lyrics themselves. (4–6 sentences)
 
-- thematicSynthesis: How the title, lyrics, context, and scores converge into a coherent artistic statement. What is the song doing as a whole work? (3–4 sentences)
+- thematicSynthesis: How the title, lyrics, context, scores, and community discussion converge into a coherent artistic statement. What is the song doing as a whole work? (3–4 sentences)
 
-- overallNarrative: The complete picture — what this song is ultimately saying, why it resonates, and what makes it significant. Write as a critic who takes the work seriously and expects the reader to as well. (4–6 sentences)
+- overallNarrative: The complete picture — what this song is ultimately saying, why it resonates, and what makes it significant. If community comments reveal recurring interpretations or notable insights, weave the most compelling ones in. Write as a critic who takes the work seriously and expects the reader to as well. (4–6 sentences)
 
 Return only valid JSON. No markdown. No extra text outside the JSON object.`;
 

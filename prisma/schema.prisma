@@ -67,6 +67,7 @@ model Song {
   score           SongAxisScore?
   songTags        SongTag[]
   ratings         UserSongRating[]
+  comments        SongComment[]
   aiAnalysis      SongAiAnalysis?
   aiSpectrum      SongAiSpectrum?
   research        SongResearch?
@@ -265,13 +266,14 @@ model SongAiAnalysis {
 // ---------------------------------------------------------------------------
 
 model SongResearch {
-  id        String   @id @default(cuid())
-  songId    String   @unique
-  model     String
-  summary   String
-  sources   Json
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  songId     String   @unique
+  model      String
+  summary    String
+  musicStyle String?
+  sources    Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
 
@@ -315,7 +317,8 @@ model User {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  ratings UserSongRating[]
+  ratings  UserSongRating[]
+  comments SongComment[]
 
   @@map("users")
 }
@@ -342,4 +345,22 @@ model UserSongRating {
 
   @@unique([userId, songId])
   @@map("user_song_ratings")
+}
+
+// ---------------------------------------------------------------------------
+// Song comments — open to any authenticated user, visible to all
+// ---------------------------------------------------------------------------
+
+model SongComment {
+  id        String   @id @default(cuid())
+  songId    String
+  userId    String
+  text      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("song_comments")
 }

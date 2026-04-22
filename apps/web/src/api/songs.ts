@@ -5,6 +5,7 @@ import type {
   LyricRevision,
   SongAxisScore,
   SongWithLyrics,
+  SongComment,
   UpdateSongInput,
   CreateLyricInput,
   UpdateLyricInput,
@@ -24,6 +25,13 @@ export const songsApi = {
   getScore: (songId: string) => api.get<SongAxisScore>(`/api/songs/${songId}/score`),
   upsertScore: (songId: string, data: UpsertScoreInput) =>
     api.put<SongAxisScore>(`/api/songs/${songId}/score`, data),
+
+  getComments: (songId: string) =>
+    api.get<SongComment[]>(`/api/songs/${songId}/comments`),
+  postComment: (songId: string, text: string) =>
+    api.post<SongComment>(`/api/songs/${songId}/comments`, { text }),
+  deleteComment: (songId: string, commentId: string) =>
+    api.delete<void>(`/api/songs/${songId}/comments/${commentId}`),
 };
 
 export const lyricsApi = {

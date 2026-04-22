@@ -9,6 +9,7 @@ import type { Song, SongResearchSource } from '@band-spectrum-mapper/shared';
 import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
 import EmptyState from '../components/layout/EmptyState';
+import CommentSection from '../components/CommentSection';
 import type { Lyric, LyricRevision } from '@band-spectrum-mapper/shared';
 
 function LyricEditor({
@@ -284,7 +285,17 @@ function SongResearchPanel({ songId }: { songId: string }) {
 
       {data && (
         <div className="space-y-4">
-          <p className="text-sm leading-relaxed">{data.summary}</p>
+          {data.musicStyle && (
+            <div>
+              <p className="text-xs font-medium text-surface-600 uppercase tracking-wide mb-1">Music Style</p>
+              <p className="text-sm leading-relaxed">{data.musicStyle}</p>
+            </div>
+          )}
+
+          <div>
+            <p className="text-xs font-medium text-surface-600 uppercase tracking-wide mb-1">Background</p>
+            <p className="text-sm leading-relaxed">{data.summary}</p>
+          </div>
 
           {data.sources.length > 0 && (
             <div>
@@ -636,6 +647,8 @@ export default function SongDetailPage() {
       <SongResearchPanel songId={song.id} />
 
       <SongContextPanel songId={song.id} />
+
+      <CommentSection songId={song.id} card />
     </div>
   );
 }

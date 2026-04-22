@@ -244,9 +244,23 @@ export interface SongResearch {
   songId: string;
   model: string;
   summary: string;
+  musicStyle: string | null;
   sources: SongResearchSource[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SongComment {
+  id: string;
+  songId: string;
+  userId: string;
+  text: string;
+  createdAt: string;
+  updatedAt: string;
+  user: {
+    name: string | null;
+    avatarUrl: string | null;
+  };
 }
 
 export interface SongContextAnalysis {

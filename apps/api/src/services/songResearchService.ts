@@ -84,6 +84,7 @@ function serialize(record: {
   songId: string;
   model: string;
   summary: string;
+  musicStyle: string | null;
   sources: unknown;
   createdAt: Date;
   updatedAt: Date;
@@ -125,36 +126,61 @@ export const songResearchService = {
       bandWiki,
     ];
 
-    // AI summary of whatever was found
+    // Run both AI calls in parallel: background summary + music style
     const foundSources = sources.filter((s) => s.found && s.excerpt);
     let summary: string;
+    let musicStyle: string | null = null;
+
     if (foundSources.length === 0) {
       summary = `No Wikipedia articles were found for "${song.title}", the album, or ${song.band.name}. Research context is unavailable.`;
+      // Music style from model knowledge alone
+      const client = getClient();
+      const msCompletion = await client.chat.completions.create({
+        model: MODEL,
+        messages: [{
+          role: 'user',
+          content: `In 3–4 sentences, describe the typical musical style of "${song.title}" by ${song.band.name}${song.album ? ` from "${song.album.title}"` : ''}. Cover: genre/subgenre, instrumentation, production approach, sonic texture, and rhythmic character. Draw on your training knowledge. If this is an obscure track you have no specific information about, describe the band's general style instead and say so.`,
+        }],
+        temperature: 0.3,
+        max_tokens: 300,
+      });
+      musicStyle = msCompletion.choices[0]?.message?.content?.trim() ?? null;
     } else {
       const client = getClient();
       const contentBlock = foundSources
         .map((s) => `=== ${s.type.toUpperCase()} PAGE: ${s.title} ===\n${s.excerpt}`)
         .join('\n\n');
 
-      const completion = await client.chat.completions.create({
-        model: MODEL,
-        messages: [
-          {
+      const [summaryRes, musicStyleRes] = await Promise.all([
+        client.chat.completions.create({
+          model: MODEL,
+          messages: [{
             role: 'user',
             content: `Summarize the following Wikipedia research about the song "${song.title}" by ${song.band.name}${song.album ? ` from the album "${song.album.title}"` : ''}.\n\nFocus on: the song's documented meaning and creation story, the album's thematic arc, and the band's artistic context at the time of release. If details are sparse, say so honestly. Write 3–5 sentences in a neutral, informative tone.\n\n${contentBlock}`,
-          },
-        ],
-        temperature: 0.2,
-        max_tokens: 400,
-      });
-      summary = completion.choices[0]?.message?.content?.trim() ?? 'Research summary unavailable.';
+          }],
+          temperature: 0.2,
+          max_tokens: 400,
+        }),
+        client.chat.completions.create({
+          model: MODEL,
+          messages: [{
+            role: 'user',
+            content: `Using the Wikipedia research below and your own knowledge, describe the musical style of "${song.title}" by ${song.band.name}${song.album ? ` from "${song.album.title}"` : ''} in 3–4 sentences.\n\nCover: genre/subgenre, instrumentation, production approach, sonic texture, rhythmic character, and how this track fits within the band's overall sound. Be specific where the research gives you detail; draw on general knowledge where it doesn't.\n\n${contentBlock}`,
+          }],
+          temperature: 0.3,
+          max_tokens: 300,
+        }),
+      ]);
+
+      summary = summaryRes.choices[0]?.message?.content?.trim() ?? 'Research summary unavailable.';
+      musicStyle = musicStyleRes.choices[0]?.message?.content?.trim() ?? null;
     }
 
     const sourcesJson = sources as unknown as Prisma.InputJsonValue;
     const record = await prisma.songResearch.upsert({
       where: { songId },
-      create: { songId, model: MODEL, summary, sources: sourcesJson },
-      update: { model: MODEL, summary, sources: sourcesJson },
+      create: { songId, model: MODEL, summary, musicStyle, sources: sourcesJson },
+      update: { model: MODEL, summary, musicStyle, sources: sourcesJson },
     });
 
     return serialize(record);
