@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { songsApi, lyricsApi } from '../api/songs';
+import { analysisApi } from '../api/analysis';
+import { useAuth } from '../contexts/AuthContext';
 import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
 import EmptyState from '../components/layout/EmptyState';
@@ -133,6 +135,92 @@ function LyricEditor({
 
       {showRevisions && revisions && revisions.length === 0 && (
         <p className="text-xs text-surface-700 border-t border-surface-200 pt-3">No revision history yet.</p>
+      )}
+    </div>
+  );
+}
+
+function AiAnalysisPanel({ songId }: { songId: string }) {
+  const { user } = useAuth();
+  const [enabled, setEnabled] = useState(false);
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['ai-analysis', songId],
+    queryFn: () => analysisApi.getAiAnalysis(songId),
+    enabled,
+    retry: false,
+  });
+
+  const regen = useMutation({
+    mutationFn: () => analysisApi.regenerateAiAnalysis(songId),
+    onSuccess: () => refetch(),
+  });
+
+  if (!enabled) {
+    return (
+      <div className="card mt-6">
+        <div className="flex items-center justify-between mb-2">
+          <h3>AI Analysis</h3>
+          <button className="btn-secondary text-sm" onClick={() => setEnabled(true)}>
+            Load Analysis
+          </button>
+        </div>
+        <p className="text-xs text-surface-700">OpenAI-powered lyrical theme and tone analysis.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card mt-6">
+      <div className="flex items-center justify-between mb-3">
+        <h3>AI Analysis</h3>
+        {user?.isAdmin && (
+          <button
+            className="btn-ghost text-xs"
+            disabled={regen.isPending}
+            onClick={() => regen.mutate()}
+          >
+            {regen.isPending ? 'Regenerating…' : 'Regenerate'}
+          </button>
+        )}
+      </div>
+
+      {isLoading && <p className="text-sm text-surface-700">Analyzing lyrics…</p>}
+      {error && <ErrorMessage error={error} />}
+      {regen.isError && <ErrorMessage error={regen.error} />}
+
+      {data && (
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs font-medium text-surface-600 uppercase tracking-wide mb-1">Themes</p>
+            <div className="flex flex-wrap gap-1">
+              {data.themes.map((t) => (
+                <span key={t} className="badge badge-gray">{t}</span>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-medium text-surface-600 uppercase tracking-wide mb-1">Emotional Register</p>
+            <p className="text-sm">{data.emotionalRegister}</p>
+          </div>
+
+          <div>
+            <p className="text-xs font-medium text-surface-600 uppercase tracking-wide mb-1">Conceptual Depth</p>
+            <p className="text-sm">{data.conceptualDepth}</p>
+          </div>
+
+          <div>
+            <p className="text-xs font-medium text-surface-600 uppercase tracking-wide mb-1">Notable Elements</p>
+            <ul className="text-sm space-y-0.5 list-disc list-inside">
+              {data.notableElements.map((e) => (
+                <li key={e}>{e}</li>
+              ))}
+            </ul>
+          </div>
+
+          <p className="text-xs text-surface-500">Model: {data.model} · Analyzed {new Date(data.updatedAt).toLocaleDateString()}</p>
+        </div>
       )}
     </div>
   );
@@ -320,6 +408,8 @@ export default function SongDetailPage() {
           <p className="text-sm whitespace-pre-wrap">{song.notes}</p>
         </div>
       )}
+
+      {song.lyrics.length > 0 && <AiAnalysisPanel songId={song.id} />}
     </div>
   );
 }

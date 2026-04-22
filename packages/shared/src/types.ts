@@ -170,6 +170,12 @@ export interface WordFrequency {
   percentage: number;
 }
 
+export interface WordSongLink {
+  word: string;
+  totalCount: number;
+  songs: Array<{ songId: string; title: string; count: number }>;
+}
+
 export interface LyricsAnalysisResult {
   songId?: string;
   albumId?: string;
@@ -178,11 +184,26 @@ export interface LyricsAnalysisResult {
   uniqueWords: number;
   topWords: WordFrequency[];
   wordCloudData: WordCloudEntry[];
+  topPhrases?: WordFrequency[];
+  wordSongLinks?: WordSongLink[];
 }
 
 export interface WordCloudEntry {
   text: string;
   value: number;
+}
+
+export interface SongAiAnalysis {
+  id: string;
+  songId: string;
+  model: string;
+  themes: string[];
+  emotionalRegister: string;
+  conceptualDepth: string;
+  notableElements: string[];
+  rawResponse: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ComparisonResult {

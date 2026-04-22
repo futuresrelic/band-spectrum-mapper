@@ -124,7 +124,11 @@ export const analysisQuerySchema = z.object({
   songIds: z.array(z.string().cuid()).optional(),
   topN: z.coerce.number().int().min(1).max(500).default(50),
   minWordLength: z.coerce.number().int().min(1).max(20).default(2),
+  minCount: z.coerce.number().int().min(0).default(0),
   includeCustomStopwords: z.coerce.boolean().default(true),
+  includeNgrams: z.coerce.boolean().default(false),
+  ngramN: z.coerce.number().int().min(2).max(4).default(2),
+  includeWordSongLinks: z.coerce.boolean().default(false),
 });
 
 export type AnalysisQueryInput = z.infer<typeof analysisQuerySchema>;

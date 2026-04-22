@@ -4,6 +4,7 @@ import type {
   LyricsAnalysisResult,
   WordFrequency,
   WordCloudEntry,
+  WordSongLink,
   ComparisonResult,
   AnalysisQueryInput,
   CompareQueryInput,
@@ -30,6 +31,14 @@ function tokenize(text: string): string[] {
     .filter((t) => t.length > 0);
 }
 
+function buildNgrams(tokens: string[], n: number): string[] {
+  const ngrams: string[] = [];
+  for (let i = 0; i <= tokens.length - n; i++) {
+    ngrams.push(tokens.slice(i, i + n).join(' '));
+  }
+  return ngrams;
+}
+
 async function getCustomStopwords(): Promise<Set<string>> {
   const rows = await prisma.customStopword.findMany();
   return new Set(rows.map((r) => r.word.toLowerCase()));
@@ -40,6 +49,7 @@ function computeFrequency(
   stopwords: Set<string>,
   minLength: number,
   topN: number,
+  minCount: number = 0,
 ): { topWords: WordFrequency[]; uniqueWords: number; totalWords: number } {
   const filtered = tokens.filter(
     (t) => t.length >= minLength && !stopwords.has(t),
@@ -53,6 +63,7 @@ function computeFrequency(
   const totalFiltered = filtered.length;
 
   const sorted = [...freq.entries()]
+    .filter(([, count]) => count >= minCount)
     .sort((a, b) => b[1] - a[1])
     .slice(0, topN)
     .map(([word, count]) => ({
@@ -68,15 +79,48 @@ function computeFrequency(
   };
 }
 
+function computeNgramFrequency(
+  tokens: string[],
+  stopwords: Set<string>,
+  n: number,
+  topN: number,
+  minCount: number = 0,
+): WordFrequency[] {
+  const ngrams = buildNgrams(tokens, n);
+
+  // Filter ngrams where first or last token is a stopword or too short
+  const filtered = ngrams.filter((gram) => {
+    const parts = gram.split(' ');
+    return (
+      !stopwords.has(parts[0]!) &&
+      !stopwords.has(parts[parts.length - 1]!) &&
+      parts.every((p) => p.length >= 2)
+    );
+  });
+
+  const freq = new Map<string, number>();
+  for (const gram of filtered) {
+    freq.set(gram, (freq.get(gram) ?? 0) + 1);
+  }
+
+  const total = filtered.length;
+
+  return [...freq.entries()]
+    .filter(([, count]) => count >= Math.max(2, minCount))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, topN)
+    .map(([word, count]) => ({
+      word,
+      count,
+      percentage: total > 0 ? (count / total) * 100 : 0,
+    }));
+}
+
 // ---------------------------------------------------------------------------
 // Lyric fetching
 // ---------------------------------------------------------------------------
 
 async function fetchLyricTexts(query: AnalysisQueryInput): Promise<string[]> {
-  const where: {
-    song?: { id?: string; bandId?: string; albumId?: string; id_in?: string[] };
-  } = {};
-
   let songFilter: Record<string, unknown> = {};
 
   if (query.songId) {
@@ -98,7 +142,6 @@ async function fetchLyricTexts(query: AnalysisQueryInput): Promise<string[]> {
   });
 
   if (lyrics.length === 0 && (query.songId || query.albumId || query.bandId)) {
-    // Fall back to all lyrics (not just primary) for the target
     const allLyrics = await prisma.lyric.findMany({
       where: { song: songFilter },
       select: { text: true },
@@ -107,6 +150,33 @@ async function fetchLyricTexts(query: AnalysisQueryInput): Promise<string[]> {
   }
 
   return lyrics.map((l) => l.text);
+}
+
+async function fetchLyricsWithSongs(query: AnalysisQueryInput): Promise<
+  Array<{ songId: string; title: string; text: string }>
+> {
+  let songFilter: Record<string, unknown> = {};
+
+  if (query.songId) {
+    songFilter = { id: query.songId };
+  } else if (query.albumId) {
+    songFilter = { albumId: query.albumId };
+  } else if (query.bandId) {
+    songFilter = { bandId: query.bandId };
+  } else if (query.songIds && query.songIds.length > 0) {
+    songFilter = { id: { in: query.songIds } };
+  }
+
+  const lyrics = await prisma.lyric.findMany({
+    where: { isPrimary: true, song: songFilter },
+    select: { text: true, song: { select: { id: true, title: true } } },
+  });
+
+  return lyrics.map((l) => ({
+    songId: l.song.id,
+    title: l.song.title,
+    text: l.text,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -138,6 +208,7 @@ export const analysisService = {
       stopwords,
       query.minWordLength,
       query.topN,
+      query.minCount,
     );
 
     const wordCloudData: WordCloudEntry[] = topWords.map((w) => ({
@@ -145,7 +216,7 @@ export const analysisService = {
       value: w.count,
     }));
 
-    return {
+    const result: LyricsAnalysisResult = {
       ...(query.songId !== undefined && { songId: query.songId }),
       ...(query.albumId !== undefined && { albumId: query.albumId }),
       ...(query.bandId !== undefined && { bandId: query.bandId }),
@@ -154,6 +225,50 @@ export const analysisService = {
       topWords,
       wordCloudData,
     };
+
+    if (query.includeNgrams) {
+      result.topPhrases = computeNgramFrequency(
+        tokens,
+        stopwords,
+        query.ngramN,
+        query.topN,
+        query.minCount,
+      );
+    }
+
+    if (query.includeWordSongLinks) {
+      const lyricsWithSongs = await fetchLyricsWithSongs(query);
+      const topWordSet = new Set(topWords.map((w) => w.word));
+
+      const linkMap = new Map<string, Map<string, { title: string; count: number }>>();
+      for (const { songId, title, text } of lyricsWithSongs) {
+        const songTokens = tokenize(text);
+        const songFreq = new Map<string, number>();
+        for (const t of songTokens) {
+          if (topWordSet.has(t)) {
+            songFreq.set(t, (songFreq.get(t) ?? 0) + 1);
+          }
+        }
+        for (const [word, count] of songFreq.entries()) {
+          if (!linkMap.has(word)) linkMap.set(word, new Map());
+          linkMap.get(word)!.set(songId, { title, count });
+        }
+      }
+
+      result.wordSongLinks = topWords
+        .filter((w) => linkMap.has(w.word))
+        .map((w) => ({
+          word: w.word,
+          totalCount: w.count,
+          songs: [...(linkMap.get(w.word)?.entries() ?? [])].map(([songId, d]) => ({
+            songId,
+            title: d.title,
+            count: d.count,
+          })),
+        })) as WordSongLink[];
+    }
+
+    return result;
   },
 
   async compare(query: CompareQueryInput): Promise<ComparisonResult> {
@@ -209,7 +324,6 @@ export const analysisService = {
     const resultA = processTexts(textsA);
     const resultB = processTexts(textsB);
 
-    // Compute shared / unique words
     const wordsA = new Set(resultA.topWords.map((w) => w.word));
     const wordsB = new Set(resultB.topWords.map((w) => w.word));
 
@@ -217,7 +331,6 @@ export const analysisService = {
     const uniqueToA = resultA.topWords.filter((w) => !wordsB.has(w.word));
     const uniqueToB = resultB.topWords.filter((w) => !wordsA.has(w.word));
 
-    // Axis score averages
     const getScoreAverages = async (sel: CompareQueryInput['selectionA']) => {
       const songFilter = sel.songIds?.length
         ? { songId: { in: sel.songIds } }
