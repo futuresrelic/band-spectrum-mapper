@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { songsApi, lyricsApi } from '../api/songs';
+import { albumsApi } from '../api/albums';
 import { analysisApi } from '../api/analysis';
 import { useAuth } from '../contexts/AuthContext';
+import type { Song } from '@band-spectrum-mapper/shared';
 import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
 import EmptyState from '../components/layout/EmptyState';
@@ -142,12 +144,10 @@ function LyricEditor({
 
 function AiAnalysisPanel({ songId }: { songId: string }) {
   const { user } = useAuth();
-  const [enabled, setEnabled] = useState(false);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['ai-analysis', songId],
     queryFn: () => analysisApi.getAiAnalysis(songId),
-    enabled,
     retry: false,
   });
 
@@ -155,20 +155,6 @@ function AiAnalysisPanel({ songId }: { songId: string }) {
     mutationFn: () => analysisApi.regenerateAiAnalysis(songId),
     onSuccess: () => refetch(),
   });
-
-  if (!enabled) {
-    return (
-      <div className="card mt-6">
-        <div className="flex items-center justify-between mb-2">
-          <h3>AI Analysis</h3>
-          <button className="btn-secondary text-sm" onClick={() => setEnabled(true)}>
-            Load Analysis
-          </button>
-        </div>
-        <p className="text-xs text-surface-700">OpenAI-powered lyrical theme and tone analysis.</p>
-      </div>
-    );
-  }
 
   return (
     <div className="card mt-6">
@@ -226,6 +212,39 @@ function AiAnalysisPanel({ songId }: { songId: string }) {
   );
 }
 
+function AlbumTrackList({ songs, currentSongId }: { songs: Song[]; currentSongId: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="card mb-4 p-0 overflow-hidden">
+      <button
+        className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-surface-700 hover:bg-surface-50 transition-colors"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span>Album tracks ({songs.length})</span>
+        <span>{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <ol className="border-t border-surface-100 divide-y divide-surface-100">
+          {songs.map((s) => (
+            <li key={s.id}>
+              <Link
+                to={`/library/songs/${s.id}`}
+                className={`flex items-center gap-3 px-4 py-2 text-sm hover:bg-surface-50 transition-colors ${s.id === currentSongId ? 'font-semibold text-indigo-700 bg-indigo-50' : 'text-surface-900'}`}
+              >
+                {s.trackNumber != null && (
+                  <span className="w-5 text-right tabular-nums text-surface-400 text-xs flex-shrink-0">{s.trackNumber}.</span>
+                )}
+                <span className="flex-1 truncate">{s.title}</span>
+                {s.id === currentSongId && <span className="text-xs text-indigo-400">← here</span>}
+              </Link>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 export default function SongDetailPage() {
   const { songId } = useParams<{ songId: string }>();
   const qc = useQueryClient();
@@ -247,6 +266,25 @@ export default function SongDetailPage() {
     queryFn: () => songsApi.getById(songId!),
     enabled: !!songId,
   });
+
+  const { data: albumSongs } = useQuery({
+    queryKey: ['album-songs', song?.albumId],
+    queryFn: () => albumsApi.getSongs(song!.albumId!),
+    enabled: !!song?.albumId,
+  });
+
+  const sortedAlbumSongs: Song[] = albumSongs
+    ? [...albumSongs].sort((a, b) => {
+        if (a.trackNumber != null && b.trackNumber != null) return a.trackNumber - b.trackNumber;
+        if (a.trackNumber != null) return -1;
+        if (b.trackNumber != null) return 1;
+        return a.title.localeCompare(b.title);
+      })
+    : [];
+
+  const currentIdx = sortedAlbumSongs.findIndex((s) => s.id === songId);
+  const prevSong = currentIdx > 0 ? sortedAlbumSongs[currentIdx - 1] : null;
+  const nextSong = currentIdx !== -1 && currentIdx < sortedAlbumSongs.length - 1 ? sortedAlbumSongs[currentIdx + 1] : null;
 
   const updateSong = useMutation({
     mutationFn: () => songsApi.update(songId!, {
@@ -320,6 +358,16 @@ export default function SongDetailPage() {
               ? <Link to={`/library/albums/${song.albumId}`} className="btn-secondary">← Album</Link>
               : <Link to={`/library/bands/${song.bandId}`} className="btn-secondary">← Band</Link>
             }
+            {prevSong && (
+              <Link to={`/library/songs/${prevSong.id}`} className="btn-secondary" title={prevSong.title}>
+                ‹ Prev
+              </Link>
+            )}
+            {nextSong && (
+              <Link to={`/library/songs/${nextSong.id}`} className="btn-secondary" title={nextSong.title}>
+                Next ›
+              </Link>
+            )}
             <button className="btn-secondary" onClick={openEdit}>Edit</button>
             <Link to={`/spectrum?songId=${song.id}`} className="btn-secondary">Score</Link>
             <button className="btn-danger" onClick={() => { if (confirm('Delete this song?')) deleteSong.mutate(); }}>
@@ -343,6 +391,9 @@ export default function SongDetailPage() {
           ))}
         </div>
       )}
+
+      {/* Album tracklist */}
+      {sortedAlbumSongs.length > 1 && <AlbumTrackList songs={sortedAlbumSongs} currentSongId={song.id} />}
 
       {/* Edit form */}
       {showEdit && (
