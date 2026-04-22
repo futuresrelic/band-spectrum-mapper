@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { analysisService } from '../services/analysisService.js';
 import { aiAnalysisService } from '../services/aiAnalysisService.js';
+import { songResearchService } from '../services/songResearchService.js';
+import { songContextService } from '../services/songContextService.js';
 import { scoreService } from '../services/scoreService.js';
 import { analysisQuerySchema, compareQuerySchema } from '@band-spectrum-mapper/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -68,5 +70,31 @@ analysisRouter.get('/ai/:songId/spectrum', async (req, res, next) => {
 analysisRouter.post('/ai/:songId/spectrum/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     res.json(await aiAnalysisService.regenerateSpectrum(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+// Song research (Wikipedia + AI summary)
+analysisRouter.get('/ai/:songId/research', async (req, res, next) => {
+  try {
+    res.json(await songResearchService.getOrCreate(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+analysisRouter.post('/ai/:songId/research/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await songResearchService.regenerate(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+// Deep context synthesis (lyrics + research + scores + ratings)
+analysisRouter.get('/ai/:songId/context', async (req, res, next) => {
+  try {
+    res.json(await songContextService.getOrCreate(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+analysisRouter.post('/ai/:songId/context/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await songContextService.regenerate(req.params['songId']!));
   } catch (e) { next(e); }
 });

@@ -63,12 +63,14 @@ model Song {
   band   Band    @relation(fields: [bandId], references: [id], onDelete: Cascade)
   album  Album?  @relation(fields: [albumId], references: [id], onDelete: SetNull)
 
-  lyrics       Lyric[]
-  score        SongAxisScore?
-  songTags     SongTag[]
-  ratings      UserSongRating[]
-  aiAnalysis   SongAiAnalysis?
-  aiSpectrum   SongAiSpectrum?
+  lyrics          Lyric[]
+  score           SongAxisScore?
+  songTags        SongTag[]
+  ratings         UserSongRating[]
+  aiAnalysis      SongAiAnalysis?
+  aiSpectrum      SongAiSpectrum?
+  research        SongResearch?
+  contextAnalysis SongContextAnalysis?
 
   @@unique([bandId, slug])
   @@map("songs")
@@ -256,6 +258,45 @@ model SongAiAnalysis {
   song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
 
   @@map("song_ai_analyses")
+}
+
+// ---------------------------------------------------------------------------
+// Wikipedia research cache — one row per song
+// ---------------------------------------------------------------------------
+
+model SongResearch {
+  id        String   @id @default(cuid())
+  songId    String   @unique
+  model     String
+  summary   String
+  sources   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@map("song_research")
+}
+
+// ---------------------------------------------------------------------------
+// Deep context synthesis — combines lyrics, research, scores, ratings
+// ---------------------------------------------------------------------------
+
+model SongContextAnalysis {
+  id                    String   @id @default(cuid())
+  songId                String   @unique
+  model                 String
+  titleSignificance     String
+  historicalContext     String
+  lyricalInterpretation String
+  thematicSynthesis     String
+  overallNarrative      String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@map("song_context_analyses")
 }
 
 // ---------------------------------------------------------------------------

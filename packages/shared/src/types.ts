@@ -231,6 +231,37 @@ export interface SongAiSpectrum {
   updatedAt: string;
 }
 
+export interface SongResearchSource {
+  type: 'song' | 'album' | 'band';
+  title: string;
+  url: string;
+  found: boolean;
+  excerpt: string;
+}
+
+export interface SongResearch {
+  id: string;
+  songId: string;
+  model: string;
+  summary: string;
+  sources: SongResearchSource[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SongContextAnalysis {
+  id: string;
+  songId: string;
+  model: string;
+  titleSignificance: string;
+  historicalContext: string;
+  lyricalInterpretation: string;
+  thematicSynthesis: string;
+  overallNarrative: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ComparisonResult {
   selectionA: {
     label: string;

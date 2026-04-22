@@ -5,7 +5,7 @@ import { songsApi, lyricsApi } from '../api/songs';
 import { albumsApi } from '../api/albums';
 import { analysisApi } from '../api/analysis';
 import { useAuth } from '../contexts/AuthContext';
-import type { Song } from '@band-spectrum-mapper/shared';
+import type { Song, SongResearchSource } from '@band-spectrum-mapper/shared';
 import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
 import EmptyState from '../components/layout/EmptyState';
@@ -240,6 +240,146 @@ function AlbumTrackList({ songs, currentSongId }: { songs: Song[]; currentSongId
             </li>
           ))}
         </ol>
+      )}
+    </div>
+  );
+}
+
+const SOURCE_LABELS: Record<SongResearchSource['type'], string> = {
+  song: 'Song',
+  album: 'Album',
+  band: 'Artist',
+};
+
+function SongResearchPanel({ songId }: { songId: string }) {
+  const { user } = useAuth();
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['song-research', songId],
+    queryFn: () => analysisApi.getSongResearch(songId),
+    retry: false,
+  });
+
+  const regen = useMutation({
+    mutationFn: () => analysisApi.regenerateSongResearch(songId),
+    onSuccess: () => refetch(),
+  });
+
+  return (
+    <div className="card mt-6">
+      <div className="flex items-center justify-between mb-3">
+        <h3>Song Research</h3>
+        {user?.isAdmin && (
+          <button className="btn-ghost text-xs" disabled={regen.isPending} onClick={() => regen.mutate()}>
+            {regen.isPending ? 'Researching…' : 'Regenerate'}
+          </button>
+        )}
+      </div>
+
+      {isLoading && (
+        <p className="text-sm text-surface-700">Searching Wikipedia…</p>
+      )}
+      {error && <ErrorMessage error={error} />}
+      {regen.isError && <ErrorMessage error={regen.error} />}
+
+      {data && (
+        <div className="space-y-4">
+          <p className="text-sm leading-relaxed">{data.summary}</p>
+
+          {data.sources.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-surface-600 uppercase tracking-wide mb-2">Sources</p>
+              <ul className="space-y-1">
+                {data.sources.map((s) => (
+                  <li key={s.type} className="flex items-center gap-2 text-sm">
+                    <span className="text-xs font-medium text-surface-500 w-12 flex-shrink-0">
+                      {SOURCE_LABELS[s.type]}
+                    </span>
+                    {s.found ? (
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-indigo-600 hover:underline truncate"
+                      >
+                        {s.title}
+                      </a>
+                    ) : (
+                      <span className="text-surface-400 italic">Not found on Wikipedia</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <p className="text-xs text-surface-500">
+            Model: {data.model} · Researched {new Date(data.updatedAt).toLocaleDateString()}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const CONTEXT_SECTIONS = [
+  { key: 'titleSignificance', label: 'Title Significance' },
+  { key: 'historicalContext', label: 'Historical Context' },
+  { key: 'lyricalInterpretation', label: 'Lyrical Interpretation' },
+  { key: 'thematicSynthesis', label: 'Thematic Synthesis' },
+  { key: 'overallNarrative', label: 'Overall Narrative' },
+] as const;
+
+function SongContextPanel({ songId }: { songId: string }) {
+  const { user } = useAuth();
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['song-context', songId],
+    queryFn: () => analysisApi.getSongContext(songId),
+    retry: false,
+  });
+
+  const regen = useMutation({
+    mutationFn: () => analysisApi.regenerateSongContext(songId),
+    onSuccess: () => refetch(),
+  });
+
+  return (
+    <div className="card mt-6">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h3>Deep Analysis</h3>
+          <p className="text-xs text-surface-500 mt-0.5">
+            Synthesises title, lyrics, research, scores, and ratings.
+          </p>
+        </div>
+        {user?.isAdmin && (
+          <button className="btn-ghost text-xs" disabled={regen.isPending} onClick={() => regen.mutate()}>
+            {regen.isPending ? 'Analysing…' : 'Regenerate'}
+          </button>
+        )}
+      </div>
+
+      {isLoading && (
+        <p className="text-sm text-surface-700">Running deep analysis…</p>
+      )}
+      {error && <ErrorMessage error={error} />}
+      {regen.isError && <ErrorMessage error={regen.error} />}
+
+      {data && (
+        <div className="space-y-5">
+          {CONTEXT_SECTIONS.map(({ key, label }) => (
+            <div key={key}>
+              <p className="text-xs font-semibold text-surface-600 uppercase tracking-wide mb-1.5">
+                {label}
+              </p>
+              <p className="text-sm leading-relaxed">{data[key]}</p>
+            </div>
+          ))}
+          <p className="text-xs text-surface-500 border-t border-surface-100 pt-3">
+            Model: {data.model} · Analysed {new Date(data.updatedAt).toLocaleDateString()}
+          </p>
+        </div>
       )}
     </div>
   );
@@ -492,6 +632,10 @@ export default function SongDetailPage() {
       )}
 
       {song.lyrics.length > 0 && <AiAnalysisPanel songId={song.id} />}
+
+      <SongResearchPanel songId={song.id} />
+
+      <SongContextPanel songId={song.id} />
     </div>
   );
 }
