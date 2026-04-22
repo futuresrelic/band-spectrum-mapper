@@ -4,6 +4,7 @@ import type {
   ComparisonResult,
   CompareQueryInput,
   SongAiAnalysis,
+  SongAiSpectrum,
 } from '@band-spectrum-mapper/shared';
 
 type AxisAverage = { axis: string; average: number; count: number };
@@ -51,4 +52,8 @@ export const analysisApi = {
   getAiAnalysis: (songId: string) => api.get<SongAiAnalysis>(`/api/analysis/ai/${songId}`),
   regenerateAiAnalysis: (songId: string) =>
     api.post<SongAiAnalysis>(`/api/analysis/ai/${songId}/regenerate`, {}),
+
+  getAiSpectrum: (songId: string) => api.get<SongAiSpectrum>(`/api/analysis/ai/${songId}/spectrum`),
+  regenerateAiSpectrum: (songId: string) =>
+    api.post<SongAiSpectrum>(`/api/analysis/ai/${songId}/spectrum/regenerate`, {}),
 };

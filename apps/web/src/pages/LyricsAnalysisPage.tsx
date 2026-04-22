@@ -11,6 +11,11 @@ import type { WordFrequency } from '@band-spectrum-mapper/shared';
 
 type Scope = 'song' | 'album' | 'band';
 type ResultTab = 'cloud' | 'graph' | 'phrases' | 'table';
+type SortOrder = 'desc' | 'asc';
+
+function sortWords(words: WordFrequency[], order: SortOrder): WordFrequency[] {
+  return order === 'desc' ? words : [...words].reverse();
+}
 
 export default function LyricsAnalysisPage() {
   const [scope, setScope] = useState<Scope>('band');
@@ -18,11 +23,15 @@ export default function LyricsAnalysisPage() {
   const [albumId, setAlbumId] = useState('');
   const [songId, setSongId] = useState('');
 
-  // Filter controls
+  // Query parameters (trigger re-fetch)
   const [topN, setTopN] = useState(50);
   const [minCount, setMinCount] = useState(2);
   const [ngramN, setNgramN] = useState<2 | 3>(2);
+
+  // Client-side filters (no re-fetch needed)
   const [wordFilter, setWordFilter] = useState('');
+  const [maxCount, setMaxCount] = useState(0);   // 0 = no upper limit
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
   // Result view
   const [resultTab, setResultTab] = useState<ResultTab>('cloud');
@@ -66,16 +75,22 @@ export default function LyricsAnalysisPage() {
 
   const canRun = scope === 'band' ? !!bandId : scope === 'album' ? !!albumId : !!songId;
 
-  // Client-side word filter applied to topWords and cloud data
-  const filterWords = (words: WordFrequency[]) => {
-    if (!wordFilter.trim()) return words;
-    const terms = wordFilter.toLowerCase().split(/[,\s]+/).filter(Boolean);
-    return words.filter((w) => terms.some((t) => w.word.includes(t)));
+  // Apply text filter and optional max-count cap, then sort
+  const applyFilters = (words: WordFrequency[]) => {
+    let result = words;
+    if (wordFilter.trim()) {
+      const terms = wordFilter.toLowerCase().split(/[,\s]+/).filter(Boolean);
+      result = result.filter((w) => terms.some((t) => w.word.includes(t)));
+    }
+    if (maxCount > 0) {
+      result = result.filter((w) => w.count <= maxCount);
+    }
+    return sortWords(result, sortOrder);
   };
 
   const filteredTopWords = useMemo(
-    () => (analysis ? filterWords(analysis.topWords) : []),
-    [analysis, wordFilter],
+    () => (analysis ? applyFilters(analysis.topWords) : []),
+    [analysis, wordFilter, maxCount, sortOrder],
   );
 
   const filteredCloudData = useMemo(
@@ -84,18 +99,21 @@ export default function LyricsAnalysisPage() {
   );
 
   const filteredPhrases = useMemo(
-    () => (analysis?.topPhrases ?? []),
-    [analysis],
+    () => sortWords(analysis?.topPhrases ?? [], sortOrder),
+    [analysis, sortOrder],
   );
 
-  const filteredLinks = useMemo(
-    () => (analysis?.wordSongLinks ?? []).filter((l) => {
-      if (!wordFilter.trim()) return true;
+  const filteredLinks = useMemo(() => {
+    let result = analysis?.wordSongLinks ?? [];
+    if (wordFilter.trim()) {
       const terms = wordFilter.toLowerCase().split(/[,\s]+/).filter(Boolean);
-      return terms.some((t) => l.word.includes(t));
-    }),
-    [analysis, wordFilter],
-  );
+      result = result.filter((l) => terms.some((t) => l.word.includes(t)));
+    }
+    if (maxCount > 0) {
+      result = result.filter((l) => l.totalCount <= maxCount);
+    }
+    return result; // order handled by WordSongGraph via reversed prop
+  }, [analysis, wordFilter, maxCount]);
 
   const tabs: { id: ResultTab; label: string; disabled?: boolean }[] = [
     { id: 'cloud', label: 'Word Cloud' },
@@ -108,10 +126,10 @@ export default function LyricsAnalysisPage() {
     <div>
       <PageHeader title="Lyrics Analysis" subtitle="Word frequency, phrases, and word-song relationships" />
 
-      {/* Controls */}
+      {/* Query controls */}
       <div className="card mb-6 space-y-4">
         {/* Scope selector */}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {(['band', 'album', 'song'] as Scope[]).map((s) => (
             <button
               key={s}
@@ -132,7 +150,6 @@ export default function LyricsAnalysisPage() {
               {bands?.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
-
           {scope !== 'band' && albums && (
             <div>
               <label className="label">Album</label>
@@ -142,7 +159,6 @@ export default function LyricsAnalysisPage() {
               </select>
             </div>
           )}
-
           {scope === 'song' && songs && (
             <div>
               <label className="label">Song</label>
@@ -154,29 +170,17 @@ export default function LyricsAnalysisPage() {
           )}
         </div>
 
-        {/* Filter row */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {/* Fetch params */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <div>
             <label className="label">Top N Words</label>
-            <input
-              className="input"
-              type="number"
-              min="10"
-              max="200"
-              value={topN}
-              onChange={(e) => setTopN(parseInt(e.target.value) || 50)}
-            />
+            <input className="input" type="number" min="10" max="500" value={topN}
+              onChange={(e) => setTopN(parseInt(e.target.value) || 50)} />
           </div>
           <div>
             <label className="label">Min Occurrences</label>
-            <input
-              className="input"
-              type="number"
-              min="0"
-              max="999"
-              value={minCount}
-              onChange={(e) => setMinCount(parseInt(e.target.value) || 0)}
-            />
+            <input className="input" type="number" min="0" max="999" value={minCount}
+              onChange={(e) => setMinCount(parseInt(e.target.value) || 0)} />
           </div>
           <div>
             <label className="label">Phrase Size</label>
@@ -185,23 +189,9 @@ export default function LyricsAnalysisPage() {
               <option value={3}>Trigrams (3 words)</option>
             </select>
           </div>
-          <div>
-            <label className="label">Word Filter</label>
-            <input
-              className="input"
-              type="text"
-              placeholder="e.g. fire, stone"
-              value={wordFilter}
-              onChange={(e) => setWordFilter(e.target.value)}
-            />
-          </div>
         </div>
 
-        <button
-          className="btn-primary"
-          disabled={!canRun || isLoading}
-          onClick={() => refetch()}
-        >
+        <button className="btn-primary" disabled={!canRun || isLoading} onClick={() => refetch()}>
           {isLoading ? 'Analyzing...' : 'Run Analysis'}
         </button>
       </div>
@@ -230,9 +220,10 @@ export default function LyricsAnalysisPage() {
             </div>
           </div>
 
-          {/* Result tabs */}
+          {/* Result view */}
           <div className="card">
-            <div className="flex gap-1 mb-4 border-b border-surface-200 pb-3">
+            {/* Tab row */}
+            <div className="flex flex-wrap gap-1 mb-4 border-b border-surface-200 pb-3">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
@@ -251,6 +242,41 @@ export default function LyricsAnalysisPage() {
               ))}
             </div>
 
+            {/* Client-side filter + sort toolbar */}
+            <div className="flex flex-wrap items-end gap-3 mb-4 p-3 bg-surface-50 rounded border border-surface-200">
+              <div>
+                <label className="label">Word Filter</label>
+                <input className="input" type="text" placeholder="e.g. fire, stone"
+                  value={wordFilter} onChange={(e) => setWordFilter(e.target.value)} />
+              </div>
+              <div>
+                <label className="label">Max Occurrences</label>
+                <input className="input" type="number" min="0" placeholder="No limit"
+                  value={maxCount || ''} onChange={(e) => setMaxCount(parseInt(e.target.value) || 0)}
+                  style={{ width: 100 }} />
+              </div>
+              <div>
+                <label className="label">Sort</label>
+                <div className="flex gap-1">
+                  <button
+                    className={sortOrder === 'desc' ? 'btn-primary text-sm' : 'btn-secondary text-sm'}
+                    onClick={() => setSortOrder('desc')}
+                    title="Most frequent first"
+                  >
+                    High → Low
+                  </button>
+                  <button
+                    className={sortOrder === 'asc' ? 'btn-primary text-sm' : 'btn-secondary text-sm'}
+                    onClick={() => setSortOrder('asc')}
+                    title="Least frequent first"
+                  >
+                    Low → High
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Result content */}
             {resultTab === 'cloud' && (
               filteredCloudData.length > 0
                 ? <WordCloudChart data={filteredCloudData} />
@@ -259,23 +285,30 @@ export default function LyricsAnalysisPage() {
 
             {resultTab === 'graph' && (
               filteredLinks.length > 0
-                ? <WordSongGraph links={filteredLinks} maxWords={40} />
+                ? <WordSongGraph links={filteredLinks} maxWords={40} reversed={sortOrder === 'asc'} />
                 : <p className="text-sm text-surface-700">
-                    {isMultiSong
-                      ? 'No word-song link data. Run analysis first.'
+                    {isMultiSong ? 'No word-song link data. Run analysis first.'
                       : 'Word-song graph requires band or album scope.'}
                   </p>
             )}
 
             {resultTab === 'phrases' && (
               filteredPhrases.length > 0
-                ? <WordFrequencyTable words={filteredPhrases} title={`Top ${ngramN === 2 ? 'Bigrams' : 'Trigrams'}`} />
+                ? <WordFrequencyTable
+                    words={filteredPhrases}
+                    title={`Top ${ngramN === 2 ? 'Bigrams' : 'Trigrams'}`}
+                    songLinks={analysis?.phraseSongLinks}
+                  />
                 : <p className="text-sm text-surface-700">No repeating phrases found. Try a larger scope or lower min occurrences.</p>
             )}
 
             {resultTab === 'table' && (
               filteredTopWords.length > 0
-                ? <WordFrequencyTable words={filteredTopWords} title="Top Words" />
+                ? <WordFrequencyTable
+                    words={filteredTopWords}
+                    title="Top Words"
+                    songLinks={filteredLinks}
+                  />
                 : <p className="text-sm text-surface-700">No words match current filters.</p>
             )}
           </div>

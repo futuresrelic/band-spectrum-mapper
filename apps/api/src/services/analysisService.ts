@@ -153,7 +153,7 @@ async function fetchLyricTexts(query: AnalysisQueryInput): Promise<string[]> {
 }
 
 async function fetchLyricsWithSongs(query: AnalysisQueryInput): Promise<
-  Array<{ songId: string; title: string; text: string }>
+  Array<{ songId: string; title: string; text: string; bandId: string; bandName: string; albumId: string | null; albumTitle: string | null }>
 > {
   let songFilter: Record<string, unknown> = {};
 
@@ -169,13 +169,29 @@ async function fetchLyricsWithSongs(query: AnalysisQueryInput): Promise<
 
   const lyrics = await prisma.lyric.findMany({
     where: { isPrimary: true, song: songFilter },
-    select: { text: true, song: { select: { id: true, title: true } } },
+    select: {
+      text: true,
+      song: {
+        select: {
+          id: true,
+          title: true,
+          bandId: true,
+          albumId: true,
+          band: { select: { name: true } },
+          album: { select: { title: true } },
+        },
+      },
+    },
   });
 
   return lyrics.map((l) => ({
     songId: l.song.id,
     title: l.song.title,
     text: l.text,
+    bandId: l.song.bandId,
+    bandName: l.song.band.name,
+    albumId: l.song.albumId,
+    albumTitle: l.song.album?.title ?? null,
   }));
 }
 
@@ -240,18 +256,18 @@ export const analysisService = {
       const lyricsWithSongs = await fetchLyricsWithSongs(query);
       const topWordSet = new Set(topWords.map((w) => w.word));
 
-      const linkMap = new Map<string, Map<string, { title: string; count: number }>>();
-      for (const { songId, title, text } of lyricsWithSongs) {
+      type SongMeta = { title: string; count: number; bandId: string; bandName: string; albumId: string | null; albumTitle: string | null };
+      const linkMap = new Map<string, Map<string, SongMeta>>();
+
+      for (const { songId, title, text, bandId, bandName, albumId, albumTitle } of lyricsWithSongs) {
         const songTokens = tokenize(text);
         const songFreq = new Map<string, number>();
         for (const t of songTokens) {
-          if (topWordSet.has(t)) {
-            songFreq.set(t, (songFreq.get(t) ?? 0) + 1);
-          }
+          if (topWordSet.has(t)) songFreq.set(t, (songFreq.get(t) ?? 0) + 1);
         }
         for (const [word, count] of songFreq.entries()) {
           if (!linkMap.has(word)) linkMap.set(word, new Map());
-          linkMap.get(word)!.set(songId, { title, count });
+          linkMap.get(word)!.set(songId, { title, count, bandId, bandName, albumId, albumTitle });
         }
       }
 
@@ -261,11 +277,40 @@ export const analysisService = {
           word: w.word,
           totalCount: w.count,
           songs: [...(linkMap.get(w.word)?.entries() ?? [])].map(([songId, d]) => ({
-            songId,
-            title: d.title,
-            count: d.count,
+            songId, title: d.title, count: d.count,
+            bandId: d.bandId, bandName: d.bandName, albumId: d.albumId, albumTitle: d.albumTitle,
           })),
         })) as WordSongLink[];
+
+      // Phrase song links (phrases that appear across multiple songs)
+      if (query.includeNgrams && result.topPhrases && result.topPhrases.length > 0) {
+        const topPhraseSet = new Set(result.topPhrases.map((p) => p.word));
+        const phraseLinkMap = new Map<string, Map<string, SongMeta>>();
+
+        for (const { songId, title, text, bandId, bandName, albumId, albumTitle } of lyricsWithSongs) {
+          const songTokens = tokenize(text);
+          const songNgrams = buildNgrams(songTokens, query.ngramN);
+          const phraseFreq = new Map<string, number>();
+          for (const gram of songNgrams) {
+            if (topPhraseSet.has(gram)) phraseFreq.set(gram, (phraseFreq.get(gram) ?? 0) + 1);
+          }
+          for (const [phrase, count] of phraseFreq.entries()) {
+            if (!phraseLinkMap.has(phrase)) phraseLinkMap.set(phrase, new Map());
+            phraseLinkMap.get(phrase)!.set(songId, { title, count, bandId, bandName, albumId, albumTitle });
+          }
+        }
+
+        result.phraseSongLinks = result.topPhrases
+          .filter((p) => phraseLinkMap.has(p.word))
+          .map((p) => ({
+            word: p.word,
+            totalCount: p.count,
+            songs: [...(phraseLinkMap.get(p.word)?.entries() ?? [])].map(([songId, d]) => ({
+              songId, title: d.title, count: d.count,
+              bandId: d.bandId, bandName: d.bandName, albumId: d.albumId, albumTitle: d.albumTitle,
+            })),
+          })) as WordSongLink[];
+      }
     }
 
     return result;

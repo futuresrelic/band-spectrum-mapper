@@ -63,11 +63,12 @@ model Song {
   band   Band    @relation(fields: [bandId], references: [id], onDelete: Cascade)
   album  Album?  @relation(fields: [albumId], references: [id], onDelete: SetNull)
 
-  lyrics      Lyric[]
-  score       SongAxisScore?
-  songTags    SongTag[]
-  ratings     UserSongRating[]
-  aiAnalysis  SongAiAnalysis?
+  lyrics       Lyric[]
+  score        SongAxisScore?
+  songTags     SongTag[]
+  ratings      UserSongRating[]
+  aiAnalysis   SongAiAnalysis?
+  aiSpectrum   SongAiSpectrum?
 
   @@unique([bandId, slug])
   @@map("songs")
@@ -220,6 +221,25 @@ model Comparison {
 // ---------------------------------------------------------------------------
 // AI analysis cache — one row per song, regenerated on demand
 // ---------------------------------------------------------------------------
+
+model SongAiSpectrum {
+  id          String   @id @default(cuid())
+  songId      String   @unique
+  model       String
+  aggression  Float
+  complexity  Float
+  atmosphere  Float
+  emotion     Float
+  psychedelic Float
+  concept     Float
+  rationale   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@map("song_ai_spectra")
+}
 
 model SongAiAnalysis {
   id                String   @id @default(cuid())

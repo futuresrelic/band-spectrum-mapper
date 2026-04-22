@@ -149,6 +149,7 @@ export interface SongWithLyrics extends Song {
   score: SongAxisScore | null;
   band?: Pick<Band, 'id' | 'name' | 'slug'>;
   album?: Pick<Album, 'id' | 'title' | 'slug'> | null;
+  songTags?: Array<{ tag: Tag }>;
 }
 
 export interface AxisScoreMap {
@@ -173,7 +174,15 @@ export interface WordFrequency {
 export interface WordSongLink {
   word: string;
   totalCount: number;
-  songs: Array<{ songId: string; title: string; count: number }>;
+  songs: Array<{
+    songId: string;
+    title: string;
+    count: number;
+    bandId?: string;
+    bandName?: string;
+    albumId?: string | null;
+    albumTitle?: string | null;
+  }>;
 }
 
 export interface LyricsAnalysisResult {
@@ -186,6 +195,7 @@ export interface LyricsAnalysisResult {
   wordCloudData: WordCloudEntry[];
   topPhrases?: WordFrequency[];
   wordSongLinks?: WordSongLink[];
+  phraseSongLinks?: WordSongLink[];
 }
 
 export interface WordCloudEntry {
@@ -202,6 +212,21 @@ export interface SongAiAnalysis {
   conceptualDepth: string;
   notableElements: string[];
   rawResponse: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SongAiSpectrum {
+  id: string;
+  songId: string;
+  model: string;
+  aggression: number;
+  complexity: number;
+  atmosphere: number;
+  emotion: number;
+  psychedelic: number;
+  concept: number;
+  rationale: string;
   createdAt: string;
   updatedAt: string;
 }

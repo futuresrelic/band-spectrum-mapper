@@ -293,13 +293,29 @@ export default function SongDetailPage() {
   if (error) return <ErrorMessage error={error} />;
   if (!song) return null;
 
+  const tags = song.songTags ?? [];
+
   return (
     <div>
       <PageHeader
         title={song.title}
-        subtitle={[song.band?.name, song.album?.title].filter(Boolean).join(' / ')}
+        subtitle={
+          <span className="flex flex-wrap items-center gap-1">
+            <Link to={`/library/bands/${song.bandId}`} className="hover:underline">
+              {song.band?.name}
+            </Link>
+            {song.album && (
+              <>
+                <span className="text-surface-400">/</span>
+                <Link to={`/library/albums/${song.albumId!}`} className="hover:underline">
+                  {song.album.title}
+                </Link>
+              </>
+            )}
+          </span>
+        }
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {song.albumId
               ? <Link to={`/library/albums/${song.albumId}`} className="btn-secondary">← Album</Link>
               : <Link to={`/library/bands/${song.bandId}`} className="btn-secondary">← Band</Link>
@@ -312,6 +328,21 @@ export default function SongDetailPage() {
           </div>
         }
       />
+
+      {/* Tags */}
+      {tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-4">
+          {tags.map(({ tag }) => (
+            <Link
+              key={tag.id}
+              to={`/library/tags/${tag.slug}`}
+              className="badge badge-gray hover:bg-surface-300 transition-colors"
+            >
+              {tag.name}
+            </Link>
+          ))}
+        </div>
+      )}
 
       {/* Edit form */}
       {showEdit && (

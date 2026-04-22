@@ -19,6 +19,7 @@ import ViewerIndexPage from './pages/ViewerIndexPage';
 import ViewerBandPage from './pages/ViewerBandPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import UserRatePage from './pages/UserRatePage';
+import TagSongsPage from './pages/TagSongsPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/view
 function RootRedirect() {
@@ -73,6 +74,7 @@ export default function App() {
           <Route path="library/bands/:bandId" element={<BandDetailPage />} />
           <Route path="library/albums/:albumId" element={<AlbumDetailPage />} />
           <Route path="library/songs/:songId" element={<SongDetailPage />} />
+          <Route path="library/tags/:tagSlug" element={<TagSongsPage />} />
           <Route path="spectrum" element={<SpectrumPage />} />
           <Route path="analysis" element={<LyricsAnalysisPage />} />
           <Route path="compare" element={<ComparePage />} />

@@ -14,6 +14,7 @@ import { discographyRouter } from './routes/discography.js';
 import { authRouter } from './routes/auth.js';
 import { ratingsRouter } from './routes/ratings.js';
 import { adminRouter } from './routes/admin.js';
+import { tagsRouter } from './routes/tags.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 export function createApp() {
@@ -49,6 +50,7 @@ export function createApp() {
   app.use('/api/settings', settingsRouter);
   app.use('/api/export', exportRouter);
   app.use('/api/discography', discographyRouter);
+  app.use('/api/tags', tagsRouter);
 
   // Public read-only (no auth)
   app.use('/api/public', publicRouter);

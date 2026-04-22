@@ -16,16 +16,27 @@ const adminLinks = [
   { to: '/admin/users', label: 'User Moderation' },
 ];
 
-export default function Nav() {
+export default function Nav({ onClose }: { onClose?: () => void }) {
   const { user, login, logout } = useAuth();
 
   return (
-    <nav className="w-52 shrink-0 bg-surface-900 text-white flex flex-col min-h-screen">
-      <div className="px-4 py-6 border-b border-surface-800">
-        <span className="text-xs font-semibold uppercase tracking-widest text-surface-200">
-          Band Spectrum
-        </span>
-        <p className="text-xs text-surface-700 mt-0.5">Mapper</p>
+    <nav className="w-52 shrink-0 bg-surface-900 text-white flex flex-col h-full min-h-screen">
+      <div className="px-4 py-6 border-b border-surface-800 flex items-start justify-between">
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-widest text-surface-200">
+            Band Spectrum
+          </span>
+          <p className="text-xs text-surface-700 mt-0.5">Mapper</p>
+        </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="md:hidden text-surface-500 hover:text-white text-lg leading-none mt-0.5"
+            aria-label="Close menu"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       <ul className="flex-1 py-4 space-y-0.5">
@@ -33,6 +44,7 @@ export default function Nav() {
           <li key={to}>
             <NavLink
               to={to}
+              onClick={onClose}
               className={({ isActive }) =>
                 `block px-4 py-2 text-sm transition-colors ${
                   isActive

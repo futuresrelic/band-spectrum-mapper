@@ -45,7 +45,7 @@ analysisRouter.get('/scores/album/:albumId', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// AI lyric analysis — GET returns cached, POST regenerates (admin only)
+// AI lyric analysis
 analysisRouter.get('/ai/:songId', async (req, res, next) => {
   try {
     res.json(await aiAnalysisService.getOrCreate(req.params['songId']!));
@@ -55,5 +55,18 @@ analysisRouter.get('/ai/:songId', async (req, res, next) => {
 analysisRouter.post('/ai/:songId/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     res.json(await aiAnalysisService.regenerate(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+// AI spectrum scoring
+analysisRouter.get('/ai/:songId/spectrum', async (req, res, next) => {
+  try {
+    res.json(await aiAnalysisService.getOrCreateSpectrum(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+analysisRouter.post('/ai/:songId/spectrum/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await aiAnalysisService.regenerateSpectrum(req.params['songId']!));
   } catch (e) { next(e); }
 });

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { bandsApi } from '../api/bands';
 import { songsApi } from '../api/songs';
 import { analysisApi } from '../api/analysis';
@@ -22,12 +22,13 @@ const AXIS_LABELS: Record<string, string> = {
   concept: 'Concept',
 };
 
-type ScoreMode = 'core' | 'community' | 'mine';
+type ScoreMode = 'core' | 'community' | 'mine' | 'ai';
 
 const SCORE_MODE_LABELS: Record<ScoreMode, string> = {
   core: 'Core',
   community: 'Community',
   mine: 'Mine',
+  ai: 'AI',
 };
 
 export default function SpectrumPage() {
@@ -91,6 +92,24 @@ export default function SpectrumPage() {
     enabled: !!selectedSongId && viewMode === 'song' && (scoreMode === 'community' || scoreMode === 'mine'),
   });
 
+  // AI spectrum scores — lazy, fetched when tab is selected
+  const {
+    data: aiSpectrum,
+    isLoading: aiSpectrumLoading,
+    error: aiSpectrumError,
+    refetch: refetchAiSpectrum,
+  } = useQuery({
+    queryKey: ['ai-spectrum', selectedSongId],
+    queryFn: () => analysisApi.getAiSpectrum(selectedSongId),
+    enabled: !!selectedSongId && viewMode === 'song' && scoreMode === 'ai',
+    retry: false,
+  });
+
+  const regenAiSpectrum = useMutation({
+    mutationFn: () => analysisApi.regenerateAiSpectrum(selectedSongId),
+    onSuccess: () => refetchAiSpectrum(),
+  });
+
   const saveMutation = useMutation({
     mutationFn: () => {
       const data: UpsertScoreInput = {
@@ -133,12 +152,22 @@ export default function SpectrumPage() {
       }
     : null;
 
+  const aiScoreMap: AxisScoreMap | null = aiSpectrum
+    ? {
+        aggression: aiSpectrum.aggression,
+        complexity: aiSpectrum.complexity,
+        atmosphere: aiSpectrum.atmosphere,
+        emotion: aiSpectrum.emotion,
+        psychedelic: aiSpectrum.psychedelic,
+        concept: aiSpectrum.concept,
+      }
+    : null;
+
   const activeScoreMap: AxisScoreMap | null =
-    scoreMode === 'core'
-      ? coreScoreMap
-      : scoreMode === 'community'
-      ? communityScoreMap
-      : mineScoreMap;
+    scoreMode === 'core' ? coreScoreMap
+    : scoreMode === 'community' ? communityScoreMap
+    : scoreMode === 'mine' ? mineScoreMap
+    : aiScoreMap;
 
   const bandAvgMap: AxisScoreMap | null = bandAverages
     ? {
@@ -223,10 +252,10 @@ export default function SpectrumPage() {
           {/* Score mode selector — song mode only */}
           {viewMode === 'song' && selectedSongId && (
             <div className="flex gap-1 rounded-lg border border-surface-200 bg-surface-50 p-1">
-              {(['core', 'community', 'mine'] as const).map((mode) => (
+              {(['core', 'community', 'mine', 'ai'] as const).map((mode) => (
                 <button
                   key={mode}
-                  className={`flex-1 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                  className={`flex-1 rounded px-2 py-1.5 text-sm font-medium transition-colors ${
                     scoreMode === mode
                       ? 'bg-surface-900 text-white'
                       : 'text-surface-600 hover:text-surface-900'
@@ -306,6 +335,56 @@ export default function SpectrumPage() {
           {viewMode === 'song' && selectedSongId && scoreMode === 'community' && !communityScoreMap && (
             <div className="card text-center py-6 text-surface-500 text-sm">
               No community ratings yet for this song.
+            </div>
+          )}
+
+          {/* AI spectrum panel */}
+          {viewMode === 'song' && selectedSongId && scoreMode === 'ai' && (
+            <div className="card space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium">AI Spectrum Scoring</h3>
+                {user?.isAdmin && (
+                  <button
+                    className="btn-ghost text-xs"
+                    disabled={regenAiSpectrum.isPending}
+                    onClick={() => regenAiSpectrum.mutate()}
+                  >
+                    {regenAiSpectrum.isPending ? 'Generating…' : 'Regenerate'}
+                  </button>
+                )}
+              </div>
+              {aiSpectrumLoading && <p className="text-sm text-surface-600">Analyzing lyrics…</p>}
+              {aiSpectrumError && <ErrorMessage error={aiSpectrumError} />}
+              {regenAiSpectrum.isError && <ErrorMessage error={regenAiSpectrum.error} />}
+              {aiSpectrum && (
+                <>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {SCORE_AXES.map((axis) => (
+                      <div key={axis} className="flex justify-between">
+                        <span className="capitalize text-surface-600">{axis}</span>
+                        <span className="font-mono font-medium">{aiSpectrum[axis as keyof typeof aiSpectrum]}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-surface-600 italic border-t border-surface-200 pt-2">{aiSpectrum.rationale}</p>
+                  <p className="text-xs text-surface-400">Model: {aiSpectrum.model} · {new Date(aiSpectrum.updatedAt).toLocaleDateString()}</p>
+                </>
+              )}
+              {!aiSpectrumLoading && !aiSpectrum && !aiSpectrumError && (
+                <p className="text-xs text-surface-500">Scores will be generated automatically from the song's primary lyrics.</p>
+              )}
+            </div>
+          )}
+
+          {/* Library link when song is selected */}
+          {viewMode === 'song' && selectedSongId && (
+            <div className="text-xs text-surface-500">
+              <Link
+                to={`/library/songs/${selectedSongId}`}
+                className="hover:underline hover:text-surface-700"
+              >
+                → View in Library
+              </Link>
             </div>
           )}
         </div>
