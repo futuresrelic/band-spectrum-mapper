@@ -1,0 +1,22 @@
+{
+  "name": "Band Spectrum Mapper",
+  "short_name": "BandSpectrum",
+  "description": "Deep music analysis — spectrum scores, AI lyrical analysis, and community discussion.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/api/brand/favicon.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/api/brand/logo.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

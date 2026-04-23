@@ -364,3 +364,17 @@ model SongComment {
 
   @@map("song_comments")
 }
+
+// ---------------------------------------------------------------------------
+// App icons — favicon and PWA icons stored as base64 PNG data URLs
+// ---------------------------------------------------------------------------
+
+model AppIcon {
+  id        String   @id @default(cuid())
+  size      Int
+  dataUrl   String
+  updatedAt DateTime @updatedAt
+
+  @@unique([size])
+  @@map("app_icons")
+}

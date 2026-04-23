@@ -18,6 +18,7 @@ import { ratingsRouter } from './routes/ratings.js';
 import { adminRouter } from './routes/admin.js';
 import { tagsRouter } from './routes/tags.js';
 import { commentsRouter } from './routes/comments.js';
+import { brandRouter } from './routes/brand.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 export function createApp() {
@@ -33,6 +34,9 @@ export function createApp() {
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
+
+  // Public brand assets (favicon, logo)
+  app.use('/api/brand', brandRouter);
 
   // Auth
   app.use('/api/auth', authRouter);
