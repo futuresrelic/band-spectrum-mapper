@@ -521,6 +521,7 @@ export default function SongDetailPage() {
             )}
             <button className="btn-secondary" onClick={openEdit}>Edit</button>
             <Link to={`/spectrum?songId=${song.id}`} className="btn-secondary">Score</Link>
+            <Link to={`/share/songs/${song.id}`} target="_blank" rel="noopener noreferrer" className="btn-secondary">Share ↗</Link>
             <button className="btn-danger" onClick={() => { if (confirm('Delete this song?')) deleteSong.mutate(); }}>
               Delete
             </button>

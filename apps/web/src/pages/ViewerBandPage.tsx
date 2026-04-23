@@ -139,6 +139,18 @@ function SongExpanded({
         <p className="text-sm text-surface-700">No content added yet.</p>
       )}
 
+      {/* Share link */}
+      <div className="flex justify-end border-t border-surface-100 pt-3">
+        <Link
+          to={`/share/songs/${song.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-indigo-600 hover:underline"
+        >
+          Share analysis ↗
+        </Link>
+      </div>
+
       {/* Comments */}
       <div className="border-t border-surface-100 pt-4">
         <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-3">Discussion</p>

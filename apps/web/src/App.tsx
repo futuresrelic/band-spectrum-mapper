@@ -20,12 +20,16 @@ import ViewerBandPage from './pages/ViewerBandPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import UserRatePage from './pages/UserRatePage';
 import TagSongsPage from './pages/TagSongsPage';
+import LandingPage from './pages/LandingPage';
+import LegalPage from './pages/LegalPage';
+import HelpPage from './pages/HelpPage';
+import ShareSongPage from './pages/ShareSongPage';
 
-// Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/view
+// Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
   const { user, isLoading } = useAuth();
   if (isLoading) return null;
-  if (!user) return <Navigate to="/view" replace />;
+  if (!user) return <Navigate to="/landing" replace />;
   if (user.isAdmin) return <Navigate to="/dashboard" replace />;
   return <Navigate to="/my/rate" replace />;
 }
@@ -49,7 +53,11 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
-        {/* ── PUBLIC: read-only viewer, no login needed ── */}
+        {/* ── PUBLIC: landing, viewer, share, legal, help — no login needed ── */}
+        <Route path="/landing" element={<LandingPage />} />
+        <Route path="/legal" element={<LegalPage />} />
+        <Route path="/help" element={<HelpPage />} />
+        <Route path="/share/songs/:songId" element={<ShareSongPage />} />
         <Route path="/view" element={<ViewerIndexPage />} />
         <Route path="/view/:bandSlug" element={<ViewerBandPage />} />
 
