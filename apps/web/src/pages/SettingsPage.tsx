@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { settingsApi } from '../api/settings';
 import PageHeader from '../components/layout/PageHeader';
@@ -8,8 +9,9 @@ import IconManagerPage from './IconManagerPage';
 type Tab = 'stopwords' | 'icons';
 
 export default function SettingsPage() {
+  const [searchParams] = useSearchParams();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<Tab>('stopwords');
+  const [tab, setTab] = useState<Tab>((searchParams.get('tab') as Tab) ?? 'stopwords');
   const [newWord, setNewWord] = useState('');
   const [addError, setAddError] = useState('');
 

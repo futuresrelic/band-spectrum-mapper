@@ -13,7 +13,9 @@ const links = [
 ];
 
 const adminLinks = [
-  { to: '/admin/users', label: 'User Moderation' },
+  { to: '/admin/users',       label: 'User Moderation' },
+  { to: '/settings?tab=icons', label: 'App Icons & Branding' },
+  { to: '/view',              label: 'Public Site ↗', newTab: true },
 ];
 
 export default function Nav({ onClose }: { onClose?: () => void }) {
@@ -63,13 +65,15 @@ export default function Nav({ onClose }: { onClose?: () => void }) {
             <li className="pt-3 pb-1 px-4">
               <span className="text-xs font-semibold uppercase tracking-widest text-surface-600">Admin</span>
             </li>
-            {adminLinks.map(({ to, label }) => (
+            {adminLinks.map(({ to, label, newTab }) => (
               <li key={to}>
                 <NavLink
                   to={to}
+                  target={newTab ? '_blank' : undefined}
+                  rel={newTab ? 'noopener noreferrer' : undefined}
                   className={({ isActive }) =>
                     `block px-4 py-2 text-sm transition-colors ${
-                      isActive
+                      isActive && !newTab
                         ? 'bg-surface-800 text-white font-medium'
                         : 'text-surface-400 hover:bg-surface-800 hover:text-white'
                     }`
