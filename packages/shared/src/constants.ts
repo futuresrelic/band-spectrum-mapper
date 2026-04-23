@@ -9,6 +9,33 @@ export const SCORE_AXES = [
 
 export type ScoreAxis = (typeof SCORE_AXES)[number];
 
+export const AXIS_COLORS: Record<ScoreAxis, string> = {
+  aggression:  '#ef4444',
+  complexity:  '#8b5cf6',
+  atmosphere:  '#06b6d4',
+  emotion:     '#ec4899',
+  psychedelic: '#10b981',
+  concept:     '#f59e0b',
+};
+
+export const AXIS_LABELS: Record<ScoreAxis, string> = {
+  aggression:  'Aggression',
+  complexity:  'Complexity',
+  atmosphere:  'Atmosphere',
+  emotion:     'Emotion',
+  psychedelic: 'Psychedelic',
+  concept:     'Concept',
+};
+
+export const AXIS_INFO: Record<ScoreAxis, { lo: string; hi: string }> = {
+  aggression:  { lo: 'Calm, peaceful, gentle',          hi: 'Intense, abrasive, violent' },
+  complexity:  { lo: 'Simple, repetitive, accessible',  hi: 'Dense, layered, intricate' },
+  atmosphere:  { lo: 'Dry, direct, stripped',           hi: 'Immersive, ambient, cinematic' },
+  emotion:     { lo: 'Detached, cold, clinical',        hi: 'Raw, vulnerable, intensely felt' },
+  psychedelic: { lo: 'Grounded, literal, concrete',     hi: 'Surreal, hallucinatory, mind-bending' },
+  concept:     { lo: 'Personal, narrative, concrete',   hi: 'Philosophical, abstract, conceptual' },
+};
+
 export const SCORE_MIN = 0;
 export const SCORE_MAX = 10;
 

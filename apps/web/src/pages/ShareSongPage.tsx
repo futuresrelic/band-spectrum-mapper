@@ -4,8 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { analysisApi } from '../api/analysis';
 import { songsApi } from '../api/songs';
-import type { SongAxisScore, SongAiSpectrum } from '@band-spectrum-mapper/shared';
-import { SCORE_AXES } from '@band-spectrum-mapper/shared';
+import type { SongAxisScore, SongAiSpectrum, ScoreAxis } from '@band-spectrum-mapper/shared';
+import { SCORE_AXES, AXIS_COLORS, AXIS_LABELS } from '@band-spectrum-mapper/shared';
 
 // Public song shape from /api/public/songs/:id
 type PublicSong = {
@@ -19,31 +19,13 @@ type PublicSong = {
   score: SongAxisScore | null;
 };
 
-const AXIS_COLORS: Record<string, string> = {
-  aggression: '#ef4444',
-  complexity: '#8b5cf6',
-  atmosphere: '#06b6d4',
-  emotion: '#ec4899',
-  psychedelic: '#10b981',
-  concept: '#f59e0b',
-};
-
-const AXIS_LABELS: Record<string, string> = {
-  aggression: 'Aggression',
-  complexity: 'Complexity',
-  atmosphere: 'Atmosphere',
-  emotion: 'Emotion',
-  psychedelic: 'Psychedelic',
-  concept: 'Concept',
-};
-
-function SpectrumBar({ axis, score }: { axis: string; score: number }) {
+function SpectrumBar({ axis, score }: { axis: ScoreAxis; score: number }) {
   const color = AXIS_COLORS[axis] ?? '#6366f1';
   const pct = Math.round((score / 10) * 100);
   return (
     <div className="space-y-1">
       <div className="flex justify-between items-baseline">
-        <span className="text-xs text-slate-400 font-medium">{AXIS_LABELS[axis] ?? axis}</span>
+        <span className="text-xs text-slate-400 font-medium">{AXIS_LABELS[axis]}</span>
         <span className="text-xs font-bold tabular-nums" style={{ color }}>{score.toFixed(1)}</span>
       </div>
       <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">

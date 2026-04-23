@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { SCORE_AXES } from '@band-spectrum-mapper/shared';
+import { SCORE_AXES, AXIS_INFO } from '@band-spectrum-mapper/shared';
+import { AxisTag } from '../components/AxisTag';
 
 function FAQ({ q, children }: { q: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -29,14 +30,6 @@ function FaqGroup({ title, children }: { title: string; children: React.ReactNod
   );
 }
 
-const AXIS_INFO = [
-  { name: 'Aggression', lo: 'Calm, peaceful, gentle', hi: 'Intense, abrasive, violent', color: '#ef4444' },
-  { name: 'Complexity', lo: 'Simple, repetitive, accessible', hi: 'Dense, layered, intricate', color: '#8b5cf6' },
-  { name: 'Atmosphere', lo: 'Dry, direct, stripped', hi: 'Immersive, ambient, cinematic', color: '#06b6d4' },
-  { name: 'Emotion', lo: 'Detached, cold, clinical', hi: 'Raw, vulnerable, intensely felt', color: '#ec4899' },
-  { name: 'Psychedelic', lo: 'Grounded, literal, concrete', hi: 'Surreal, hallucinatory, mind-bending', color: '#10b981' },
-  { name: 'Concept', lo: 'Personal, narrative, concrete', hi: 'Philosophical, abstract, conceptual', color: '#f59e0b' },
-];
 
 export default function HelpPage() {
   return (
@@ -128,14 +121,11 @@ export default function HelpPage() {
             <FAQ q="What are the six spectrum axes?">
               <p>Each song is rated on a 0–10 scale across six dimensions:</p>
               <div className="space-y-3 mt-2">
-                {AXIS_INFO.map((a) => (
-                  <div key={a.name} className="flex gap-3">
-                    <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style={{ backgroundColor: a.color }} />
-                    <div>
-                      <span className="font-medium">{a.name}</span>
-                      <span className="text-surface-500"> — </span>
-                      <span>0: {a.lo} → 10: {a.hi}</span>
-                    </div>
+                {SCORE_AXES.map((axis) => (
+                  <div key={axis} className="flex gap-3 items-start">
+                    <AxisTag axis={axis} size="sm" />
+                    <span className="text-surface-500">—</span>
+                    <span>0: {AXIS_INFO[axis].lo} → 10: {AXIS_INFO[axis].hi}</span>
                   </div>
                 ))}
               </div>
@@ -371,18 +361,12 @@ export default function HelpPage() {
             Quick Reference — The Six Axes
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {SCORE_AXES.map((axis) => {
-              const info = AXIS_INFO.find((a) => a.name.toLowerCase() === axis);
-              return (
-                <div key={axis} className="text-xs">
-                  <div className="flex items-center gap-1.5 font-medium text-surface-900 mb-0.5">
-                    {info && <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: info.color }} />}
-                    <span className="capitalize">{axis}</span>
-                  </div>
-                  {info && <p className="text-surface-500 leading-tight">0–10 · {info.lo}</p>}
-                </div>
-              );
-            })}
+            {SCORE_AXES.map((axis) => (
+              <div key={axis} className="text-xs">
+                <AxisTag axis={axis} size="sm" />
+                <p className="text-surface-500 leading-tight mt-0.5 ml-3.5">0–10 · {AXIS_INFO[axis].lo}</p>
+              </div>
+            ))}
           </div>
         </div>
 

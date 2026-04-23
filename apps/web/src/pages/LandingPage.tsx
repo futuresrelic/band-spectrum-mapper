@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { SCORE_AXES, AXIS_COLORS, AXIS_LABELS, AXIS_INFO } from '@band-spectrum-mapper/shared';
 
 const FEATURES = [
   {
@@ -34,14 +35,6 @@ const FEATURES = [
   },
 ];
 
-const AXES = [
-  { name: 'Aggression', lo: 'Calm · Peaceful', hi: 'Intense · Abrasive', color: '#ef4444' },
-  { name: 'Complexity', lo: 'Simple · Repetitive', hi: 'Dense · Intricate', color: '#8b5cf6' },
-  { name: 'Atmosphere', lo: 'Dry · Direct', hi: 'Immersive · Cinematic', color: '#06b6d4' },
-  { name: 'Emotion', lo: 'Detached · Cold', hi: 'Raw · Vulnerable', color: '#ec4899' },
-  { name: 'Psychedelic', lo: 'Grounded · Literal', hi: 'Surreal · Mind-bending', color: '#10b981' },
-  { name: 'Concept', lo: 'Personal · Narrative', hi: 'Philosophical · Abstract', color: '#f59e0b' },
-];
 
 const HOW_IT_WORKS = [
   {
@@ -160,18 +153,18 @@ export default function LandingPage() {
             Every song is rated across six dimensions by you, the community, and AI — then compared on a shared radar chart.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {AXES.map((axis) => (
-              <div key={axis.name} className="bg-white rounded-xl border border-surface-200 p-5">
+            {SCORE_AXES.map((axis) => (
+              <div key={axis} className="bg-white rounded-xl border border-surface-200 p-5">
                 <div className="flex items-center gap-2 mb-3">
-                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: axis.color }} />
-                  <span className="font-semibold">{axis.name}</span>
+                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: AXIS_COLORS[axis] }} />
+                  <span className="font-semibold" style={{ color: AXIS_COLORS[axis] }}>{AXIS_LABELS[axis]}</span>
                 </div>
                 <div className="h-1.5 rounded-full bg-surface-200 mb-2 overflow-hidden">
-                  <div className="h-full w-1/2 rounded-full" style={{ backgroundColor: axis.color, opacity: 0.7 }} />
+                  <div className="h-full w-1/2 rounded-full" style={{ backgroundColor: AXIS_COLORS[axis], opacity: 0.7 }} />
                 </div>
                 <div className="flex justify-between text-xs text-surface-500">
-                  <span>0 · {axis.lo}</span>
-                  <span>10 · {axis.hi}</span>
+                  <span>0 · {AXIS_INFO[axis].lo}</span>
+                  <span>10 · {AXIS_INFO[axis].hi}</span>
                 </div>
               </div>
             ))}
