@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import passport from 'passport';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { bandsRouter } from './routes/bands.js';
 import { albumsRouter } from './routes/albums.js';
 import { songsRouter } from './routes/songs.js';
@@ -57,10 +59,20 @@ export function createApp() {
   // Public read-only (no auth)
   app.use('/api/public', publicRouter);
 
-  // 404 handler
-  app.use((_req, res) => {
-    res.status(404).json({ error: 'Not found' });
-  });
+  if (process.env['NODE_ENV'] === 'production') {
+    // Serve the built React SPA. Path is relative to the compiled dist/ output.
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const webDist = path.resolve(__dirname, '../../web/dist');
+    app.use(express.static(webDist));
+    // SPA fallback — any non-/api route gets index.html so React Router works
+    app.get(/^(?!\/api\/).*$/, (_req, res) => {
+      res.sendFile(path.join(webDist, 'index.html'));
+    });
+  } else {
+    app.use((_req, res) => {
+      res.status(404).json({ error: 'Not found' });
+    });
+  }
 
   // Centralized error handler — must be last
   app.use(errorHandler);
