@@ -226,7 +226,15 @@ export default function LandingPage() {
       <footer className="bg-slate-950 border-t border-slate-800 py-8">
         <div className="max-w-5xl mx-auto px-6 flex flex-wrap items-center justify-between gap-4 text-slate-500 text-sm">
           <span>Band Spectrum Mapper · Independent fan project</span>
-          <div className="flex gap-6">
+          <div className="flex flex-wrap gap-6 items-center">
+            <a
+              href="https://buymeacoffee.com/bandspectrummapper"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-yellow-500 hover:text-yellow-400 transition-colors font-medium"
+            >
+              ☕ Buy me a coffee
+            </a>
             <Link to="/help" className="hover:text-slate-300 transition-colors">Help & FAQ</Link>
             <Link to="/legal" className="hover:text-slate-300 transition-colors">Legal</Link>
             <Link to="/view" className="hover:text-slate-300 transition-colors">Library</Link>

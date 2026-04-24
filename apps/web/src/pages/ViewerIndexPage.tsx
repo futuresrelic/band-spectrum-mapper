@@ -79,7 +79,15 @@ export default function ViewerIndexPage() {
       <footer className="border-t border-surface-200 py-6">
         <div className="max-w-3xl mx-auto px-6 flex flex-wrap items-center justify-between gap-3 text-xs text-surface-500">
           <span>Band Spectrum Mapper · Read-only view</span>
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-4 items-center">
+            <a
+              href="https://buymeacoffee.com/bandspectrummapper"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-yellow-600 hover:text-yellow-700 transition-colors font-medium"
+            >
+              ☕ Buy me a coffee
+            </a>
             <Link to="/landing" className="hover:text-surface-900 transition-colors">About</Link>
             <Link to="/help" className="hover:text-surface-900 transition-colors">Help</Link>
             <Link to="/legal" className="hover:text-surface-900 transition-colors">Legal</Link>

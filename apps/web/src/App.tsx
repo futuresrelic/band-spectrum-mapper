@@ -44,7 +44,7 @@ function AdminGuard({ children }: { children: ReactNode }) {
       </div>
     );
   }
-  if (!user) return <Navigate to="/view" replace />;
+  if (!user) return <Navigate to="/landing" replace />;
   if (!user.isAdmin) return <Navigate to="/my/rate" replace />;
   return <>{children}</>;
 }
