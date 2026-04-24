@@ -10,12 +10,12 @@ export const SCORE_AXES = [
 export type ScoreAxis = (typeof SCORE_AXES)[number];
 
 export const AXIS_COLORS: Record<ScoreAxis, string> = {
-  aggression:  '#ef4444',
-  complexity:  '#8b5cf6',
-  atmosphere:  '#06b6d4',
-  emotion:     '#ec4899',
-  psychedelic: '#10b981',
-  concept:     '#f59e0b',
+  aggression:  '#E5484D',
+  complexity:  '#8B5CF6',
+  atmosphere:  '#06B6D4',
+  emotion:     '#F59E0B',
+  psychedelic: '#22C55E',
+  concept:     '#F97316',
 };
 
 export const AXIS_LABELS: Record<ScoreAxis, string> = {
@@ -50,7 +50,24 @@ export const GENRE_PERSPECTIVES = [
 
 export type GenrePerspective = (typeof GENRE_PERSPECTIVES)[number]['id'];
 
-export const SOURCE_TYPES = [
+// Genre colors — distinct from axis colors; thematically matched to each genre
+export const GENRE_COLORS: Record<GenrePerspective, string> = {
+  metal:      '#64748B', // slate-500 — steel/chrome
+  rock:       '#FB923C', // orange-400 — raw warm energy
+  pop:        '#F472B6', // pink-400 — bright candy
+  hiphop:     '#818CF8', // indigo-400 — smooth urban
+  electronic: '#22D3EE', // cyan-300 — digital/synthetic
+  folk:       '#A3E635', // lime-400 — organic meadow
+};
+
+export const GENRE_LABELS: Record<GenrePerspective, string> = {
+  metal:      'Metal',
+  rock:       'Rock',
+  pop:        'Pop',
+  hiphop:     'Hip-hop',
+  electronic: 'Electronic',
+  folk:       'Folk / Indie',
+};export const SOURCE_TYPES = [
   'manual',
   'paste',
   'file_import',

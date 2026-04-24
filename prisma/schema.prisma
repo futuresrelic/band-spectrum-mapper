@@ -74,6 +74,7 @@ model Song {
   contextAnalysis SongContextAnalysis?
   genreRatings    SongGenreRating[]
   analysisRatings SongAnalysisRating[]
+  aiGenreSpectrum SongAiGenreSpectrum?
 
   @@unique([bandId, slug])
   @@map("songs")
@@ -422,4 +423,28 @@ model SongAnalysisRating {
 
   @@unique([userId, songId])
   @@map("song_analysis_ratings")
+}
+
+// ---------------------------------------------------------------------------
+// AI-generated genre accessibility spectrum — how the song lands for fans of
+// each genre. One row per song, cached. 1–10 per genre.
+// ---------------------------------------------------------------------------
+
+model SongAiGenreSpectrum {
+  id          String   @id @default(cuid())
+  songId      String   @unique
+  model       String
+  metal       Float
+  rock        Float
+  pop         Float
+  hiphop      Float
+  electronic  Float
+  folk        Float
+  rationale   String   // brief AI explanation of the genre spread
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@map("song_ai_genre_spectrums")
 }

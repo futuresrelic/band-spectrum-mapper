@@ -231,6 +231,30 @@ export interface SongAiSpectrum {
   updatedAt: string;
 }
 
+export interface GenreScoreMap {
+  metal: number;
+  rock: number;
+  pop: number;
+  hiphop: number;
+  electronic: number;
+  folk: number;
+}
+
+export interface SongAiGenreSpectrum {
+  id: string;
+  songId: string;
+  model: string;
+  metal: number;
+  rock: number;
+  pop: number;
+  hiphop: number;
+  electronic: number;
+  folk: number;
+  rationale: string;
+  generatedAt: string; // ISO
+  updatedAt: string;   // ISO
+}
+
 export interface SongResearchSource {
   type: 'song' | 'album' | 'band';
   title: string;

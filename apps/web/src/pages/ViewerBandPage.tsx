@@ -6,6 +6,7 @@ import { ratingsApi } from '../api/ratings';
 import { analysisApi } from '../api/analysis';
 import { useAuth } from '../contexts/AuthContext';
 import RadarChart from '../components/charts/RadarChart';
+import GenreSpectrumWidget from '../components/GenreSpectrumWidget';
 import CommentSection from '../components/CommentSection';
 import type { Band, Album, Song, Lyric, SongAxisScore, AxisScoreMap, CommunityScore, UserSongRating } from '@band-spectrum-mapper/shared';
 import { SCORE_AXES } from '@band-spectrum-mapper/shared';
@@ -90,6 +91,13 @@ function SongExpanded({
           {scoreMode === 'mine' && "You haven't rated this song yet."}
         </p>
       )}
+
+      {/* Genre spectrum */}
+      <div>
+        <div className="bg-surface-50 rounded-lg border border-surface-200 px-4 py-4">
+          <GenreSpectrumWidget songId={song.id} />
+        </div>
+      </div>
 
       {/* Lyrics */}
       {primaryLyric && (

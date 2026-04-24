@@ -7,6 +7,7 @@ import type {
   SongAiSpectrum,
   SongResearch,
   SongContextAnalysis,
+  SongAiGenreSpectrum,
 } from '@band-spectrum-mapper/shared';
 
 type AxisAverage = { axis: string; average: number; count: number };
@@ -68,4 +69,9 @@ export const analysisApi = {
     api.get<SongContextAnalysis>(`/api/analysis/ai/${songId}/context`),
   regenerateSongContext: (songId: string) =>
     api.post<SongContextAnalysis>(`/api/analysis/ai/${songId}/context/regenerate`, {}),
+
+  getAiGenreSpectrum: (songId: string) =>
+    api.get<SongAiGenreSpectrum>(`/api/analysis/ai/${songId}/genre-spectrum`),
+  regenerateAiGenreSpectrum: (songId: string) =>
+    api.post<SongAiGenreSpectrum>(`/api/analysis/ai/${songId}/genre-spectrum/regenerate`, {}),
 };

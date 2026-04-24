@@ -6,6 +6,7 @@ import { bandsApi } from '../api/bands';
 import { ratingsApi } from '../api/ratings';
 import { songsApi } from '../api/songs';
 import { AxisDescription, AxisHelpPanel, DISCLAIMER } from '../components/spectrum/AxisHelp';
+import GenreSpectrumWidget from '../components/GenreSpectrumWidget';
 import type { ScoreAxis, AxisScoreMap } from '@band-spectrum-mapper/shared';
 import { SCORE_AXES } from '@band-spectrum-mapper/shared';
 
@@ -343,6 +344,11 @@ export default function UserRatePage() {
                 {saveMutation.isError && (
                   <p className="text-red-600 text-sm">{(saveMutation.error as Error).message}</p>
                 )}
+              </div>
+
+              {/* Genre spectrum for the selected song */}
+              <div className="card">
+                <GenreSpectrumWidget songId={selectedSongId} showRegenerate />
               </div>
 
               <AxisHelpPanel />

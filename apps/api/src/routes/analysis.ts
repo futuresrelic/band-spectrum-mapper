@@ -3,6 +3,7 @@ import { analysisService } from '../services/analysisService.js';
 import { aiAnalysisService } from '../services/aiAnalysisService.js';
 import { songResearchService } from '../services/songResearchService.js';
 import { songContextService } from '../services/songContextService.js';
+import { genreSpectrumService } from '../services/genreSpectrumService.js';
 import { scoreService } from '../services/scoreService.js';
 import { analysisQuerySchema, compareQuerySchema } from '@band-spectrum-mapper/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -96,5 +97,18 @@ analysisRouter.get('/ai/:songId/context', async (req, res, next) => {
 analysisRouter.post('/ai/:songId/context/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     res.json(await songContextService.regenerate(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+// AI genre accessibility spectrum — auto-generated, cached per song
+analysisRouter.get('/ai/:songId/genre-spectrum', async (req, res, next) => {
+  try {
+    res.json(await genreSpectrumService.getOrCreate(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+analysisRouter.post('/ai/:songId/genre-spectrum/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await genreSpectrumService.regenerate(req.params['songId']!));
   } catch (e) { next(e); }
 });
