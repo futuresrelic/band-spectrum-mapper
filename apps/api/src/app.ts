@@ -19,6 +19,7 @@ import { adminRouter } from './routes/admin.js';
 import { tagsRouter } from './routes/tags.js';
 import { commentsRouter } from './routes/comments.js';
 import { brandRouter } from './routes/brand.js';
+import { genreRatingsRouter } from './routes/genre-ratings.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 export function createApp() {
@@ -62,6 +63,9 @@ export function createApp() {
 
   // Public read-only (no auth)
   app.use('/api/public', publicRouter);
+
+  // Genre perspective ratings + AI analysis ratings (GET is public; PUT/DELETE require auth)
+  app.use('/api/genre-ratings', genreRatingsRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.

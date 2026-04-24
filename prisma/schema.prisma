@@ -72,6 +72,8 @@ model Song {
   aiSpectrum      SongAiSpectrum?
   research        SongResearch?
   contextAnalysis SongContextAnalysis?
+  genreRatings    SongGenreRating[]
+  analysisRatings SongAnalysisRating[]
 
   @@unique([bandId, slug])
   @@map("songs")
@@ -317,8 +319,10 @@ model User {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  ratings  UserSongRating[]
-  comments SongComment[]
+  ratings         UserSongRating[]
+  comments        SongComment[]
+  genreRatings    SongGenreRating[]
+  analysisRatings SongAnalysisRating[]
 
   @@map("users")
 }
@@ -377,4 +381,45 @@ model AppIcon {
 
   @@unique([size])
   @@map("app_icons")
+}
+
+// ---------------------------------------------------------------------------
+// Genre perspective ratings — how a song lands for fans of different genres
+// One row per (user, song, perspective). Perspective is a short string id.
+// ---------------------------------------------------------------------------
+
+model SongGenreRating {
+  id          String   @id @default(cuid())
+  songId      String
+  userId      String
+  perspective String   // e.g. 'metal', 'rock', 'pop', 'hiphop', 'electronic', 'folk'
+  score       Int      // 1–10
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, songId, perspective])
+  @@map("song_genre_ratings")
+}
+
+// ---------------------------------------------------------------------------
+// AI analysis ratings — did the user find the AI analysis helpful?
+// One row per (user, song).
+// ---------------------------------------------------------------------------
+
+model SongAnalysisRating {
+  id        String   @id @default(cuid())
+  songId    String
+  userId    String
+  helpful   Boolean
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, songId])
+  @@map("song_analysis_ratings")
 }

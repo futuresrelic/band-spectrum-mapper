@@ -39,6 +39,17 @@ export const AXIS_INFO: Record<ScoreAxis, { lo: string; hi: string }> = {
 export const SCORE_MIN = 0;
 export const SCORE_MAX = 10;
 
+export const GENRE_PERSPECTIVES = [
+  { id: 'metal',      label: 'Metal fan',       emoji: '🤘' },
+  { id: 'rock',       label: 'Rock fan',         emoji: '🎸' },
+  { id: 'pop',        label: 'Pop fan',          emoji: '🎤' },
+  { id: 'hiphop',     label: 'Hip-hop fan',      emoji: '🎧' },
+  { id: 'electronic', label: 'Electronic fan',   emoji: '🎛️' },
+  { id: 'folk',       label: 'Folk / indie fan', emoji: '🪕' },
+] as const;
+
+export type GenrePerspective = (typeof GENRE_PERSPECTIVES)[number]['id'];
+
 export const SOURCE_TYPES = [
   'manual',
   'paste',
