@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { discographyApi } from '../api/discography';
 import type { DiscographyImportResult } from '../api/discography';
+import MusicBrainzLookup from '../components/MusicBrainzLookup';
 import PageHeader from '../components/layout/PageHeader';
 
 const SCORE_KEYS = ['aggression', 'complexity', 'atmosphere', 'emotion', 'psychedelic', 'concept'] as const;
@@ -22,11 +23,19 @@ const ACTION_CLS: Record<string, string> = {
   unchanged: 'text-surface-300',
 };
 
+type Tab = 'json' | 'musicbrainz';
+
 export default function DiscographyImportPage() {
+  const [tab, setTab] = useState<Tab>('json');
+
+  // JSON tab state
   const [paste, setPaste] = useState('');
   const [parseError, setParseError] = useState('');
   const [result, setResult] = useState<DiscographyImportResult | null>(null);
   const [op, setOp] = useState<'preview' | 'import' | null>(null);
+
+  // MusicBrainz tab state
+  const [mbDone, setMbDone] = useState(false);
 
   const mutation = useMutation({
     mutationFn: ({ payload, dryRun }: { payload: unknown; dryRun: boolean }) =>
@@ -34,6 +43,11 @@ export default function DiscographyImportPage() {
     onSuccess: (data) => { setResult(data); setParseError(''); },
     onError: (e) => { setParseError(e instanceof Error ? e.message : 'Request failed'); setOp(null); },
     onSettled: () => setOp(null),
+  });
+
+  const mbImportMutation = useMutation({
+    mutationFn: (data: unknown) => discographyApi.run(data, false),
+    onSuccess: (data) => { setResult(data); setMbDone(true); },
   });
 
   const tryParse = (): unknown | null => {
@@ -61,61 +75,104 @@ export default function DiscographyImportPage() {
     mutation.mutate({ payload, dryRun: false });
   };
 
+  const handleMbAction = (payload: { data: unknown }) => {
+    setResult(null);
+    setMbDone(false);
+    mbImportMutation.mutate(payload.data);
+  };
+
   const isPending = mutation.isPending;
 
   return (
     <div>
       <PageHeader
         title="Discography Import"
-        subtitle="Paste a full discography JSON to seed or update bands, albums, songs, and scores"
+        subtitle="Add bands, albums, and songs to the library"
       />
 
-      <div className="card mb-6 space-y-4">
-        <div>
-          <label className="label">JSON Payload</label>
-          <textarea
-            className="input font-mono text-xs leading-relaxed"
-            rows={14}
-            spellCheck={false}
-            placeholder={'{ "artist": "Tool", "albums": [{ "album_title": "Undertow", "album_slug": "undertow", "year": 1993, "tracks": [{ "track_number": 1, "song_title": "Intolerance", "song_slug": "intolerance", "Aggression": 8, "Complexity": 6, "Atmosphere": 4, "Emotion": 8, "Psychedelic": 2, "Concept": 6 }] }] }'}
-            value={paste}
-            onChange={(e) => { setPaste(e.target.value); setResult(null); setParseError(''); }}
-          />
-        </div>
-
-        <div className="text-xs text-surface-700 space-y-0.5">
-          <p>Required fields: <code>artist</code>, <code>albums[].album_title</code>, <code>albums[].album_slug</code>, <code>tracks[].song_title</code>, <code>tracks[].track_number</code></p>
-          <p>Score keys: <code>Aggression</code>, <code>Complexity</code>, <code>Atmosphere</code>, <code>Emotion</code>, <code>Psychedelic</code>, <code>Concept</code> (0–10 integers, capitalised or lowercase)</p>
-          <p>Re-import is safe: existing songs are matched by track number and scores are updated only when changed.</p>
-        </div>
-
-        {parseError && <p className="text-red-600 text-sm">{parseError}</p>}
-
-        <div className="flex gap-3">
+      {/* Tab switcher */}
+      <div className="flex gap-1 mb-6 border-b border-surface-200">
+        {(['json', 'musicbrainz'] as Tab[]).map((t) => (
           <button
-            className="btn-secondary"
-            onClick={handlePreview}
-            disabled={isPending || !paste.trim()}
+            key={t}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === t
+                ? 'border-surface-900 text-surface-900'
+                : 'border-transparent text-surface-500 hover:text-surface-700'
+            }`}
+            onClick={() => { setTab(t); setResult(null); setParseError(''); setMbDone(false); }}
           >
-            {isPending && op === 'preview' ? 'Previewing...' : 'Preview (dry run)'}
+            {t === 'json' ? 'Paste JSON' : 'MusicBrainz Lookup'}
           </button>
-          <button
-            className="btn-primary"
-            onClick={handleImport}
-            disabled={isPending || !paste.trim()}
-          >
-            {isPending && op === 'import' ? 'Importing...' : 'Import Now'}
-          </button>
-          {paste && (
+        ))}
+      </div>
+
+      {tab === 'json' && (
+        <div className="card mb-6 space-y-4">
+          <div>
+            <label className="label">JSON Payload</label>
+            <textarea
+              className="input font-mono text-xs leading-relaxed"
+              rows={14}
+              spellCheck={false}
+              placeholder={'{ "artist": "Tool", "albums": [{ "album_title": "Undertow", "album_slug": "undertow", "year": 1993, "tracks": [{ "track_number": 1, "song_title": "Intolerance", "song_slug": "intolerance", "Aggression": 8, "Complexity": 6, "Atmosphere": 4, "Emotion": 8, "Psychedelic": 2, "Concept": 6 }] }] }'}
+              value={paste}
+              onChange={(e) => { setPaste(e.target.value); setResult(null); setParseError(''); }}
+            />
+          </div>
+
+          <div className="text-xs text-surface-700 space-y-0.5">
+            <p>Required fields: <code>artist</code>, <code>albums[].album_title</code>, <code>albums[].album_slug</code>, <code>tracks[].song_title</code>, <code>tracks[].track_number</code></p>
+            <p>Score keys: <code>Aggression</code>, <code>Complexity</code>, <code>Atmosphere</code>, <code>Emotion</code>, <code>Psychedelic</code>, <code>Concept</code> (0–10 integers, capitalised or lowercase)</p>
+            <p>Re-import is safe: existing songs are matched by track number and scores are updated only when changed.</p>
+          </div>
+
+          {parseError && <p className="text-red-600 text-sm">{parseError}</p>}
+
+          <div className="flex gap-3">
             <button
-              className="btn-ghost text-sm"
-              onClick={() => { setPaste(''); setResult(null); setParseError(''); }}
+              className="btn-secondary"
+              onClick={handlePreview}
+              disabled={isPending || !paste.trim()}
             >
-              Clear
+              {isPending && op === 'preview' ? 'Previewing...' : 'Preview (dry run)'}
             </button>
+            <button
+              className="btn-primary"
+              onClick={handleImport}
+              disabled={isPending || !paste.trim()}
+            >
+              {isPending && op === 'import' ? 'Importing...' : 'Import Now'}
+            </button>
+            {paste && (
+              <button
+                className="btn-ghost text-sm"
+                onClick={() => { setPaste(''); setResult(null); setParseError(''); }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === 'musicbrainz' && (
+        <div className="card mb-6">
+          <MusicBrainzLookup
+            actionLabel="Import Now"
+            onAction={handleMbAction}
+            actionPending={mbImportMutation.isPending}
+            actionDone={mbDone}
+          />
+          {mbImportMutation.isError && (
+            <p className="text-red-600 text-sm mt-3">
+              {mbImportMutation.error instanceof Error
+                ? mbImportMutation.error.message
+                : 'Import failed'}
+            </p>
           )}
         </div>
-      </div>
+      )}
 
       {result && (
         <>

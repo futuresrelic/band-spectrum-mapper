@@ -20,6 +20,8 @@ import { tagsRouter } from './routes/tags.js';
 import { commentsRouter } from './routes/comments.js';
 import { brandRouter } from './routes/brand.js';
 import { genreRatingsRouter } from './routes/genre-ratings.js';
+import { musicBrainzRouter } from './routes/musicbrainz.js';
+import { contributionsRouter } from './routes/contributions.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 export function createApp() {
@@ -66,6 +68,12 @@ export function createApp() {
 
   // Genre perspective ratings + AI analysis ratings (GET is public; PUT/DELETE require auth)
   app.use('/api/genre-ratings', genreRatingsRouter);
+
+  // MusicBrainz proxy (auth required — rate-limited on server)
+  app.use('/api/musicbrainz', musicBrainzRouter);
+
+  // Library contributions from users
+  app.use('/api/contributions', contributionsRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.

@@ -128,18 +128,33 @@ export const genreSpectrumService = {
 
 Scale:
 1–2  Would likely dislike / completely outside their taste
-3–4  A few genre fans might appreciate it, but most would not
+3–4  A minority of these fans might appreciate it
 5–6  A meaningful portion of genre fans would enjoy it
 7–8  Most fans of this genre would appreciate or enjoy it
 9–10 Near-universally loved within this genre
 
+IMPORTANT nuance per genre:
+- metal: heavy, aggressive, technical — includes progressive metal, djent, post-metal
+- rock: guitar-driven and melodic — includes alternative, grunge, post-rock, art rock
+- pop: mainstream accessibility — structured, catchy, radio-friendly
+- hiphop: beats, flow, lyricism, rhythm — includes conscious rap, experimental hip-hop
+- electronic: synthesizers, production, digital soundscapes — includes industrial, ambient, IDM
+- folk/indie: THIS IS A WIDE UMBRELLA. Indie/alternative fans are often the most eclectic listeners.
+  They frequently love experimental, dark, atmospheric, and conceptually complex music.
+  Many indie fans are deeply into bands like Tool, Porcupine Tree, Radiohead, Nine Inch Nails,
+  Nick Cave, Portishead, Talk Talk, PJ Harvey, Björk, and Deftones — alongside folk artists like
+  Bon Iver, Sufjan Stevens, and Fleet Foxes. Rate folk/indie HIGH for: atmospheric, psychedelic,
+  conceptually rich, or emotionally intense music. Rate it LOW only for straightforward metal
+  aggression with no melodic or cerebral qualities.
+
 Genres to rate:
-- metal: fans of heavy, aggressive, technical music (Tool, Metallica, Meshuggah, Slayer)
-- rock: fans of guitar-driven, melodic, energetic rock (Foo Fighters, Pearl Jam, RHCP, Radiohead)
-- pop: mainstream music fans who prefer accessible, catchy, structured songs
-- hiphop: fans of beats, flow, lyricism, rhythm, and production (Kendrick Lamar, Jay-Z, Tyler)
-- electronic: fans of synthesizers, production design, beats, and digital soundscapes (Aphex Twin, Daft Punk, Burial)
-- folk: fans of acoustic, storytelling-focused, organic music (Bob Dylan, Fleet Foxes, Nick Drake)
+- metal: heavy, technical, aggressive (Tool, Metallica, Meshuggah, Slayer, Mastodon)
+- rock: guitar-driven, energetic, melodic (Pearl Jam, RHCP, Foo Fighters, Alice in Chains)
+- pop: mainstream, catchy, accessible (Taylor Swift, Coldplay at their most radio-friendly)
+- hiphop: beats, flow, lyricism (Kendrick Lamar, Jay-Z, Tyler the Creator, Death Grips)
+- electronic: synthesized, produced, digital (Aphex Twin, Daft Punk, Burial, Nine Inch Nails)
+- folk/indie: eclectic alternative/indie listeners open to experimental sounds (Radiohead,
+  Nick Cave, Portishead, Talk Talk, PJ Harvey, Björk, Porcupine Tree, Bon Iver, Fleet Foxes)
 
 ${contextParts.join('\n\n')}
 

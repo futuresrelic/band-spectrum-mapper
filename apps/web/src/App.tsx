@@ -18,7 +18,9 @@ import DiscographyImportPage from './pages/DiscographyImportPage';
 import ViewerIndexPage from './pages/ViewerIndexPage';
 import ViewerBandPage from './pages/ViewerBandPage';
 import AdminUsersPage from './pages/AdminUsersPage';
+import AdminContributionsPage from './pages/AdminContributionsPage';
 import UserRatePage from './pages/UserRatePage';
+import ContributePage from './pages/ContributePage';
 import TagSongsPage from './pages/TagSongsPage';
 import LandingPage from './pages/LandingPage';
 import LegalPage from './pages/LegalPage';
@@ -65,6 +67,7 @@ export default function App() {
         <Route path="/my" element={<UserLayout />}>
           <Route index element={<Navigate to="/my/rate" replace />} />
           <Route path="rate" element={<UserRatePage />} />
+          <Route path="contribute" element={<ContributePage />} />
         </Route>
 
         {/* ── ADMIN: full app, isAdmin required ── */}
@@ -90,6 +93,7 @@ export default function App() {
           <Route path="discography" element={<DiscographyImportPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="admin/users" element={<AdminUsersPage />} />
+          <Route path="admin/contributions" element={<AdminContributionsPage />} />
         </Route>
       </Routes>
     </AuthProvider>

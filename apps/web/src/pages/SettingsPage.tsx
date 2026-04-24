@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { settingsApi } from '../api/settings';
@@ -12,6 +12,12 @@ export default function SettingsPage() {
   const [searchParams] = useSearchParams();
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>((searchParams.get('tab') as Tab) ?? 'stopwords');
+
+  useEffect(() => {
+    const t = searchParams.get('tab') as Tab | null;
+    if (t === 'stopwords' || t === 'icons') setTab(t);
+  }, [searchParams]);
+
   const [newWord, setNewWord] = useState('');
   const [addError, setAddError] = useState('');
 

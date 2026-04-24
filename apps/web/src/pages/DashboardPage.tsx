@@ -118,9 +118,10 @@ export default function DashboardPage() {
         <p className="text-xs font-bold uppercase tracking-widest text-surface-400 mb-3">Admin</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
           {[
-            { to: '/admin/users',        label: 'User Moderation',     desc: 'Manage users & community access' },
-            { to: '/settings?tab=icons', label: 'App Icons & Branding',desc: 'Favicon, PWA icons, logo' },
-            { to: '/settings',           label: 'Stopwords',           desc: 'Lyrics analysis settings' },
+            { to: '/admin/users',         label: 'User Moderation',       desc: 'Manage users & community access' },
+            { to: '/admin/contributions', label: 'Contributions Queue',    desc: 'Review band submissions from users' },
+            { to: '/settings?tab=icons',  label: 'App Icons & Branding',  desc: 'Favicon, PWA icons, logo' },
+            { to: '/settings',            label: 'Stopwords',             desc: 'Lyrics analysis settings' },
           ].map(({ to, label, desc }) => (
             <Link key={to} to={to} className="card hover:border-surface-700 transition-colors group">
               <p className="font-medium text-sm group-hover:underline">{label}</p>

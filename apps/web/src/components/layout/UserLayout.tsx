@@ -17,6 +17,12 @@ export default function UserLayout() {
           >
             Browse results
           </Link>
+          <Link
+            to="/my/contribute"
+            className="text-xs text-surface-400 hover:text-surface-200 transition-colors"
+          >
+            Contribute a band
+          </Link>
         </div>
 
         <div className="flex items-center gap-4">

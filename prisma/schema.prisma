@@ -317,13 +317,17 @@ model User {
   isAdmin             Boolean  @default(false)
   isCommunityExcluded Boolean  @default(false)
   isActive            Boolean  @default(true)
+  lookupTokens        Int      @default(3)
+  tokensLastRefreshed DateTime @default(now())
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  ratings         UserSongRating[]
-  comments        SongComment[]
-  genreRatings    SongGenreRating[]
-  analysisRatings SongAnalysisRating[]
+  ratings              UserSongRating[]
+  comments             SongComment[]
+  genreRatings         SongGenreRating[]
+  analysisRatings      SongAnalysisRating[]
+  contributions        PendingContribution[] @relation("ContributionAuthor")
+  contributionReviews  PendingContribution[] @relation("ContributionReviewer")
 
   @@map("users")
 }
@@ -447,4 +451,28 @@ model SongAiGenreSpectrum {
   song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
 
   @@map("song_ai_genre_spectrums")
+}
+
+// ---------------------------------------------------------------------------
+// Pending library contributions — users request bands/albums via MusicBrainz.
+// Admin reviews and approves (auto-imports) or rejects.
+// ---------------------------------------------------------------------------
+
+model PendingContribution {
+  id           String    @id @default(cuid())
+  userId       String
+  artistName   String
+  artistMbId   String
+  albumCount   Int       @default(0)
+  data         Json      // discography payload in discographyImportService format
+  status       String    @default("pending") // pending | approved | rejected
+  adminNote    String?
+  createdAt    DateTime  @default(now())
+  reviewedAt   DateTime?
+  reviewedById String?
+
+  user     User  @relation("ContributionAuthor",   fields: [userId],       references: [id], onDelete: Cascade)
+  reviewer User? @relation("ContributionReviewer", fields: [reviewedById], references: [id])
+
+  @@map("pending_contributions")
 }

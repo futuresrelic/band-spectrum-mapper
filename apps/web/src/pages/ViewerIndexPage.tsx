@@ -23,9 +23,16 @@ export default function ViewerIndexPage() {
           <nav className="flex items-center gap-3 text-sm">
             <Link to="/help" className="text-surface-600 hover:text-surface-900 transition-colors hidden sm:inline">Help</Link>
             {user ? (
-              <Link to={user.isAdmin ? '/dashboard' : '/my/rate'} className="btn-primary text-sm">
-                {user.isAdmin ? 'Dashboard' : 'My Ratings'}
-              </Link>
+              <>
+                {!user.isAdmin && (
+                  <Link to="/my/contribute" className="text-surface-600 hover:text-surface-900 transition-colors hidden sm:inline text-sm">
+                    Contribute
+                  </Link>
+                )}
+                <Link to={user.isAdmin ? '/dashboard' : '/my/rate'} className="btn-primary text-sm">
+                  {user.isAdmin ? 'Dashboard' : 'My Ratings'}
+                </Link>
+              </>
             ) : (
               <a href="/api/auth/google" className="btn-primary text-sm">Sign In</a>
             )}
