@@ -4,6 +4,7 @@ import { aiAnalysisService } from '../services/aiAnalysisService.js';
 import { songResearchService } from '../services/songResearchService.js';
 import { songContextService } from '../services/songContextService.js';
 import { genreSpectrumService } from '../services/genreSpectrumService.js';
+import { aiTagService } from '../services/aiTagService.js';
 import { scoreService } from '../services/scoreService.js';
 import { analysisQuerySchema, compareQuerySchema } from '@band-spectrum-mapper/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -110,5 +111,21 @@ analysisRouter.get('/ai/:songId/genre-spectrum', async (req, res, next) => {
 analysisRouter.post('/ai/:songId/genre-spectrum/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     res.json(await genreSpectrumService.regenerate(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+// AI tags — generate thematic tags and apply to song
+analysisRouter.post('/ai/:songId/tags', requireAuth, async (req, res, next) => {
+  try {
+    const tags = await aiTagService.generateAndApply(req.params['songId']!);
+    res.json({ tags });
+  } catch (e) { next(e); }
+});
+
+// GET current tags for a song
+analysisRouter.get('/ai/:songId/tags', async (req, res, next) => {
+  try {
+    const tags = await aiTagService.getTags(req.params['songId']!);
+    res.json({ tags });
   } catch (e) { next(e); }
 });

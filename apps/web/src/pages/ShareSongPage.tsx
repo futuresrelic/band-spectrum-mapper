@@ -450,10 +450,16 @@ export default function ShareSongPage() {
     } catch { /* clipboard unavailable */ }
   };
 
-  const tweetText = song
+  const shareText = song
     ? `"${song.title}" by ${song.band.name}${song.album ? ` · ${song.album.title}` : ''} — spectrum analysis`
     : 'Band Spectrum Mapper — deep music analysis';
-  const tweetUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(tweetText)}&url=${encodeURIComponent(shareUrl)}`;
+  const enc = (s: string) => encodeURIComponent(s);
+  const tweetUrl     = `https://x.com/intent/tweet?text=${enc(shareText)}&url=${enc(shareUrl)}`;
+  const facebookUrl  = `https://www.facebook.com/sharer/sharer.php?u=${enc(shareUrl)}`;
+  const whatsappUrl  = `https://wa.me/?text=${enc(shareText + ' ' + shareUrl)}`;
+  const redditUrl    = `https://www.reddit.com/submit?url=${enc(shareUrl)}&title=${enc(shareText)}`;
+  const linkedinUrl  = `https://www.linkedin.com/sharing/share-offsite/?url=${enc(shareUrl)}`;
+  const blueskyUrl   = `https://bsky.app/intent/compose?text=${enc(shareText + ' ' + shareUrl)}`;
 
   const coreScores = getCoreScores(aiSpectrum, song?.score);
 
@@ -564,30 +570,51 @@ export default function ShareSongPage() {
         </div>
 
         {/* Share actions */}
-        <div className="mt-6 flex flex-wrap gap-3">
-          <button
-            onClick={copyUrl}
-            className="flex-1 min-w-[140px] flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium px-5 py-3 rounded-lg transition-colors"
-          >
-            {copied ? '✓ Copied!' : '🔗 Copy link'}
-          </button>
-          <a
-            href={tweetUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-1 min-w-[140px] flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium px-5 py-3 rounded-lg transition-colors"
-          >
-            Share on X
-          </a>
-          <Link
-            to={`/view/${song.band.slug}`}
-            className="flex-1 min-w-[140px] flex items-center justify-center gap-2 bg-indigo-700 hover:bg-indigo-600 text-white text-sm font-medium px-5 py-3 rounded-lg transition-colors"
-          >
-            Full analysis →
-          </Link>
+        <div className="mt-6 space-y-3">
+          {/* Primary actions */}
+          <div className="flex gap-3">
+            <button
+              onClick={copyUrl}
+              className="flex-1 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium px-4 py-3 rounded-lg transition-colors"
+            >
+              {copied ? '✓ Copied!' : '🔗 Copy link'}
+            </button>
+            <Link
+              to={`/view/${song.band.slug}#song-${song.id}`}
+              className="flex-1 flex items-center justify-center gap-2 bg-indigo-700 hover:bg-indigo-600 text-white text-sm font-medium px-4 py-3 rounded-lg transition-colors"
+            >
+              Full analysis →
+            </Link>
+          </div>
+
+          {/* Social share grid */}
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { href: tweetUrl,    label: 'X / Twitter' },
+              { href: facebookUrl, label: 'Facebook'    },
+              { href: whatsappUrl, label: 'WhatsApp'    },
+              { href: redditUrl,   label: 'Reddit'      },
+              { href: linkedinUrl, label: 'LinkedIn'    },
+              { href: blueskyUrl,  label: 'Bluesky'     },
+            ].map(({ href, label }) => (
+              <a
+                key={label}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium px-3 py-2.5 rounded-lg transition-colors"
+              >
+                {label}
+              </a>
+            ))}
+          </div>
+
+          <p className="text-center text-[11px] text-slate-600">
+            Instagram: copy the link above and paste into your story or caption
+          </p>
         </div>
 
-        <p className="text-center text-xs text-slate-700 mt-6">
+        <p className="text-center text-xs text-slate-700 mt-4">
           Screenshot this card to share as an image
         </p>
       </div>

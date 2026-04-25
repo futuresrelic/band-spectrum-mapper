@@ -108,6 +108,7 @@ export default function DashboardPage() {
             { to: '/lyrics-builder', label: 'Lyrics Builder',     desc: 'Add/edit lyrics album by album' },
             { to: '/imports',        label: 'Import Lyrics',     desc: 'Bulk import from files' },
             { to: '/discography',    label: 'Discography Import', desc: 'Import from MusicBrainz' },
+            { to: '/cloud',          label: 'Song Cloud',         desc: 'Force-directed genre connection map' },
           ].map(({ to, label, desc }) => (
             <Link key={to} to={to} className="card hover:border-surface-700 transition-colors group">
               <p className="font-medium text-sm group-hover:underline">{label}</p>

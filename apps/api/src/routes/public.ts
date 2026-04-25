@@ -85,3 +85,32 @@ publicRouter.get('/community', async (req, res, next) => {
     res.json(await userRatingService.getCommunityRatings(songIds));
   } catch (e) { next(e); }
 });
+
+// GET /api/public/cloud — all songs with tags + genre scores for the song cloud
+publicRouter.get('/cloud', async (_req, res, next) => {
+  try {
+    const songs = await prisma.song.findMany({
+      include: {
+        band: { select: { name: true, slug: true } },
+        songTags: { include: { tag: { select: { name: true, slug: true } } } },
+        aiGenreSpectrum: {
+          select: { metal: true, rock: true, pop: true, hiphop: true, electronic: true, folk: true },
+        },
+        _count: { select: { ratings: true } },
+      },
+      orderBy: { title: 'asc' },
+    });
+
+    const result = songs.map((s) => ({
+      id: s.id,
+      title: s.title,
+      bandName: s.band.name,
+      bandSlug: s.band.slug,
+      tags: s.songTags.map((st) => ({ name: st.tag.name, slug: st.tag.slug })),
+      genreScores: s.aiGenreSpectrum ?? null,
+      ratingsCount: s._count.ratings,
+    }));
+
+    res.json(result);
+  } catch (e) { next(e); }
+});

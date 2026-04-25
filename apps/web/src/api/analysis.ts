@@ -74,4 +74,9 @@ export const analysisApi = {
     api.get<SongAiGenreSpectrum>(`/api/analysis/ai/${songId}/genre-spectrum`),
   regenerateAiGenreSpectrum: (songId: string) =>
     api.post<SongAiGenreSpectrum>(`/api/analysis/ai/${songId}/genre-spectrum/regenerate`, {}),
+
+  getAiTags: (songId: string) =>
+    api.get<{ tags: string[] }>(`/api/analysis/ai/${songId}/tags`),
+  generateAiTags: (songId: string) =>
+    api.post<{ tags: string[] }>(`/api/analysis/ai/${songId}/tags`, {}),
 };

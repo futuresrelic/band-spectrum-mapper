@@ -5,13 +5,14 @@ import { analysisApi } from '../api/analysis';
 import PageHeader from '../components/layout/PageHeader';
 import type { Song } from '@band-spectrum-mapper/shared';
 
-type JobType = 'analysis' | 'spectrum' | 'research' | 'genre';
+type JobType = 'analysis' | 'spectrum' | 'research' | 'genre' | 'tags';
 
 const JOB_LABELS: Record<JobType, string> = {
   analysis: 'AI Lyric Analysis',
   spectrum: 'AI Spectrum Scoring',
   research: 'Song Research',
   genre: 'Genre Accessibility',
+  tags: 'Thematic Tags',
 };
 
 const JOB_DESCRIPTIONS: Record<JobType, string> = {
@@ -19,6 +20,7 @@ const JOB_DESCRIPTIONS: Record<JobType, string> = {
   spectrum: 'Aggression, Complexity, Atmosphere, Emotion, Psychedelic, Concept (0–10)',
   research: 'Music style summary and background context',
   genre: 'How much each genre audience would enjoy it (Metal, Rock, Pop, Hip-Hop, Electronic, Folk/Indie)',
+  tags: 'Generate thematic tags (mood, theme, style, context) — powers the Song Cloud',
 };
 
 type RowStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped';
@@ -45,6 +47,11 @@ async function runJob(songId: string, job: JobType, force: boolean): Promise<voi
   }
   if (job === 'genre') {
     force ? await analysisApi.regenerateAiGenreSpectrum(songId) : await analysisApi.getAiGenreSpectrum(songId);
+    return;
+  }
+  if (job === 'tags') {
+    // Tags always regenerate (they upsert, not replace — safe to re-run)
+    await analysisApi.generateAiTags(songId);
     return;
   }
 }
@@ -80,10 +87,10 @@ export default function AiBatchRunnerPage() {
       const songs = await bandsApi.listSongs(band.id);
       for (const song of songs) {
         const statuses: Record<JobType, RowStatus> = {
-          analysis: 'pending', spectrum: 'pending', research: 'pending', genre: 'pending',
+          analysis: 'pending', spectrum: 'pending', research: 'pending', genre: 'pending', tags: 'pending',
         };
         const errors: Record<JobType, string> = {
-          analysis: '', spectrum: '', research: '', genre: '',
+          analysis: '', spectrum: '', research: '', genre: '', tags: '',
         };
         all.push({ song, bandName: band.name, statuses, errors });
       }

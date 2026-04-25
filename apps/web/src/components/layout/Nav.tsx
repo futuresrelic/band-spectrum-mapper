@@ -9,6 +9,7 @@ const links = [
   { to: '/compare',     label: 'Compare' },
   { to: '/imports',     label: 'Imports' },
   { to: '/discography', label: 'Discography' },
+  { to: '/cloud',       label: 'Song Cloud' },
   { to: '/settings',    label: 'Settings' },
 ];
 

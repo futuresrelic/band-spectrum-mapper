@@ -1,7 +1,6 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
 import { api } from '../lib/api';
 import { analysisApi } from '../api/analysis';
 import { useAuth } from '../contexts/AuthContext';
@@ -140,11 +139,18 @@ function SongExpanded({
   );
 }
 
-function SongRow({ song }: { song: PublicAlbum['songs'][number] }) {
-  const [expanded, setExpanded] = useState(false);
+function SongRow({ song, defaultExpanded = false }: { song: PublicAlbum['songs'][number]; defaultExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const rowRef = useRef<HTMLLIElement>(null);
+
+  useEffect(() => {
+    if (defaultExpanded && rowRef.current) {
+      setTimeout(() => rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 400);
+    }
+  }, [defaultExpanded]);
 
   return (
-    <li className="border-b border-surface-100 last:border-0">
+    <li ref={rowRef} id={`song-${song.id}`} className="border-b border-surface-100 last:border-0">
       <button
         className="w-full text-left px-4 py-3 hover:bg-surface-50 transition-colors flex items-center justify-between"
         onClick={() => setExpanded(!expanded)}
@@ -172,6 +178,12 @@ export default function ViewerBandPage() {
   const { bandSlug } = useParams<{ bandSlug: string }>();
   const { user } = useAuth();
 
+  const hashSongId = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    const h = window.location.hash;
+    return h.startsWith('#song-') ? h.slice(6) : '';
+  }, []);
+
   const { data: band, isLoading: loadingBand } = useQuery({
     queryKey: ['public-band', bandSlug],
     queryFn: () => api.get<PublicBand>(`/api/public/bands/${bandSlug}`),
@@ -184,8 +196,6 @@ export default function ViewerBandPage() {
     enabled: !!bandSlug,
   });
 
-  // Suppress TS unused-variable warning — user is used for conditional UI
-  void useMemo(() => user, [user]);
 
   const isLoading = loadingBand || loadingAlbums;
 
@@ -227,7 +237,7 @@ export default function ViewerBandPage() {
               <div className="bg-white rounded-lg border border-surface-200 overflow-hidden">
                 <ul>
                   {album.songs.map((song) => (
-                    <SongRow key={song.id} song={song} />
+                    <SongRow key={song.id} song={song} defaultExpanded={song.id === hashSongId} />
                   ))}
                 </ul>
               </div>

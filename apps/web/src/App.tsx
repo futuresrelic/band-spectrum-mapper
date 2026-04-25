@@ -29,6 +29,7 @@ import LegalPage from './pages/LegalPage';
 import HelpPage from './pages/HelpPage';
 import ShareSongPage from './pages/ShareSongPage';
 import UserProfilePage from './pages/UserProfilePage';
+import SongCloudPage from './pages/SongCloudPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -96,6 +97,7 @@ export default function App() {
           <Route path="imports" element={<ImportsPage />} />
           <Route path="lyrics-builder" element={<LyricsBuilderPage />} />
           <Route path="admin/ai-batch" element={<AiBatchRunnerPage />} />
+          <Route path="cloud" element={<SongCloudPage />} />
           <Route path="discography" element={<DiscographyImportPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="admin/users" element={<AdminUsersPage />} />
