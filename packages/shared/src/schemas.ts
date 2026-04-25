@@ -122,7 +122,7 @@ export const analysisQuerySchema = z.object({
   albumId: z.string().cuid().optional(),
   bandId: z.string().cuid().optional(),
   songIds: z.array(z.string().cuid()).optional(),
-  topN: z.coerce.number().int().min(1).max(500).default(50),
+  topN: z.coerce.number().int().min(1).max(2000).default(50),
   minWordLength: z.coerce.number().int().min(1).max(20).default(2),
   minCount: z.coerce.number().int().min(0).default(0),
   includeCustomStopwords: z.coerce.boolean().default(true),
@@ -147,7 +147,8 @@ export const comparisonSelectionSchema = z.object({
 export const compareQuerySchema = z.object({
   selectionA: comparisonSelectionSchema,
   selectionB: comparisonSelectionSchema,
-  topN: z.coerce.number().int().min(1).max(200).default(30),
+  selectionC: comparisonSelectionSchema.optional(),
+  topN: z.coerce.number().int().min(1).max(500).default(30),
   minWordLength: z.coerce.number().int().min(1).max(20).default(2),
 });
 

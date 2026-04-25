@@ -173,9 +173,9 @@ export default function LyricsAnalysisPage() {
         {/* Fetch params */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <div>
-            <label className="label">Top N Words</label>
-            <input className="input" type="number" min="10" max="500" value={topN}
-              onChange={(e) => setTopN(parseInt(e.target.value) || 50)} />
+            <label className="label">Top N Words <span className="text-surface-400 font-normal">(max 2000)</span></label>
+            <input className="input" type="number" min="10" max="2000" value={topN}
+              onChange={(e) => setTopN(Math.min(2000, parseInt(e.target.value) || 50))} />
           </div>
           <div>
             <label className="label">Min Occurrences</label>
@@ -279,7 +279,14 @@ export default function LyricsAnalysisPage() {
             {/* Result content */}
             {resultTab === 'cloud' && (
               filteredCloudData.length > 0
-                ? <WordCloudChart data={filteredCloudData} />
+                ? <WordCloudChart
+                    data={filteredCloudData}
+                    reversed={sortOrder === 'asc'}
+                    onWordClick={(word) => {
+                      setWordFilter(word);
+                      setResultTab('table');
+                    }}
+                  />
                 : <p className="text-sm text-surface-700">No words match current filters.</p>
             )}
 

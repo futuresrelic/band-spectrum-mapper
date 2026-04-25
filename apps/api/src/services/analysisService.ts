@@ -317,64 +317,101 @@ export const analysisService = {
   },
 
   async compare(query: CompareQueryInput): Promise<ComparisonResult> {
-    const analysisParams = {
-      topN: query.topN,
-      minWordLength: query.minWordLength,
-      includeCustomStopwords: true,
-    };
-
-    const [textsA, textsB] = await Promise.all([
-      (async () => {
-        const { selectionA } = query;
-        const songFilter = selectionA.songIds?.length
-          ? { id: { in: selectionA.songIds } }
-          : selectionA.albumIds?.length
-            ? { albumId: { in: selectionA.albumIds } }
-            : selectionA.bandIds?.length
-              ? { bandId: { in: selectionA.bandIds } }
-              : {};
-
-        return prisma.lyric.findMany({
-          where: { isPrimary: true, song: songFilter },
-          select: { text: true },
-        });
-      })(),
-      (async () => {
-        const { selectionB } = query;
-        const songFilter = selectionB.songIds?.length
-          ? { id: { in: selectionB.songIds } }
-          : selectionB.albumIds?.length
-            ? { albumId: { in: selectionB.albumIds } }
-            : selectionB.bandIds?.length
-              ? { bandId: { in: selectionB.bandIds } }
-              : {};
-
-        return prisma.lyric.findMany({
-          where: { isPrimary: true, song: songFilter },
-          select: { text: true },
-        });
-      })(),
-    ]);
+    const { topN, minWordLength } = query;
 
     const stopwords = new Set(DEFAULT_STOPWORDS);
     const custom = await getCustomStopwords();
     for (const w of custom) stopwords.add(w);
 
-    const processTexts = (texts: { text: string }[]) => {
-      const combined = texts.map((t) => t.text).join('\n');
-      const tokens = tokenize(combined);
-      return computeFrequency(tokens, stopwords, analysisParams.minWordLength, analysisParams.topN);
+    type LyricRow = {
+      text: string;
+      songId: string;
+      song: {
+        title: string;
+        bandId: string;
+        albumId: string | null;
+        band: { name: string };
+        album: { id: string; title: string } | null;
+      };
     };
 
-    const resultA = processTexts(textsA);
-    const resultB = processTexts(textsB);
+    const fetchLyrics = (sel: CompareQueryInput['selectionA']): Promise<LyricRow[]> => {
+      const songFilter = sel.songIds?.length
+        ? { id: { in: sel.songIds } }
+        : sel.albumIds?.length
+          ? { albumId: { in: sel.albumIds } }
+          : sel.bandIds?.length
+            ? { bandId: { in: sel.bandIds } }
+            : {};
+      return prisma.lyric.findMany({
+        where: { isPrimary: true, song: songFilter },
+        select: {
+          text: true,
+          songId: true,
+          song: {
+            select: {
+              title: true,
+              bandId: true,
+              albumId: true,
+              band: { select: { name: true } },
+              album: { select: { id: true, title: true } },
+            },
+          },
+        },
+      }) as Promise<LyricRow[]>;
+    };
 
-    const wordsA = new Set(resultA.topWords.map((w) => w.word));
-    const wordsB = new Set(resultB.topWords.map((w) => w.word));
+    const processSelection = (lyrics: LyricRow[]) => {
+      const combined = lyrics.map((l) => l.text).join('\n');
+      const tokens = tokenize(combined);
+      const freq = computeFrequency(tokens, stopwords, minWordLength, topN);
+      const topWordSet = new Set(freq.topWords.map((w) => w.word));
 
-    const sharedTopWords = resultA.topWords.filter((w) => wordsB.has(w.word));
-    const uniqueToA = resultA.topWords.filter((w) => !wordsB.has(w.word));
-    const uniqueToB = resultB.topWords.filter((w) => !wordsA.has(w.word));
+      // Build per-word → per-song link map
+      const linkMap = new Map<string, Map<string, { title: string; count: number; bandId: string; bandName: string; albumId: string | null; albumTitle: string | null }>>();
+      for (const lyric of lyrics) {
+        const songTokens = tokenize(lyric.text);
+        const songFreq = new Map<string, number>();
+        for (const tok of songTokens) {
+          if (tok.length >= minWordLength && !stopwords.has(tok) && topWordSet.has(tok)) {
+            songFreq.set(tok, (songFreq.get(tok) ?? 0) + 1);
+          }
+        }
+        for (const [word, count] of songFreq) {
+          if (!linkMap.has(word)) linkMap.set(word, new Map());
+          linkMap.get(word)!.set(lyric.songId, {
+            title: lyric.song.title,
+            count,
+            bandId: lyric.song.bandId,
+            bandName: lyric.song.band.name,
+            albumId: lyric.song.albumId,
+            albumTitle: lyric.song.album?.title ?? null,
+          });
+        }
+      }
+
+      const wordSongLinks: WordSongLink[] = freq.topWords
+        .filter((w) => linkMap.has(w.word))
+        .map((w) => ({
+          word: w.word,
+          totalCount: w.count,
+          songs: [...(linkMap.get(w.word)?.entries() ?? [])].map(([songId, d]) => ({
+            songId,
+            title: d.title,
+            count: d.count,
+            bandId: d.bandId,
+            bandName: d.bandName,
+            albumId: d.albumId,
+            albumTitle: d.albumTitle,
+          })),
+        }));
+
+      return {
+        ...freq,
+        wordSongLinks,
+        wordCloudData: freq.topWords.map((w) => ({ text: w.word, value: w.count })),
+      };
+    };
 
     const getScoreAverages = async (sel: CompareQueryInput['selectionA']) => {
       const songFilter = sel.songIds?.length
@@ -384,7 +421,6 @@ export const analysisService = {
           : sel.bandIds?.length
             ? { bandId: { in: sel.bandIds } }
             : {};
-
       const scores = await prisma.songAxisScore.findMany({ where: songFilter });
       if (scores.length === 0) {
         return { aggression: 0, complexity: 0, atmosphere: 0, emotion: 0, psychedelic: 0, concept: 0 };
@@ -397,35 +433,48 @@ export const analysisService = {
       ) as { aggression: number; complexity: number; atmosphere: number; emotion: number; psychedelic: number; concept: number };
     };
 
-    const [scoresA, scoresB] = await Promise.all([
-      getScoreAverages(query.selectionA),
-      getScoreAverages(query.selectionB),
-    ]);
+    const sels = [query.selectionA, query.selectionB, ...(query.selectionC ? [query.selectionC] : [])];
+    const [lyricsA, lyricsB, lyricsC] = await Promise.all(sels.map(fetchLyrics));
+
+    const resultA = processSelection(lyricsA!);
+    const resultB = processSelection(lyricsB!);
+    const resultC = lyricsC ? processSelection(lyricsC) : undefined;
+
+    const [scoresA, scoresB, ...restScores] = await Promise.all(sels.map(getScoreAverages));
+    const scoresC = restScores[0];
+
+    const wordsA = new Set(resultA.topWords.map((w) => w.word));
+    const wordsB = new Set(resultB.topWords.map((w) => w.word));
+    const wordsC = resultC ? new Set(resultC.topWords.map((w) => w.word)) : null;
+
+    const inAll = (word: string) =>
+      wordsA.has(word) && wordsB.has(word) && (!wordsC || wordsC.has(word));
+
+    const sharedTopWords = resultA.topWords.filter((w) => inAll(w.word));
+    const uniqueToA = resultA.topWords.filter((w) => !wordsB.has(w.word) && (!wordsC || !wordsC.has(w.word)));
+    const uniqueToB = resultB.topWords.filter((w) => !wordsA.has(w.word) && (!wordsC || !wordsC.has(w.word)));
+    const uniqueToC = resultC
+      ? resultC.topWords.filter((w) => !wordsA.has(w.word) && !wordsB.has(w.word))
+      : undefined;
+
+    const makeAnalysis = (r: ReturnType<typeof processSelection>) => ({
+      totalWords: r.totalWords,
+      uniqueWords: r.uniqueWords,
+      topWords: r.topWords,
+      wordCloudData: r.wordCloudData,
+      wordSongLinks: r.wordSongLinks,
+    });
 
     return {
-      selectionA: {
-        label: query.selectionA.label,
-        scores: scoresA,
-        analysis: {
-          totalWords: resultA.totalWords,
-          uniqueWords: resultA.uniqueWords,
-          topWords: resultA.topWords,
-          wordCloudData: resultA.topWords.map((w) => ({ text: w.word, value: w.count })),
-        },
-      },
-      selectionB: {
-        label: query.selectionB.label,
-        scores: scoresB,
-        analysis: {
-          totalWords: resultB.totalWords,
-          uniqueWords: resultB.uniqueWords,
-          topWords: resultB.topWords,
-          wordCloudData: resultB.topWords.map((w) => ({ text: w.word, value: w.count })),
-        },
-      },
+      selectionA: { label: query.selectionA.label, scores: scoresA!, analysis: makeAnalysis(resultA) },
+      selectionB: { label: query.selectionB.label, scores: scoresB!, analysis: makeAnalysis(resultB) },
+      ...(resultC && scoresC ? {
+        selectionC: { label: query.selectionC!.label, scores: scoresC, analysis: makeAnalysis(resultC) },
+      } : {}),
       sharedTopWords,
       uniqueToA,
       uniqueToB,
+      ...(uniqueToC ? { uniqueToC } : {}),
     };
   },
 };

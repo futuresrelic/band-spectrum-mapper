@@ -121,6 +121,7 @@ export default function DashboardPage() {
           {[
             { to: '/admin/users',         label: 'User Moderation',       desc: 'Manage users & community access' },
             { to: '/admin/contributions', label: 'Contributions Queue',    desc: 'Review band submissions from users' },
+            { to: '/admin/ai-batch',      label: 'AI Batch Runner',        desc: 'Generate AI for all songs at once' },
             { to: '/settings?tab=icons',  label: 'App Icons & Branding',  desc: 'Favicon, PWA icons, logo' },
             { to: '/settings',            label: 'Stopwords',             desc: 'Lyrics analysis settings' },
           ].map(({ to, label, desc }) => (

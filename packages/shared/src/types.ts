@@ -300,20 +300,20 @@ export interface SongContextAnalysis {
   updatedAt: string;
 }
 
+export interface ComparisonSelection {
+  label: string;
+  scores: AxisScoreMap;
+  analysis: LyricsAnalysisResult;
+}
+
 export interface ComparisonResult {
-  selectionA: {
-    label: string;
-    scores: AxisScoreMap;
-    analysis: LyricsAnalysisResult;
-  };
-  selectionB: {
-    label: string;
-    scores: AxisScoreMap;
-    analysis: LyricsAnalysisResult;
-  };
+  selectionA: ComparisonSelection;
+  selectionB: ComparisonSelection;
+  selectionC?: ComparisonSelection;
   sharedTopWords: WordFrequency[];
   uniqueToA: WordFrequency[];
   uniqueToB: WordFrequency[];
+  uniqueToC?: WordFrequency[];
 }
 
 // ---------------------------------------------------------------------------
