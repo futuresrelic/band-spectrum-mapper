@@ -1,16 +1,25 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  Radar,
+  RadarChart as RechartsRadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  ResponsiveContainer,
+} from 'recharts';
 import { api } from '../lib/api';
 import { analysisApi } from '../api/analysis';
 import { songsApi } from '../api/songs';
 import { useAuth } from '../contexts/AuthContext';
-import type { SongAxisScore, SongAiSpectrum, ScoreAxis } from '@band-spectrum-mapper/shared';
+import type { SongAxisScore, SongAiSpectrum, SongAiGenreSpectrum } from '@band-spectrum-mapper/shared';
 import {
   SCORE_AXES,
   AXIS_COLORS,
   AXIS_LABELS,
   GENRE_PERSPECTIVES,
+  GENRE_COLORS,
+  GENRE_LABELS,
   type GenrePerspective,
 } from '@band-spectrum-mapper/shared';
 
@@ -41,16 +50,74 @@ type GenreRatingsResponse = {
 };
 
 // ---------------------------------------------------------------------------
-// Sub-components
+// Core Spectrum — dark radar chart
 // ---------------------------------------------------------------------------
 
-function SpectrumBar({ axis, score }: { axis: ScoreAxis; score: number }) {
-  const color = AXIS_COLORS[axis] ?? '#6366f1';
+function CoreSpectrumRadar({
+  scores,
+  source,
+}: {
+  scores: Record<string, number>;
+  source: string;
+}) {
+  const radarData = SCORE_AXES.map((axis) => ({
+    axis: AXIS_LABELS[axis] ?? axis,
+    value: Number(scores[axis] ?? 0),
+  }));
+
+  return (
+    <div className="px-7 py-6 border-b border-slate-800">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Core Spectrum</p>
+        <p className="text-xs text-slate-600">{source}</p>
+      </div>
+      <div className="h-[200px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <RechartsRadarChart data={radarData} cx="50%" cy="50%" outerRadius="72%">
+            <PolarGrid stroke="#1e293b" />
+            <PolarAngleAxis
+              dataKey="axis"
+              tick={{ fill: '#64748b', fontSize: 10, fontWeight: 500 }}
+            />
+            <Radar
+              name="score"
+              dataKey="value"
+              stroke="#818cf8"
+              fill="#818cf8"
+              fillOpacity={0.25}
+              dot={{ fill: '#818cf8', r: 2 }}
+            />
+          </RechartsRadarChart>
+        </ResponsiveContainer>
+      </div>
+      {/* Compact score grid below radar */}
+      <div className="grid grid-cols-3 gap-x-4 gap-y-1 mt-2">
+        {SCORE_AXES.map((axis) => {
+          const val = Number(scores[axis] ?? 0);
+          const color = AXIS_COLORS[axis] ?? '#818cf8';
+          return (
+            <div key={axis} className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-500">{AXIS_LABELS[axis]}</span>
+              <span className="font-mono font-bold" style={{ color }}>{val.toFixed(1)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Genre Spectrum — dark horizontal bars
+// ---------------------------------------------------------------------------
+
+function GenreBar({ perspective, score }: { perspective: GenrePerspective; score: number }) {
+  const color = GENRE_COLORS[perspective];
   const pct = Math.round((score / 10) * 100);
   return (
-    <div className="space-y-1">
+    <div className="space-y-0.5">
       <div className="flex justify-between items-baseline">
-        <span className="text-xs text-slate-400 font-medium">{AXIS_LABELS[axis]}</span>
+        <span className="text-xs text-slate-400">{GENRE_LABELS[perspective]}</span>
         <span className="text-xs font-bold tabular-nums" style={{ color }}>{score.toFixed(1)}</span>
       </div>
       <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
@@ -63,19 +130,65 @@ function SpectrumBar({ axis, score }: { axis: ScoreAxis; score: number }) {
   );
 }
 
-function getScores(aiSpectrum: SongAiSpectrum | undefined, coreScore: SongAxisScore | null | undefined) {
-  if (aiSpectrum) return { source: 'AI Spectrum', data: aiSpectrum as unknown as Record<string, number> };
-  if (coreScore) return { source: 'Core Score', data: coreScore as unknown as Record<string, number> };
-  return null;
+function GenreSpectrumBars({
+  aiGenre,
+  communityAgg,
+}: {
+  aiGenre: SongAiGenreSpectrum | undefined;
+  communityAgg: GenreAggregate[];
+}) {
+  const hasAi = !!aiGenre;
+  const hasCommunity = communityAgg.length > 0;
+
+  if (!hasAi && !hasCommunity) return null;
+
+  const source = hasAi ? 'AI' : 'Community';
+
+  function getScore(id: GenrePerspective): number {
+    if (hasAi) return Number(aiGenre![id] ?? 0);
+    return communityAgg.find((a) => a.perspective === id)?.avg ?? 0;
+  }
+
+  return (
+    <div className="px-7 py-6 border-b border-slate-800">
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Genre Appeal</p>
+        <p className="text-xs text-slate-600">{source}</p>
+      </div>
+      <div className="space-y-3">
+        {GENRE_PERSPECTIVES.map((p) => (
+          <GenreBar key={p.id} perspective={p.id} score={getScore(p.id)} />
+        ))}
+      </div>
+      {aiGenre?.rationale && (
+        <p className="text-[11px] text-slate-500 mt-3 leading-relaxed italic">
+          {aiGenre.rationale.length > 200 ? aiGenre.rationale.slice(0, 197) + '…' : aiGenre.rationale}
+        </p>
+      )}
+    </div>
+  );
 }
+
+// ---------------------------------------------------------------------------
+// Helper
+// ---------------------------------------------------------------------------
 
 function truncate(text: string, maxLen: number) {
   if (text.length <= maxLen) return text;
   return text.slice(0, maxLen - 1).trimEnd() + '…';
 }
 
+function getCoreScores(
+  aiSpectrum: SongAiSpectrum | undefined,
+  coreScore: SongAxisScore | null | undefined,
+): { source: string; data: Record<string, number> } | null {
+  if (aiSpectrum) return { source: 'AI', data: aiSpectrum as unknown as Record<string, number> };
+  if (coreScore) return { source: 'Core', data: coreScore as unknown as Record<string, number> };
+  return null;
+}
+
 // ---------------------------------------------------------------------------
-// Genre rating section
+// Genre rating section (interactive — unchanged)
 // ---------------------------------------------------------------------------
 
 const LS_GENRE_KEY = (songId: string) => `genre_rating_${songId}`;
@@ -85,14 +198,12 @@ function GenrePerspectiveSection({ songId }: { songId: string }) {
   const { user } = useAuth();
   const qc = useQueryClient();
 
-  // Community data
   const { data: ratingsData, isLoading } = useQuery({
     queryKey: ['genre-ratings', songId],
     queryFn: () => api.get<GenreRatingsResponse>(`/api/genre-ratings/songs/${songId}`),
     staleTime: 30_000,
   });
 
-  // Guest local state (used when not logged in)
   const [localGenre, setLocalGenre] = useState<Record<string, number>>(() => {
     try { return JSON.parse(localStorage.getItem(LS_GENRE_KEY(songId)) ?? '{}'); }
     catch { return {}; }
@@ -102,10 +213,8 @@ function GenrePerspectiveSection({ songId }: { songId: string }) {
   const [sliderScore, setSliderScore] = useState(5);
   const [submitted, setSubmitted] = useState(false);
 
-  // Initialise slider when a perspective is selected
   useEffect(() => {
     if (!selectedPerspective) return;
-    // Prefer server value (logged in) → local value (guest) → 5
     const serverVal = ratingsData?.myGenreRatings.find((r) => r.perspective === selectedPerspective)?.score;
     const localVal = localGenre[selectedPerspective];
     setSliderScore(serverVal ?? localVal ?? 5);
@@ -126,7 +235,6 @@ function GenrePerspectiveSection({ songId }: { songId: string }) {
     if (user) {
       submitMutation.mutate({ perspective: selectedPerspective, score: sliderScore });
     } else {
-      // Guest — store in localStorage
       const next = { ...localGenre, [selectedPerspective]: sliderScore };
       setLocalGenre(next);
       localStorage.setItem(LS_GENRE_KEY(songId), JSON.stringify(next));
@@ -136,19 +244,14 @@ function GenrePerspectiveSection({ songId }: { songId: string }) {
   }
 
   const aggregates = ratingsData?.genreAggregates ?? [];
-  const maxCount = Math.max(...aggregates.map((a) => a.count), 1);
-
-  // Merge server my-ratings + local (guest) my-ratings
   const myRatings: Record<string, number> = {};
   (ratingsData?.myGenreRatings ?? []).forEach((r) => { myRatings[r.perspective] = r.score; });
   if (!user) Object.assign(myRatings, localGenre);
 
   return (
     <div className="px-7 py-6 border-b border-slate-800">
-      <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-4">Genre Perspective</p>
-
-      {/* Perspective chips */}
-      <p className="text-xs text-slate-400 mb-3">How does this song land as a…</p>
+      <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-4">Rate as a fan</p>
+      <p className="text-xs text-slate-400 mb-3">How does this song land if you're a…</p>
       <div className="flex flex-wrap gap-2 mb-5">
         {GENRE_PERSPECTIVES.map((p) => {
           const myScore = myRatings[p.id];
@@ -175,7 +278,6 @@ function GenrePerspectiveSection({ songId }: { songId: string }) {
         })}
       </div>
 
-      {/* Score slider — shown when a perspective is selected */}
       {selectedPerspective && (
         <div className="bg-slate-800/60 rounded-xl p-4 mb-5 border border-slate-700">
           <div className="flex items-center justify-between mb-3">
@@ -185,11 +287,7 @@ function GenrePerspectiveSection({ songId }: { songId: string }) {
             <span className="text-lg font-bold tabular-nums text-indigo-400">{sliderScore}</span>
           </div>
           <input
-            type="range"
-            min={1}
-            max={10}
-            step={1}
-            value={sliderScore}
+            type="range" min={1} max={10} step={1} value={sliderScore}
             onChange={(e) => setSliderScore(Number(e.target.value))}
             className="w-full accent-indigo-500 cursor-pointer"
           />
@@ -206,61 +304,23 @@ function GenrePerspectiveSection({ songId }: { songId: string }) {
               {submitted ? '✓ Saved!' : submitMutation.isPending ? 'Saving…' : 'Save rating'}
             </button>
             {!user && (
-              <a
-                href="/api/auth/google"
-                className="text-xs text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap"
-              >
+              <a href="/api/auth/google" className="text-xs text-slate-400 hover:text-slate-200 whitespace-nowrap">
                 Sign in to share →
               </a>
             )}
           </div>
-          {!user && (
-            <p className="text-[10px] text-slate-600 mt-2">
-              Your rating is saved locally.{' '}
-              <a href="/api/auth/google" className="text-indigo-500 hover:text-indigo-400">Sign in</a>
-              {' '}to contribute to the community average.
-            </p>
-          )}
         </div>
       )}
 
-      {/* Community breakdown bars */}
-      {isLoading && <p className="text-xs text-slate-600 italic">Loading community data…</p>}
-      {!isLoading && aggregates.length === 0 && (
+      {!isLoading && aggregates.length === 0 && !selectedPerspective && (
         <p className="text-xs text-slate-600 italic">No community ratings yet — be the first!</p>
-      )}
-      {aggregates.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600 mb-2">Community</p>
-          {GENRE_PERSPECTIVES.filter((p) => aggregates.some((a) => a.perspective === p.id)).map((p) => {
-            const agg = aggregates.find((a) => a.perspective === p.id)!;
-            const barPct = Math.round((agg.count / maxCount) * 100);
-            return (
-              <div key={p.id} className="flex items-center gap-3">
-                <span className="text-[10px] text-slate-500 w-28 shrink-0 truncate">{p.label}</span>
-                <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-indigo-500/60 transition-all"
-                    style={{ width: `${barPct}%` }}
-                  />
-                </div>
-                <span className="text-xs font-bold tabular-nums text-slate-400 w-8 text-right">
-                  {agg.avg.toFixed(1)}
-                </span>
-                <span className="text-[10px] text-slate-600 w-14 text-right">
-                  {agg.count} {agg.count === 1 ? 'rating' : 'ratings'}
-                </span>
-              </div>
-            );
-          })}
-        </div>
       )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// AI analysis rating (helpful / not helpful)
+// Analysis helpfulness
 // ---------------------------------------------------------------------------
 
 function AnalysisRatingSection({ songId }: { songId: string }) {
@@ -269,7 +329,6 @@ function AnalysisRatingSection({ songId }: { songId: string }) {
 
   const { data: ratingsData } = useQuery({
     queryKey: ['genre-ratings', songId],
-    // This query is already running from GenrePerspectiveSection — will reuse cache
     queryFn: () => api.get<GenreRatingsResponse>(`/api/genre-ratings/songs/${songId}`),
     staleTime: 30_000,
   });
@@ -310,46 +369,23 @@ function AnalysisRatingSection({ songId }: { songId: string }) {
           </p>
         )}
       </div>
-
       <div className="flex gap-3 mt-3">
-        <button
-          onClick={() => vote(true)}
-          disabled={submitMutation.isPending}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-            myVote === true
-              ? 'bg-emerald-700/40 border-emerald-600 text-emerald-300'
-              : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'
-          }`}
-        >
-          <span>👍</span>
-          <span>Yes</span>
-          {agg && agg.helpful > 0 && (
-            <span className="text-xs text-slate-500 tabular-nums">{agg.helpful}</span>
-          )}
-        </button>
-        <button
-          onClick={() => vote(false)}
-          disabled={submitMutation.isPending}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-            myVote === false
-              ? 'bg-rose-900/40 border-rose-700 text-rose-300'
-              : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'
-          }`}
-        >
-          <span>👎</span>
-          <span>Not really</span>
-          {agg && agg.notHelpful > 0 && (
-            <span className="text-xs text-slate-500 tabular-nums">{agg.notHelpful}</span>
-          )}
-        </button>
+        {[{ val: true, label: '👍 Yes', count: agg?.helpful }, { val: false, label: '👎 Not really', count: agg?.notHelpful }].map(({ val, label, count }) => (
+          <button
+            key={String(val)}
+            onClick={() => vote(val)}
+            disabled={submitMutation.isPending}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+              myVote === val
+                ? val ? 'bg-emerald-700/40 border-emerald-600 text-emerald-300' : 'bg-rose-900/40 border-rose-700 text-rose-300'
+                : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'
+            }`}
+          >
+            {label}
+            {count != null && count > 0 && <span className="text-xs text-slate-500 tabular-nums">{count}</span>}
+          </button>
+        ))}
       </div>
-
-      {!user && myVote !== null && (
-        <p className="text-[10px] text-slate-600 mt-2">
-          <a href="/api/auth/google" className="text-indigo-500 hover:text-indigo-400">Sign in</a>
-          {' '}to make your vote count.
-        </p>
-      )}
     </div>
   );
 }
@@ -376,6 +412,20 @@ export default function ShareSongPage() {
     retry: false,
   });
 
+  const { data: aiGenre } = useQuery({
+    queryKey: ['ai-genre-spectrum', songId],
+    queryFn: () => analysisApi.getAiGenreSpectrum(songId!),
+    enabled: !!songId,
+    retry: false,
+  });
+
+  const { data: genreRatings } = useQuery({
+    queryKey: ['genre-ratings', songId],
+    queryFn: () => api.get<GenreRatingsResponse>(`/api/genre-ratings/songs/${songId!}`),
+    enabled: !!songId,
+    retry: false,
+  });
+
   const { data: context } = useQuery({
     queryKey: ['song-context', songId],
     queryFn: () => analysisApi.getSongContext(songId!),
@@ -397,17 +447,15 @@ export default function ShareSongPage() {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
-    } catch {
-      // clipboard unavailable — silent fail
-    }
+    } catch { /* clipboard unavailable */ }
   };
 
   const tweetText = song
-    ? `"${song.title}" by ${song.band.name}${song.album ? ` · ${song.album.title}` : ''} — spectrum analysis & deep dive`
+    ? `"${song.title}" by ${song.band.name}${song.album ? ` · ${song.album.title}` : ''} — spectrum analysis`
     : 'Band Spectrum Mapper — deep music analysis';
   const tweetUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(tweetText)}&url=${encodeURIComponent(shareUrl)}`;
 
-  const scores = getScores(aiSpectrum, song?.score);
+  const coreScores = getCoreScores(aiSpectrum, song?.score);
 
   if (isLoading) {
     return (
@@ -435,10 +483,7 @@ export default function ShareSongPage() {
         <Link to="/" className="text-xs font-bold tracking-widest text-slate-500 hover:text-slate-300 uppercase transition-colors">
           Band Spectrum Mapper
         </Link>
-        <Link
-          to={`/view/${song.band.slug}`}
-          className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-        >
+        <Link to={`/view/${song.band.slug}`} className="text-xs text-slate-500 hover:text-slate-300 transition-colors">
           Browse library →
         </Link>
       </div>
@@ -449,44 +494,32 @@ export default function ShareSongPage() {
 
           {/* Song identity */}
           <div className="px-7 pt-8 pb-6 border-b border-slate-800">
-            {song.album && (
-              <p className="text-xs text-slate-500 uppercase tracking-widest mb-2 font-medium">
-                {song.band.name}{song.album.year ? ` · ${song.album.year}` : ''}
-              </p>
-            )}
-            <h1 className="text-3xl font-bold tracking-tight leading-tight mb-1">
-              {song.title}
-            </h1>
-            {song.album ? (
-              <p className="text-slate-400 text-sm">{song.album.title}</p>
-            ) : (
-              <p className="text-slate-400 text-sm">{song.band.name}</p>
-            )}
+            <p className="text-xs text-slate-500 uppercase tracking-widest mb-2 font-medium">
+              {song.band.name}{song.album?.year ? ` · ${song.album.year}` : ''}
+            </p>
+            <h1 className="text-3xl font-bold tracking-tight leading-tight mb-1">{song.title}</h1>
+            {song.album
+              ? <p className="text-slate-400 text-sm">{song.album.title}</p>
+              : <p className="text-slate-400 text-sm">{song.band.name}</p>}
             {song.trackNumber && (
               <p className="text-xs text-slate-600 mt-1">Track {song.trackNumber}</p>
             )}
           </div>
 
-          {/* Spectrum scores */}
-          {scores ? (
-            <div className="px-7 py-6 border-b border-slate-800">
-              <div className="flex items-center justify-between mb-4">
-                <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Spectrum</p>
-                <p className="text-xs text-slate-600">{scores.source}</p>
-              </div>
-              <div className="space-y-3">
-                {SCORE_AXES.map((axis) => {
-                  const val = scores.data[axis];
-                  if (val == null) return null;
-                  return <SpectrumBar key={axis} axis={axis} score={Number(val)} />;
-                })}
-              </div>
-            </div>
+          {/* Core Spectrum — dark radar */}
+          {coreScores ? (
+            <CoreSpectrumRadar scores={coreScores.data} source={coreScores.source} />
           ) : (
-            <div className="px-7 py-6 border-b border-slate-800">
-              <p className="text-xs text-slate-500 italic">No spectrum scores yet for this song.</p>
+            <div className="px-7 py-5 border-b border-slate-800">
+              <p className="text-xs text-slate-600 italic">No core spectrum scores yet.</p>
             </div>
           )}
+
+          {/* Genre Appeal — bars */}
+          <GenreSpectrumBars
+            aiGenre={aiGenre}
+            communityAgg={genreRatings?.genreAggregates ?? []}
+          />
 
           {/* AI analysis pull quote */}
           {(context?.titleSignificance || context?.overallNarrative) && (
@@ -496,7 +529,7 @@ export default function ShareSongPage() {
                 <div className="mb-4">
                   <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Title</p>
                   <p className="text-sm text-slate-300 leading-relaxed italic">
-                    "{truncate(context.titleSignificance, 220)}"
+                    "{truncate(context.titleSignificance, 200)}"
                   </p>
                 </div>
               )}
@@ -504,24 +537,25 @@ export default function ShareSongPage() {
                 <div>
                   <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Narrative</p>
                   <p className="text-sm text-slate-300 leading-relaxed italic">
-                    "{truncate(context.overallNarrative, 300)}"
+                    "{truncate(context.overallNarrative, 280)}"
                   </p>
                 </div>
               )}
             </div>
           )}
 
-          {/* AI analysis helpfulness rating */}
+          {/* Analysis helpfulness */}
           {(context?.titleSignificance || context?.overallNarrative) && (
             <AnalysisRatingSection songId={song.id} />
           )}
 
-          {/* Genre perspective rating */}
+          {/* Fan rating */}
           <GenrePerspectiveSection songId={song.id} />
 
           {/* Stats footer */}
           <div className="px-7 py-4 bg-slate-950/50 flex items-center gap-4 text-xs text-slate-600">
-            {aiSpectrum && <span>AI scored</span>}
+            {aiSpectrum && <span>AI spectrum</span>}
+            {aiGenre && <span>AI genre</span>}
             {comments.length > 0 && (
               <span>{comments.length} comment{comments.length !== 1 ? 's' : ''}</span>
             )}
@@ -554,7 +588,7 @@ export default function ShareSongPage() {
         </div>
 
         <p className="text-center text-xs text-slate-700 mt-6">
-          Screenshot this card to share as an image — dynamic preview cards require server-side rendering.
+          Screenshot this card to share as an image
         </p>
       </div>
     </div>
