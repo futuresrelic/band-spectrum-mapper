@@ -124,50 +124,74 @@ export const genreSpectrumService = {
       contextParts.push(`Community discussion (${comments.length} comments):\n${commentBlock}`);
     }
 
-    const prompt = `You are a cross-genre music accessibility analyst. Given a song's profile, rate how much fans of each musical genre would enjoy this song on a scale of 1–10.
+    const systemMessage = `You are a cross-genre music accessibility analyst. Your job is to score how much fans of each genre would enjoy a song.
+The folk/indie category covers a WIDE spectrum of eclectic listeners. Indie/alternative audiences regularly embrace experimental, dark, atmospheric, progressive, and psychedelic music.
+Bands like Tool, A Perfect Circle, Puscifer, Porcupine Tree, Radiohead, Nine Inch Nails, Portishead, Björk, Nick Cave, Deftones, and Talk Talk are beloved by indie/alternative listeners and would score 7–9 in this category.
+Never score folk/indie low simply because a song is heavy, complex, or dark — those are features, not disqualifiers for this audience.`;
 
-Scale:
-1–2  Would likely dislike / completely outside their taste
-3–4  A minority of these fans might appreciate it
-5–6  A meaningful portion of genre fans would enjoy it
-7–8  Most fans of this genre would appreciate or enjoy it
-9–10 Near-universally loved within this genre
+    const prompt = `Rate how much fans of each genre would enjoy this song (1–10 integers).
 
-IMPORTANT nuance per genre:
-- metal: heavy, aggressive, technical — includes progressive metal, djent, post-metal
-- rock: guitar-driven and melodic — includes alternative, grunge, post-rock, art rock
-- pop: mainstream accessibility — structured, catchy, radio-friendly
-- hiphop: beats, flow, lyricism, rhythm — includes conscious rap, experimental hip-hop
-- electronic: synthesizers, production, digital soundscapes — includes industrial, ambient, IDM
-- folk/indie: THIS IS A WIDE UMBRELLA. Indie/alternative fans are often the most eclectic listeners.
-  They frequently love experimental, dark, atmospheric, and conceptually complex music.
-  Many indie fans are deeply into bands like Tool, Porcupine Tree, Radiohead, Nine Inch Nails,
-  Nick Cave, Portishead, Talk Talk, PJ Harvey, Björk, and Deftones — alongside folk artists like
-  Bon Iver, Sufjan Stevens, and Fleet Foxes. Rate folk/indie HIGH for: atmospheric, psychedelic,
-  conceptually rich, or emotionally intense music. Rate it LOW only for straightforward metal
-  aggression with no melodic or cerebral qualities.
+SCALE:
+1–3  Would likely dislike / outside their taste
+4–5  Niche appeal, only a subset would enjoy it
+6–7  Solid crossover appeal, most fans would appreciate it
+8–9  Strong fit — this is exactly what these fans seek
+10   Quintessential for this genre's fanbase
 
-Genres to rate:
-- metal: heavy, technical, aggressive (Tool, Metallica, Meshuggah, Slayer, Mastodon)
-- rock: guitar-driven, energetic, melodic (Pearl Jam, RHCP, Foo Fighters, Alice in Chains)
-- pop: mainstream, catchy, accessible (Taylor Swift, Coldplay at their most radio-friendly)
-- hiphop: beats, flow, lyricism (Kendrick Lamar, Jay-Z, Tyler the Creator, Death Grips)
-- electronic: synthesized, produced, digital (Aphex Twin, Daft Punk, Burial, Nine Inch Nails)
-- folk/indie: eclectic alternative/indie listeners open to experimental sounds (Radiohead,
-  Nick Cave, Portishead, Talk Talk, PJ Harvey, Björk, Porcupine Tree, Bon Iver, Fleet Foxes)
+GENRE DEFINITIONS (be accurate to these, not stereotypes):
 
+metal (1–10): Heavy, aggressive, technical. Includes prog-metal, djent, post-metal, doom.
+  Reference bands: Tool, Metallica, Meshuggah, Mastodon, Opeth, Gojira.
+  Score high for: aggression, technical complexity, heavy riffs, rhythmic intensity.
+
+rock (1–10): Guitar-driven, energetic. Includes alt-rock, grunge, post-rock, art rock.
+  Reference bands: Pearl Jam, RHCP, Alice in Chains, Soundgarden, Foo Fighters, Muse.
+  Score high for: guitar presence, song structure, melodic hooks, energy.
+
+pop (1–10): Mainstream accessibility. Structured, catchy, radio-friendly.
+  Reference bands: Taylor Swift, Coldplay (singles), Imagine Dragons, Maroon 5.
+  Score high for: immediate hooks, verse-chorus structure, mass appeal. Score low for: complexity, experimentation.
+
+hiphop (1–10): Beats, flow, lyricism, rhythm. Includes conscious rap, experimental hip-hop.
+  Reference: Kendrick Lamar, Tyler the Creator, Death Grips, Run the Jewels.
+  Score high for: rhythmic spoken word, prominent beats. Score low for: lack of rap/spoken word elements.
+
+electronic (1–10): Synthesizers, production, digital soundscapes. Includes industrial, ambient, IDM.
+  Reference: Aphex Twin, Daft Punk, Burial, Nine Inch Nails, Boards of Canada.
+  Score high for: synth-heavy production, programmed beats, electronic textures.
+
+folk (1–10): THIS IS THE INDIE/ALTERNATIVE AUDIENCE — not just literal folk music.
+  These are the most eclectic listeners. They embrace experimental, dark, atmospheric,
+  conceptually rich, and emotionally intense music alongside acoustic folk.
+  CALIBRATION EXAMPLES for the folk/indie score:
+    - Tool "Lateralus": folk=8 (progressive, cerebral, beloved by indie fans)
+    - A Perfect Circle "3 Libras": folk=8 (atmospheric, emotional, indie crossover)
+    - Puscifer "Existential Reckoning": folk=7 (experimental, conceptual)
+    - Porcupine Tree "Trains": folk=9 (indie fans' favorite genre of prog)
+    - Radiohead "Paranoid Android": folk=9 (indie/alt fans love this)
+    - Nine Inch Nails "Hurt": folk=8 (dark, emotional, eclectic fans adore it)
+    - Metallica "Enter Sandman": folk=4 (straightforward metal, less cerebral crossover)
+    - Slayer "Raining Blood": folk=2 (pure aggression, minimal indie crossover)
+  Score folk/indie HIGH (7–9) for: atmospheric, psychedelic, emotionally intense, conceptually deep, or
+  progressive music. Score LOW (1–3) ONLY for pure aggression with zero melodic/cerebral qualities.
+  If spectrum scores show atmosphere≥6, psychedelic≥5, or concept≥6, folk/indie should be at least 7.
+
+SONG PROFILE:
 ${contextParts.join('\n\n')}
 
-Return only valid JSON with exactly these keys (integer values 1–10 for each genre, plus a rationale paragraph):
-{ "metal": 8, "rock": 7, "pop": 3, "hiphop": 4, "electronic": 6, "folk": 2, "rationale": "..." }
+Return only valid JSON:
+{ "metal": 8, "rock": 7, "pop": 3, "hiphop": 4, "electronic": 6, "folk": 8, "rationale": "One paragraph explaining the scores, especially folk/indie reasoning." }
 No markdown, no extra text.`;
 
     const client = getClient();
     const completion = await client.chat.completions.create({
       model: MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3,
-      max_tokens: 400,
+      messages: [
+        { role: 'system', content: systemMessage },
+        { role: 'user', content: prompt },
+      ],
+      temperature: 0.4,
+      max_tokens: 500,
     });
 
     const raw = completion.choices[0]?.message?.content ?? '';

@@ -14,6 +14,13 @@ const JOB_LABELS: Record<JobType, string> = {
   genre: 'Genre Accessibility',
 };
 
+const JOB_DESCRIPTIONS: Record<JobType, string> = {
+  analysis: 'Themes, emotional register, notable craft elements',
+  spectrum: 'Aggression, Complexity, Atmosphere, Emotion, Psychedelic, Concept (0–10)',
+  research: 'Music style summary and background context',
+  genre: 'How much each genre audience would enjoy it (Metal, Rock, Pop, Hip-Hop, Electronic, Folk/Indie)',
+};
+
 type RowStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped';
 
 interface SongRow {
@@ -23,16 +30,29 @@ interface SongRow {
   errors: Record<JobType, string>;
 }
 
-async function runJob(songId: string, job: JobType): Promise<void> {
-  if (job === 'analysis') { await analysisApi.getAiAnalysis(songId); return; }
-  if (job === 'spectrum') { await analysisApi.getAiSpectrum(songId); return; }
-  if (job === 'research') { await analysisApi.getSongResearch(songId); return; }
-  if (job === 'genre') { await analysisApi.getAiGenreSpectrum(songId); return; }
+async function runJob(songId: string, job: JobType, force: boolean): Promise<void> {
+  if (job === 'analysis') {
+    force ? await analysisApi.regenerateAiAnalysis(songId) : await analysisApi.getAiAnalysis(songId);
+    return;
+  }
+  if (job === 'spectrum') {
+    force ? await analysisApi.regenerateAiSpectrum(songId) : await analysisApi.getAiSpectrum(songId);
+    return;
+  }
+  if (job === 'research') {
+    force ? await analysisApi.regenerateSongResearch(songId) : await analysisApi.getSongResearch(songId);
+    return;
+  }
+  if (job === 'genre') {
+    force ? await analysisApi.regenerateAiGenreSpectrum(songId) : await analysisApi.getAiGenreSpectrum(songId);
+    return;
+  }
 }
 
 export default function AiBatchRunnerPage() {
   const [selectedJobs, setSelectedJobs] = useState<Set<JobType>>(new Set(['analysis', 'spectrum']));
   const [delayMs, setDelayMs] = useState(2000);
+  const [forceRegenerate, setForceRegenerate] = useState(false);
   const [rows, setRows] = useState<SongRow[]>([]);
   const [running, setRunning] = useState(false);
   const [currentIdx, setCurrentIdx] = useState(-1);
@@ -98,7 +118,7 @@ export default function AiBatchRunnerPage() {
           ),
         );
         try {
-          await runJob(row.song.id, job);
+          await runJob(row.song.id, job, forceRegenerate);
           setRows((prev) =>
             prev.map((r, idx) =>
               idx === i ? { ...r, statuses: { ...r.statuses, [job]: 'done' } } : r,
@@ -138,7 +158,7 @@ export default function AiBatchRunnerPage() {
 
     setCurrentIdx(-1);
     setRunning(false);
-  }, [rows, selectedJobs, delayMs, loadAllSongs]);
+  }, [rows, selectedJobs, delayMs, forceRegenerate, loadAllSongs]);
 
   const stop = () => { abortRef.current = true; };
   const reset = () => { setRows([]); setCurrentIdx(-1); setDoneCount(0); setErrorCount(0); };
@@ -178,20 +198,44 @@ export default function AiBatchRunnerPage() {
         {/* Job selection */}
         <div>
           <p className="label mb-2">AI jobs to run</p>
-          <div className="flex flex-wrap gap-3">
+          <div className="space-y-2">
             {(Object.entries(JOB_LABELS) as [JobType, string][]).map(([job, label]) => (
-              <label key={job} className="flex items-center gap-2 cursor-pointer">
+              <label key={job} className="flex items-start gap-2 cursor-pointer group">
                 <input
                   type="checkbox"
-                  className="rounded"
+                  className="rounded mt-0.5 shrink-0"
                   checked={selectedJobs.has(job)}
                   onChange={() => toggleJob(job)}
                   disabled={running}
                 />
-                <span className="text-sm">{label}</span>
+                <div>
+                  <span className="text-sm font-medium">{label}</span>
+                  <p className="text-xs text-surface-500">{JOB_DESCRIPTIONS[job]}</p>
+                </div>
               </label>
             ))}
           </div>
+        </div>
+
+        {/* Force regenerate */}
+        <div className="border-t border-surface-100 pt-4">
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="rounded mt-0.5 shrink-0"
+              checked={forceRegenerate}
+              onChange={(e) => setForceRegenerate(e.target.checked)}
+              disabled={running}
+            />
+            <div>
+              <span className="text-sm font-medium text-amber-700">Force Regenerate</span>
+              <p className="text-xs text-surface-500">
+                When checked, existing AI results are discarded and regenerated from scratch.
+                Use this after prompt improvements or when you want fresh scores for all songs.
+                When unchecked (default), songs with existing results are returned instantly without calling OpenAI.
+              </p>
+            </div>
+          </label>
         </div>
 
         {/* Delay */}
@@ -224,7 +268,9 @@ export default function AiBatchRunnerPage() {
           ) : (
             <>
               <button className="btn-primary" onClick={start} disabled={running || selectedJobs.size === 0}>
-                {running ? 'Running…' : `Run ${selectedJobs.size} job${selectedJobs.size !== 1 ? 's' : ''} on ${rows.length} songs`}
+                {running
+                  ? 'Running…'
+                  : `${forceRegenerate ? 'Regenerate' : 'Run'} ${selectedJobs.size} job${selectedJobs.size !== 1 ? 's' : ''} on ${rows.length} songs`}
               </button>
               {running && (
                 <button className="btn-secondary text-red-600 border-red-300 hover:border-red-500" onClick={stop}>
@@ -243,6 +289,13 @@ export default function AiBatchRunnerPage() {
             </span>
           )}
         </div>
+
+        {/* Mode indicator */}
+        {forceRegenerate && (
+          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+            Force Regenerate is ON — every song will call OpenAI regardless of cached results. This will use API credits for all {rows.length > 0 ? rows.length : '...'} songs × {selectedJobs.size} job{selectedJobs.size !== 1 ? 's' : ''}.
+          </div>
+        )}
 
         {/* Progress bar */}
         {rows.length > 0 && (running || doneCount > 0 || errorCount > 0) && (
@@ -283,7 +336,9 @@ export default function AiBatchRunnerPage() {
                   <th className="py-2 px-3 font-medium">Song</th>
                   <th className="py-2 px-3 font-medium">Band</th>
                   {(Object.keys(JOB_LABELS) as JobType[]).filter((j) => selectedJobs.has(j)).map((j) => (
-                    <th key={j} className="py-2 px-3 font-medium text-center">{JOB_LABELS[j].split(' ')[1]}</th>
+                    <th key={j} className="py-2 px-3 font-medium text-center" title={JOB_DESCRIPTIONS[j]}>
+                      {JOB_LABELS[j].replace('AI ', '')}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -318,7 +373,8 @@ export default function AiBatchRunnerPage() {
         <div className="card text-center py-10 text-surface-500 text-sm">
           <p>Click <strong>Load all songs</strong> to populate the song list, then <strong>Run</strong> to start.</p>
           <p className="text-xs mt-2 text-surface-400">
-            The runner calls each AI endpoint (getOrCreate) — already-cached results are returned instantly without calling OpenAI again.
+            By default, songs with existing AI results are returned instantly without calling OpenAI.
+            Enable <strong>Force Regenerate</strong> above to discard cached results and regenerate everything.
           </p>
         </div>
       )}
