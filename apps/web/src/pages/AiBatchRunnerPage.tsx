@@ -106,17 +106,27 @@ export default function AiBatchRunnerPage() {
           );
           setDoneCount((n) => n + 1);
         } catch (e) {
-          const msg = e instanceof Error ? e.message : 'Failed';
-          setRows((prev) =>
-            prev.map((r, idx) =>
-              idx === i ? {
-                ...r,
-                statuses: { ...r.statuses, [job]: 'error' },
-                errors: { ...r.errors, [job]: msg },
-              } : r,
-            ),
-          );
-          setErrorCount((n) => n + 1);
+          const status = (e as Error & { status?: number }).status;
+          if (status === 404) {
+            // Song has no lyrics — skip silently, don't count as error
+            setRows((prev) =>
+              prev.map((r, idx) =>
+                idx === i ? { ...r, statuses: { ...r.statuses, [job]: 'skipped' } } : r,
+              ),
+            );
+          } else {
+            const msg = e instanceof Error ? e.message : 'Failed';
+            setRows((prev) =>
+              prev.map((r, idx) =>
+                idx === i ? {
+                  ...r,
+                  statuses: { ...r.statuses, [job]: 'error' },
+                  errors: { ...r.errors, [job]: msg },
+                } : r,
+              ),
+            );
+            setErrorCount((n) => n + 1);
+          }
         }
       }
 
@@ -134,7 +144,11 @@ export default function AiBatchRunnerPage() {
   const reset = () => { setRows([]); setCurrentIdx(-1); setDoneCount(0); setErrorCount(0); };
 
   const totalJobs = rows.length * selectedJobs.size;
-  const progress = totalJobs > 0 ? Math.round(((doneCount + errorCount) / totalJobs) * 100) : 0;
+  const skippedCount = rows.reduce(
+    (n, r) => n + [...selectedJobs].filter((j) => r.statuses[j] === 'skipped').length, 0,
+  );
+  const processedCount = doneCount + errorCount + skippedCount;
+  const progress = totalJobs > 0 ? Math.round((processedCount / totalJobs) * 100) : 0;
 
   const statusCls: Record<RowStatus, string> = {
     pending: 'text-surface-300',
@@ -235,7 +249,8 @@ export default function AiBatchRunnerPage() {
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs text-surface-600">
               <span>
-                {doneCount + errorCount} / {totalJobs} jobs
+                {processedCount} / {totalJobs} jobs
+                {skippedCount > 0 && <span className="text-surface-400 ml-2">{skippedCount} skipped (no lyrics)</span>}
                 {errorCount > 0 && <span className="text-red-600 ml-2">{errorCount} errors</span>}
               </span>
               <span>{progress}%</span>
