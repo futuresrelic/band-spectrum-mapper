@@ -105,8 +105,9 @@ export default function DashboardPage() {
             { to: '/spectrum',    label: 'Spectrum Scoring',  desc: 'Score songs on 6 axes' },
             { to: '/analysis',    label: 'Lyrics Analysis',   desc: 'Word frequency & clouds' },
             { to: '/compare',     label: 'Compare',           desc: 'Band vs band comparison' },
-            { to: '/imports',     label: 'Import Lyrics',     desc: 'Bulk import from files' },
-            { to: '/discography', label: 'Discography Import',desc: 'Import from Discogs/MusicBrainz' },
+            { to: '/lyrics-builder', label: 'Lyrics Builder',     desc: 'Add/edit lyrics album by album' },
+            { to: '/imports',        label: 'Import Lyrics',     desc: 'Bulk import from files' },
+            { to: '/discography',    label: 'Discography Import', desc: 'Import from MusicBrainz' },
           ].map(({ to, label, desc }) => (
             <Link key={to} to={to} className="card hover:border-surface-700 transition-colors group">
               <p className="font-medium text-sm group-hover:underline">{label}</p>

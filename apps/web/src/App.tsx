@@ -19,6 +19,7 @@ import ViewerIndexPage from './pages/ViewerIndexPage';
 import ViewerBandPage from './pages/ViewerBandPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import AdminContributionsPage from './pages/AdminContributionsPage';
+import LyricsBuilderPage from './pages/LyricsBuilderPage';
 import UserRatePage from './pages/UserRatePage';
 import ContributePage from './pages/ContributePage';
 import TagSongsPage from './pages/TagSongsPage';
@@ -90,6 +91,7 @@ export default function App() {
           <Route path="analysis" element={<LyricsAnalysisPage />} />
           <Route path="compare" element={<ComparePage />} />
           <Route path="imports" element={<ImportsPage />} />
+          <Route path="lyrics-builder" element={<LyricsBuilderPage />} />
           <Route path="discography" element={<DiscographyImportPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="admin/users" element={<AdminUsersPage />} />
