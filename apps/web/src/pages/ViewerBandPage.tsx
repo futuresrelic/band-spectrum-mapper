@@ -83,17 +83,17 @@ function SongExpanded({
       {/* Deep analysis */}
       {context && (
         <div className="space-y-3 border-t border-surface-100 pt-4">
+          <div className="flex items-baseline justify-between">
+            <p className="text-xs font-medium text-surface-700 uppercase tracking-wide">AI Full Investigation</p>
+            <p className="text-[10px] text-surface-400">lyrics &amp; public info only — not the music</p>
+          </div>
           {context.titleSignificance && (
-            <div>
-              <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-1">Title</p>
-              <p className="text-sm leading-relaxed text-surface-900">{context.titleSignificance}</p>
-            </div>
+            <p className="text-xs text-surface-500 italic border-l-2 border-surface-200 pl-3 leading-relaxed">
+              {context.titleSignificance}
+            </p>
           )}
           {context.overallNarrative && (
-            <div>
-              <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-1">Analysis</p>
-              <p className="text-sm leading-relaxed text-surface-900">{context.overallNarrative}</p>
-            </div>
+            <p className="text-sm leading-relaxed text-surface-900">{context.overallNarrative}</p>
           )}
           {context.lyricalInterpretation && (
             <details className="border-t border-surface-100 pt-3">
@@ -177,6 +177,7 @@ function SongRow({ song, defaultExpanded = false }: { song: PublicAlbum['songs']
 export default function ViewerBandPage() {
   const { bandSlug } = useParams<{ bandSlug: string }>();
   const { user } = useAuth();
+  const [showBandContext, setShowBandContext] = useState(false);
 
   const hashSongId = useMemo(() => {
     if (typeof window === 'undefined') return '';
@@ -194,6 +195,13 @@ export default function ViewerBandPage() {
     queryKey: ['public-albums', bandSlug],
     queryFn: () => api.get<PublicAlbum[]>(`/api/public/bands/${bandSlug}/albums`),
     enabled: !!bandSlug,
+  });
+
+  const { data: bandContext } = useQuery({
+    queryKey: ['band-context', band?.id],
+    queryFn: () => analysisApi.getBandContext(band!.id),
+    enabled: !!band?.id && showBandContext,
+    retry: false,
   });
 
 
@@ -214,9 +222,48 @@ export default function ViewerBandPage() {
             {band.description && (
               <p className="text-surface-700 mt-1">{band.description}</p>
             )}
-            <p className="text-xs text-surface-700 mt-2">
-              {band._count.albums} albums · {band._count.songs} songs
-            </p>
+            <div className="flex items-center gap-3 mt-2">
+              <p className="text-xs text-surface-400">
+                {band._count.albums} albums · {band._count.songs} songs
+              </p>
+              <button
+                onClick={() => setShowBandContext(!showBandContext)}
+                className="text-xs text-indigo-600 hover:underline"
+              >
+                {showBandContext ? 'Hide AI profile ↑' : 'AI artist profile ↓'}
+              </button>
+            </div>
+
+            {showBandContext && (
+              <div className="mt-4 bg-white rounded-lg border border-surface-200 p-4 space-y-3">
+                {!bandContext && (
+                  <p className="text-sm text-surface-500">Generating AI artist profile…</p>
+                )}
+                {bandContext && (
+                  <>
+                    <div>
+                      <p className="text-xs font-medium text-surface-600 uppercase tracking-wide mb-1">Artist Overview</p>
+                      <p className="text-sm leading-relaxed text-surface-900">{bandContext.overallNarrative}</p>
+                    </div>
+                    <details className="border-t border-surface-100 pt-3">
+                      <summary className="text-xs text-surface-500 cursor-pointer hover:text-surface-700">
+                        Thematic signature →
+                      </summary>
+                      <p className="text-sm leading-relaxed text-surface-900 mt-2">{bandContext.thematicSynthesis}</p>
+                    </details>
+                    <details className="border-t border-surface-100 pt-3">
+                      <summary className="text-xs text-surface-500 cursor-pointer hover:text-surface-700">
+                        Artistic evolution →
+                      </summary>
+                      <p className="text-sm leading-relaxed text-surface-900 mt-2">{bandContext.artisticEvolution}</p>
+                    </details>
+                    <p className="text-[10px] text-surface-400 border-t border-surface-100 pt-2">
+                      Based on lyrics &amp; public information — not the music itself. Human ratings complete the picture.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -245,19 +292,25 @@ export default function ViewerBandPage() {
           </div>
         ))}
 
-        <p className="text-xs text-surface-700 mt-12 border-t border-surface-200 pt-4">
-          Read-only view · Band Spectrum Mapper
-          {user && (
-            <Link to="/my/rate" className="ml-3 text-indigo-600 hover:underline">
-              Rate songs →
-            </Link>
-          )}
-          {!user && (
-            <a href="/api/auth/google" className="ml-3 text-indigo-600 hover:underline">
-              Sign in to rate →
-            </a>
-          )}
-        </p>
+        <div className="mt-12 border-t border-surface-200 pt-4 space-y-2">
+          <p className="text-xs text-surface-500">
+            All analysis is based on <strong>lyrics and publicly available information</strong> — not the music itself.
+            Spectrum scores reflect lyrical and conceptual qualities. The human interpretation lives in the ratings and comments below each song.
+          </p>
+          <p className="text-xs text-surface-400">
+            Read-only view · Band Spectrum Mapper
+            {user && (
+              <Link to="/my/rate" className="ml-3 text-indigo-600 hover:underline">
+                Rate songs →
+              </Link>
+            )}
+            {!user && (
+              <a href="/api/auth/google" className="ml-3 text-indigo-600 hover:underline">
+                Sign in to contribute →
+              </a>
+            )}
+          </p>
+        </div>
       </div>
     </div>
   );

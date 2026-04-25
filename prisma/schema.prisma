@@ -23,9 +23,10 @@ model Band {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  albums  Album[]
-  songs   Song[]
-  scores  SongAxisScore[]
+  albums          Album[]
+  songs           Song[]
+  scores          SongAxisScore[]
+  contextAnalysis BandContextAnalysis?
 
   @@map("bands")
 }
@@ -41,8 +42,9 @@ model Album {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  band  Band   @relation(fields: [bandId], references: [id], onDelete: Cascade)
-  songs Song[]
+  band            Band   @relation(fields: [bandId], references: [id], onDelete: Cascade)
+  songs           Song[]
+  contextAnalysis AlbumContextAnalysis?
 
   @@unique([bandId, slug])
   @@map("albums")
@@ -302,6 +304,36 @@ model SongContextAnalysis {
   song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
 
   @@map("song_context_analyses")
+}
+
+model AlbumContextAnalysis {
+  id                String   @id @default(cuid())
+  albumId           String   @unique
+  model             String
+  overallNarrative  String
+  thematicSynthesis String
+  artisticContext   String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  album Album @relation(fields: [albumId], references: [id], onDelete: Cascade)
+
+  @@map("album_context_analyses")
+}
+
+model BandContextAnalysis {
+  id                String   @id @default(cuid())
+  bandId            String   @unique
+  model             String
+  overallNarrative  String
+  thematicSynthesis String
+  artisticEvolution String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  band Band @relation(fields: [bandId], references: [id], onDelete: Cascade)
+
+  @@map("band_context_analyses")
 }
 
 // ---------------------------------------------------------------------------

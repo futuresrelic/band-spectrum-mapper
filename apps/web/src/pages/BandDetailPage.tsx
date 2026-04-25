@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { bandsApi } from '../api/bands';
+import { analysisApi } from '../api/analysis';
 import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
 import EmptyState from '../components/layout/EmptyState';
@@ -65,6 +66,18 @@ export default function BandDetailPage() {
   const deleteBand = useMutation({
     mutationFn: () => bandsApi.delete(bandId!),
     onSuccess: () => navigate('/library'),
+  });
+
+  const { data: aiContext, isFetching: contextFetching, refetch: refetchContext } = useQuery({
+    queryKey: ['band-context', bandId],
+    queryFn: () => analysisApi.getBandContext(bandId!),
+    enabled: !!bandId && !!band,
+    retry: false,
+  });
+
+  const regenerateContext = useMutation({
+    mutationFn: () => analysisApi.regenerateBandContext(bandId!),
+    onSuccess: () => refetchContext(),
   });
 
   const openEdit = () => {
@@ -195,6 +208,60 @@ export default function BandDetailPage() {
           </ul>
         </div>
       )}
+
+      {/* AI Band Context Analysis */}
+      <div className="card mt-6">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="font-medium">AI Artist Profile</h3>
+            <p className="text-xs text-surface-500 mt-0.5">
+              Synthesizes lyrics and public information across all albums — not the music itself.
+              Human listener ratings and comments complete the musical picture.
+            </p>
+          </div>
+          <button
+            className="btn-secondary text-xs"
+            onClick={() => regenerateContext.mutate()}
+            disabled={regenerateContext.isPending || contextFetching}
+          >
+            {regenerateContext.isPending ? 'Generating…' : aiContext ? 'Regenerate' : 'Generate'}
+          </button>
+        </div>
+
+        {contextFetching && !aiContext && (
+          <p className="text-sm text-surface-500">Loading…</p>
+        )}
+
+        {aiContext && (
+          <div className="space-y-4 border-t border-surface-100 pt-4">
+            <div>
+              <p className="text-xs font-medium text-surface-600 uppercase tracking-wide mb-1">Artist Overview</p>
+              <p className="text-sm leading-relaxed text-surface-900">{aiContext.overallNarrative}</p>
+            </div>
+            <details className="border-t border-surface-100 pt-3">
+              <summary className="text-xs text-surface-500 cursor-pointer hover:text-surface-700">
+                Thematic signature →
+              </summary>
+              <p className="text-sm leading-relaxed text-surface-900 mt-2">{aiContext.thematicSynthesis}</p>
+            </details>
+            <details className="border-t border-surface-100 pt-3">
+              <summary className="text-xs text-surface-500 cursor-pointer hover:text-surface-700">
+                Artistic evolution →
+              </summary>
+              <p className="text-sm leading-relaxed text-surface-900 mt-2">{aiContext.artisticEvolution}</p>
+            </details>
+            <p className="text-xs text-surface-400 border-t border-surface-100 pt-3">
+              Generated {new Date(aiContext.updatedAt).toLocaleDateString()} · Based on lyrics &amp; public information only, not the music itself
+            </p>
+          </div>
+        )}
+
+        {!aiContext && !contextFetching && (
+          <p className="text-sm text-surface-500 italic">
+            Click Generate to create an AI artist profile. Works best when songs have AI analysis and thematic tags run first (via the Batch Runner).
+          </p>
+        )}
+      </div>
     </div>
   );
 }

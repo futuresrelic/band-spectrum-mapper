@@ -527,25 +527,28 @@ export default function ShareSongPage() {
             communityAgg={genreRatings?.genreAggregates ?? []}
           />
 
-          {/* AI analysis pull quote */}
-          {(context?.titleSignificance || context?.overallNarrative) && (
+          {/* AI Overall Narrative — full section */}
+          {context?.overallNarrative && (
             <div className="px-7 py-6 border-b border-slate-800">
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-3">Analysis</p>
+              <div className="mb-4">
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-500">AI Full Investigation</p>
+                <p className="text-[11px] text-slate-600 mt-1 leading-snug">
+                  AI's take on lyrics, published background, and listener comments combined —
+                  the music itself is interpreted by the human ratings below.
+                </p>
+              </div>
               {context.titleSignificance && (
-                <div className="mb-4">
-                  <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Title</p>
-                  <p className="text-sm text-slate-300 leading-relaxed italic">
-                    "{truncate(context.titleSignificance, 200)}"
-                  </p>
-                </div>
+                <p className="text-xs text-slate-500 italic mb-3 leading-relaxed border-l-2 border-slate-700 pl-3">
+                  {truncate(context.titleSignificance, 220)}
+                </p>
               )}
-              {context.overallNarrative && (
-                <div>
-                  <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Narrative</p>
-                  <p className="text-sm text-slate-300 leading-relaxed italic">
-                    "{truncate(context.overallNarrative, 280)}"
-                  </p>
-                </div>
+              <p className="text-sm text-slate-200 leading-relaxed">
+                {context.overallNarrative}
+              </p>
+              {comments.length > 0 && (
+                <p className="text-[11px] text-slate-600 mt-3">
+                  Woven from {comments.length} listener comment{comments.length !== 1 ? 's' : ''}
+                </p>
               )}
             </div>
           )}
@@ -558,14 +561,21 @@ export default function ShareSongPage() {
           {/* Fan rating */}
           <GenrePerspectiveSection songId={song.id} />
 
-          {/* Stats footer */}
-          <div className="px-7 py-4 bg-slate-950/50 flex items-center gap-4 text-xs text-slate-600">
-            {aiSpectrum && <span>AI spectrum</span>}
-            {aiGenre && <span>AI genre</span>}
-            {comments.length > 0 && (
-              <span>{comments.length} comment{comments.length !== 1 ? 's' : ''}</span>
-            )}
-            <span className="ml-auto text-slate-700">bandspectrummapper</span>
+          {/* Stats footer + disclaimer */}
+          <div className="px-7 py-5 bg-slate-950/50 space-y-2">
+            <div className="flex items-center gap-4 text-xs text-slate-600">
+              {aiSpectrum && <span>AI spectrum</span>}
+              {aiGenre && <span>AI genre</span>}
+              {comments.length > 0 && (
+                <span>{comments.length} listener comment{comments.length !== 1 ? 's' : ''}</span>
+              )}
+              <span className="ml-auto text-slate-700">bandspectrummapper</span>
+            </div>
+            <p className="text-[10px] text-slate-700 leading-snug">
+              Analysis based on lyrics &amp; publicly available information — not the music itself.
+              Scores reflect lyrical &amp; conceptual qualities. Human listener ratings and comments
+              provide the musical interpretation AI cannot.
+            </p>
           </div>
         </div>
 

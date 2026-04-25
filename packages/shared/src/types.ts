@@ -395,5 +395,27 @@ export interface CommunityScore {
   scores: AxisScoreMap;
 }
 
+export interface AlbumContextAnalysis {
+  id: string;
+  albumId: string;
+  model: string;
+  overallNarrative: string;
+  thematicSynthesis: string;
+  artisticContext: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BandContextAnalysis {
+  id: string;
+  bandId: string;
+  model: string;
+  overallNarrative: string;
+  thematicSynthesis: string;
+  artisticEvolution: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // Re-export axis type for convenience
 export type { ScoreAxis, SourceType, ImportStatus };

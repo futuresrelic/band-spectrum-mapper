@@ -3,6 +3,8 @@ import { analysisService } from '../services/analysisService.js';
 import { aiAnalysisService } from '../services/aiAnalysisService.js';
 import { songResearchService } from '../services/songResearchService.js';
 import { songContextService } from '../services/songContextService.js';
+import { albumContextService } from '../services/albumContextService.js';
+import { bandContextService } from '../services/bandContextService.js';
 import { genreSpectrumService } from '../services/genreSpectrumService.js';
 import { aiTagService } from '../services/aiTagService.js';
 import { scoreService } from '../services/scoreService.js';
@@ -127,5 +129,31 @@ analysisRouter.get('/ai/:songId/tags', async (req, res, next) => {
   try {
     const tags = await aiTagService.getTags(req.params['songId']!);
     res.json({ tags });
+  } catch (e) { next(e); }
+});
+
+// Album context analysis — synthesizes all song analyses into an album narrative
+analysisRouter.get('/albums/:albumId/context', async (req, res, next) => {
+  try {
+    res.json(await albumContextService.getOrCreate(req.params['albumId']!));
+  } catch (e) { next(e); }
+});
+
+analysisRouter.post('/albums/:albumId/context/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await albumContextService.regenerate(req.params['albumId']!));
+  } catch (e) { next(e); }
+});
+
+// Band context analysis — synthesizes all album/song analyses into a band profile
+analysisRouter.get('/bands/:bandId/context', async (req, res, next) => {
+  try {
+    res.json(await bandContextService.getOrCreate(req.params['bandId']!));
+  } catch (e) { next(e); }
+});
+
+analysisRouter.post('/bands/:bandId/context/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await bandContextService.regenerate(req.params['bandId']!));
   } catch (e) { next(e); }
 });
