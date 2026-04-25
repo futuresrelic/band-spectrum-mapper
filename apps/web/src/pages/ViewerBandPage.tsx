@@ -1,15 +1,14 @@
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { api } from '../lib/api';
-import { ratingsApi } from '../api/ratings';
 import { analysisApi } from '../api/analysis';
 import { useAuth } from '../contexts/AuthContext';
-import RadarChart from '../components/charts/RadarChart';
+import CoreSpectrumWidget from '../components/CoreSpectrumWidget';
 import GenreSpectrumWidget from '../components/GenreSpectrumWidget';
 import CommentSection from '../components/CommentSection';
-import type { Band, Album, Song, Lyric, SongAxisScore, AxisScoreMap, CommunityScore, UserSongRating } from '@band-spectrum-mapper/shared';
-import { SCORE_AXES } from '@band-spectrum-mapper/shared';
+import type { Band, Album, Song, Lyric, SongAxisScore } from '@band-spectrum-mapper/shared';
 
 type PublicAlbum = Album & {
   songs: (Song & {
@@ -23,31 +22,10 @@ type PublicBand = Band & {
   _count: { albums: number; songs: number };
 };
 
-type ScoreMode = 'core' | 'community' | 'mine';
-
-function toAxisScoreMap(r: UserSongRating): AxisScoreMap {
-  return {
-    aggression: r.aggression,
-    complexity: r.complexity,
-    atmosphere: r.atmosphere,
-    emotion: r.emotion,
-    psychedelic: r.psychedelic,
-    concept: r.concept,
-  };
-}
-
 function SongExpanded({
   song,
-  scoreMode,
-  activeScore,
-  scoreLabel,
-  primaryLyric,
 }: {
   song: PublicAlbum['songs'][number];
-  scoreMode: ScoreMode;
-  activeScore: AxisScoreMap | null;
-  scoreLabel: string;
-  primaryLyric: Lyric | undefined;
 }) {
   const { data: research } = useQuery({
     queryKey: ['song-research', song.id],
@@ -61,36 +39,14 @@ function SongExpanded({
     retry: false,
   });
 
+  const primaryLyric = song.lyrics[0];
+
   return (
     <div className="px-4 pb-5 space-y-5">
-      {/* Spectrum */}
-      {activeScore ? (
-        <div>
-          <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-2">
-            Spectrum · {scoreLabel}
-          </p>
-          <div className="max-w-xs">
-            <RadarChart datasets={[{ label: song.title, scores: activeScore, color: '#374151' }]} />
-          </div>
-          <div className="grid grid-cols-3 gap-2 mt-2">
-            {SCORE_AXES.map((axis) => (
-              <div key={axis} className="text-xs">
-                <span className="text-surface-700 capitalize">{axis}</span>
-                <span className="ml-1 font-mono font-medium">{activeScore[axis]}</span>
-              </div>
-            ))}
-          </div>
-          {scoreMode === 'core' && song.score?.notes && (
-            <p className="text-xs text-surface-700 mt-2 italic">{song.score.notes}</p>
-          )}
-        </div>
-      ) : (
-        <p className="text-sm text-surface-500 italic">
-          {scoreMode === 'core' && 'No core scores yet.'}
-          {scoreMode === 'community' && 'No community ratings yet.'}
-          {scoreMode === 'mine' && "You haven't rated this song yet."}
-        </p>
-      )}
+      {/* Core Spectrum with Community / Mine / AI tabs */}
+      <div>
+        <CoreSpectrumWidget songId={song.id} coreScore={song.score} />
+      </div>
 
       {/* Genre spectrum */}
       <div>
@@ -125,7 +81,7 @@ function SongExpanded({
         </div>
       )}
 
-      {/* Deep analysis highlights */}
+      {/* Deep analysis */}
       {context && (
         <div className="space-y-3 border-t border-surface-100 pt-4">
           {context.titleSignificance && (
@@ -140,10 +96,26 @@ function SongExpanded({
               <p className="text-sm leading-relaxed text-surface-900">{context.overallNarrative}</p>
             </div>
           )}
+          {context.lyricalInterpretation && (
+            <details className="border-t border-surface-100 pt-3">
+              <summary className="text-xs text-surface-500 cursor-pointer hover:text-surface-700">
+                Lyrical interpretation →
+              </summary>
+              <p className="text-sm leading-relaxed text-surface-900 mt-2">{context.lyricalInterpretation}</p>
+            </details>
+          )}
+          {context.thematicSynthesis && (
+            <details className="border-t border-surface-100 pt-3">
+              <summary className="text-xs text-surface-500 cursor-pointer hover:text-surface-700">
+                Thematic synthesis →
+              </summary>
+              <p className="text-sm leading-relaxed text-surface-900 mt-2">{context.thematicSynthesis}</p>
+            </details>
+          )}
         </div>
       )}
 
-      {!primaryLyric && !activeScore && !research && !context && (
+      {!primaryLyric && !song.score && !research && !context && (
         <p className="text-sm text-surface-700">No content added yet.</p>
       )}
 
@@ -168,19 +140,8 @@ function SongExpanded({
   );
 }
 
-function SongRow({
-  song,
-  scoreMode,
-  activeScore,
-  scoreLabel,
-}: {
-  song: PublicAlbum['songs'][number];
-  scoreMode: ScoreMode;
-  activeScore: AxisScoreMap | null;
-  scoreLabel: string;
-}) {
+function SongRow({ song }: { song: PublicAlbum['songs'][number] }) {
   const [expanded, setExpanded] = useState(false);
-  const primaryLyric = song.lyrics[0];
 
   return (
     <li className="border-b border-surface-100 last:border-0">
@@ -194,18 +155,15 @@ function SongRow({
           )}
           <span className="font-medium">{song.title}</span>
         </div>
-        <span className="text-surface-700 text-sm">{expanded ? '▲' : '▼'}</span>
+        <div className="flex items-center gap-2">
+          {song.score && (
+            <span className="text-xs text-surface-400 hidden sm:inline">scored</span>
+          )}
+          <span className="text-surface-700 text-sm">{expanded ? '▲' : '▼'}</span>
+        </div>
       </button>
 
-      {expanded && (
-        <SongExpanded
-          song={song}
-          scoreMode={scoreMode}
-          activeScore={activeScore}
-          scoreLabel={scoreLabel}
-          primaryLyric={primaryLyric}
-        />
-      )}
+      {expanded && <SongExpanded song={song} />}
     </li>
   );
 }
@@ -213,7 +171,6 @@ function SongRow({
 export default function ViewerBandPage() {
   const { bandSlug } = useParams<{ bandSlug: string }>();
   const { user } = useAuth();
-  const [scoreMode, setScoreMode] = useState<ScoreMode>('core');
 
   const { data: band, isLoading: loadingBand } = useQuery({
     queryKey: ['public-band', bandSlug],
@@ -227,53 +184,10 @@ export default function ViewerBandPage() {
     enabled: !!bandSlug,
   });
 
-  const allSongIds = useMemo(
-    () => albums?.flatMap((a) => a.songs.map((s) => s.id)) ?? [],
-    [albums],
-  );
-
-  const { data: communityMap } = useQuery({
-    queryKey: ['public-community', allSongIds],
-    queryFn: () => ratingsApi.getCommunityRatings(allSongIds),
-    enabled: scoreMode === 'community' && allSongIds.length > 0,
-  });
-
-  const { data: mineMap } = useQuery({
-    queryKey: ['my-ratings', allSongIds],
-    queryFn: () => ratingsApi.getMyRatings(allSongIds),
-    enabled: scoreMode === 'mine' && !!user && allSongIds.length > 0,
-  });
+  // Suppress TS unused-variable warning — user is used for conditional UI
+  void useMemo(() => user, [user]);
 
   const isLoading = loadingBand || loadingAlbums;
-
-  function getActiveScore(song: PublicAlbum['songs'][number]): AxisScoreMap | null {
-    if (scoreMode === 'core') {
-      if (!song.score) return null;
-      return {
-        aggression: song.score.aggression,
-        complexity: song.score.complexity,
-        atmosphere: song.score.atmosphere,
-        emotion: song.score.emotion,
-        psychedelic: song.score.psychedelic,
-        concept: song.score.concept,
-      };
-    }
-    if (scoreMode === 'community') {
-      const cs: CommunityScore | undefined = communityMap?.[song.id];
-      return cs?.scores ?? null;
-    }
-    if (scoreMode === 'mine') {
-      const r: UserSongRating | undefined = mineMap?.[song.id];
-      return r ? toAxisScoreMap(r) : null;
-    }
-    return null;
-  }
-
-  const scoreLabel: Record<ScoreMode, string> = {
-    core: 'Core',
-    community: 'Community',
-    mine: 'Mine',
-  };
 
   return (
     <div className="min-h-screen bg-surface-50">
@@ -285,7 +199,7 @@ export default function ViewerBandPage() {
         {isLoading && <p className="text-surface-700 mt-4">Loading...</p>}
 
         {band && (
-          <div className="mb-6">
+          <div className="mb-8">
             <h1 className="text-3xl font-bold tracking-tight">{band.name}</h1>
             {band.description && (
               <p className="text-surface-700 mt-1">{band.description}</p>
@@ -293,38 +207,6 @@ export default function ViewerBandPage() {
             <p className="text-xs text-surface-700 mt-2">
               {band._count.albums} albums · {band._count.songs} songs
             </p>
-          </div>
-        )}
-
-        {/* Score mode selector */}
-        {albums && albums.length > 0 && (
-          <div className="flex gap-1 rounded-lg border border-surface-200 bg-white p-1 mb-8 w-fit">
-            {(['core', 'community', 'mine'] as const).map((mode) => (
-              <button
-                key={mode}
-                className={`rounded px-4 py-1.5 text-sm font-medium transition-colors ${
-                  scoreMode === mode
-                    ? 'bg-surface-900 text-white'
-                    : 'text-surface-600 hover:text-surface-900'
-                }`}
-                onClick={() => setScoreMode(mode)}
-              >
-                {scoreLabel[mode]}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Mine mode — unauthenticated prompt */}
-        {scoreMode === 'mine' && !user && (
-          <div className="rounded-lg border border-surface-200 bg-white px-6 py-5 text-center mb-6">
-            <p className="text-sm text-surface-700 mb-3">Sign in to see your personal ratings.</p>
-            <a
-              href="/dashboard"
-              className="inline-block rounded bg-surface-900 px-4 py-2 text-sm font-medium text-white hover:bg-surface-700 transition-colors"
-            >
-              Go to app to sign in
-            </a>
           </div>
         )}
 
@@ -345,13 +227,7 @@ export default function ViewerBandPage() {
               <div className="bg-white rounded-lg border border-surface-200 overflow-hidden">
                 <ul>
                   {album.songs.map((song) => (
-                    <SongRow
-                      key={song.id}
-                      song={song}
-                      scoreMode={scoreMode}
-                      activeScore={getActiveScore(song)}
-                      scoreLabel={scoreLabel[scoreMode]}
-                    />
+                    <SongRow key={song.id} song={song} />
                   ))}
                 </ul>
               </div>
@@ -361,6 +237,16 @@ export default function ViewerBandPage() {
 
         <p className="text-xs text-surface-700 mt-12 border-t border-surface-200 pt-4">
           Read-only view · Band Spectrum Mapper
+          {user && (
+            <Link to="/my/rate" className="ml-3 text-indigo-600 hover:underline">
+              Rate songs →
+            </Link>
+          )}
+          {!user && (
+            <a href="/api/auth/google" className="ml-3 text-indigo-600 hover:underline">
+              Sign in to rate →
+            </a>
+          )}
         </p>
       </div>
     </div>

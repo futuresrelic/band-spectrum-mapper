@@ -121,7 +121,7 @@ export const songContextService = {
 
     const commentsSection = comments.length > 0
       ? `=== COMMUNITY DISCUSSION (${comments.length} comments) ===\n${comments.map((c) => `- "${c.text}"`).join('\n')}`
-      : '';
+      : '=== COMMUNITY DISCUSSION ===\n[No listener comments yet]';
 
     const contextSections = [lyricsSection, researchSection, analysisSection, scoresSection, commentsSection]
       .filter(Boolean)
@@ -152,7 +152,7 @@ Provide your analysis as a JSON object with these exact string fields:
 
 - thematicSynthesis: How the title, lyrics, context, scores, and community discussion converge into a coherent artistic statement. What is the song doing as a whole work? (3–4 sentences)
 
-- overallNarrative: The complete picture — what this song is ultimately saying, why it resonates, and what makes it significant. If community comments reveal recurring interpretations or notable insights, weave the most compelling ones in. Write as a critic who takes the work seriously and expects the reader to as well. (4–6 sentences)
+- overallNarrative: The complete picture — what this song is ultimately saying, why it resonates, and what makes it significant. If community comments are present, weave the most compelling interpretations in. If NO community comments exist, close with 1–2 sentences that tease listeners into wanting to share their interpretation — something that hints there is a layer of meaning not yet unpacked, or poses a question only a listener who has felt the song deeply could answer. Write as a critic who takes the work seriously and expects the reader to as well. (4–7 sentences)
 
 Return only valid JSON. No markdown. No extra text outside the JSON object.`;
 

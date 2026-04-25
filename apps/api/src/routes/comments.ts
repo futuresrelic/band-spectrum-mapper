@@ -43,6 +43,10 @@ commentsRouter.post('/', requireAuth, async (req, res, next) => {
       data: { songId, userId: req.user!.userId, text: text.trim() },
       include: { user: { select: { name: true, avatarUrl: true } } },
     });
+
+    // Invalidate cached context so next view regenerates with the new comment woven in
+    await prisma.songContextAnalysis.deleteMany({ where: { songId } });
+
     res.status(201).json(comment);
   } catch (e) {
     next(e);

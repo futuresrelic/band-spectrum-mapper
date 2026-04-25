@@ -28,16 +28,18 @@ export default function UserLayout() {
         <div className="flex items-center gap-4">
           {user ? (
             <>
-              {user.avatarUrl ? (
-                <img src={user.avatarUrl} alt={user.name ?? user.email} className="w-6 h-6 rounded-full" />
-              ) : (
-                <div className="w-6 h-6 rounded-full bg-surface-700 flex items-center justify-center text-xs">
-                  {(user.name ?? user.email)[0]?.toUpperCase()}
-                </div>
-              )}
-              <span className="text-xs text-surface-300 max-w-[160px] truncate">
-                {user.name ?? user.email}
-              </span>
+              <Link to="/my/profile" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+                {user.avatarUrl ? (
+                  <img src={user.avatarUrl} alt={user.name ?? user.email} className="w-6 h-6 rounded-full" />
+                ) : (
+                  <div className="w-6 h-6 rounded-full bg-surface-700 flex items-center justify-center text-xs">
+                    {(user.name ?? user.email)[0]?.toUpperCase()}
+                  </div>
+                )}
+                <span className="text-xs text-surface-300 max-w-[140px] truncate">
+                  {user.name ?? user.email}
+                </span>
+              </Link>
               <button
                 className="text-xs text-surface-500 hover:text-surface-200 transition-colors"
                 onClick={logout}

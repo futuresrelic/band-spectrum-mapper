@@ -4,6 +4,7 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import jwt from 'jsonwebtoken';
 import { userService } from '../services/userService.js';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { prisma } from '../lib/prisma.js';
 import type { AuthTokenPayload } from '../middleware/requireAuth.js';
 
 const CLIENT_ID       = process.env['GOOGLE_CLIENT_ID'] ?? '';
@@ -66,6 +67,45 @@ authRouter.get(
 
 authRouter.get('/me', requireAuth, (req, res) => {
   res.json(req.user);
+});
+
+// GET /api/auth/me/stats — profile stats + contribution history
+authRouter.get('/me/stats', requireAuth, async (req, res, next) => {
+  try {
+    const userId = req.user!.userId;
+    const [ratingsCount, genreRatingsCount, commentsCount, contributions, dbUser] = await Promise.all([
+      prisma.userSongRating.count({ where: { userId } }),
+      prisma.songGenreRating.count({ where: { userId } }),
+      prisma.songComment.count({ where: { userId } }),
+      prisma.pendingContribution.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true, artistName: true, status: true, createdAt: true,
+          reviewedAt: true, adminNote: true,
+        },
+      }),
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, name: true, email: true, avatarUrl: true, createdAt: true, isAdmin: true },
+      }),
+    ]);
+    res.json({
+      ...dbUser,
+      createdAt: dbUser?.createdAt?.toISOString(),
+      ratingsCount,
+      genreRatingsCount,
+      commentsCount,
+      contributions: contributions.map((c: typeof contributions[number]) => ({
+        id: c.id,
+        artistName: c.artistName,
+        status: c.status,
+        createdAt: c.createdAt.toISOString(),
+        reviewedAt: c.reviewedAt?.toISOString() ?? null,
+        reviewNote: c.adminNote ?? null,
+      })),
+    });
+  } catch (e) { next(e); }
 });
 
 // Client drops the token; this endpoint exists for symmetry / future blocklist

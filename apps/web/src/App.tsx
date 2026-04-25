@@ -28,6 +28,7 @@ import LandingPage from './pages/LandingPage';
 import LegalPage from './pages/LegalPage';
 import HelpPage from './pages/HelpPage';
 import ShareSongPage from './pages/ShareSongPage';
+import UserProfilePage from './pages/UserProfilePage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -70,6 +71,7 @@ export default function App() {
           <Route index element={<Navigate to="/my/rate" replace />} />
           <Route path="rate" element={<UserRatePage />} />
           <Route path="contribute" element={<ContributePage />} />
+          <Route path="profile" element={<UserProfilePage />} />
         </Route>
 
         {/* ── ADMIN: full app, isAdmin required ── */}
