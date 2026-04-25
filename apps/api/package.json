@@ -19,6 +19,7 @@
   "dependencies": {
     "@band-spectrum-mapper/shared": "*",
     "@prisma/client": "^5.14.0",
+    "@resvg/resvg-js": "^2.6.2",
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",

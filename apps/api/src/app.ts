@@ -22,6 +22,8 @@ import { brandRouter } from './routes/brand.js';
 import { genreRatingsRouter } from './routes/genre-ratings.js';
 import { musicBrainzRouter } from './routes/musicbrainz.js';
 import { contributionsRouter } from './routes/contributions.js';
+import { ogRouter } from './routes/og.js';
+import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 export function createApp() {
@@ -75,10 +77,18 @@ export function createApp() {
   // Library contributions from users
   app.use('/api/contributions', contributionsRouter);
 
+  // OG image generation (PNG for social share cards)
+  app.use('/api/og', ogRouter);
+
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const webDist = path.resolve(__dirname, '../../web/dist');
+
+    // OG meta injection: intercepts share URLs before static middleware so
+    // social crawlers (Facebook, Twitter, etc.) see proper og:image + tags.
+    app.use(songOgMiddleware(webDist));
+
     app.use(express.static(webDist));
     // SPA fallback — any non-/api route gets index.html so React Router works
     app.get(/^(?!\/api\/).*$/, (_req, res) => {
