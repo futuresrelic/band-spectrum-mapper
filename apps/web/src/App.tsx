@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { useAuth } from './contexts/AuthContext';
 import Layout from './components/layout/Layout';
@@ -40,6 +40,13 @@ function RootRedirect() {
   return <Navigate to="/my/rate" replace />;
 }
 
+// /rate?songId=xxx → /my/rate?songId=xxx (short shareable deep-link)
+function RateRedirect() {
+  const [searchParams] = useSearchParams();
+  const songId = searchParams.get('songId');
+  return <Navigate to={`/my/rate${songId ? `?songId=${encodeURIComponent(songId)}` : ''}`} replace />;
+}
+
 // Wraps admin routes — non-admin users are redirected away
 function AdminGuard({ children }: { children: ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -63,6 +70,7 @@ export default function App() {
         <Route path="/landing" element={<LandingPage />} />
         <Route path="/legal" element={<LegalPage />} />
         <Route path="/help" element={<HelpPage />} />
+        <Route path="/rate" element={<RateRedirect />} />
         <Route path="/share/songs/:songId" element={<ShareSongPage />} />
         <Route path="/view" element={<ViewerIndexPage />} />
         <Route path="/view/:bandSlug" element={<ViewerBandPage />} />

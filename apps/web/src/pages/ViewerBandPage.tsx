@@ -118,8 +118,14 @@ function SongExpanded({
         <p className="text-sm text-surface-700">No content added yet.</p>
       )}
 
-      {/* Share link */}
-      <div className="flex justify-end border-t border-surface-100 pt-3">
+      {/* Actions row */}
+      <div className="flex items-center justify-between border-t border-surface-100 pt-3 gap-2 flex-wrap">
+        <Link
+          to={`/rate?songId=${song.id}`}
+          className="inline-flex items-center gap-1.5 text-xs font-medium bg-surface-900 text-white px-3 py-1.5 rounded hover:bg-surface-700 transition-colors"
+        >
+          Rate this song →
+        </Link>
         <Link
           to={`/share/songs/${song.id}`}
           target="_blank"
@@ -298,15 +304,10 @@ export default function ViewerBandPage() {
             Spectrum scores reflect lyrical and conceptual qualities. The human interpretation lives in the ratings and comments below each song.
           </p>
           <p className="text-xs text-surface-400">
-            Read-only view · Band Spectrum Mapper
-            {user && (
-              <Link to="/my/rate" className="ml-3 text-indigo-600 hover:underline">
-                Rate songs →
-              </Link>
-            )}
+            Read-only view · Band Spectrum Mapper · expand any song to rate it
             {!user && (
               <a href="/api/auth/google" className="ml-3 text-indigo-600 hover:underline">
-                Sign in to contribute →
+                Sign in to rate →
               </a>
             )}
           </p>

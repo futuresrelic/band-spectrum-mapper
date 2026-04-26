@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
 import { bandsApi } from '../api/bands';
@@ -39,6 +39,7 @@ function ScoreDisplay({ label, scores }: { label: string; scores: AxisScoreMap |
 export default function UserRatePage() {
   const { user, login } = useAuth();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   const [selectedBandId, setSelectedBandId] = useState('');
@@ -111,6 +112,8 @@ export default function UserRatePage() {
     setSelectedSongId(songId);
     setSaved(false);
     setMyScores({ ...DEFAULT_SCORES });
+    // Keep URL in sync so the page is bookmarkable and shareable
+    navigate(songId ? `/my/rate?songId=${encodeURIComponent(songId)}` : '/my/rate', { replace: true });
   };
 
   const nextSong = () => {
@@ -124,13 +127,14 @@ export default function UserRatePage() {
   const communityScores = songRatings?.communityRating ?? null;
   const bandSlug = songDetail?.band?.slug ?? null;
 
-  // Not signed in — prompt without blocking the whole page
+  // Not signed in — prompt, preserving the songId so they land back here after auth
   if (!user) {
+    const returnSongId = searchParams.get('songId');
     return (
       <div className="max-w-md mx-auto mt-12 text-center space-y-4">
         <h1 className="text-2xl font-bold text-surface-900">Rate Songs</h1>
         <p className="text-surface-600 text-sm">
-          Sign in with Google to submit your personal spectrum ratings for any song.
+          Sign in with Google to submit your personal spectrum ratings.
           Your ratings are saved to your account and contribute to the community averages.
         </p>
         <button className="btn-primary" onClick={login}>
@@ -138,8 +142,11 @@ export default function UserRatePage() {
         </button>
         <p className="text-xs text-surface-400">
           Just want to browse?{' '}
-          <Link to="/view" className="underline hover:text-surface-700">
-            View results without signing in
+          <Link
+            to={returnSongId ? `/view` : '/view'}
+            className="underline hover:text-surface-700"
+          >
+            View analysis without signing in
           </Link>
         </p>
       </div>
@@ -234,11 +241,31 @@ export default function UserRatePage() {
             <>
               {/* Song info + reference scores */}
               <div className="card space-y-3">
-                <div>
-                  <h2 className="text-lg font-semibold">{songDetail.title}</h2>
-                  <p className="text-sm text-surface-600">
-                    {[songDetail.band?.name, songDetail.album?.title].filter(Boolean).join(' — ')}
-                  </p>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold">{songDetail.title}</h2>
+                    <p className="text-sm text-surface-600">
+                      {[songDetail.band?.name, songDetail.album?.title].filter(Boolean).join(' — ')}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 shrink-0 flex-wrap justify-end">
+                    {bandSlug && (
+                      <Link
+                        to={`/view/${bandSlug}#song-${selectedSongId}`}
+                        className="text-xs text-surface-500 hover:text-surface-900 border border-surface-200 rounded px-2 py-1 transition-colors"
+                      >
+                        View analysis
+                      </Link>
+                    )}
+                    <Link
+                      to={`/share/songs/${selectedSongId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded px-2 py-1 transition-colors"
+                    >
+                      Share ↗
+                    </Link>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -334,10 +361,18 @@ export default function UserRatePage() {
                         </button>
                       )}
                       {bandSlug && (
-                        <Link to={`/view/${bandSlug}`} className="btn-ghost text-sm">
-                          View results
+                        <Link to={`/view/${bandSlug}#song-${selectedSongId}`} className="btn-ghost text-sm">
+                          View analysis
                         </Link>
                       )}
+                      <Link
+                        to={`/share/songs/${selectedSongId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-ghost text-sm"
+                      >
+                        Share ↗
+                      </Link>
                     </>
                   )}
                 </div>
