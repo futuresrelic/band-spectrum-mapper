@@ -1,13 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Radar,
-  RadarChart as RechartsRadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  ResponsiveContainer,
-} from 'recharts';
 import { api } from '../lib/api';
 import { analysisApi } from '../api/analysis';
 import { songsApi } from '../api/songs';
@@ -15,13 +8,22 @@ import { useAuth } from '../contexts/AuthContext';
 import type { SongAxisScore, SongAiSpectrum, SongAiGenreSpectrum } from '@band-spectrum-mapper/shared';
 import {
   SCORE_AXES,
-  AXIS_COLORS,
   AXIS_LABELS,
   GENRE_PERSPECTIVES,
   GENRE_COLORS,
   GENRE_LABELS,
   type GenrePerspective,
 } from '@band-spectrum-mapper/shared';
+
+// Vivid axis colors — optimised for the dark share card
+const VIVID_AXIS_COLORS: Record<string, string> = {
+  aggression: '#ff3a3a',
+  complexity:  '#ff9500',
+  atmosphere:  '#34c8e8',
+  emotion:     '#ff375f',
+  psychedelic: '#bf5af2',
+  concept:     '#30d158',
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,7 +52,7 @@ type GenreRatingsResponse = {
 };
 
 // ---------------------------------------------------------------------------
-// Core Spectrum — dark radar chart
+// Core Spectrum — dark gradient radar (pure SVG, matches OG image)
 // ---------------------------------------------------------------------------
 
 function CoreSpectrumRadar({
@@ -60,10 +62,43 @@ function CoreSpectrumRadar({
   scores: Record<string, number>;
   source: string;
 }) {
-  const radarData = SCORE_AXES.map((axis) => ({
-    axis: AXIS_LABELS[axis] ?? axis,
-    value: Number(scores[axis] ?? 0),
-  }));
+  const W = 320, H = 320;
+  const cx = W / 2, cy = H / 2, R = 110;
+  const N = SCORE_AXES.length;
+  const angle = (i: number) => (-Math.PI / 2) + i * (2 * Math.PI / N);
+  const px = (i: number, f: number) => cx + f * R * Math.cos(angle(i));
+  const py = (i: number, f: number) => cy + f * R * Math.sin(angle(i));
+
+  // Sector polygon approximating a 60° slice (avoids SVG arc bugs)
+  function sectorPoints(i: number): string {
+    const pts: [number, number][] = [[cx, cy]];
+    const startDeg = angle(i) * (180 / Math.PI) - 31;
+    const endDeg   = angle(i) * (180 / Math.PI) + 31;
+    for (let d = startDeg; d <= endDeg; d += 4) {
+      const r = d * Math.PI / 180;
+      pts.push([cx + (R + 30) * Math.cos(r), cy + (R + 30) * Math.sin(r)]);
+    }
+    return pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  }
+
+  // Hex grid path at fraction f
+  function hexPath(f: number) {
+    const pts = Array.from({ length: N }, (_, i) => `${px(i, f).toFixed(1)},${py(i, f).toFixed(1)}`);
+    return `M ${pts.join(' L ')} Z`;
+  }
+
+  // Score polygon
+  const scorePolyPath = `M ${SCORE_AXES.map((ax, i) => {
+    const s = (scores[ax] ?? 0) / 10;
+    return `${px(i, s).toFixed(1)},${py(i, s).toFixed(1)}`;
+  }).join(' L ')} Z`;
+
+  // Label placement
+  const LABEL_R = R + 26;
+  const AXIS_SHORT: Record<string, string> = {
+    aggression: 'AGGR', complexity: 'COMP', atmosphere: 'ATMO',
+    emotion: 'EMOT', psychedelic: 'PSYC', concept: 'CONC',
+  };
 
   return (
     <div className="px-7 py-6 border-b border-slate-800">
@@ -71,30 +106,100 @@ function CoreSpectrumRadar({
         <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Core Spectrum</p>
         <p className="text-xs text-slate-600">{source}</p>
       </div>
-      <div className="h-[200px]">
-        <ResponsiveContainer width="100%" height="100%">
-          <RechartsRadarChart data={radarData} cx="50%" cy="50%" outerRadius="72%">
-            <PolarGrid stroke="#1e293b" />
-            <PolarAngleAxis
-              dataKey="axis"
-              tick={{ fill: '#64748b', fontSize: 10, fontWeight: 500 }}
+
+      <div className="flex justify-center">
+        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="overflow-visible">
+          <defs>
+            {SCORE_AXES.map((ax) => {
+              const s = Math.max(0.01, (scores[ax] ?? 0) / 10);
+              const col = VIVID_AXIS_COLORS[ax]!;
+              const peakPct  = Math.round(s * 100);
+              const fadePct  = Math.min(peakPct + 14, 100);
+              const innerPct = Math.max(0, Math.round(s * 55));
+              return (
+                <radialGradient key={ax} id={`rg-${ax}`} gradientUnits="userSpaceOnUse" cx={cx} cy={cy} r={R * 1.08}>
+                  <stop offset="0%"           stopColor={col} stopOpacity={0}/>
+                  <stop offset={`${innerPct}%`} stopColor={col} stopOpacity={s * 0.22}/>
+                  <stop offset={`${peakPct}%`}  stopColor={col} stopOpacity={s * 0.9}/>
+                  <stop offset={`${fadePct}%`}  stopColor={col} stopOpacity={0}/>
+                </radialGradient>
+              );
+            })}
+            {SCORE_AXES.map((ax, idx) => (
+              <clipPath key={ax} id={`cp-${ax}`}>
+                <polygon points={sectorPoints(idx)} />
+              </clipPath>
+            ))}
+            <radialGradient id="cglow" gradientUnits="userSpaceOnUse" cx={cx} cy={cy} r={R * 0.18}>
+              <stop offset="0%"   stopColor="#ffffff" stopOpacity={0.5}/>
+              <stop offset="100%" stopColor="#ffffff" stopOpacity={0}/>
+            </radialGradient>
+          </defs>
+
+          {/* Hex grid */}
+          {[0.2, 0.4, 0.6, 0.8, 1.0].map((f) => (
+            <path key={f} d={hexPath(f)} fill="none" stroke="white" strokeWidth={0.6} strokeOpacity={f === 1.0 ? 0.18 : 0.09}/>
+          ))}
+
+          {/* Spokes */}
+          {SCORE_AXES.map((_, i) => (
+            <line key={i} x1={cx} y1={cy} x2={px(i, 1)} y2={py(i, 1)} stroke="white" strokeWidth={0.7} strokeOpacity={0.13}/>
+          ))}
+
+          {/* Gradient sectors */}
+          {SCORE_AXES.map((ax) => (
+            <rect
+              key={ax}
+              x={cx - R - 30} y={cy - R - 30}
+              width={(R + 30) * 2} height={(R + 30) * 2}
+              fill={`url(#rg-${ax})`}
+              clipPath={`url(#cp-${ax})`}
             />
-            <Radar
-              name="score"
-              dataKey="value"
-              stroke="#818cf8"
-              fill="#818cf8"
-              fillOpacity={0.25}
-              dot={{ fill: '#818cf8', r: 2 }}
-            />
-          </RechartsRadarChart>
-        </ResponsiveContainer>
+          ))}
+
+          {/* Score polygon */}
+          <path d={scorePolyPath} fill="white" fillOpacity={0.06} stroke="white" strokeWidth={1.6} strokeOpacity={0.65} strokeLinejoin="round"/>
+
+          {/* Vertex dots */}
+          {SCORE_AXES.map((ax, i) => {
+            const s = (scores[ax] ?? 0) / 10;
+            const col = VIVID_AXIS_COLORS[ax]!;
+            return (
+              <circle key={ax} cx={px(i, s)} cy={py(i, s)} r={3.5 + s * 2.5} fill={col} stroke="white" strokeWidth={1} strokeOpacity={0.6}/>
+            );
+          })}
+
+          {/* Center glow */}
+          <circle cx={cx} cy={cy} r={R * 0.18} fill="url(#cglow)"/>
+
+          {/* Labels */}
+          {SCORE_AXES.map((ax, i) => {
+            const lx = cx + LABEL_R * Math.cos(angle(i));
+            const ly = cy + LABEL_R * Math.sin(angle(i));
+            const col = VIVID_AXIS_COLORS[ax]!;
+            const deg = angle(i) * (180 / Math.PI);
+            const anchor = (deg > -30 && deg < 30) || deg > 150 || deg < -150 ? 'middle'
+              : deg > 0 && deg < 150 ? 'start' : 'end';
+            const yOff = Math.abs(Math.sin(angle(i))) > 0.7 ? (Math.sin(angle(i)) > 0 ? 12 : -4) : 0;
+            return (
+              <g key={ax}>
+                <text x={lx} y={ly + yOff} fontFamily="system-ui,sans-serif" fontSize={9} fontWeight={700} fill={col} textAnchor={anchor} letterSpacing={0.8}>
+                  {AXIS_SHORT[ax]}
+                </text>
+                <text x={lx} y={ly + yOff + 13} fontFamily="system-ui,sans-serif" fontSize={12} fontWeight={700} fill={col} textAnchor={anchor}>
+                  {(scores[ax] ?? 0).toFixed(1)}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
       </div>
-      {/* Compact score grid below radar */}
-      <div className="grid grid-cols-3 gap-x-4 gap-y-1 mt-2">
+
+      {/* Compact score row */}
+      <div className="grid grid-cols-3 gap-x-4 gap-y-1 mt-1">
         {SCORE_AXES.map((axis) => {
           const val = Number(scores[axis] ?? 0);
-          const color = AXIS_COLORS[axis] ?? '#818cf8';
+          const color = VIVID_AXIS_COLORS[axis]!;
           return (
             <div key={axis} className="flex items-center justify-between text-[11px]">
               <span className="text-slate-500">{AXIS_LABELS[axis]}</span>
