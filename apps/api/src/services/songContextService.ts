@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { prisma } from '../lib/prisma.js';
 import { HttpError } from '../middleware/errorHandler.js';
+import { adminKnowledgeService } from './adminKnowledgeService.js';
 import type { SongContextAnalysis } from '@band-spectrum-mapper/shared';
 
 const MODEL = 'gpt-4o-mini';
@@ -123,7 +124,9 @@ export const songContextService = {
       ? `=== COMMUNITY DISCUSSION (${comments.length} comments) ===\n${comments.map((c) => `- "${c.text}"`).join('\n')}`
       : '=== COMMUNITY DISCUSSION ===\n[No listener comments yet]';
 
-    const contextSections = [lyricsSection, researchSection, analysisSection, scoresSection, commentsSection]
+    const curatorContext = await adminKnowledgeService.getContextForSong(songId, song.band.id);
+
+    const contextSections = [lyricsSection, researchSection, analysisSection, scoresSection, commentsSection, curatorContext]
       .filter(Boolean)
       .join('\n\n');
 

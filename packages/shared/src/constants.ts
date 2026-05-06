@@ -27,13 +27,13 @@ export const AXIS_LABELS: Record<ScoreAxis, string> = {
   concept:     'Concept',
 };
 
-export const AXIS_INFO: Record<ScoreAxis, { lo: string; hi: string }> = {
-  aggression:  { lo: 'Calm, peaceful, gentle',          hi: 'Intense, abrasive, violent' },
-  complexity:  { lo: 'Simple, repetitive, accessible',  hi: 'Dense, layered, intricate' },
-  atmosphere:  { lo: 'Dry, direct, stripped',           hi: 'Immersive, ambient, cinematic' },
-  emotion:     { lo: 'Detached, cold, clinical',        hi: 'Raw, vulnerable, intensely felt' },
-  psychedelic: { lo: 'Grounded, literal, concrete',     hi: 'Surreal, hallucinatory, mind-bending' },
-  concept:     { lo: 'Personal, narrative, concrete',   hi: 'Philosophical, abstract, conceptual' },
+export const AXIS_INFO: Record<ScoreAxis, { lo: string; hi: string; wikiUrl: string }> = {
+  aggression:  { lo: 'Calm, peaceful, gentle',          hi: 'Intense, abrasive, violent',            wikiUrl: 'https://en.wikipedia.org/wiki/Aggression' },
+  complexity:  { lo: 'Simple, repetitive, accessible',  hi: 'Dense, layered, intricate',             wikiUrl: 'https://en.wikipedia.org/wiki/Complexity' },
+  atmosphere:  { lo: 'Dry, direct, stripped',           hi: 'Immersive, ambient, cinematic',         wikiUrl: 'https://en.wikipedia.org/wiki/Ambient_music' },
+  emotion:     { lo: 'Detached, cold, clinical',        hi: 'Raw, vulnerable, intensely felt',       wikiUrl: 'https://en.wikipedia.org/wiki/Music_and_emotion' },
+  psychedelic: { lo: 'Grounded, literal, concrete',     hi: 'Surreal, hallucinatory, mind-bending',  wikiUrl: 'https://en.wikipedia.org/wiki/Psychedelic_music' },
+  concept:     { lo: 'Personal, narrative, concrete',   hi: 'Philosophical, abstract, conceptual',   wikiUrl: 'https://en.wikipedia.org/wiki/Concept_album' },
 };
 
 export const SCORE_MIN = 0;
@@ -96,102 +96,22 @@ export const THEME_GROUP_COLORS: Record<ThemeGroup, string> = {
 };
 
 export const THEME_CATEGORIES = [
-  {
-    slug: 'perception',
-    label: 'Perception',
-    group: 'consciousness' as ThemeGroup,
-    description: 'Altered or expanded awareness; seeing beyond illusion or consensus reality',
-  },
-  {
-    slug: 'ego-death',
-    label: 'Ego Death',
-    group: 'psychological' as ThemeGroup,
-    description: 'Dissolution of self, loss of personal identity, transcending the ego-construct',
-  },
-  {
-    slug: 'introspection',
-    label: 'Introspection',
-    group: 'psychological' as ThemeGroup,
-    description: 'Self-examination, inner journeys, confronting uncomfortable personal truth',
-  },
-  {
-    slug: 'shadow-self',
-    label: 'Shadow Self',
-    group: 'psychological' as ThemeGroup,
-    description: 'Confronting inner darkness; hidden aspects of personality; Jungian shadow work',
-  },
-  {
-    slug: 'acceptance',
-    label: 'Acceptance',
-    group: 'psychological' as ThemeGroup,
-    description: 'Surrender, embracing what is, releasing resistance to pain or reality',
-  },
-  {
-    slug: 'transcendence',
-    label: 'Transcendence',
-    group: 'spiritual' as ThemeGroup,
-    description: 'Rising above the material plane; attaining a higher state of existence',
-  },
-  {
-    slug: 'spirituality',
-    label: 'Spirituality',
-    group: 'spiritual' as ThemeGroup,
-    description: 'Sacred experience, mysticism, connection to something greater than the self',
-  },
-  {
-    slug: 'evolution',
-    label: 'Evolution',
-    group: 'transformation' as ThemeGroup,
-    description: 'Growth and becoming; biological, psychological, or spiritual advancement',
-  },
-  {
-    slug: 'rebirth',
-    label: 'Rebirth',
-    group: 'transformation' as ThemeGroup,
-    description: 'Resurrection, starting over, cyclical renewal after destruction',
-  },
-  {
-    slug: 'catharsis',
-    label: 'Catharsis',
-    group: 'emotional' as ThemeGroup,
-    description: 'Emotional release; purging grief or rage; healing through intensity',
-  },
-  {
-    slug: 'communication',
-    label: 'Communication',
-    group: 'relational' as ThemeGroup,
-    description: 'Connection, breakdown of dialogue, language as power or barrier between people',
-  },
-  {
-    slug: 'unity',
-    label: 'Unity',
-    group: 'relational' as ThemeGroup,
-    description: 'Collective consciousness, shared humanity, breaking down divisions between selves',
-  },
-  {
-    slug: 'warning',
-    label: 'Warning / Caution',
-    group: 'social' as ThemeGroup,
-    description: 'Cautionary messages; self-destructive patterns; danger signals in society or self',
-  },
-  {
-    slug: 'satire',
-    label: 'Satire',
-    group: 'social' as ThemeGroup,
-    description: 'Social critique through irony, dark humor, or subversive cultural commentary',
-  },
-  {
-    slug: 'mortality',
-    label: 'Mortality',
-    group: 'existential' as ThemeGroup,
-    description: 'Death, impermanence, the finite and irreversible nature of human experience',
-  },
-  {
-    slug: 'apocalypse',
-    label: 'Apocalypse',
-    group: 'existential' as ThemeGroup,
-    description: 'End times, civilizational collapse, survival amid catastrophe or revelation',
-  },
+  { slug: 'perception',    label: 'Perception',       group: 'consciousness'  as ThemeGroup, description: 'Altered or expanded awareness; seeing beyond illusion or consensus reality',             wikiUrl: 'https://en.wikipedia.org/wiki/Perception' },
+  { slug: 'ego-death',     label: 'Ego Death',        group: 'psychological'  as ThemeGroup, description: 'Dissolution of self, loss of personal identity, transcending the ego-construct',          wikiUrl: 'https://en.wikipedia.org/wiki/Ego_death' },
+  { slug: 'introspection', label: 'Introspection',    group: 'psychological'  as ThemeGroup, description: 'Self-examination, inner journeys, confronting uncomfortable personal truth',               wikiUrl: 'https://en.wikipedia.org/wiki/Introspection' },
+  { slug: 'shadow-self',   label: 'Shadow Self',      group: 'psychological'  as ThemeGroup, description: 'Confronting inner darkness; hidden aspects of personality; Jungian shadow work',          wikiUrl: 'https://en.wikipedia.org/wiki/Shadow_(psychology)' },
+  { slug: 'acceptance',    label: 'Acceptance',       group: 'psychological'  as ThemeGroup, description: 'Surrender, embracing what is, releasing resistance to pain or reality',                    wikiUrl: 'https://en.wikipedia.org/wiki/Acceptance' },
+  { slug: 'transcendence', label: 'Transcendence',    group: 'spiritual'      as ThemeGroup, description: 'Rising above the material plane; attaining a higher state of existence',                   wikiUrl: 'https://en.wikipedia.org/wiki/Self-transcendence' },
+  { slug: 'spirituality',  label: 'Spirituality',     group: 'spiritual'      as ThemeGroup, description: 'Sacred experience, mysticism, connection to something greater than the self',              wikiUrl: 'https://en.wikipedia.org/wiki/Spirituality' },
+  { slug: 'evolution',     label: 'Evolution',        group: 'transformation' as ThemeGroup, description: 'Growth and becoming; biological, psychological, or spiritual advancement',                 wikiUrl: 'https://en.wikipedia.org/wiki/Human_evolution' },
+  { slug: 'rebirth',       label: 'Rebirth',          group: 'transformation' as ThemeGroup, description: 'Resurrection, starting over, cyclical renewal after destruction',                          wikiUrl: 'https://en.wikipedia.org/wiki/Rebirth_(Buddhism)' },
+  { slug: 'catharsis',     label: 'Catharsis',        group: 'emotional'      as ThemeGroup, description: 'Emotional release; purging grief or rage; healing through intensity',                      wikiUrl: 'https://en.wikipedia.org/wiki/Catharsis' },
+  { slug: 'communication', label: 'Communication',    group: 'relational'     as ThemeGroup, description: 'Connection, breakdown of dialogue, language as power or barrier between people',           wikiUrl: 'https://en.wikipedia.org/wiki/Communication' },
+  { slug: 'unity',         label: 'Unity',            group: 'relational'     as ThemeGroup, description: 'Collective consciousness, shared humanity, breaking down divisions between selves',        wikiUrl: 'https://en.wikipedia.org/wiki/Unity_(philosophy)' },
+  { slug: 'warning',       label: 'Warning / Caution',group: 'social'         as ThemeGroup, description: 'Cautionary messages; self-destructive patterns; danger signals in society or self',        wikiUrl: 'https://en.wikipedia.org/wiki/Warning_label' },
+  { slug: 'satire',        label: 'Satire',           group: 'social'         as ThemeGroup, description: 'Social critique through irony, dark humor, or subversive cultural commentary',             wikiUrl: 'https://en.wikipedia.org/wiki/Satire' },
+  { slug: 'mortality',     label: 'Mortality',        group: 'existential'    as ThemeGroup, description: 'Death, impermanence, the finite and irreversible nature of human experience',              wikiUrl: 'https://en.wikipedia.org/wiki/Mortality_salience' },
+  { slug: 'apocalypse',    label: 'Apocalypse',       group: 'existential'    as ThemeGroup, description: 'End times, civilizational collapse, survival amid catastrophe or revelation',              wikiUrl: 'https://en.wikipedia.org/wiki/Apocalypse' },
 ] as const;
 
 export type ThemeCategorySlug = (typeof THEME_CATEGORIES)[number]['slug'];

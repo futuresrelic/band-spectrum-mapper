@@ -4,8 +4,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { analysisApi } from '../api/analysis';
 import { ratingsApi } from '../api/ratings';
 import RadarChart from './charts/RadarChart';
+import InfoTooltip from './ui/InfoTooltip';
 import type { SongAxisScore, AxisScoreMap } from '@band-spectrum-mapper/shared';
-import { SCORE_AXES, AXIS_LABELS, AXIS_COLORS } from '@band-spectrum-mapper/shared';
+import { SCORE_AXES, AXIS_LABELS, AXIS_COLORS, AXIS_INFO } from '@band-spectrum-mapper/shared';
 
 type Tab = 'core' | 'community' | 'mine' | 'ai';
 
@@ -30,17 +31,20 @@ function toAxisMap(obj: Record<string, unknown>): AxisScoreMap {
 function ScoreGrid({ scores }: { scores: AxisScoreMap }) {
   return (
     <div className="grid grid-cols-3 gap-x-6 gap-y-1 mt-3">
-      {SCORE_AXES.map((axis) => (
-        <div key={axis} className="flex items-center justify-between text-xs">
-          <span className="text-surface-600">{AXIS_LABELS[axis]}</span>
-          <span
-            className="font-mono font-semibold ml-1"
-            style={{ color: AXIS_COLORS[axis] }}
-          >
-            {scores[axis] != null ? Number(scores[axis]).toFixed(1) : '—'}
-          </span>
-        </div>
-      ))}
+      {SCORE_AXES.map((axis) => {
+        const info = AXIS_INFO[axis];
+        const tip = `${info.lo} → ${info.hi}`;
+        return (
+          <div key={axis} className="flex items-center justify-between text-xs">
+            <InfoTooltip tip={tip} href={info.wikiUrl}>
+              <span className="text-surface-600">{AXIS_LABELS[axis]}</span>
+            </InfoTooltip>
+            <span className="font-mono font-semibold ml-1" style={{ color: AXIS_COLORS[axis] }}>
+              {scores[axis] != null ? Number(scores[axis]).toFixed(1) : '—'}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

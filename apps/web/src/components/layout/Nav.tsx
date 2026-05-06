@@ -14,9 +14,11 @@ const links = [
 ];
 
 const adminLinks = [
-  { to: '/admin/users',       label: 'User Moderation' },
+  { to: '/admin/knowledge',    label: 'AI Knowledge Feed' },
+  { to: '/admin/users',        label: 'User Moderation' },
+  { to: '/admin/contributions', label: 'Contributions' },
   { to: '/settings?tab=icons', label: 'App Icons & Branding' },
-  { to: '/view',              label: 'Public Site ↗', newTab: true },
+  { to: '/view',               label: 'Public Site ↗', newTab: true },
 ];
 
 export default function Nav({ onClose }: { onClose?: () => void }) {

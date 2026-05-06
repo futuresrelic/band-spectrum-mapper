@@ -417,6 +417,18 @@ export interface BandContextAnalysis {
   updatedAt: string;
 }
 
+export interface AdminKnowledgeEntry {
+  id: string;
+  title: string;
+  content: string;
+  scope: 'global' | 'band' | 'song';
+  scopeId: string | null;
+  tags: string[];
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SongThemeScore {
   id: string;
   songId: string;

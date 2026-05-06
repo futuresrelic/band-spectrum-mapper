@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
+import { adminKnowledgeService } from '../services/adminKnowledgeService.js';
 
 export const adminRouter = Router();
 
@@ -72,6 +73,43 @@ adminRouter.get('/users/:userId', async (req, res) => {
   res.json(user);
 });
 
+// ---------------------------------------------------------------------------
+// Knowledge entries — admin-authored context injected into AI analysis
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/knowledge', async (_req, res, next) => {
+  try { res.json(await adminKnowledgeService.list()); } catch (e) { next(e); }
+});
+
+adminRouter.post('/knowledge', async (req, res, next) => {
+  try {
+    const { title, content, scope, scopeId, tags, isActive } = req.body as {
+      title: string; content: string; scope?: string;
+      scopeId?: string | null; tags?: string[]; isActive?: boolean;
+    };
+    if (!title?.trim() || !content?.trim()) {
+      res.status(400).json({ error: 'title and content are required' }); return;
+    }
+    res.status(201).json(await adminKnowledgeService.create({
+      title, content, scope: scope ?? 'global',
+      ...(scopeId !== undefined && { scopeId }),
+      ...(tags    !== undefined && { tags }),
+      ...(isActive !== undefined && { isActive }),
+    }));
+  } catch (e) { next(e); }
+});
+
+adminRouter.put('/knowledge/:id', async (req, res, next) => {
+  try {
+    res.json(await adminKnowledgeService.update(req.params['id']!, req.body as Parameters<typeof adminKnowledgeService.update>[1]));
+  } catch (e) { next(e); }
+});
+
+adminRouter.delete('/knowledge/:id', async (req, res, next) => {
+  try { await adminKnowledgeService.delete(req.params['id']!); res.json({ ok: true }); } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
 // Update a user's moderation flags
 adminRouter.patch('/users/:userId', async (req, res) => {
   const { isCommunityExcluded, isActive, isAdmin } = req.body as {

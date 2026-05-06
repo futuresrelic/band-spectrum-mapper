@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
 import { analysisApi } from '../api/analysis';
+import InfoTooltip from './ui/InfoTooltip';
 import {
   THEME_CATEGORIES,
   THEME_GROUP_COLORS,
@@ -224,6 +225,7 @@ function GroupedThemes({
                       key={cat.slug}
                       label={cat.label}
                       description={cat.description}
+                      wikiUrl={cat.wikiUrl}
                       pct={pct}
                       evidence={score.evidence}
                       color={color}
@@ -241,10 +243,11 @@ function GroupedThemes({
 }
 
 function ThemeBar({
-  label, description, pct, evidence, color, dark, text,
+  label, description, wikiUrl, pct, evidence, color, dark, text,
 }: {
   label: string;
   description: string;
+  wikiUrl: string;
   pct: number;
   evidence: string | null;
   color: string;
@@ -254,7 +257,9 @@ function ThemeBar({
   return (
     <div>
       <div className="flex justify-between items-baseline mb-0.5">
-        <span className={`text-xs font-medium ${text.value}`} title={description}>{label}</span>
+        <InfoTooltip tip={description} href={wikiUrl} dark={dark} position="top">
+          <span className={`text-xs font-medium ${text.value}`}>{label}</span>
+        </InfoTooltip>
         <span className="text-xs font-bold tabular-nums" style={{ color }}>{pct}%</span>
       </div>
       <div className={`h-1.5 rounded-full overflow-hidden ${dark ? 'bg-slate-800' : 'bg-surface-100'}`}>

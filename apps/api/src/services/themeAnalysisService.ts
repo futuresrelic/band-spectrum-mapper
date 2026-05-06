@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { HttpError } from '../middleware/errorHandler.js';
 import { THEME_CATEGORIES } from '@band-spectrum-mapper/shared';
 import type { SongThemeScore, ThemeSimilarSong } from '@band-spectrum-mapper/shared';
+import { adminKnowledgeService } from './adminKnowledgeService.js';
 
 const MODEL = 'gpt-4o-mini';
 const THEME_SLUGS = THEME_CATEGORIES.map((c) => c.slug);
@@ -60,13 +61,14 @@ export const themeAnalysisService = {
   },
 
   async regenerate(songId: string): Promise<SongThemeScore[]> {
+    // Gather song context and curator knowledge in parallel
     const [song, aiAnalysis, context] = await Promise.all([
       prisma.song.findUnique({
         where: { id: songId },
         select: {
           id: true,
           title: true,
-          band:  { select: { name: true } },
+          band:  { select: { id: true, name: true } },
           album: { select: { title: true, year: true } },
           lyrics: { where: { isPrimary: true }, select: { text: true }, take: 1 },
         },
@@ -82,6 +84,9 @@ export const themeAnalysisService = {
     ]);
 
     if (!song) throw new HttpError(404, 'Song not found');
+
+    // Load curator knowledge after we have the bandId
+    const curatorContext = await adminKnowledgeService.getContextForSong(songId, song.band.id);
 
     const lyricText = song.lyrics[0]?.text ?? '';
     const themes = THEME_CATEGORIES.map(
@@ -102,6 +107,8 @@ ${lyricText.slice(0, 3500)}
 
 ${aiAnalysis ? `PRIOR AI THEMES: ${JSON.stringify(aiAnalysis.themes)}\nCONCEPTUAL DEPTH: ${aiAnalysis.conceptualDepth}\nEMOTIONAL REGISTER: ${aiAnalysis.emotionalRegister}` : ''}
 ${context ? `OVERALL NARRATIVE: ${context.overallNarrative.slice(0, 400)}\nTHEMATIC SYNTHESIS: ${context.thematicSynthesis.slice(0, 300)}` : ''}
+
+${curatorContext}
 
 CATEGORIES:
 ${themes}

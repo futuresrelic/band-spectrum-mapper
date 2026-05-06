@@ -508,6 +508,26 @@ model SongThemeScore {
 }
 
 // ---------------------------------------------------------------------------
+// Admin knowledge entries — curator context injected into AI analysis prompts.
+// Admins write structured knowledge (e.g. "The Teachings of Tool") and the
+// system includes it when generating analysis for the relevant scope.
+// ---------------------------------------------------------------------------
+
+model AdminKnowledgeEntry {
+  id        String   @id @default(cuid())
+  title     String
+  content   String   // free-form text / markdown, injected into AI prompts
+  scope     String   @default("global") // "global" | "band" | "song"
+  scopeId   String?  // bandId or songId when scope != "global"
+  tags      Json     @default("[]")     // string[] — theme slugs or free labels
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("admin_knowledge_entries")
+}
+
+// ---------------------------------------------------------------------------
 // Pending library contributions — users request bands/albums via MusicBrainz.
 // Admin reviews and approves (auto-imports) or rejects.
 // ---------------------------------------------------------------------------
