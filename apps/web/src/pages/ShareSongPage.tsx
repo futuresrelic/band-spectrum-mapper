@@ -9,11 +9,14 @@ import type { SongAxisScore, SongAiSpectrum, SongAiGenreSpectrum } from '@band-s
 import {
   SCORE_AXES,
   AXIS_LABELS,
+  AXIS_INFO,
   GENRE_PERSPECTIVES,
   GENRE_COLORS,
   GENRE_LABELS,
+  GENRE_INFO,
   type GenrePerspective,
 } from '@band-spectrum-mapper/shared';
+import InfoTooltip from '../components/ui/InfoTooltip';
 
 // Vivid axis colors — optimised for the dark share card
 const VIVID_AXIS_COLORS: Record<string, string> = {
@@ -202,7 +205,9 @@ function CoreSpectrumRadar({
           const color = VIVID_AXIS_COLORS[axis]!;
           return (
             <div key={axis} className="flex items-center justify-between text-[11px]">
-              <span className="text-slate-500">{AXIS_LABELS[axis]}</span>
+              <InfoTooltip tip={`${AXIS_INFO[axis].lo} → ${AXIS_INFO[axis].hi}`} href={AXIS_INFO[axis].wikiUrl} dark>
+                <span className="text-slate-500">{AXIS_LABELS[axis]}</span>
+              </InfoTooltip>
               <span className="font-mono font-bold" style={{ color }}>{val.toFixed(1)}</span>
             </div>
           );
@@ -222,7 +227,9 @@ function GenreBar({ perspective, score }: { perspective: GenrePerspective; score
   return (
     <div className="space-y-0.5">
       <div className="flex justify-between items-baseline">
-        <span className="text-xs text-slate-400">{GENRE_LABELS[perspective]}</span>
+        <InfoTooltip tip={GENRE_INFO[perspective].description} href={GENRE_INFO[perspective].wikiUrl} dark>
+          <span className="text-xs text-slate-400">{GENRE_LABELS[perspective]}</span>
+        </InfoTooltip>
         <span className="text-xs font-bold tabular-nums" style={{ color }}>{score.toFixed(1)}</span>
       </div>
       <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
@@ -304,7 +311,9 @@ function TopThemesSection({ scores }: { scores: SongThemeScore[] | undefined }) 
           return (
             <div key={score.themeSlug}>
               <div className="flex justify-between items-baseline mb-0.5">
-                <span className="text-xs text-slate-400">{cat.label}</span>
+                <InfoTooltip tip={cat.description} href={cat.wikiUrl} dark>
+                  <span className="text-xs text-slate-400">{cat.label}</span>
+                </InfoTooltip>
                 <span className="text-xs font-bold tabular-nums" style={{ color }}>{pct}%</span>
               </div>
               <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">

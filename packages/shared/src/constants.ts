@@ -67,7 +67,18 @@ export const GENRE_LABELS: Record<GenrePerspective, string> = {
   hiphop:     'Hip-hop',
   electronic: 'Electronic',
   folk:       'Folk / Indie',
-};// ---------------------------------------------------------------------------
+};
+
+export const GENRE_INFO: Record<GenrePerspective, { description: string; wikiUrl: string }> = {
+  metal:      { description: 'How well this song lands for a heavy metal fan — heaviness, power, distortion, cathartic intensity', wikiUrl: 'https://en.wikipedia.org/wiki/Heavy_metal_music' },
+  rock:       { description: 'Appeal for a rock fan — guitar-driven energy, anthemic feel, raw authenticity, classic song structures', wikiUrl: 'https://en.wikipedia.org/wiki/Rock_music' },
+  pop:        { description: 'Appeal for a mainstream pop listener — accessibility, strong melody, hooks, emotional relatability', wikiUrl: 'https://en.wikipedia.org/wiki/Pop_music' },
+  hiphop:     { description: 'How this song resonates with hip-hop culture — rhythm, wordplay, flow, spoken-word feel, lyrical density', wikiUrl: 'https://en.wikipedia.org/wiki/Hip_hop_music' },
+  electronic: { description: 'Appeal for electronic or dance music fans — synthesis, programmed rhythms, sonic texture, production depth', wikiUrl: 'https://en.wikipedia.org/wiki/Electronic_music' },
+  folk:       { description: 'Appeal for folk and indie listeners — acoustic warmth, narrative storytelling, emotional intimacy, organic feel', wikiUrl: 'https://en.wikipedia.org/wiki/Folk_music' },
+};
+
+// ---------------------------------------------------------------------------
 // Philosophical / thematic analysis — taxonomy of meaning categories
 // ---------------------------------------------------------------------------
 

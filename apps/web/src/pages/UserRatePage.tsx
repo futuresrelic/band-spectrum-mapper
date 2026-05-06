@@ -8,7 +8,8 @@ import { songsApi } from '../api/songs';
 import { AxisDescription, AxisHelpPanel, DISCLAIMER } from '../components/spectrum/AxisHelp';
 import GenreSpectrumWidget from '../components/GenreSpectrumWidget';
 import type { ScoreAxis, AxisScoreMap } from '@band-spectrum-mapper/shared';
-import { SCORE_AXES } from '@band-spectrum-mapper/shared';
+import { SCORE_AXES, AXIS_INFO } from '@band-spectrum-mapper/shared';
+import InfoTooltip from '../components/ui/InfoTooltip';
 
 const AXIS_LABELS: Record<string, string> = {
   aggression: 'Aggression', complexity: 'Complexity', atmosphere: 'Atmosphere',
@@ -326,7 +327,11 @@ export default function UserRatePage() {
                 {SCORE_AXES.map((axis) => (
                   <div key={axis}>
                     <div className="flex justify-between items-baseline mb-0.5">
-                      <label className="label mb-0 font-medium">{AXIS_LABELS[axis]}</label>
+                      <label className="label mb-0 font-medium">
+                        <InfoTooltip tip={`${AXIS_INFO[axis].lo} → ${AXIS_INFO[axis].hi}`} href={AXIS_INFO[axis].wikiUrl}>
+                          {AXIS_LABELS[axis]}
+                        </InfoTooltip>
+                      </label>
                       <span className="text-sm font-mono font-semibold">{myScores[axis]} / 10</span>
                     </div>
                     <AxisDescription axis={axis} />

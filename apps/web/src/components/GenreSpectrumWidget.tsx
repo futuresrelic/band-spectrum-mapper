@@ -4,8 +4,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
 import { analysisApi } from '../api/analysis';
 import GenreRadarChart from './charts/GenreRadarChart';
-import { GENRE_PERSPECTIVES, GENRE_COLORS, GENRE_LABELS } from '@band-spectrum-mapper/shared';
+import { GENRE_PERSPECTIVES, GENRE_COLORS, GENRE_LABELS, GENRE_INFO } from '@band-spectrum-mapper/shared';
 import type { GenreScoreMap, SongAiGenreSpectrum } from '@band-spectrum-mapper/shared';
+import InfoTooltip from './ui/InfoTooltip';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -81,7 +82,9 @@ function GenreScoreGrid({ scores }: { scores: GenreScoreMap }) {
               className="w-2 h-2 rounded-full flex-shrink-0"
               style={{ backgroundColor: GENRE_COLORS[p.id] }}
             />
-            <span className="text-surface-700 truncate">{GENRE_LABELS[p.id]}</span>
+            <InfoTooltip tip={GENRE_INFO[p.id].description} href={GENRE_INFO[p.id].wikiUrl}>
+                <span className="text-surface-700 truncate">{GENRE_LABELS[p.id]}</span>
+              </InfoTooltip>
           </span>
           <span className="font-mono font-semibold ml-1">
             {scores[p.id] > 0 ? scores[p.id].toFixed(1) : '—'}
