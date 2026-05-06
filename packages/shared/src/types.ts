@@ -417,5 +417,25 @@ export interface BandContextAnalysis {
   updatedAt: string;
 }
 
+export interface SongThemeScore {
+  id: string;
+  songId: string;
+  themeSlug: string;       // ThemeCategorySlug
+  score: number;           // 0.0 – 1.0
+  evidence: string | null;
+  model: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ThemeSimilarSong {
+  songId: string;
+  title: string;
+  bandName: string;
+  bandSlug: string;
+  albumTitle: string | null;
+  similarity: number;      // 0.0 – 1.0 cosine similarity
+}
+
 // Re-export axis type for convenience
 export type { ScoreAxis, SourceType, ImportStatus };

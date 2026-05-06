@@ -10,6 +10,7 @@ import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
 import EmptyState from '../components/layout/EmptyState';
 import CommentSection from '../components/CommentSection';
+import SongThemeWidget from '../components/SongThemeWidget';
 import type { Lyric, LyricRevision } from '@band-spectrum-mapper/shared';
 
 function LyricEditor({
@@ -648,6 +649,20 @@ export default function SongDetailPage() {
       <SongResearchPanel songId={song.id} />
 
       <SongContextPanel songId={song.id} />
+
+      <div className="card mt-6">
+        <div className="mb-4">
+          <h3>Philosophical Themes</h3>
+          <p className="text-xs text-surface-500 mt-0.5">
+            Weighted lyrical and conceptual analysis across 16 thematic dimensions.
+          </p>
+        </div>
+        <SongThemeWidget
+          songId={song.id}
+          bandId={song.bandId}
+          showRegenerate
+        />
+      </div>
 
       <CommentSection songId={song.id} card />
     </div>

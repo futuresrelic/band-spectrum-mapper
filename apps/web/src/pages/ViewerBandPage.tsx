@@ -6,6 +6,7 @@ import { analysisApi } from '../api/analysis';
 import { useAuth } from '../contexts/AuthContext';
 import CoreSpectrumWidget from '../components/CoreSpectrumWidget';
 import GenreSpectrumWidget from '../components/GenreSpectrumWidget';
+import SongThemeWidget from '../components/SongThemeWidget';
 import CommentSection from '../components/CommentSection';
 import type { Band, Album, Song, Lyric, SongAxisScore } from '@band-spectrum-mapper/shared';
 
@@ -117,6 +118,11 @@ function SongExpanded({
       {!primaryLyric && !song.score && !research && !context && (
         <p className="text-sm text-surface-700">No content added yet.</p>
       )}
+
+      {/* Philosophical themes */}
+      <div className="border-t border-surface-100 pt-4">
+        <SongThemeWidget songId={song.id} compact />
+      </div>
 
       {/* Actions row */}
       <div className="flex items-center justify-between border-t border-surface-100 pt-3 gap-2 flex-wrap">

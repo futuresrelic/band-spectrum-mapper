@@ -77,6 +77,7 @@ model Song {
   genreRatings    SongGenreRating[]
   analysisRatings SongAnalysisRating[]
   aiGenreSpectrum SongAiGenreSpectrum?
+  themeScores     SongThemeScore[]
 
   @@unique([bandId, slug])
   @@map("songs")
@@ -483,6 +484,27 @@ model SongAiGenreSpectrum {
   song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
 
   @@map("song_ai_genre_spectrums")
+}
+
+// ---------------------------------------------------------------------------
+// Philosophical / thematic analysis — weighted scores per song per theme.
+// One row per (song, themeSlug). themeSlug keys into THEME_CATEGORIES constant.
+// ---------------------------------------------------------------------------
+
+model SongThemeScore {
+  id        String   @id @default(cuid())
+  songId    String
+  themeSlug String   // keys into packages/shared THEME_CATEGORIES
+  score     Float    // 0.0 – 1.0
+  evidence  String?  // direct lyric quote or rationale, ≤500 chars
+  model     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@unique([songId, themeSlug])
+  @@map("song_theme_scores")
 }
 
 // ---------------------------------------------------------------------------

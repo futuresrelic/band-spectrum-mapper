@@ -6,6 +6,7 @@ import { songContextService } from '../services/songContextService.js';
 import { albumContextService } from '../services/albumContextService.js';
 import { bandContextService } from '../services/bandContextService.js';
 import { genreSpectrumService } from '../services/genreSpectrumService.js';
+import { themeAnalysisService } from '../services/themeAnalysisService.js';
 import { aiTagService } from '../services/aiTagService.js';
 import { scoreService } from '../services/scoreService.js';
 import { analysisQuerySchema, compareQuerySchema } from '@band-spectrum-mapper/shared';
@@ -155,5 +156,27 @@ analysisRouter.get('/bands/:bandId/context', async (req, res, next) => {
 analysisRouter.post('/bands/:bandId/context/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     res.json(await bandContextService.regenerate(req.params['bandId']!));
+  } catch (e) { next(e); }
+});
+
+// Philosophical / thematic analysis — weighted 0.0–1.0 scores per theme category
+analysisRouter.get('/ai/:songId/themes', async (req, res, next) => {
+  try {
+    res.json(await themeAnalysisService.getOrCreate(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+analysisRouter.post('/ai/:songId/themes/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await themeAnalysisService.regenerate(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+// Thematically similar songs via cosine similarity on theme vectors
+// Optional ?bandId= query param to scope to a single artist
+analysisRouter.get('/ai/:songId/themes/similar', async (req, res, next) => {
+  try {
+    const bandId = typeof req.query['bandId'] === 'string' ? req.query['bandId'] : undefined;
+    res.json(await themeAnalysisService.getSimilar(req.params['songId']!, bandId));
   } catch (e) { next(e); }
 });

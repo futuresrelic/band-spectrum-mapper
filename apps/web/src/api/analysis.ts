@@ -10,6 +10,8 @@ import type {
   SongAiGenreSpectrum,
   AlbumContextAnalysis,
   BandContextAnalysis,
+  SongThemeScore,
+  ThemeSimilarSong,
 } from '@band-spectrum-mapper/shared';
 
 type AxisAverage = { axis: string; average: number; count: number };
@@ -91,4 +93,13 @@ export const analysisApi = {
     api.get<BandContextAnalysis>(`/api/analysis/bands/${bandId}/context`),
   regenerateBandContext: (bandId: string) =>
     api.post<BandContextAnalysis>(`/api/analysis/bands/${bandId}/context/regenerate`, {}),
+
+  getThemeScores: (songId: string) =>
+    api.get<SongThemeScore[]>(`/api/analysis/ai/${songId}/themes`),
+  regenerateThemeScores: (songId: string) =>
+    api.post<SongThemeScore[]>(`/api/analysis/ai/${songId}/themes/regenerate`, {}),
+  getSimilarByTheme: (songId: string, bandId?: string) =>
+    api.get<ThemeSimilarSong[]>(
+      `/api/analysis/ai/${songId}/themes/similar${bandId ? `?bandId=${encodeURIComponent(bandId)}` : ''}`,
+    ),
 };

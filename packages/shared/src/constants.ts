@@ -67,7 +67,136 @@ export const GENRE_LABELS: Record<GenrePerspective, string> = {
   hiphop:     'Hip-hop',
   electronic: 'Electronic',
   folk:       'Folk / Indie',
-};export const SOURCE_TYPES = [
+};// ---------------------------------------------------------------------------
+// Philosophical / thematic analysis — taxonomy of meaning categories
+// ---------------------------------------------------------------------------
+
+export const THEME_GROUPS = [
+  'consciousness',
+  'psychological',
+  'spiritual',
+  'transformation',
+  'relational',
+  'social',
+  'existential',
+  'emotional',
+] as const;
+
+export type ThemeGroup = (typeof THEME_GROUPS)[number];
+
+export const THEME_GROUP_COLORS: Record<ThemeGroup, string> = {
+  consciousness: '#34c8e8',
+  psychological: '#bf5af2',
+  spiritual:     '#ff375f',
+  transformation:'#ff9500',
+  relational:    '#30d158',
+  social:        '#ff3a3a',
+  existential:   '#94a3b8',
+  emotional:     '#fbbf24',
+};
+
+export const THEME_CATEGORIES = [
+  {
+    slug: 'perception',
+    label: 'Perception',
+    group: 'consciousness' as ThemeGroup,
+    description: 'Altered or expanded awareness; seeing beyond illusion or consensus reality',
+  },
+  {
+    slug: 'ego-death',
+    label: 'Ego Death',
+    group: 'psychological' as ThemeGroup,
+    description: 'Dissolution of self, loss of personal identity, transcending the ego-construct',
+  },
+  {
+    slug: 'introspection',
+    label: 'Introspection',
+    group: 'psychological' as ThemeGroup,
+    description: 'Self-examination, inner journeys, confronting uncomfortable personal truth',
+  },
+  {
+    slug: 'shadow-self',
+    label: 'Shadow Self',
+    group: 'psychological' as ThemeGroup,
+    description: 'Confronting inner darkness; hidden aspects of personality; Jungian shadow work',
+  },
+  {
+    slug: 'acceptance',
+    label: 'Acceptance',
+    group: 'psychological' as ThemeGroup,
+    description: 'Surrender, embracing what is, releasing resistance to pain or reality',
+  },
+  {
+    slug: 'transcendence',
+    label: 'Transcendence',
+    group: 'spiritual' as ThemeGroup,
+    description: 'Rising above the material plane; attaining a higher state of existence',
+  },
+  {
+    slug: 'spirituality',
+    label: 'Spirituality',
+    group: 'spiritual' as ThemeGroup,
+    description: 'Sacred experience, mysticism, connection to something greater than the self',
+  },
+  {
+    slug: 'evolution',
+    label: 'Evolution',
+    group: 'transformation' as ThemeGroup,
+    description: 'Growth and becoming; biological, psychological, or spiritual advancement',
+  },
+  {
+    slug: 'rebirth',
+    label: 'Rebirth',
+    group: 'transformation' as ThemeGroup,
+    description: 'Resurrection, starting over, cyclical renewal after destruction',
+  },
+  {
+    slug: 'catharsis',
+    label: 'Catharsis',
+    group: 'emotional' as ThemeGroup,
+    description: 'Emotional release; purging grief or rage; healing through intensity',
+  },
+  {
+    slug: 'communication',
+    label: 'Communication',
+    group: 'relational' as ThemeGroup,
+    description: 'Connection, breakdown of dialogue, language as power or barrier between people',
+  },
+  {
+    slug: 'unity',
+    label: 'Unity',
+    group: 'relational' as ThemeGroup,
+    description: 'Collective consciousness, shared humanity, breaking down divisions between selves',
+  },
+  {
+    slug: 'warning',
+    label: 'Warning / Caution',
+    group: 'social' as ThemeGroup,
+    description: 'Cautionary messages; self-destructive patterns; danger signals in society or self',
+  },
+  {
+    slug: 'satire',
+    label: 'Satire',
+    group: 'social' as ThemeGroup,
+    description: 'Social critique through irony, dark humor, or subversive cultural commentary',
+  },
+  {
+    slug: 'mortality',
+    label: 'Mortality',
+    group: 'existential' as ThemeGroup,
+    description: 'Death, impermanence, the finite and irreversible nature of human experience',
+  },
+  {
+    slug: 'apocalypse',
+    label: 'Apocalypse',
+    group: 'existential' as ThemeGroup,
+    description: 'End times, civilizational collapse, survival amid catastrophe or revelation',
+  },
+] as const;
+
+export type ThemeCategorySlug = (typeof THEME_CATEGORIES)[number]['slug'];
+
+export const SOURCE_TYPES = [
   'manual',
   'paste',
   'file_import',

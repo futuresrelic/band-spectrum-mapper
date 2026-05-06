@@ -275,6 +275,58 @@ function GenreSpectrumBars({
 }
 
 // ---------------------------------------------------------------------------
+// Top Themes section — dark card on share page
+// ---------------------------------------------------------------------------
+
+import {
+  THEME_CATEGORIES,
+  THEME_GROUP_COLORS,
+} from '@band-spectrum-mapper/shared';
+import type { SongThemeScore } from '@band-spectrum-mapper/shared';
+
+function TopThemesSection({ scores }: { scores: SongThemeScore[] | undefined }) {
+  if (!scores || scores.length === 0) return null;
+  const top = [...scores]
+    .filter((s) => s.score >= 0.3)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+  if (top.length === 0) return null;
+
+  return (
+    <div className="px-7 py-6 border-b border-slate-800">
+      <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-4">Philosophical Themes</p>
+      <div className="space-y-3">
+        {top.map((score) => {
+          const cat = THEME_CATEGORIES.find((c) => c.slug === score.themeSlug);
+          if (!cat) return null;
+          const color = THEME_GROUP_COLORS[cat.group];
+          const pct = Math.round(score.score * 100);
+          return (
+            <div key={score.themeSlug}>
+              <div className="flex justify-between items-baseline mb-0.5">
+                <span className="text-xs text-slate-400">{cat.label}</span>
+                <span className="text-xs font-bold tabular-nums" style={{ color }}>{pct}%</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div
+                  className="h-full rounded-full"
+                  style={{ width: `${pct}%`, backgroundColor: color, opacity: 0.9 }}
+                />
+              </div>
+              {score.evidence && (
+                <p className="text-[10px] text-slate-600 italic mt-1 leading-snug pl-1">
+                  {score.evidence.length > 100 ? score.evidence.slice(0, 97) + '…' : score.evidence}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------
 
@@ -538,6 +590,14 @@ export default function ShareSongPage() {
     retry: false,
   });
 
+  const { data: themeScores } = useQuery({
+    queryKey: ['theme-scores', songId],
+    queryFn: () => analysisApi.getThemeScores(songId!),
+    enabled: !!songId,
+    retry: false,
+    staleTime: Infinity,
+  });
+
   const { data: comments = [] } = useQuery({
     queryKey: ['comments', songId],
     queryFn: () => songsApi.getComments(songId!),
@@ -631,6 +691,9 @@ export default function ShareSongPage() {
             aiGenre={aiGenre}
             communityAgg={genreRatings?.genreAggregates ?? []}
           />
+
+          {/* Philosophical themes */}
+          <TopThemesSection scores={themeScores} />
 
           {/* AI Overall Narrative — full section */}
           {context?.overallNarrative && (
