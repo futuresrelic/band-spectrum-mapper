@@ -86,6 +86,66 @@ publicRouter.get('/community', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/public/albums/:albumId/spectrum
+// All songs in an album with core + AI + community axis scores — powers the
+// AlbumRadarCycler widget and the /share/albums/:albumId page.
+// ---------------------------------------------------------------------------
+publicRouter.get('/albums/:albumId/spectrum', async (req, res, next) => {
+  try {
+    const album = await prisma.album.findUnique({
+      where: { id: req.params['albumId']! },
+      include: {
+        band: { select: { id: true, name: true, slug: true } },
+        songs: {
+          orderBy: [{ trackNumber: 'asc' }, { title: 'asc' }],
+          include: {
+            score: {
+              select: { aggression: true, complexity: true, atmosphere: true, emotion: true, psychedelic: true, concept: true },
+            },
+            aiSpectrum: {
+              select: { aggression: true, complexity: true, atmosphere: true, emotion: true, psychedelic: true, concept: true },
+            },
+            ratings: {
+              select: { aggression: true, complexity: true, atmosphere: true, emotion: true, psychedelic: true, concept: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!album) { res.status(404).json({ error: 'Album not found' }); return; }
+
+    type AxMap = { aggression: number; complexity: number; atmosphere: number; emotion: number; psychedelic: number; concept: number };
+
+    function avg(rows: AxMap[]): AxMap | null {
+      if (rows.length === 0) return null;
+      const s = { aggression: 0, complexity: 0, atmosphere: 0, emotion: 0, psychedelic: 0, concept: 0 };
+      for (const r of rows) {
+        s.aggression  += r.aggression;  s.complexity  += r.complexity;
+        s.atmosphere  += r.atmosphere;  s.emotion     += r.emotion;
+        s.psychedelic += r.psychedelic; s.concept     += r.concept;
+      }
+      const n = rows.length;
+      return { aggression: s.aggression/n, complexity: s.complexity/n, atmosphere: s.atmosphere/n,
+               emotion: s.emotion/n,       psychedelic: s.psychedelic/n, concept: s.concept/n };
+    }
+
+    res.json({
+      album: { id: album.id, title: album.title, year: album.year, band: album.band },
+      songs: album.songs.map((s) => ({
+        id: s.id,
+        title: s.title,
+        trackNumber: s.trackNumber,
+        coreScores:      s.score      ? { aggression: s.score.aggression,      complexity: s.score.complexity,      atmosphere: s.score.atmosphere,      emotion: s.score.emotion,      psychedelic: s.score.psychedelic,      concept: s.score.concept      } : null,
+        aiScores:        s.aiSpectrum ? { aggression: s.aiSpectrum.aggression,  complexity: s.aiSpectrum.complexity,  atmosphere: s.aiSpectrum.atmosphere,  emotion: s.aiSpectrum.emotion,  psychedelic: s.aiSpectrum.psychedelic,  concept: s.aiSpectrum.concept  } : null,
+        communityScores: avg(s.ratings),
+        ratingCount:     s.ratings.length,
+      })),
+    });
+  } catch (e) { next(e); }
+});
+
 // GET /api/public/cloud — all songs with tags + genre scores for the song cloud
 publicRouter.get('/cloud', async (_req, res, next) => {
   try {

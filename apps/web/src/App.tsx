@@ -29,6 +29,7 @@ import LandingPage from './pages/LandingPage';
 import LegalPage from './pages/LegalPage';
 import HelpPage from './pages/HelpPage';
 import ShareSongPage from './pages/ShareSongPage';
+import ShareAlbumPage from './pages/ShareAlbumPage';
 import UserProfilePage from './pages/UserProfilePage';
 import SongCloudPage from './pages/SongCloudPage';
 
@@ -73,6 +74,7 @@ export default function App() {
         <Route path="/help" element={<HelpPage />} />
         <Route path="/rate" element={<RateRedirect />} />
         <Route path="/share/songs/:songId" element={<ShareSongPage />} />
+        <Route path="/share/albums/:albumId" element={<ShareAlbumPage />} />
         <Route path="/view" element={<ViewerIndexPage />} />
         <Route path="/view/:bandSlug" element={<ViewerBandPage />} />
 

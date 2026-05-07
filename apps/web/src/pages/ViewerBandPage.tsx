@@ -9,6 +9,7 @@ import GenreSpectrumWidget from '../components/GenreSpectrumWidget';
 import SongThemeWidget from '../components/SongThemeWidget';
 import CommentSection from '../components/CommentSection';
 import type { Band, Album, Song, Lyric, SongAxisScore } from '@band-spectrum-mapper/shared';
+import AlbumRadarCycler from '../components/AlbumRadarCycler';
 
 type PublicAlbum = Album & {
   songs: (Song & {
@@ -284,11 +285,24 @@ export default function ViewerBandPage() {
         )}
 
         {albums && albums.map((album) => (
-          <div key={album.id} className="mb-8">
+          <div key={album.id} className="mb-10">
             <div className="flex items-baseline gap-3 mb-3">
               <h2 className="text-lg font-semibold">{album.title}</h2>
               {album.year && <span className="text-sm text-surface-700">{album.year}</span>}
+              <Link
+                to={`/share/albums/${album.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-indigo-600 hover:underline ml-auto shrink-0"
+              >
+                Share album ↗
+              </Link>
             </div>
+
+            {/* Album spectrum cycler — shows when album has 2+ songs */}
+            {album.songs.length >= 2 && band && (
+              <AlbumRadarCycler albumId={album.id} bandSlug={band.slug} />
+            )}
 
             {album.songs.length === 0 ? (
               <p className="text-sm text-surface-700 pl-4">No songs yet.</p>
