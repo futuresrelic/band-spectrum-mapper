@@ -219,19 +219,20 @@ export default function ViewerBandPage() {
   const isLoading = loadingBand || loadingAlbums;
 
   return (
-    <div className="min-h-screen bg-surface-50">
+    <div className="min-h-screen bg-surface-100">
       <div className="max-w-3xl mx-auto px-6 py-12">
-        <div className="mb-2">
-          <Link to="/view" className="text-sm text-surface-700 hover:underline">← All Bands</Link>
+        <div className="mb-5">
+          <Link to="/view" className="text-sm text-surface-500 hover:text-surface-900 hover:underline">← All Bands</Link>
         </div>
 
-        {isLoading && <p className="text-surface-700 mt-4">Loading...</p>}
+        {isLoading && <p className="text-surface-500 mt-4">Loading...</p>}
 
+        {/* Band header card */}
         {band && (
-          <div className="mb-8">
+          <div className="mb-8 bg-white rounded-2xl border border-surface-200 shadow-sm px-6 py-5">
             <h1 className="text-3xl font-bold tracking-tight">{band.name}</h1>
             {band.description && (
-              <p className="text-surface-700 mt-1">{band.description}</p>
+              <p className="text-surface-600 mt-1">{band.description}</p>
             )}
             <div className="flex items-center gap-3 mt-2">
               <p className="text-xs text-surface-400">
@@ -246,7 +247,7 @@ export default function ViewerBandPage() {
             </div>
 
             {showBandContext && (
-              <div className="mt-4 bg-white rounded-lg border border-surface-200 p-4 space-y-3">
+              <div className="mt-4 bg-surface-50 rounded-lg border border-surface-100 p-4 space-y-3">
                 {!bandContext && (
                   <p className="text-sm text-surface-500">Generating AI artist profile…</p>
                 )}
@@ -279,14 +280,17 @@ export default function ViewerBandPage() {
         )}
 
         {albums && albums.length === 0 && (
-          <p className="text-surface-700">No albums yet.</p>
+          <p className="text-surface-500">No albums yet.</p>
         )}
 
+        {/* Album cards — each album is a self-contained section */}
         {albums && albums.map((album) => (
-          <div key={album.id} className="mb-10">
-            <div className="flex items-baseline gap-3 mb-3">
-              <h2 className="text-lg font-semibold">{album.title}</h2>
-              {album.year && <span className="text-sm text-surface-700">{album.year}</span>}
+          <div key={album.id} className="mb-8 rounded-2xl border border-surface-200 overflow-hidden shadow-sm">
+
+            {/* Album header */}
+            <div className="bg-white px-6 py-4 flex items-baseline gap-3 border-b border-surface-200">
+              <h2 className="text-xl font-bold tracking-tight text-surface-900">{album.title}</h2>
+              {album.year && <span className="text-sm text-surface-500">{album.year}</span>}
               <Link
                 to={`/share/albums/${album.id}`}
                 target="_blank"
@@ -297,21 +301,20 @@ export default function ViewerBandPage() {
               </Link>
             </div>
 
-            {/* Album spectrum cycler — shows when album has 2+ songs */}
+            {/* Album spectrum cycler — flush inside the card */}
             {album.songs.length >= 2 && band && (
-              <AlbumRadarCycler albumId={album.id} bandSlug={band.slug} />
+              <AlbumRadarCycler albumId={album.id} bandSlug={band.slug} flush />
             )}
 
+            {/* Song list */}
             {album.songs.length === 0 ? (
-              <p className="text-sm text-surface-700 pl-4">No songs yet.</p>
+              <div className="bg-white px-6 py-4 text-sm text-surface-500">No songs yet.</div>
             ) : (
-              <div className="bg-white rounded-lg border border-surface-200 overflow-hidden">
-                <ul>
-                  {album.songs.map((song) => (
-                    <SongRow key={song.id} song={song} defaultExpanded={song.id === hashSongId} />
-                  ))}
-                </ul>
-              </div>
+              <ul className="bg-white">
+                {album.songs.map((song) => (
+                  <SongRow key={song.id} song={song} defaultExpanded={song.id === hashSongId} />
+                ))}
+              </ul>
             )}
           </div>
         ))}

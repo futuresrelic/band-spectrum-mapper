@@ -168,9 +168,11 @@ interface Props {
   bandSlug?: string;
   /** Radar SVG size in px — defaults to 260 */
   radarSize?: number;
+  /** Strip own border/radius when mounted inside a parent card */
+  flush?: boolean;
 }
 
-export default function AlbumRadarCycler({ albumId, bandSlug, radarSize = 260 }: Props) {
+export default function AlbumRadarCycler({ albumId, bandSlug, radarSize = 260, flush = false }: Props) {
   const [idx, setIdx]         = useState(0);
   const [playing, setPlaying] = useState(false);
   const [tab, setTab]         = useState<Tab>('core');
@@ -243,7 +245,7 @@ export default function AlbumRadarCycler({ albumId, bandSlug, radarSize = 260 }:
 
   if (isLoading) {
     return (
-      <div className="bg-slate-900 rounded-xl border border-slate-800 p-6 mb-4 flex items-center justify-center min-h-20">
+      <div className={`bg-slate-900 p-6 flex items-center justify-center min-h-20${flush ? '' : ' rounded-xl border border-slate-800 mb-4'}`}>
         <span className="text-slate-700 text-sm animate-pulse">Loading album spectrums…</span>
       </div>
     );
@@ -259,7 +261,7 @@ export default function AlbumRadarCycler({ albumId, bandSlug, radarSize = 260 }:
   const hasData        = !!scoreFor(song, tab);
 
   return (
-    <div className="bg-slate-900 rounded-xl border border-slate-800 mb-4 overflow-hidden">
+    <div className={`bg-slate-900 overflow-hidden${flush ? '' : ' rounded-xl border border-slate-800 mb-4'}`}>
 
       {/* ── Header: label + tab selector ────────────────────────────────── */}
       <div className="px-5 pt-4 pb-2 flex items-center justify-between flex-wrap gap-2">
