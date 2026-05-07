@@ -4,9 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { analysisApi } from '../api/analysis';
 import { useAuth } from '../contexts/AuthContext';
-import CoreSpectrumWidget from '../components/CoreSpectrumWidget';
-import GenreSpectrumWidget from '../components/GenreSpectrumWidget';
-import SongThemeWidget from '../components/SongThemeWidget';
+import SongSpectrumPanel from '../components/SongSpectrumPanel';
 import CommentSection from '../components/CommentSection';
 import type { Band, Album, Song, Lyric, SongAxisScore } from '@band-spectrum-mapper/shared';
 import AlbumRadarCycler from '../components/AlbumRadarCycler';
@@ -23,11 +21,7 @@ type PublicBand = Band & {
   _count: { albums: number; songs: number };
 };
 
-function SongExpanded({
-  song,
-}: {
-  song: PublicAlbum['songs'][number];
-}) {
+function SongExpanded({ song }: { song: PublicAlbum['songs'][number] }) {
   const { data: research } = useQuery({
     queryKey: ['song-research', song.id],
     queryFn: () => analysisApi.getSongResearch(song.id),
@@ -40,89 +34,37 @@ function SongExpanded({
     retry: false,
   });
 
+  const [showFullAi, setShowFullAi] = useState(false);
   const primaryLyric = song.lyrics[0];
+  const tldr = context?.overallNarrative?.slice(0, 200);
 
   return (
     <div className="px-4 pb-5 space-y-5">
-      {/* Core Spectrum with Community / Mine / AI tabs */}
-      <div>
-        <CoreSpectrumWidget songId={song.id} coreScore={song.score} />
+      {/* Unified spectrum panel */}
+      <div className="bg-surface-50 rounded-lg border border-surface-200 px-4 py-4">
+        <SongSpectrumPanel songId={song.id} coreScore={song.score} />
       </div>
 
-      {/* Genre spectrum */}
-      <div>
-        <div className="bg-surface-50 rounded-lg border border-surface-200 px-4 py-4">
-          <GenreSpectrumWidget songId={song.id} />
-        </div>
-      </div>
-
-      {/* Lyrics */}
-      {primaryLyric && (
+      {/* AI Snapshot + opt-in toggle */}
+      {tldr && (
         <div>
-          <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-2">Lyrics</p>
-          <pre className="font-mono text-sm whitespace-pre-wrap leading-relaxed text-surface-900 bg-surface-50 rounded p-3 border border-surface-200 max-h-96 overflow-auto">
-            {primaryLyric.text}
-          </pre>
+          <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-1">AI Snapshot</p>
+          <p className="text-sm leading-relaxed text-surface-700 italic">
+            {tldr}{context?.overallNarrative && context.overallNarrative.length > 200 ? '…' : ''}
+          </p>
+          <button
+            onClick={() => setShowFullAi(!showFullAi)}
+            className="text-xs text-indigo-600 hover:underline mt-1"
+          >
+            {showFullAi ? 'Hide full AI investigation ↑' : 'Read full AI investigation ↓'}
+          </button>
         </div>
       )}
 
-      {/* Music style + research */}
-      {research && (research.musicStyle || research.summary) && (
-        <div className="space-y-3">
-          {research.musicStyle && (
-            <div>
-              <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-1">Music Style</p>
-              <p className="text-sm leading-relaxed text-surface-900">{research.musicStyle}</p>
-            </div>
-          )}
-          <div>
-            <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-1">Background</p>
-            <p className="text-sm leading-relaxed text-surface-900">{research.summary}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Deep analysis */}
-      {context && (
-        <div className="space-y-3 border-t border-surface-100 pt-4">
-          <div className="flex items-baseline justify-between">
-            <p className="text-xs font-medium text-surface-700 uppercase tracking-wide">AI Full Investigation</p>
-            <p className="text-[10px] text-surface-400">lyrics &amp; public info only — not the music</p>
-          </div>
-          {context.titleSignificance && (
-            <p className="text-xs text-surface-500 italic border-l-2 border-surface-200 pl-3 leading-relaxed">
-              {context.titleSignificance}
-            </p>
-          )}
-          {context.overallNarrative && (
-            <p className="text-sm leading-relaxed text-surface-900">{context.overallNarrative}</p>
-          )}
-          {context.lyricalInterpretation && (
-            <details className="border-t border-surface-100 pt-3">
-              <summary className="text-xs text-surface-500 cursor-pointer hover:text-surface-700">
-                Lyrical interpretation →
-              </summary>
-              <p className="text-sm leading-relaxed text-surface-900 mt-2">{context.lyricalInterpretation}</p>
-            </details>
-          )}
-          {context.thematicSynthesis && (
-            <details className="border-t border-surface-100 pt-3">
-              <summary className="text-xs text-surface-500 cursor-pointer hover:text-surface-700">
-                Thematic synthesis →
-              </summary>
-              <p className="text-sm leading-relaxed text-surface-900 mt-2">{context.thematicSynthesis}</p>
-            </details>
-          )}
-        </div>
-      )}
-
-      {!primaryLyric && !song.score && !research && !context && (
-        <p className="text-sm text-surface-700">No content added yet.</p>
-      )}
-
-      {/* Philosophical themes */}
+      {/* Discussion — user voice first */}
       <div className="border-t border-surface-100 pt-4">
-        <SongThemeWidget songId={song.id} compact />
+        <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-3">Discussion</p>
+        <CommentSection songId={song.id} card={false} />
       </div>
 
       {/* Actions row */}
@@ -143,11 +85,67 @@ function SongExpanded({
         </Link>
       </div>
 
-      {/* Comments */}
-      <div className="border-t border-surface-100 pt-4">
-        <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-3">Discussion</p>
-        <CommentSection songId={song.id} card={false} />
-      </div>
+      {/* Full AI Investigation (revealed on demand) */}
+      {showFullAi && (
+        <div className="space-y-3 border border-surface-100 rounded-lg p-4 bg-surface-50">
+          <div className="flex items-baseline justify-between">
+            <p className="text-xs font-medium text-surface-700 uppercase tracking-wide">AI Full Investigation</p>
+            <p className="text-[10px] text-surface-400">lyrics &amp; public info only — not the music</p>
+          </div>
+          {context?.titleSignificance && (
+            <p className="text-xs text-surface-500 italic border-l-2 border-surface-200 pl-3 leading-relaxed">
+              {context.titleSignificance}
+            </p>
+          )}
+          {context?.overallNarrative && (
+            <p className="text-sm leading-relaxed text-surface-900">{context.overallNarrative}</p>
+          )}
+          {research?.musicStyle && (
+            <div className="border-t border-surface-100 pt-3">
+              <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-1">Music Style</p>
+              <p className="text-sm leading-relaxed text-surface-900">{research.musicStyle}</p>
+            </div>
+          )}
+          {research?.summary && (
+            <div className="border-t border-surface-100 pt-3">
+              <p className="text-xs font-medium text-surface-700 uppercase tracking-wide mb-1">Background</p>
+              <p className="text-sm leading-relaxed text-surface-900">{research.summary}</p>
+            </div>
+          )}
+          {context?.lyricalInterpretation && (
+            <details className="border-t border-surface-100 pt-3">
+              <summary className="text-xs text-surface-500 cursor-pointer hover:text-surface-700">
+                Lyrical interpretation →
+              </summary>
+              <p className="text-sm leading-relaxed text-surface-900 mt-2">{context.lyricalInterpretation}</p>
+            </details>
+          )}
+          {context?.thematicSynthesis && (
+            <details className="border-t border-surface-100 pt-3">
+              <summary className="text-xs text-surface-500 cursor-pointer hover:text-surface-700">
+                Thematic synthesis →
+              </summary>
+              <p className="text-sm leading-relaxed text-surface-900 mt-2">{context.thematicSynthesis}</p>
+            </details>
+          )}
+        </div>
+      )}
+
+      {/* Lyrics (collapsible) */}
+      {primaryLyric && (
+        <details className="border-t border-surface-100 pt-4">
+          <summary className="text-xs font-medium text-surface-700 uppercase tracking-wide cursor-pointer hover:text-surface-900">
+            Lyrics ▼
+          </summary>
+          <pre className="font-mono text-sm whitespace-pre-wrap leading-relaxed text-surface-900 bg-surface-50 rounded p-3 border border-surface-200 max-h-96 overflow-auto mt-2">
+            {primaryLyric.text}
+          </pre>
+        </details>
+      )}
+
+      {!primaryLyric && !song.score && !research && !context && (
+        <p className="text-sm text-surface-700">No content added yet.</p>
+      )}
     </div>
   );
 }
