@@ -292,19 +292,19 @@ export default function AlbumRadarCycler({ albumId, bandSlug, radarSize = 260, f
       {/* ── Body ────────────────────────────────────────────────────────── */}
       <div className="px-5 pb-5">
 
-        {/* Current song name */}
-        <div className="flex items-center justify-between mb-2 min-h-[28px]">
-          <div className="flex items-center gap-2 min-w-0">
+        {/* Current song name — large, centered, above radar */}
+        <div className="text-center mb-2 min-h-[64px] flex flex-col items-center justify-center">
+          <div className="flex items-baseline justify-center gap-2 px-4">
             {song?.trackNumber != null && (
-              <span className="text-xs tabular-nums text-slate-700 w-5 shrink-0 text-right">
+              <span className="text-sm tabular-nums text-slate-600 shrink-0">
                 {song.trackNumber}.
               </span>
             )}
-            <span key={`title-${idx}`} className="text-sm font-semibold text-white truncate">
+            <span key={`title-${idx}`} className="text-2xl font-bold text-white leading-tight tracking-tight">
               {song?.title ?? '—'}
             </span>
           </div>
-          <div className="flex items-center gap-2 shrink-0 ml-3">
+          <div className="flex items-center justify-center gap-4 mt-1.5">
             {!hasData && (
               <span className="text-[10px] text-slate-600 italic">no {tab} data</span>
             )}
@@ -313,7 +313,7 @@ export default function AlbumRadarCycler({ albumId, bandSlug, radarSize = 260, f
                 to={`/share/songs/${song.id}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors whitespace-nowrap"
+                className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors"
               >
                 Share ↗
               </Link>
@@ -321,7 +321,7 @@ export default function AlbumRadarCycler({ albumId, bandSlug, radarSize = 260, f
             {bandSlug && song && (
               <Link
                 to={`/rate?songId=${song.id}`}
-                className="text-[10px] text-indigo-500 hover:text-indigo-400 border border-indigo-900 rounded px-1.5 py-0.5 transition-colors whitespace-nowrap"
+                className="text-[10px] text-indigo-500 hover:text-indigo-400 border border-indigo-900 rounded px-1.5 py-0.5 transition-colors"
               >
                 Rate →
               </Link>
