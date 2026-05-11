@@ -136,3 +136,67 @@ adminRouter.patch('/users/:userId', async (req, res) => {
   });
   res.json(user);
 });
+
+// ---------------------------------------------------------------------------
+// Database schema migrations — apply pending schema changes without CLI access
+// ---------------------------------------------------------------------------
+
+type MigrationStatus = { key: string; description: string; applied: boolean };
+
+async function checkMigrations(): Promise<MigrationStatus[]> {
+  const [artworkRows, aiRecallRows] = await Promise.all([
+    prisma.$queryRaw<{ column_name: string }[]>`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'albums' AND column_name = 'artworkUrl'
+    `,
+    prisma.$queryRaw<{ enumlabel: string }[]>`
+      SELECT e.enumlabel FROM pg_enum e
+      JOIN pg_type t ON e.enumtypid = t.oid
+      WHERE t.typname = 'source_type' AND e.enumlabel = 'ai_recall'
+    `,
+  ]);
+  return [
+    {
+      key: 'albums_artworkUrl',
+      description: 'Add artworkUrl column to albums table (enables album art storage)',
+      applied: artworkRows.length > 0,
+    },
+    {
+      key: 'source_type_ai_recall',
+      description: 'Add ai_recall value to source_type enum (enables AI lyrics recall)',
+      applied: aiRecallRows.length > 0,
+    },
+  ];
+}
+
+adminRouter.get('/db-status', async (_req, res, next) => {
+  try {
+    res.json(await checkMigrations());
+  } catch (e) { next(e); }
+});
+
+adminRouter.post('/db-migrate', async (_req, res, next) => {
+  try {
+    const before = await checkMigrations();
+    const results: { key: string; description: string; status: 'applied' | 'already_applied' | 'error'; error?: string }[] = [];
+
+    for (const m of before) {
+      if (m.applied) {
+        results.push({ key: m.key, description: m.description, status: 'already_applied' });
+        continue;
+      }
+      try {
+        if (m.key === 'albums_artworkUrl') {
+          await prisma.$executeRaw`ALTER TABLE "albums" ADD COLUMN IF NOT EXISTS "artworkUrl" TEXT`;
+        } else if (m.key === 'source_type_ai_recall') {
+          await prisma.$executeRaw`ALTER TYPE source_type ADD VALUE IF NOT EXISTS 'ai_recall'`;
+        }
+        results.push({ key: m.key, description: m.description, status: 'applied' });
+      } catch (err) {
+        results.push({ key: m.key, description: m.description, status: 'error', error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
+    res.json({ results });
+  } catch (e) { next(e); }
+});
