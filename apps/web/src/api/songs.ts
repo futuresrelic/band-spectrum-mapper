@@ -21,6 +21,8 @@ export const songsApi = {
   getLyrics: (songId: string) => api.get<Lyric[]>(`/api/songs/${songId}/lyrics`),
   createLyric: (songId: string, data: CreateLyricInput) =>
     api.post<Lyric>(`/api/songs/${songId}/lyrics`, data),
+  fetchAiLyrics: (songId: string) =>
+    api.post<Lyric>(`/api/songs/${songId}/ai-lyrics`, {}),
 
   getScore: (songId: string) => api.get<SongAxisScore>(`/api/songs/${songId}/score`),
   upsertScore: (songId: string, data: UpsertScoreInput) =>

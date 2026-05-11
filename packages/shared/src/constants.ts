@@ -133,6 +133,7 @@ export const SOURCE_TYPES = [
   'file_import',
   'licensed',
   'user_provided',
+  'ai_recall',
 ] as const;
 
 export type SourceType = (typeof SOURCE_TYPES)[number];

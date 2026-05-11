@@ -466,6 +466,20 @@ export default function SongDetailPage() {
     },
   });
 
+  const [aiLyricStatus, setAiLyricStatus] = useState<'idle' | 'loading' | 'not_found' | 'done'>('idle');
+
+  const fetchAiLyrics = useMutation({
+    mutationFn: () => songsApi.fetchAiLyrics(songId!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['song', songId] });
+      setAiLyricStatus('done');
+    },
+    onError: (e) => {
+      const msg = e instanceof Error ? e.message : '';
+      setAiLyricStatus(msg.includes('not found') ? 'not_found' : 'idle');
+    },
+  });
+
   const deleteSong = useMutation({
     mutationFn: () => songsApi.delete(songId!),
     onSuccess: () => navigate(song?.albumId ? `/library/albums/${song.albumId}` : `/library/bands/${song?.bandId}`),
@@ -585,9 +599,28 @@ export default function SongDetailPage() {
 
       <div className="flex items-center justify-between mb-4">
         <h2>Lyrics</h2>
-        <button className="btn-primary" onClick={() => setShowAddLyric(!showAddLyric)}>
-          {showAddLyric ? 'Cancel' : 'Add Lyrics'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            className="btn-secondary text-xs"
+            disabled={fetchAiLyrics.isPending || aiLyricStatus === 'loading'}
+            title="Ask the AI to recall lyrics from its training data. May not know all songs — accuracy unverified."
+            onClick={() => {
+              setAiLyricStatus('loading');
+              fetchAiLyrics.mutate();
+            }}
+          >
+            {fetchAiLyrics.isPending
+              ? '⏳ Recalling…'
+              : aiLyricStatus === 'not_found'
+              ? '🤷 Not in AI memory'
+              : aiLyricStatus === 'done'
+              ? '✓ AI lyrics added'
+              : '✨ AI Recall Lyrics'}
+          </button>
+          <button className="btn-primary" onClick={() => setShowAddLyric(!showAddLyric)}>
+            {showAddLyric ? 'Cancel' : 'Add Lyrics'}
+          </button>
+        </div>
       </div>
 
       {showAddLyric && (
@@ -636,6 +669,11 @@ export default function SongDetailPage() {
           <LyricEditor key={lyric.id} lyric={lyric} onSaved={() => {}} />
         ))}
       </div>
+      {song.lyrics.some((l) => l.sourceType === 'ai_recall') && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mt-3">
+          ⚠ One or more lyric entries were recalled by AI and may contain errors. Please verify and edit as needed.
+        </p>
+      )}
 
       {song.notes && !showEdit && (
         <div className="card mt-6">

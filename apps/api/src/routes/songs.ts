@@ -2,7 +2,10 @@ import { Router } from 'express';
 import { songService } from '../services/songService.js';
 import { lyricService } from '../services/lyricService.js';
 import { scoreService } from '../services/scoreService.js';
+import { aiLyricService } from '../services/aiLyricService.js';
 import { validateBody } from '../middleware/validate.js';
+import { requireAuth } from '../middleware/requireAuth.js';
+import { requireAdmin } from '../middleware/requireAdmin.js';
 import {
   updateSongSchema,
   createLyricSchema,
@@ -51,6 +54,18 @@ songsRouter.get('/:songId/lyrics', async (req, res, next) => {
 songsRouter.post('/:songId/lyrics', validateBody(createLyricSchema), async (req, res, next) => {
   try {
     res.status(201).json(await lyricService.create(req.params['songId']!, req.body));
+  } catch (e) { next(e); }
+});
+
+// AI lyric recall — admin only, attempts to recall lyrics from GPT training data
+songsRouter.post('/:songId/ai-lyrics', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const lyric = await aiLyricService.recallAndStore(req.params['songId']!);
+    if (!lyric) {
+      res.status(404).json({ error: 'Lyrics not found in AI training data for this song' });
+      return;
+    }
+    res.status(201).json(lyric);
   } catch (e) { next(e); }
 });
 

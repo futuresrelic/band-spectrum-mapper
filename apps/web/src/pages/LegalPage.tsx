@@ -70,6 +70,15 @@ export default function LegalPage() {
             (UK/Commonwealth) as transformative commentary and criticism.
           </p>
           <p>
+            Some lyrics may have been recalled by an AI language model (OpenAI GPT-4o Mini) from
+            knowledge present in its training data. These entries are clearly labelled within the
+            application as <strong>"AI recall — accuracy unverified"</strong> and are stored
+            solely for private analysis purposes. AI-recalled lyrics may contain inaccuracies,
+            omissions, or paraphrasing; they are not presented as authoritative transcriptions and
+            are expected to be reviewed and corrected by the site administrator before being relied
+            upon. The site does not use automated scraping of third-party lyric databases.
+          </p>
+          <p>
             If you are a rights holder and believe that content on this site infringes your copyright,
             please contact the site administrator directly. Infringing content will be removed promptly
             upon verified request.
@@ -83,6 +92,15 @@ export default function LegalPage() {
             is <strong>fan-generated critical opinion and commentary</strong>. It is produced by a
             general-purpose language model (OpenAI GPT-4o Mini) and may contain factual
             inaccuracies, subjective interpretations, or speculative statements.
+          </p>
+          <p>
+            This site also provides an <strong>AI lyric recall</strong> feature, available to
+            administrators, which asks the language model to reproduce lyrics it may have encountered
+            during training. Results are stored with a source type of <em>ai_recall</em> and a
+            prominent accuracy warning. The model will decline to respond if it is not confident in
+            its recall. Recalled lyrics are not guaranteed to be complete or verbatim and must be
+            treated as an unverified starting point only. Administrators are expected to verify and
+            correct recalled lyrics before treating them as authoritative.
           </p>
           <p>
             AI analysis does not represent the views of the artists, their representatives, or any

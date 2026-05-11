@@ -110,6 +110,7 @@ enum SourceType {
   file_import
   licensed
   user_provided
+  ai_recall
 
   @@map("source_type")
 }
