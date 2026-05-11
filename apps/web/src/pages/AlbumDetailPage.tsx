@@ -28,6 +28,35 @@ export default function AlbumDetailPage() {
   const [editNotes, setEditNotes] = useState('');
   const [editError, setEditError] = useState('');
 
+  // Artwork search state
+  const [showArtSearch, setShowArtSearch] = useState(false);
+  const [artSearchTerm, setArtSearchTerm] = useState('');
+  const [artSearchLoading, setArtSearchLoading] = useState(false);
+  type ArtResult = { url: string; name: string; artist: string };
+  const [artResults, setArtResults] = useState<ArtResult[]>([]);
+
+  async function searchArtwork() {
+    if (!artSearchTerm.trim()) return;
+    setArtSearchLoading(true);
+    setArtResults([]);
+    try {
+      const res = await fetch(
+        `https://itunes.apple.com/search?term=${encodeURIComponent(artSearchTerm)}&entity=album&limit=8&media=music`
+      );
+      const data = await res.json() as { results: { artworkUrl100?: string; collectionName?: string; artistName?: string }[] };
+      setArtResults(
+        data.results
+          .filter((r) => r.artworkUrl100)
+          .map((r) => ({
+            url: r.artworkUrl100!.replace('100x100bb', '600x600bb'),
+            name: r.collectionName ?? '',
+            artist: r.artistName ?? '',
+          }))
+      );
+    } catch { /* network unavailable */ }
+    setArtSearchLoading(false);
+  }
+
   const { data: album, isLoading, error } = useQuery({
     queryKey: ['album', albumId],
     queryFn: () => albumsApi.getById(albumId!),
@@ -85,6 +114,9 @@ export default function AlbumDetailPage() {
     setEditArtworkUrl(album?.artworkUrl ?? '');
     setEditNotes(album?.notes ?? '');
     setEditError('');
+    setShowArtSearch(false);
+    setArtResults([]);
+    setArtSearchTerm(`${album?.band?.name ?? ''} ${album?.title ?? ''}`.trim());
     setShowEdit(true);
   };
 
@@ -128,13 +160,22 @@ export default function AlbumDetailPage() {
             </div>
             <div>
               <label className="label">Artwork URL</label>
-              <input
-                className="input"
-                type="url"
-                value={editArtworkUrl}
-                onChange={(e) => setEditArtworkUrl(e.target.value)}
-                placeholder="https://…  (paste a direct image URL)"
-              />
+              <div className="flex gap-2">
+                <input
+                  className="input flex-1"
+                  type="url"
+                  value={editArtworkUrl}
+                  onChange={(e) => setEditArtworkUrl(e.target.value)}
+                  placeholder="https://…  (paste a direct image URL)"
+                />
+                <button
+                  type="button"
+                  className="btn-secondary shrink-0 text-xs"
+                  onClick={() => setShowArtSearch((s) => !s)}
+                >
+                  🔍 Find
+                </button>
+              </div>
               {editArtworkUrl && (
                 <img
                   src={editArtworkUrl}
@@ -142,6 +183,49 @@ export default function AlbumDetailPage() {
                   className="mt-2 w-20 h-20 rounded object-cover border border-surface-200"
                   onError={(e) => (e.currentTarget.style.display = 'none')}
                 />
+              )}
+
+              {/* iTunes artwork search */}
+              {showArtSearch && (
+                <div className="mt-3 border border-surface-200 rounded-lg p-3 space-y-2 bg-surface-50">
+                  <div className="flex gap-2">
+                    <input
+                      className="input flex-1 text-sm"
+                      value={artSearchTerm}
+                      onChange={(e) => setArtSearchTerm(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); searchArtwork(); } }}
+                      placeholder="Band name + album title…"
+                    />
+                    <button
+                      type="button"
+                      className="btn-secondary shrink-0 text-xs"
+                      onClick={searchArtwork}
+                      disabled={artSearchLoading}
+                    >
+                      {artSearchLoading ? '…' : 'Search'}
+                    </button>
+                  </div>
+                  {artResults.length > 0 && (
+                    <div className="grid grid-cols-4 gap-2">
+                      {artResults.map((r, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          title={`${r.artist} — ${r.name}`}
+                          className="rounded overflow-hidden hover:ring-2 ring-indigo-500 transition-all"
+                          onClick={() => {
+                            setEditArtworkUrl(r.url);
+                            setShowArtSearch(false);
+                            setArtResults([]);
+                          }}
+                        >
+                          <img src={r.url} alt={r.name} className="w-full aspect-square object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[9px] text-surface-400">Via iTunes · click a cover to select</p>
+                </div>
               )}
             </div>
             <div>

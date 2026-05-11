@@ -170,9 +170,11 @@ interface Props {
   radarSize?: number;
   /** Strip own border/radius when mounted inside a parent card */
   flush?: boolean;
+  /** Hide the "Album Spectrum" label + art thumbnail — keep tabs visible */
+  hideHeader?: boolean;
 }
 
-export default function AlbumRadarCycler({ albumId, bandSlug, radarSize = 260, flush = false }: Props) {
+export default function AlbumRadarCycler({ albumId, bandSlug, radarSize = 260, flush = false, hideHeader = false }: Props) {
   const [idx, setIdx]         = useState(0);
   const [playing, setPlaying] = useState(false);
   const [tab, setTab]         = useState<Tab>('core');
@@ -264,19 +266,21 @@ export default function AlbumRadarCycler({ albumId, bandSlug, radarSize = 260, f
     <div className={`bg-slate-900 overflow-hidden${flush ? '' : ' rounded-xl border border-slate-800 mb-4'}`}>
 
       {/* ── Header: label + tab selector ────────────────────────────────── */}
-      <div className="px-5 pt-4 pb-2 flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          {data?.album.artworkUrl && (
-            <img
-              src={data.album.artworkUrl}
-              alt=""
-              className="w-9 h-9 rounded object-cover shrink-0 opacity-90"
-            />
-          )}
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
-            Album Spectrum
-          </p>
-        </div>
+      <div className={`px-5 ${hideHeader ? 'pt-3' : 'pt-4'} pb-2 flex items-center ${hideHeader ? 'justify-end' : 'justify-between'} flex-wrap gap-2`}>
+        {!hideHeader && (
+          <div className="flex items-center gap-2">
+            {data?.album.artworkUrl && (
+              <img
+                src={data.album.artworkUrl}
+                alt=""
+                className="w-9 h-9 rounded object-cover shrink-0 opacity-90"
+              />
+            )}
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
+              Album Spectrum
+            </p>
+          </div>
+        )}
         <div className="flex gap-0.5 rounded border border-slate-700 p-0.5 bg-slate-950/50">
           {([
             ['core',      `Core ${coreCount}/${songs.length}`],

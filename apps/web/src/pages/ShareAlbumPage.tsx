@@ -87,62 +87,58 @@ export default function ShareAlbumPage() {
         </Link>
       </div>
 
-      <div className="max-w-lg mx-auto px-4 py-6">
+      <div className="max-w-2xl mx-auto px-4 py-6">
 
-        {/* Album header */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden mb-4">
-          {/* Artwork hero — full-width when present */}
+        {/* ── Main share card — horizontal layout ─────────────────────────── */}
+        <div className={`rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden mb-4 ${album.artworkUrl ? 'sm:flex' : ''}`}>
+
+          {/* Left column: album art */}
           {album.artworkUrl && (
-            <div className="relative">
+            <div className="sm:w-52 sm:shrink-0">
               <img
                 src={album.artworkUrl}
                 alt={`${album.title} album art`}
-                className="w-full aspect-square object-cover"
+                className="w-full sm:h-full object-cover"
+                style={{ maxHeight: '420px' }}
               />
-              {/* Gradient overlay so text is readable if we ever overlay */}
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent pointer-events-none" />
             </div>
           )}
 
-          <div className="px-7 pt-6 pb-6 border-b border-slate-800">
-            {/* Art + text side-by-side when no hero (no artworkUrl) */}
-            {!album.artworkUrl && (
-              <div className="w-16 h-16 rounded-lg bg-slate-800 flex items-center justify-center mb-4 shrink-0">
-                <span className="text-2xl font-bold text-slate-600 select-none">
-                  {album.title.charAt(0).toUpperCase()}
+          {/* Right column (or full-width when no art): identity + cycler */}
+          <div className="flex-1 min-w-0 flex flex-col">
+            {/* Album identity header */}
+            <div className="px-6 pt-6 pb-5 border-b border-slate-800">
+              {!album.artworkUrl && (
+                <div className="w-14 h-14 rounded-xl bg-slate-800 flex items-center justify-center mb-4">
+                  <span className="text-2xl font-bold text-slate-600 select-none">
+                    {album.title.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+              )}
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-1">
+                {album.band.name}
+              </p>
+              <h1 className="text-2xl font-bold tracking-tight leading-tight">{album.title}</h1>
+              <div className="flex items-center gap-3 mt-1.5">
+                {album.year && <span className="text-slate-400 text-sm">{album.year}</span>}
+                <span className="text-xs text-slate-600">
+                  {songCount} song{songCount !== 1 ? 's' : ''}
                 </span>
               </div>
+            </div>
+
+            {/* Cycler — flush + hideHeader (identity already shown above) */}
+            {albumId && (
+              <AlbumRadarCycler
+                albumId={albumId}
+                bandSlug={album.band.slug}
+                flush
+                hideHeader
+                radarSize={220}
+              />
             )}
-            <p className="text-xs text-slate-500 uppercase tracking-widest mb-1 font-medium">
-              {album.band.name}
-            </p>
-            <h1 className="text-3xl font-bold tracking-tight leading-tight">{album.title}</h1>
-            {album.year && (
-              <p className="text-slate-400 text-sm mt-1">{album.year}</p>
-            )}
-            <p className="text-xs text-slate-600 mt-2">
-              {songCount} song{songCount !== 1 ? 's' : ''} · cycle through each one to compare spectrums
-            </p>
-          </div>
-          <div className="p-4">
-            <p className="text-[11px] text-slate-600 leading-relaxed">
-              Use the slider or ▶ Play to cycle through every song. Switch between{' '}
-              <strong className="text-slate-500">Core</strong>,{' '}
-              <strong className="text-slate-500">AI</strong>, and{' '}
-              <strong className="text-slate-500">Community</strong> to compare how scores differ.
-              Missing data? Click <span className="text-indigo-500">Rate →</span> to be the first.
-            </p>
           </div>
         </div>
-
-        {/* Album cycler widget */}
-        {albumId && (
-          <AlbumRadarCycler
-            albumId={albumId}
-            bandSlug={album.band.slug}
-            radarSize={280}
-          />
-        )}
 
         {/* Share actions */}
         <div className="mt-5 space-y-3">

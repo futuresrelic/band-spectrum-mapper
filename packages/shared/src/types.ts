@@ -143,6 +143,7 @@ export interface BandWithCounts extends Band {
 
 export interface AlbumWithSongs extends Album {
   songs: Song[];
+  band: Pick<Band, 'id' | 'name' | 'slug'>;
 }
 
 export interface SongWithLyrics extends Song {
