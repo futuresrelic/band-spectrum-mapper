@@ -132,7 +132,7 @@ publicRouter.get('/albums/:albumId/spectrum', async (req, res, next) => {
     }
 
     res.json({
-      album: { id: album.id, title: album.title, year: album.year, band: album.band },
+      album: { id: album.id, title: album.title, year: album.year, artworkUrl: album.artworkUrl, band: album.band },
       songs: album.songs.map((s) => ({
         id: s.id,
         title: s.title,

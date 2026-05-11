@@ -19,7 +19,7 @@ type SongSpectrum = {
 };
 
 type AlbumSpectrumResponse = {
-  album: { id: string; title: string; year: number | null; band: { name: string; slug: string } };
+  album: { id: string; title: string; year: number | null; artworkUrl: string | null; band: { name: string; slug: string } };
   songs: SongSpectrum[];
 };
 
@@ -265,9 +265,18 @@ export default function AlbumRadarCycler({ albumId, bandSlug, radarSize = 260, f
 
       {/* ── Header: label + tab selector ────────────────────────────────── */}
       <div className="px-5 pt-4 pb-2 flex items-center justify-between flex-wrap gap-2">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
-          Album Spectrum
-        </p>
+        <div className="flex items-center gap-2">
+          {data?.album.artworkUrl && (
+            <img
+              src={data.album.artworkUrl}
+              alt=""
+              className="w-9 h-9 rounded object-cover shrink-0 opacity-90"
+            />
+          )}
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
+            Album Spectrum
+          </p>
+        </div>
         <div className="flex gap-0.5 rounded border border-slate-700 p-0.5 bg-slate-950/50">
           {([
             ['core',      `Core ${coreCount}/${songs.length}`],

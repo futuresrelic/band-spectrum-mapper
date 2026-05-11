@@ -288,14 +288,31 @@ export default function ViewerBandPage() {
           <div key={album.id} className="mb-8 rounded-2xl border border-surface-200 overflow-hidden shadow-sm">
 
             {/* Album header */}
-            <div className="bg-white px-6 py-4 flex items-baseline gap-3 border-b border-surface-200">
-              <h2 className="text-xl font-bold tracking-tight text-surface-900">{album.title}</h2>
-              {album.year && <span className="text-sm text-surface-500">{album.year}</span>}
+            <div className="bg-white px-6 py-4 flex items-center gap-4 border-b border-surface-200">
+              {album.artworkUrl ? (
+                <img
+                  src={album.artworkUrl}
+                  alt=""
+                  className="w-12 h-12 rounded object-cover shrink-0 shadow-sm"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded bg-surface-100 flex items-center justify-center shrink-0">
+                  <span className="text-lg font-bold text-surface-400 select-none">
+                    {album.title.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <h2 className="text-xl font-bold tracking-tight text-surface-900">{album.title}</h2>
+                  {album.year && <span className="text-sm text-surface-500 shrink-0">{album.year}</span>}
+                </div>
+              </div>
               <Link
                 to={`/share/albums/${album.id}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-indigo-600 hover:underline ml-auto shrink-0"
+                className="text-xs text-indigo-600 hover:underline shrink-0"
               >
                 Share album ↗
               </Link>

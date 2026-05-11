@@ -8,6 +8,7 @@ type AlbumInfo = {
   id: string;
   title: string;
   year: number | null;
+  artworkUrl: string | null;
   band: { name: string; slug: string };
 };
 
@@ -90,8 +91,29 @@ export default function ShareAlbumPage() {
 
         {/* Album header */}
         <div className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden mb-4">
-          <div className="px-7 pt-7 pb-6 border-b border-slate-800">
-            <p className="text-xs text-slate-500 uppercase tracking-widest mb-2 font-medium">
+          {/* Artwork hero — full-width when present */}
+          {album.artworkUrl && (
+            <div className="relative">
+              <img
+                src={album.artworkUrl}
+                alt={`${album.title} album art`}
+                className="w-full aspect-square object-cover"
+              />
+              {/* Gradient overlay so text is readable if we ever overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent pointer-events-none" />
+            </div>
+          )}
+
+          <div className="px-7 pt-6 pb-6 border-b border-slate-800">
+            {/* Art + text side-by-side when no hero (no artworkUrl) */}
+            {!album.artworkUrl && (
+              <div className="w-16 h-16 rounded-lg bg-slate-800 flex items-center justify-center mb-4 shrink-0">
+                <span className="text-2xl font-bold text-slate-600 select-none">
+                  {album.title.charAt(0).toUpperCase()}
+                </span>
+              </div>
+            )}
+            <p className="text-xs text-slate-500 uppercase tracking-widest mb-1 font-medium">
               {album.band.name}
             </p>
             <h1 className="text-3xl font-bold tracking-tight leading-tight">{album.title}</h1>

@@ -38,6 +38,7 @@ model Album {
   slug        String
   year        Int?
   releaseDate DateTime?
+  artworkUrl  String?
   notes       String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

@@ -43,6 +43,7 @@ export const albumService = {
         slug,
         year: data.year ?? null,
         releaseDate: data.releaseDate ? new Date(data.releaseDate) : null,
+        artworkUrl: data.artworkUrl ?? null,
         notes: data.notes ?? null,
       },
     });
@@ -67,6 +68,7 @@ export const albumService = {
         ...(data.releaseDate !== undefined && {
           releaseDate: data.releaseDate ? new Date(data.releaseDate) : null,
         }),
+        ...(data.artworkUrl !== undefined && { artworkUrl: data.artworkUrl }),
         ...(data.notes !== undefined && { notes: data.notes }),
       },
     });

@@ -20,6 +20,7 @@ export interface Album {
   slug: string;
   year: number | null;
   releaseDate: string | null;
+  artworkUrl: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;

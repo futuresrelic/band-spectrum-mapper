@@ -24,6 +24,7 @@ export default function AlbumDetailPage() {
   const [showEdit, setShowEdit] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editYear, setEditYear] = useState('');
+  const [editArtworkUrl, setEditArtworkUrl] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [editError, setEditError] = useState('');
 
@@ -37,6 +38,7 @@ export default function AlbumDetailPage() {
     mutationFn: () => albumsApi.update(albumId!, {
       title: editTitle.trim() || undefined,
       year: editYear ? parseInt(editYear) : null,
+      artworkUrl: editArtworkUrl.trim() || null,
       notes: editNotes.trim() || null,
     }),
     onSuccess: () => {
@@ -80,6 +82,7 @@ export default function AlbumDetailPage() {
   const openEdit = () => {
     setEditTitle(album?.title ?? '');
     setEditYear(album?.year ? String(album.year) : '');
+    setEditArtworkUrl(album?.artworkUrl ?? '');
     setEditNotes(album?.notes ?? '');
     setEditError('');
     setShowEdit(true);
@@ -122,6 +125,24 @@ export default function AlbumDetailPage() {
             <div>
               <label className="label">Year</label>
               <input className="input" type="number" value={editYear} onChange={(e) => setEditYear(e.target.value)} placeholder="2024" min="1900" max="2100" />
+            </div>
+            <div>
+              <label className="label">Artwork URL</label>
+              <input
+                className="input"
+                type="url"
+                value={editArtworkUrl}
+                onChange={(e) => setEditArtworkUrl(e.target.value)}
+                placeholder="https://…  (paste a direct image URL)"
+              />
+              {editArtworkUrl && (
+                <img
+                  src={editArtworkUrl}
+                  alt="Album art preview"
+                  className="mt-2 w-20 h-20 rounded object-cover border border-surface-200"
+                  onError={(e) => (e.currentTarget.style.display = 'none')}
+                />
+              )}
             </div>
             <div>
               <label className="label">Notes</label>

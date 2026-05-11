@@ -45,6 +45,7 @@ export const createAlbumSchema = z.object({
   slug: slugSchema.optional(),
   year: z.number().int().min(1900).max(2100).optional().nullable(),
   releaseDate: z.string().datetime().optional().nullable(),
+  artworkUrl: z.string().url().max(2000).optional().nullable(),
   notes: z.string().max(5000).optional().nullable(),
 });
 
