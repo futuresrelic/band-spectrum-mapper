@@ -27,6 +27,7 @@ export default function AlbumDetailPage() {
   const [editArtworkUrl, setEditArtworkUrl] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [editError, setEditError] = useState('');
+  const [saveSuccess, setSaveSuccess] = useState('');
 
   // Artwork search state
   const [showArtSearch, setShowArtSearch] = useState(false);
@@ -70,10 +71,13 @@ export default function AlbumDetailPage() {
       artworkUrl: editArtworkUrl.trim() || null,
       notes: editNotes.trim() || null,
     }),
-    onSuccess: () => {
+    onSuccess: (saved) => {
       qc.invalidateQueries({ queryKey: ['album', albumId] });
       setShowEdit(false);
       setEditError('');
+      setSaveSuccess(saved.artworkUrl
+        ? `Saved ✓ — artwork URL stored (${saved.artworkUrl.slice(0, 60)}…)`
+        : 'Saved ✓ — no artwork URL set');
     },
     onError: (e) => setEditError(e instanceof Error ? e.message : 'Failed to save'),
   });
@@ -138,6 +142,40 @@ export default function AlbumDetailPage() {
         }
       />
 
+      {/* Artwork status — always visible so you can confirm what's saved */}
+      <div className="card mb-4 flex items-center gap-4">
+        {album.artworkUrl ? (
+          <>
+            <img
+              src={album.artworkUrl}
+              alt="Album art"
+              className="w-16 h-16 rounded object-cover border border-surface-200 shrink-0"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-green-700">Artwork saved ✓</p>
+              <p className="text-xs text-surface-500 truncate">{album.artworkUrl}</p>
+            </div>
+          </>
+        ) : (
+          <div className="flex items-center gap-3">
+            <div className="w-16 h-16 rounded border-2 border-dashed border-surface-300 flex items-center justify-center shrink-0">
+              <span className="text-surface-400 text-xs text-center leading-tight">No art</span>
+            </div>
+            <div>
+              <p className="text-sm text-surface-600">No album artwork saved.</p>
+              <p className="text-xs text-surface-400">Click <strong>Edit</strong>, use the <strong>🔍 Find</strong> button to search iTunes, select a cover, then click <strong>Save</strong>.</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {saveSuccess && (
+        <div className="mb-4 text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
+          {saveSuccess}
+        </div>
+      )}
+
       {/* Edit form */}
       {showEdit && (
         <div className="card mb-6">
@@ -177,12 +215,17 @@ export default function AlbumDetailPage() {
                 </button>
               </div>
               {editArtworkUrl && (
-                <img
-                  src={editArtworkUrl}
-                  alt="Album art preview"
-                  className="mt-2 w-20 h-20 rounded object-cover border border-surface-200"
-                  onError={(e) => (e.currentTarget.style.display = 'none')}
-                />
+                <div className="mt-2 flex items-center gap-3">
+                  <img
+                    src={editArtworkUrl}
+                    alt="Album art preview"
+                    className="w-20 h-20 rounded object-cover border border-surface-200 shrink-0"
+                    onError={(e) => (e.currentTarget.style.display = 'none')}
+                  />
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                    Preview only — click <strong>Save</strong> below to store this artwork.
+                  </p>
+                </div>
               )}
 
               {/* iTunes artwork search */}
