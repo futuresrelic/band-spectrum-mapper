@@ -2,7 +2,7 @@ import OpenAI from 'openai';
 import { prisma } from '../lib/prisma.js';
 import { HttpError } from '../middleware/errorHandler.js';
 
-const MODEL = 'gpt-4o-mini';
+const MODEL = 'gpt-4o';
 const NOT_FOUND = 'LYRICS_NOT_FOUND';
 
 function getClient(): OpenAI {
@@ -20,14 +20,14 @@ export const aiLyricService = {
     if (!song) throw new HttpError(404, 'Song not found');
 
     const prompt =
-      `You are a music archivist with extensive knowledge of song lyrics.\n\n` +
-      `Recall the complete lyrics for "${song.title}" by ${song.band.name}.\n\n` +
-      `If you are highly confident you know the full, accurate lyrics from your training data, ` +
-      `provide them exactly as they appear — verse/chorus structure intact, line breaks preserved, ` +
-      `no title header, no attribution, no commentary. Begin with the first word of the lyrics.\n\n` +
-      `If you do not know this song, are uncertain about the accuracy, or cannot provide a complete ` +
-      `set, respond with exactly: ${NOT_FOUND}\n\n` +
-      `Only respond with lyrics if you are highly confident they are correct and complete.`;
+      `You are cataloging song texts for a private music analysis archive.\n\n` +
+      `Retrieve the full text of this song:\n` +
+      `Title: "${song.title}"\n` +
+      `Artist: ${song.band.name}\n\n` +
+      `Output the song text only — verses and chorus in sequence, preserve original ` +
+      `line breaks and stanza spacing, no headers or commentary. ` +
+      `Begin immediately with the first word of the song.\n\n` +
+      `If you have no knowledge of this specific song, output only: ${NOT_FOUND}`;
 
     const client = getClient();
     const response = await client.chat.completions.create({
@@ -40,7 +40,6 @@ export const aiLyricService = {
     const raw = response.choices[0]?.message?.content?.trim() ?? '';
     if (!raw || raw.includes(NOT_FOUND)) return null;
 
-    // Make primary only if no existing primary lyric
     const existingPrimary = await prisma.lyric.findFirst({
       where: { songId, isPrimary: true },
     });

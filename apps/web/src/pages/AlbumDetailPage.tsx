@@ -40,21 +40,43 @@ export default function AlbumDetailPage() {
     if (!artSearchTerm.trim()) return;
     setArtSearchLoading(true);
     setArtResults([]);
+    const combined: ArtResult[] = [];
+
+    // iTunes — broad catalogue, good coverage of popular releases
     try {
       const res = await fetch(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(artSearchTerm)}&entity=album&limit=8&media=music`
+        `https://itunes.apple.com/search?term=${encodeURIComponent(artSearchTerm)}&entity=album&limit=20&media=music`
       );
       const data = await res.json() as { results: { artworkUrl100?: string; collectionName?: string; artistName?: string }[] };
-      setArtResults(
-        data.results
-          .filter((r) => r.artworkUrl100)
-          .map((r) => ({
-            url: r.artworkUrl100!.replace('100x100bb', '600x600bb'),
-            name: r.collectionName ?? '',
-            artist: r.artistName ?? '',
-          }))
+      combined.push(...data.results
+        .filter((r) => r.artworkUrl100)
+        .map((r) => ({
+          url: r.artworkUrl100!.replace('100x100bb', '600x600bb'),
+          name: r.collectionName ?? '',
+          artist: r.artistName ?? '',
+        }))
       );
     } catch { /* network unavailable */ }
+
+    // MusicBrainz + Cover Art Archive — better for older/non-mainstream releases
+    try {
+      const mbRes = await fetch(
+        `https://musicbrainz.org/ws/2/release/?query=${encodeURIComponent(artSearchTerm)}&limit=15&fmt=json`,
+        { headers: { 'User-Agent': 'BandSpectrumMapper/1.0 (music-analysis-tool)' } }
+      );
+      const mbData = await mbRes.json() as {
+        releases?: { id: string; title: string; 'artist-credit'?: { name: string }[] }[]
+      };
+      if (mbData.releases) {
+        combined.push(...mbData.releases.map((r) => ({
+          url: `https://coverartarchive.org/release/${r.id}/front-500`,
+          name: r.title,
+          artist: r['artist-credit']?.[0]?.name ?? '',
+        })));
+      }
+    } catch { /* network unavailable */ }
+
+    setArtResults(combined);
     setArtSearchLoading(false);
   }
 
@@ -249,25 +271,32 @@ export default function AlbumDetailPage() {
                     </button>
                   </div>
                   {artResults.length > 0 && (
-                    <div className="grid grid-cols-4 gap-2">
-                      {artResults.map((r, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          title={`${r.artist} — ${r.name}`}
-                          className="rounded overflow-hidden hover:ring-2 ring-indigo-500 transition-all"
-                          onClick={() => {
-                            setEditArtworkUrl(r.url);
-                            setShowArtSearch(false);
-                            setArtResults([]);
-                          }}
-                        >
-                          <img src={r.url} alt={r.name} className="w-full aspect-square object-cover" />
-                        </button>
-                      ))}
+                    <div className="overflow-y-auto max-h-72">
+                      <div className="grid grid-cols-5 gap-2">
+                        {artResults.map((r, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            title={`${r.artist} — ${r.name}`}
+                            className="rounded overflow-hidden hover:ring-2 ring-indigo-500 transition-all"
+                            onClick={() => {
+                              setEditArtworkUrl(r.url);
+                              setShowArtSearch(false);
+                              setArtResults([]);
+                            }}
+                          >
+                            <img
+                              src={r.url}
+                              alt={r.name}
+                              className="w-full aspect-square object-cover"
+                              onError={(e) => { e.currentTarget.closest('button')!.style.display = 'none'; }}
+                            />
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
-                  <p className="text-[9px] text-surface-400">Via iTunes · click a cover to select</p>
+                  <p className="text-[9px] text-surface-400">iTunes + Cover Art Archive · click a cover to select</p>
                 </div>
               )}
             </div>
