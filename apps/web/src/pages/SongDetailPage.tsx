@@ -466,17 +466,25 @@ export default function SongDetailPage() {
     },
   });
 
-  const [aiLyricStatus, setAiLyricStatus] = useState<'idle' | 'loading' | 'not_found' | 'done'>('idle');
+  const [aiLyricStatus, setAiLyricStatus] = useState<'idle' | 'loading' | 'not_found' | 'done' | 'error'>('idle');
+  const [aiLyricError, setAiLyricError] = useState('');
 
   const fetchAiLyrics = useMutation({
     mutationFn: () => songsApi.fetchAiLyrics(songId!),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['song', songId] });
       setAiLyricStatus('done');
+      setAiLyricError('');
     },
     onError: (e) => {
-      const msg = e instanceof Error ? e.message : '';
-      setAiLyricStatus(msg.includes('not found') ? 'not_found' : 'idle');
+      const err = e as Error & { status?: number };
+      if (err.status === 404) {
+        setAiLyricStatus('not_found');
+        setAiLyricError('');
+      } else {
+        setAiLyricStatus('error');
+        setAiLyricError(err.message || 'AI recall failed');
+      }
     },
   });
 
@@ -597,7 +605,7 @@ export default function SongDetailPage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-1">
         <h2>Lyrics</h2>
         <div className="flex items-center gap-2">
           <button
@@ -606,6 +614,7 @@ export default function SongDetailPage() {
             title="Ask the AI to recall lyrics from its training data. May not know all songs — accuracy unverified."
             onClick={() => {
               setAiLyricStatus('loading');
+              setAiLyricError('');
               fetchAiLyrics.mutate();
             }}
           >
@@ -615,6 +624,8 @@ export default function SongDetailPage() {
               ? '🤷 Not in AI memory'
               : aiLyricStatus === 'done'
               ? '✓ AI lyrics added'
+              : aiLyricStatus === 'error'
+              ? '✗ Retry AI Recall'
               : '✨ AI Recall Lyrics'}
           </button>
           <button className="btn-primary" onClick={() => setShowAddLyric(!showAddLyric)}>
@@ -622,6 +633,11 @@ export default function SongDetailPage() {
           </button>
         </div>
       </div>
+      {aiLyricStatus === 'error' && aiLyricError && (
+        <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2 mb-4">
+          AI recall error: {aiLyricError}
+        </p>
+      )}
 
       {showAddLyric && (
         <div className="card mb-4 space-y-3">
