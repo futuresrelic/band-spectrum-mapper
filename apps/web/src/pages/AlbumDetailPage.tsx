@@ -76,6 +76,23 @@ export default function AlbumDetailPage() {
       }
     } catch { /* network unavailable */ }
 
+    // Wikipedia — good for classic/well-documented albums
+    try {
+      const wpRes = await fetch(
+        `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(artSearchTerm)}&prop=pageimages&pithumbsize=500&format=json&origin=*&gsrlimit=8`
+      );
+      const wpData = await wpRes.json() as {
+        query?: { pages?: Record<string, { title: string; thumbnail?: { source: string } }> }
+      };
+      if (wpData.query?.pages) {
+        for (const page of Object.values(wpData.query.pages)) {
+          if (page.thumbnail?.source) {
+            combined.push({ url: page.thumbnail.source, name: page.title, artist: '' });
+          }
+        }
+      }
+    } catch { /* network unavailable */ }
+
     setArtResults(combined);
     setArtSearchLoading(false);
   }
@@ -296,7 +313,7 @@ export default function AlbumDetailPage() {
                       </div>
                     </div>
                   )}
-                  <p className="text-[9px] text-surface-400">iTunes + Cover Art Archive · click a cover to select</p>
+                  <p className="text-[9px] text-surface-400">iTunes · Cover Art Archive · Wikipedia · click a cover to select</p>
                 </div>
               )}
             </div>

@@ -406,6 +406,36 @@ export default function SongDetailPage() {
   const [newLyricText, setNewLyricText] = useState('');
   const [newSourceType, setNewSourceType] = useState<'manual' | 'paste' | 'user_provided'>('manual');
 
+  // Lyrics finder state
+  const [showLyricFinder, setShowLyricFinder] = useState(false);
+  const [finderArtist, setFinderArtist] = useState('');
+  const [finderTitle, setFinderTitle] = useState('');
+  const [finderLoading, setFinderLoading] = useState(false);
+  const [finderText, setFinderText] = useState('');
+  const [finderError, setFinderError] = useState('');
+
+  async function searchLyricsOnline() {
+    if (!finderArtist.trim() || !finderTitle.trim()) return;
+    setFinderLoading(true);
+    setFinderText('');
+    setFinderError('');
+    try {
+      const res = await fetch(
+        `https://api.lyrics.ovh/v1/${encodeURIComponent(finderArtist.trim())}/${encodeURIComponent(finderTitle.trim())}`
+      );
+      if (!res.ok) {
+        setFinderError(res.status === 404 ? 'No lyrics found for this song in the database.' : `Search failed (${res.status})`);
+      } else {
+        const data = await res.json() as { lyrics?: string };
+        setFinderText(data.lyrics?.trim() ?? '');
+        if (!data.lyrics?.trim()) setFinderError('Search returned an empty result.');
+      }
+    } catch {
+      setFinderError('Network error — could not reach the lyrics database.');
+    }
+    setFinderLoading(false);
+  }
+
   // Edit song state
   const [showEdit, setShowEdit] = useState(false);
   const [editTitle, setEditTitle] = useState('');
@@ -463,6 +493,21 @@ export default function SongDetailPage() {
       qc.invalidateQueries({ queryKey: ['song', songId] });
       setShowAddLyric(false);
       setNewLyricText('');
+    },
+  });
+
+  const importFoundLyrics = useMutation({
+    mutationFn: () =>
+      songsApi.createLyric(songId!, {
+        text: finderText,
+        sourceType: 'user_provided',
+        isPrimary: (song?.lyrics ?? []).length === 0,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['song', songId] });
+      setShowLyricFinder(false);
+      setFinderText('');
+      setFinderError('');
     },
   });
 
@@ -607,7 +652,7 @@ export default function SongDetailPage() {
 
       <div className="flex items-center justify-between mb-1">
         <h2>Lyrics</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             className="btn-secondary text-xs"
             disabled={fetchAiLyrics.isPending || aiLyricStatus === 'loading'}
@@ -615,6 +660,8 @@ export default function SongDetailPage() {
             onClick={() => {
               setAiLyricStatus('loading');
               setAiLyricError('');
+              setShowLyricFinder(false);
+              setShowAddLyric(false);
               fetchAiLyrics.mutate();
             }}
           >
@@ -626,10 +673,26 @@ export default function SongDetailPage() {
               ? '✓ AI lyrics added'
               : aiLyricStatus === 'error'
               ? '✗ Retry AI Recall'
-              : '✨ AI Recall Lyrics'}
+              : '✨ AI Recall'}
           </button>
-          <button className="btn-primary" onClick={() => setShowAddLyric(!showAddLyric)}>
-            {showAddLyric ? 'Cancel' : 'Add Lyrics'}
+          <button
+            className="btn-secondary text-xs"
+            onClick={() => {
+              const open = !showLyricFinder;
+              setShowLyricFinder(open);
+              setShowAddLyric(false);
+              if (open) {
+                setFinderArtist(song.band?.name ?? '');
+                setFinderTitle(song.title);
+                setFinderText('');
+                setFinderError('');
+              }
+            }}
+          >
+            {showLyricFinder ? 'Cancel Search' : '🔍 Find Online'}
+          </button>
+          <button className="btn-primary text-xs" onClick={() => { setShowAddLyric(!showAddLyric); setShowLyricFinder(false); }}>
+            {showAddLyric ? 'Cancel' : '+ Add Manually'}
           </button>
         </div>
       </div>
@@ -637,6 +700,68 @@ export default function SongDetailPage() {
         <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2 mb-4">
           AI recall error: {aiLyricError}
         </p>
+      )}
+
+      {showLyricFinder && (
+        <div className="card mb-4 space-y-3">
+          <div>
+            <h3 className="font-medium text-surface-900 mb-0.5">Find Lyrics Online</h3>
+            <p className="text-xs text-surface-500">Searches the Lyrics.ovh database — not AI. Review and edit the result before importing.</p>
+          </div>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="label">Artist</label>
+              <input
+                className="input"
+                value={finderArtist}
+                onChange={(e) => setFinderArtist(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') searchLyricsOnline(); }}
+                placeholder="Band or artist name"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="label">Song Title</label>
+              <input
+                className="input"
+                value={finderTitle}
+                onChange={(e) => setFinderTitle(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') searchLyricsOnline(); }}
+                placeholder="Song title"
+              />
+            </div>
+          </div>
+          <button
+            className="btn-secondary"
+            disabled={finderLoading || !finderArtist.trim() || !finderTitle.trim()}
+            onClick={searchLyricsOnline}
+          >
+            {finderLoading ? 'Searching…' : 'Search'}
+          </button>
+          {finderError && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{finderError}</p>
+          )}
+          {finderText && (
+            <div className="space-y-2">
+              <label className="label">Result — edit or trim as needed before importing</label>
+              <textarea
+                className="textarea w-full min-h-[260px] font-mono text-xs"
+                value={finderText}
+                onChange={(e) => setFinderText(e.target.value)}
+              />
+              <div className="flex gap-2 items-center">
+                <button
+                  className="btn-primary"
+                  disabled={!finderText.trim() || importFoundLyrics.isPending}
+                  onClick={() => importFoundLyrics.mutate()}
+                >
+                  {importFoundLyrics.isPending ? 'Importing…' : 'Import These Lyrics'}
+                </button>
+                <span className="text-xs text-surface-500">Saved as <em>user_provided</em> — verify accuracy before publishing</span>
+              </div>
+              {importFoundLyrics.isError && <ErrorMessage error={importFoundLyrics.error} />}
+            </div>
+          )}
+        </div>
       )}
 
       {showAddLyric && (
