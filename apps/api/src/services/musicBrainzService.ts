@@ -195,3 +195,88 @@ export async function batchGetReleaseGroupTracks(
   }
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// Release options — list all releases for a release-group (lightweight, no recordings)
+// ---------------------------------------------------------------------------
+
+export interface MbReleaseOption {
+  id: string;
+  title: string;
+  date: string | null;
+  country: string | null;
+  status: string | null;
+  formats: string[];
+  trackCount: number;
+}
+
+async function getReleaseOptions(releaseGroupId: string): Promise<MbReleaseOption[]> {
+  const raw = await mbFetch(
+    `/release?release-group=${releaseGroupId}&limit=25&inc=media&fmt=json`,
+  ) as {
+    releases?: {
+      id: string;
+      title: string;
+      date?: string;
+      country?: string;
+      status?: string;
+      media?: { format?: string; 'track-count'?: number }[];
+    }[];
+  };
+
+  return (raw.releases ?? []).map((r) => ({
+    id: r.id,
+    title: r.title,
+    date: r.date ?? null,
+    country: r.country ?? null,
+    status: r.status ?? null,
+    formats: (r.media ?? []).map((m) => m.format ?? 'Unknown'),
+    trackCount: (r.media ?? []).reduce((sum, m) => sum + (m['track-count'] ?? 0), 0),
+  }));
+}
+
+async function getTracksByReleaseId(releaseId: string, releaseGroupId: string): Promise<MbRelease | null> {
+  const detailRaw = await mbFetch(`/release/${releaseId}?inc=recordings&fmt=json`) as {
+    title: string;
+    date?: string;
+    media?: {
+      tracks?: { number: string; title: string; length?: number | null }[];
+    }[];
+  };
+
+  const allTracks: MbTrack[] = [];
+  let trackNum = 1;
+  for (const medium of detailRaw.media ?? []) {
+    for (const t of medium.tracks ?? []) {
+      allTracks.push({
+        number: parseInt(t.number, 10) || trackNum,
+        title: t.title,
+        durationMs: t.length ?? null,
+      });
+      trackNum++;
+    }
+  }
+
+  const year = detailRaw.date ? parseInt(detailRaw.date.slice(0, 4), 10) || null : null;
+  return { releaseGroupId, title: detailRaw.title, year, tracks: allTracks };
+}
+
+export async function batchGetReleaseOptions(
+  releaseGroupIds: string[],
+): Promise<Map<string, MbReleaseOption[]>> {
+  const result = new Map<string, MbReleaseOption[]>();
+  for (const id of releaseGroupIds) {
+    result.set(id, await getReleaseOptions(id));
+  }
+  return result;
+}
+
+export async function batchGetTracksByRelease(
+  items: { releaseGroupId: string; releaseId: string }[],
+): Promise<Map<string, MbRelease | null>> {
+  const result = new Map<string, MbRelease | null>();
+  for (const { releaseGroupId, releaseId } of items) {
+    result.set(releaseGroupId, await getTracksByReleaseId(releaseId, releaseGroupId));
+  }
+  return result;
+}

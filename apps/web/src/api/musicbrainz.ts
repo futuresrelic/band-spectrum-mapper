@@ -29,6 +29,16 @@ export interface MbRelease {
   tracks: MbTrack[];
 }
 
+export interface MbReleaseOption {
+  id: string;
+  title: string;
+  date: string | null;
+  country: string | null;
+  status: string | null;
+  formats: string[];
+  trackCount: number;
+}
+
 export interface TokenStatus {
   tokens: number;
   nextRefresh: string; // ISO
@@ -57,6 +67,12 @@ export const musicBrainzApi = {
 
   getTracks: (releaseGroupIds: string[]) =>
     api.post<Record<string, MbRelease | null>>('/api/musicbrainz/tracks', { releaseGroupIds }),
+
+  getReleaseOptions: (releaseGroupIds: string[]) =>
+    api.post<Record<string, MbReleaseOption[]>>('/api/musicbrainz/release-options', { releaseGroupIds }),
+
+  getTracksByRelease: (items: { releaseGroupId: string; releaseId: string }[]) =>
+    api.post<Record<string, MbRelease | null>>('/api/musicbrainz/tracks-by-release', { items }),
 
   getTokens: () =>
     api.get<TokenStatus>('/api/contributions/tokens'),

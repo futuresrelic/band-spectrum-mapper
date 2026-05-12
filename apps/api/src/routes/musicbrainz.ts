@@ -4,6 +4,8 @@ import {
   searchArtists,
   getArtistAlbums,
   batchGetReleaseGroupTracks,
+  batchGetReleaseOptions,
+  batchGetTracksByRelease,
 } from '../services/musicBrainzService.js';
 
 // Accessible to any authenticated user (admin or regular user).
@@ -43,6 +45,48 @@ musicBrainzRouter.post('/tracks', requireAuth, async (req, res, next) => {
     const ids = releaseGroupIds.map(String);
     const results = await batchGetReleaseGroupTracks(ids);
     // Convert Map to plain object for JSON serialization
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of results) out[k] = v;
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+// POST /api/musicbrainz/release-options
+// Body: { releaseGroupIds: string[] }
+// Returns all available releases (format, track count, date) per release-group.
+musicBrainzRouter.post('/release-options', requireAuth, async (req, res, next) => {
+  try {
+    const { releaseGroupIds } = req.body as { releaseGroupIds?: unknown };
+    if (!Array.isArray(releaseGroupIds) || releaseGroupIds.length === 0) {
+      res.status(400).json({ error: 'releaseGroupIds must be a non-empty array' });
+      return;
+    }
+    if (releaseGroupIds.length > 20) {
+      res.status(400).json({ error: 'Maximum 20 albums per request' });
+      return;
+    }
+    const ids = releaseGroupIds.map(String);
+    const results = await batchGetReleaseOptions(ids);
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of results) out[k] = v;
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+// POST /api/musicbrainz/tracks-by-release
+// Body: { items: { releaseGroupId: string; releaseId: string }[] }
+// Returns tracks keyed by releaseGroupId using the caller's chosen specific release.
+musicBrainzRouter.post('/tracks-by-release', requireAuth, async (req, res, next) => {
+  try {
+    const { items } = req.body as { items?: unknown };
+    if (!Array.isArray(items) || items.length === 0) {
+      res.status(400).json({ error: 'items must be a non-empty array' });
+      return;
+    }
+    const parsed = (items as { releaseGroupId?: unknown; releaseId?: unknown }[])
+      .map((i) => ({ releaseGroupId: String(i.releaseGroupId ?? ''), releaseId: String(i.releaseId ?? '') }))
+      .filter((i) => i.releaseGroupId && i.releaseId);
+    const results = await batchGetTracksByRelease(parsed);
     const out: Record<string, unknown> = {};
     for (const [k, v] of results) out[k] = v;
     res.json(out);
