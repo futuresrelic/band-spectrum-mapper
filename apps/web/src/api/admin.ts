@@ -68,6 +68,14 @@ export type CleanupResults = {
   results: Record<string, number>;
 };
 
+export type AlbumOption = {
+  id: string;
+  title: string;
+  year: number | null;
+  bandId: string;
+  bandName: string;
+};
+
 export const adminApi = {
   listUsers: () =>
     api.get<AdminUser[]>('/api/admin/users'),
@@ -89,4 +97,16 @@ export const adminApi = {
 
   runDbCleanup: (actions: string[]) =>
     api.post<CleanupResults>('/api/admin/db-cleanup', { actions }),
+
+  getAlbumsList: () =>
+    api.get<AlbumOption[]>('/api/admin/albums-list'),
+
+  relinkSong: (songId: string, albumId: string) =>
+    api.patch<{ ok: boolean }>(`/api/admin/songs/${songId}/relink`, { albumId }),
+
+  deleteSong: (songId: string) =>
+    api.delete<{ ok: boolean }>(`/api/admin/songs/${songId}`),
+
+  deleteAlbum: (albumId: string, andSongs: boolean) =>
+    api.delete<{ ok: boolean }>(`/api/admin/albums/${albumId}?andSongs=${andSongs}`),
 };

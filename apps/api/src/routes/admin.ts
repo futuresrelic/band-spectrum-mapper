@@ -361,3 +361,69 @@ adminRouter.post('/db-cleanup', async (req, res, next) => {
     res.json({ results });
   } catch (e) { next(e); }
 });
+
+// ---------------------------------------------------------------------------
+// Album and song level actions — re-link, individual deletes
+// ---------------------------------------------------------------------------
+
+// GET /api/admin/albums-list — lightweight album list for the re-link dropdown
+adminRouter.get('/albums-list', async (_req, res, next) => {
+  try {
+    const albums = await prisma.album.findMany({
+      select: {
+        id: true, title: true, year: true,
+        band: { select: { id: true, name: true } },
+      },
+      orderBy: [{ band: { name: 'asc' } }, { year: 'asc' }, { title: 'asc' }],
+    });
+    res.json(albums.map((a) => ({
+      id: a.id,
+      title: a.title,
+      year: a.year,
+      bandId: a.band.id,
+      bandName: a.band.name,
+    })));
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/admin/songs/:songId/relink — restore albumId on an unlinked song
+adminRouter.patch('/songs/:songId/relink', async (req, res, next) => {
+  try {
+    const { albumId } = req.body as { albumId?: unknown };
+    if (typeof albumId !== 'string' || !albumId) {
+      res.status(400).json({ error: 'albumId is required' }); return;
+    }
+    const [song, album] = await Promise.all([
+      prisma.song.findUnique({ where: { id: req.params['songId']! }, select: { id: true, bandId: true } }),
+      prisma.album.findUnique({ where: { id: albumId }, select: { id: true, bandId: true } }),
+    ]);
+    if (!song) { res.status(404).json({ error: 'Song not found' }); return; }
+    if (!album) { res.status(404).json({ error: 'Album not found' }); return; }
+    if (song.bandId !== album.bandId) {
+      res.status(400).json({ error: 'Album belongs to a different band than the song' }); return;
+    }
+    await prisma.song.update({ where: { id: song.id }, data: { albumId } });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/admin/songs/:songId — delete a single song and all its child data
+adminRouter.delete('/songs/:songId', async (req, res, next) => {
+  try {
+    await prisma.song.delete({ where: { id: req.params['songId']! } });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/admin/albums/:albumId — delete an album
+// ?andSongs=true also deletes every song on that album (use for compilations / bad imports)
+adminRouter.delete('/albums/:albumId', async (req, res, next) => {
+  try {
+    const andSongs = req.query['andSongs'] === 'true';
+    if (andSongs) {
+      await prisma.song.deleteMany({ where: { albumId: req.params['albumId']! } });
+    }
+    await prisma.album.delete({ where: { id: req.params['albumId']! } });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
