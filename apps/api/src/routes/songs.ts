@@ -24,21 +24,49 @@ songsRouter.get('/search', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// Proxy Lyrics.ovh so browser CORS policies don't block the request
+// Proxy lyrics lookup server-side to avoid CORS issues.
+// Tries Lyrics.ovh first, then lrclib.net as a fallback (better indie/alternative coverage).
 songsRouter.get('/lyrics-lookup', requireAuth, async (req, res, next) => {
   try {
     const artist = typeof req.query['artist'] === 'string' ? req.query['artist'].trim() : '';
     const title  = typeof req.query['title']  === 'string' ? req.query['title'].trim()  : '';
     if (!artist || !title) { res.status(400).json({ error: 'artist and title are required' }); return; }
 
-    const url = `https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`;
-    const upstream = await fetch(url, { signal: AbortSignal.timeout(8_000) });
+    // Source 1: Lyrics.ovh
+    try {
+      const upstream = await fetch(
+        `https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`,
+        { signal: AbortSignal.timeout(6_000) }
+      );
+      if (upstream.ok) {
+        const data = await upstream.json() as { lyrics?: string };
+        if (data.lyrics?.trim()) {
+          res.json({ lyrics: data.lyrics.trim(), source: 'lyrics.ovh' }); return;
+        }
+      }
+    } catch { /* fall through to next source */ }
 
-    if (upstream.status === 404) { res.status(404).json({ error: 'not found' }); return; }
-    if (!upstream.ok) { res.status(502).json({ error: `Lyrics.ovh returned ${upstream.status}` }); return; }
+    // Source 2: lrclib.net — community synced-lyrics db, good indie/alternative coverage
+    try {
+      const lrcRes = await fetch(
+        `https://lrclib.net/api/search?track_name=${encodeURIComponent(title)}&artist_name=${encodeURIComponent(artist)}`,
+        { signal: AbortSignal.timeout(6_000), headers: { 'User-Agent': 'BandSpectrumMapper/1.0' } }
+      );
+      if (lrcRes.ok) {
+        const hits = await lrcRes.json() as { plainLyrics?: string | null; syncedLyrics?: string | null }[];
+        if (Array.isArray(hits) && hits.length > 0) {
+          const hit = hits[0]!;
+          // Prefer plain lyrics; fall back to stripping timestamps from synced lyrics
+          const plain = hit.plainLyrics?.trim() ||
+            hit.syncedLyrics?.replace(/^\[[\d:.]+\] ?/gm, '').trim();
+          if (plain) {
+            res.json({ lyrics: plain, source: 'lrclib.net' }); return;
+          }
+        }
+      }
+    } catch { /* fall through */ }
 
-    const data = await upstream.json() as { lyrics?: string };
-    res.json({ lyrics: data.lyrics ?? null });
+    res.status(404).json({ error: 'not found' });
   } catch (e) { next(e); }
 });
 

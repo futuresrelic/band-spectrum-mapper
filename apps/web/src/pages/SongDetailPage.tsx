@@ -420,18 +420,17 @@ export default function SongDetailPage() {
     setFinderText('');
     setFinderError('');
     try {
-      const res = await fetch(
-        `https://api.lyrics.ovh/v1/${encodeURIComponent(finderArtist.trim())}/${encodeURIComponent(finderTitle.trim())}`
-      );
-      if (!res.ok) {
-        setFinderError(res.status === 404 ? 'No lyrics found for this song in the database.' : `Search failed (${res.status})`);
+      const data = await songsApi.lyricsLookup(finderArtist.trim(), finderTitle.trim());
+      if (data.lyrics?.trim()) {
+        setFinderText(data.lyrics.trim());
       } else {
-        const data = await res.json() as { lyrics?: string };
-        setFinderText(data.lyrics?.trim() ?? '');
-        if (!data.lyrics?.trim()) setFinderError('Search returned an empty result.');
+        setFinderError('Search returned an empty result.');
       }
-    } catch {
-      setFinderError('Network error — could not reach the lyrics database.');
+    } catch (e) {
+      const err = e as { status?: number };
+      setFinderError(err.status === 404
+        ? 'No lyrics found in either database. Try AI Recall, or add them manually.'
+        : 'Search failed — check your connection and try again.');
     }
     setFinderLoading(false);
   }
@@ -706,7 +705,7 @@ export default function SongDetailPage() {
         <div className="card mb-4 space-y-3">
           <div>
             <h3 className="font-medium text-surface-900 mb-0.5">Find Lyrics Online</h3>
-            <p className="text-xs text-surface-500">Searches the Lyrics.ovh database — not AI. Review and edit the result before importing.</p>
+            <p className="text-xs text-surface-700">Searches Lyrics.ovh and lrclib.net — not AI. Review and edit the result before importing.</p>
           </div>
           <div className="flex gap-2">
             <div className="flex-1">
@@ -756,7 +755,7 @@ export default function SongDetailPage() {
                 >
                   {importFoundLyrics.isPending ? 'Importing…' : 'Import These Lyrics'}
                 </button>
-                <span className="text-xs text-surface-500">Saved as <em>user_provided</em> — verify accuracy before publishing</span>
+                <span className="text-xs text-surface-600">Saved as <em>user_provided</em> — verify accuracy before publishing</span>
               </div>
               {importFoundLyrics.isError && <ErrorMessage error={importFoundLyrics.error} />}
             </div>
