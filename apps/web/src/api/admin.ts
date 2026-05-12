@@ -109,4 +109,28 @@ export const adminApi = {
 
   deleteAlbum: (albumId: string, andSongs: boolean) =>
     api.delete<{ ok: boolean }>(`/api/admin/albums/${albumId}?andSongs=${andSongs}`),
+
+  getMissingLyrics: () =>
+    api.get<MissingSong[]>('/api/admin/missing-lyrics'),
+
+  getMissingArtwork: () =>
+    api.get<MissingArtworkAlbum[]>('/api/admin/missing-artwork'),
+};
+
+export type MissingSong = {
+  id: string;
+  title: string;
+  trackNumber: number | null;
+  bandId: string;
+  bandName: string;
+  albumId: string | null;
+  albumTitle: string | null;
+};
+
+export type MissingArtworkAlbum = {
+  id: string;
+  title: string;
+  year: number | null;
+  bandId: string;
+  bandName: string;
 };

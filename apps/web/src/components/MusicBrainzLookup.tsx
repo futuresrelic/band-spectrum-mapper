@@ -1,7 +1,7 @@
 // Shared MusicBrainz lookup flow used by both admin (direct import) and users (contribution).
 // Props control what the final action button does.
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { musicBrainzApi, type MbArtist, type MbReleaseGroup, type MbRelease, type MbReleaseOption } from '../api/musicbrainz';
 
@@ -56,12 +56,15 @@ interface Props {
   }) => void;
   actionPending?: boolean;
   actionDone?: boolean;
+  /** Pre-fill the search box and auto-trigger search on mount */
+  initialSearch?: string;
 }
 
 type Step = 'search' | 'albums' | 'release-picker' | 'tracks';
 
-export default function MusicBrainzLookup({ actionLabel, onAction, actionPending, actionDone }: Props) {
-  const [query, setQuery] = useState('');
+export default function MusicBrainzLookup({ actionLabel, onAction, actionPending, actionDone, initialSearch }: Props) {
+  const [query, setQuery] = useState(initialSearch ?? '');
+  const autoSearched = useRef(false);
   const [artists, setArtists] = useState<MbArtist[]>([]);
   const [selectedArtist, setSelectedArtist] = useState<MbArtist | null>(null);
   const [albums, setAlbums] = useState<MbReleaseGroup[]>([]);
@@ -108,6 +111,15 @@ export default function MusicBrainzLookup({ actionLabel, onAction, actionPending
     setReleaseOptions({}); setChosenReleaseId({}); setTracks({});
     searchMutation.mutate(query.trim());
   };
+
+  // Auto-trigger search if initialSearch was provided
+  useEffect(() => {
+    if (initialSearch && initialSearch.trim().length >= 2 && !autoSearched.current) {
+      autoSearched.current = true;
+      searchMutation.mutate(initialSearch.trim());
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSelectArtist = (artist: MbArtist) => {
     setSelectedArtist(artist); setAlbums([]); setSelectedIds(new Set());

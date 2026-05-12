@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { discographyApi } from '../api/discography';
 import type { DiscographyImportResult } from '../api/discography';
 import MusicBrainzLookup from '../components/MusicBrainzLookup';
@@ -26,7 +26,9 @@ const ACTION_CLS: Record<string, string> = {
 type Tab = 'json' | 'musicbrainz';
 
 export default function DiscographyImportPage() {
-  const [tab, setTab] = useState<Tab>('json');
+  const [searchParams] = useSearchParams();
+  const preSearchBand = searchParams.get('band') ?? undefined;
+  const [tab, setTab] = useState<Tab>(searchParams.get('tab') === 'musicbrainz' ? 'musicbrainz' : 'json');
 
   // JSON tab state
   const [paste, setPaste] = useState('');
@@ -163,6 +165,7 @@ export default function DiscographyImportPage() {
             onAction={handleMbAction}
             actionPending={mbImportMutation.isPending}
             actionDone={mbDone}
+            initialSearch={preSearchBand}
           />
           {mbImportMutation.isError && (
             <p className="text-red-600 text-sm mt-3">

@@ -427,3 +427,57 @@ adminRouter.delete('/albums/:albumId', async (req, res, next) => {
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
+
+// ---------------------------------------------------------------------------
+// Content gap queries — missing lyrics and missing artwork
+// ---------------------------------------------------------------------------
+
+// GET /api/admin/missing-lyrics — songs with no lyrics at all
+adminRouter.get('/missing-lyrics', async (_req, res, next) => {
+  try {
+    const songs = await prisma.song.findMany({
+      where: { lyrics: { none: {} } },
+      select: {
+        id: true, title: true, slug: true, trackNumber: true,
+        band: { select: { id: true, name: true } },
+        album: { select: { id: true, title: true } },
+      },
+      orderBy: [
+        { band: { name: 'asc' } },
+        { album: { title: 'asc' } },
+        { trackNumber: 'asc' },
+        { title: 'asc' },
+      ],
+    });
+    res.json(songs.map((s) => ({
+      id: s.id,
+      title: s.title,
+      trackNumber: s.trackNumber,
+      bandId: s.band.id,
+      bandName: s.band.name,
+      albumId: s.album?.id ?? null,
+      albumTitle: s.album?.title ?? null,
+    })));
+  } catch (e) { next(e); }
+});
+
+// GET /api/admin/missing-artwork — albums with no artworkUrl
+adminRouter.get('/missing-artwork', async (_req, res, next) => {
+  try {
+    const albums = await prisma.album.findMany({
+      where: { artworkUrl: null },
+      select: {
+        id: true, title: true, year: true,
+        band: { select: { id: true, name: true } },
+      },
+      orderBy: [{ band: { name: 'asc' } }, { year: 'asc' }, { title: 'asc' }],
+    });
+    res.json(albums.map((a) => ({
+      id: a.id,
+      title: a.title,
+      year: a.year,
+      bandId: a.band.id,
+      bandName: a.band.name,
+    })));
+  } catch (e) { next(e); }
+});

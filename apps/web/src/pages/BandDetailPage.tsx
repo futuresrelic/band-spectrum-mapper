@@ -99,6 +99,13 @@ export default function BandDetailPage() {
         actions={
           <div className="flex gap-2">
             <Link to="/library" className="btn-secondary">← Library</Link>
+            <button
+              className="btn-secondary"
+              onClick={() => navigate(`/discography?band=${encodeURIComponent(band.name)}&tab=musicbrainz`)}
+              title="Search MusicBrainz to fill in missing albums or tracks"
+            >
+              Fill from MusicBrainz
+            </button>
             <button className="btn-secondary" onClick={openEdit}>Edit</button>
             <button className="btn-danger" onClick={() => setShowDeleteConfirm(true)}>Delete Band</button>
           </div>
