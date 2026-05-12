@@ -223,13 +223,20 @@ export const discographyImportService = {
             scores: newScores,
           });
         } else {
-          // Resolve a band-unique slug; same song can appear on multiple albums
+          // Resolve a band-unique slug — loop until we find a free slot
           let finalSlug = proposedSlug;
           if (takenSlugs.has(finalSlug) || assignedSlugs.has(finalSlug)) {
             finalSlug = `${albumSlug}-${proposedSlug}`;
           }
           if (takenSlugs.has(finalSlug) || assignedSlugs.has(finalSlug)) {
-            finalSlug = `${albumSlug}-${trackNum ?? 0}-${proposedSlug}`;
+            finalSlug = trackNum != null
+              ? `${albumSlug}-${trackNum}-${proposedSlug}`
+              : `${albumSlug}-2-${proposedSlug}`;
+          }
+          let counter = 2;
+          while (takenSlugs.has(finalSlug) || assignedSlugs.has(finalSlug)) {
+            finalSlug = `${proposedSlug}-${counter}`;
+            counter++;
           }
           assignedSlugs.add(finalSlug);
 
