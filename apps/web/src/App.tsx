@@ -21,6 +21,7 @@ import AdminUsersPage from './pages/AdminUsersPage';
 import AdminContributionsPage from './pages/AdminContributionsPage';
 import AdminKnowledgePage from './pages/AdminKnowledgePage';
 import AdminDbPage from './pages/AdminDbPage';
+import AdminDbHealthPage from './pages/AdminDbHealthPage';
 import LyricsBuilderPage from './pages/LyricsBuilderPage';
 import AiBatchRunnerPage from './pages/AiBatchRunnerPage';
 import UserRatePage from './pages/UserRatePage';
@@ -116,6 +117,7 @@ export default function App() {
           <Route path="admin/contributions" element={<AdminContributionsPage />} />
           <Route path="admin/knowledge" element={<AdminKnowledgePage />} />
           <Route path="admin/db" element={<AdminDbPage />} />
+          <Route path="admin/db-health" element={<AdminDbHealthPage />} />
         </Route>
       </Routes>
     </AuthProvider>

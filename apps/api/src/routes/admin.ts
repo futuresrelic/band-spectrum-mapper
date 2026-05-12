@@ -200,3 +200,164 @@ adminRouter.post('/db-migrate', async (_req, res, next) => {
     res.json({ results });
   } catch (e) { next(e); }
 });
+
+// ---------------------------------------------------------------------------
+// Database health scan — detect orphaned/ghost data
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/db-health', async (_req, res, next) => {
+  try {
+    const [unlinkedSongs, emptyAlbums, emptyBands, songsWithoutScores] = await Promise.all([
+      prisma.song.findMany({
+        where: { albumId: null },
+        select: {
+          id: true, title: true, slug: true, bandId: true,
+          band: { select: { name: true } },
+          _count: { select: { lyrics: true, ratings: true, comments: true } },
+        },
+        orderBy: [{ band: { name: 'asc' } }, { title: 'asc' }],
+      }),
+      prisma.album.findMany({
+        where: { songs: { none: {} } },
+        select: {
+          id: true, title: true, slug: true, bandId: true,
+          band: { select: { name: true } },
+        },
+        orderBy: [{ band: { name: 'asc' } }, { title: 'asc' }],
+      }),
+      prisma.band.findMany({
+        where: { albums: { none: {} }, songs: { none: {} } },
+        select: { id: true, name: true, slug: true },
+        orderBy: { name: 'asc' },
+      }),
+      prisma.song.findMany({
+        where: { score: null },
+        select: {
+          id: true, title: true, slug: true,
+          band: { select: { name: true } },
+          album: { select: { title: true } },
+        },
+        orderBy: [{ band: { name: 'asc' } }, { title: 'asc' }],
+      }),
+    ]);
+
+    // Detect duplicate track numbers within the same album
+    const dupGroups = await prisma.song.groupBy({
+      by: ['albumId', 'trackNumber'],
+      where: { albumId: { not: null }, trackNumber: { not: null } },
+      _count: { id: true },
+      having: { id: { _count: { gt: 1 } } },
+    });
+
+    const dupSongs = dupGroups.length > 0
+      ? await prisma.song.findMany({
+          where: {
+            OR: dupGroups.map((g) => ({ albumId: g.albumId!, trackNumber: g.trackNumber! })),
+          },
+          select: {
+            id: true, title: true, slug: true, trackNumber: true, albumId: true,
+            album: { select: { title: true, band: { select: { name: true } } } },
+          },
+          orderBy: [{ trackNumber: 'asc' }, { title: 'asc' }],
+        })
+      : [];
+
+    const dupMap = new Map<string, typeof dupSongs>();
+    for (const s of dupSongs) {
+      const key = `${s.albumId}:${s.trackNumber}`;
+      if (!dupMap.has(key)) dupMap.set(key, []);
+      dupMap.get(key)!.push(s);
+    }
+    const duplicateTrackNumbers = Array.from(dupMap.values()).map((songs) => ({
+      albumId: songs[0]!.albumId!,
+      albumTitle: songs[0]!.album!.title,
+      bandName: songs[0]!.album!.band.name,
+      trackNumber: songs[0]!.trackNumber!,
+      songs: songs.map((s) => ({ id: s.id, title: s.title, slug: s.slug })),
+    }));
+
+    res.json({
+      unlinkedSongs: unlinkedSongs.map((s) => ({
+        id: s.id,
+        title: s.title,
+        slug: s.slug,
+        bandId: s.bandId,
+        bandName: s.band.name,
+        lyricCount: s._count.lyrics,
+        ratingCount: s._count.ratings,
+        commentCount: s._count.comments,
+        isSafeToDelete: s._count.lyrics === 0 && s._count.ratings === 0 && s._count.comments === 0,
+      })),
+      emptyAlbums: emptyAlbums.map((a) => ({
+        id: a.id,
+        title: a.title,
+        slug: a.slug,
+        bandId: a.bandId,
+        bandName: a.band.name,
+      })),
+      emptyBands: emptyBands.map((b) => ({
+        id: b.id,
+        name: b.name,
+        slug: b.slug,
+      })),
+      duplicateTrackNumbers,
+      songsWithoutScores: songsWithoutScores.map((s) => ({
+        id: s.id,
+        title: s.title,
+        slug: s.slug,
+        albumTitle: s.album?.title ?? null,
+        bandName: s.band.name,
+      })),
+    });
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// Database cleanup — safe auto-fixes for detected issues
+// ---------------------------------------------------------------------------
+
+adminRouter.post('/db-cleanup', async (req, res, next) => {
+  try {
+    const { actions } = req.body as { actions?: unknown };
+    if (!Array.isArray(actions) || actions.length === 0) {
+      res.status(400).json({ error: 'actions must be a non-empty array' }); return;
+    }
+
+    const valid = new Set(['delete_safe_unlinked', 'delete_empty_albums', 'delete_empty_bands']);
+    const requested = (actions as unknown[]).map(String).filter((a) => valid.has(a));
+    if (requested.length === 0) {
+      res.status(400).json({ error: 'No valid actions requested' }); return;
+    }
+
+    const results: Record<string, number> = {};
+
+    if (requested.includes('delete_safe_unlinked')) {
+      // Only delete unlinked songs that carry no user data
+      const { count } = await prisma.song.deleteMany({
+        where: {
+          albumId: null,
+          lyrics: { none: {} },
+          ratings: { none: {} },
+          comments: { none: {} },
+        },
+      });
+      results['delete_safe_unlinked'] = count;
+    }
+
+    if (requested.includes('delete_empty_albums')) {
+      const { count } = await prisma.album.deleteMany({
+        where: { songs: { none: {} } },
+      });
+      results['delete_empty_albums'] = count;
+    }
+
+    if (requested.includes('delete_empty_bands')) {
+      const { count } = await prisma.band.deleteMany({
+        where: { albums: { none: {} }, songs: { none: {} } },
+      });
+      results['delete_empty_bands'] = count;
+    }
+
+    res.json({ results });
+  } catch (e) { next(e); }
+});

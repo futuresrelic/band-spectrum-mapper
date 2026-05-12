@@ -14,6 +14,60 @@ export type MigrationResult = {
   error?: string;
 };
 
+export type UnlinkedSong = {
+  id: string;
+  title: string;
+  slug: string;
+  bandId: string;
+  bandName: string;
+  lyricCount: number;
+  ratingCount: number;
+  commentCount: number;
+  isSafeToDelete: boolean;
+};
+
+export type EmptyAlbum = {
+  id: string;
+  title: string;
+  slug: string;
+  bandId: string;
+  bandName: string;
+};
+
+export type EmptyBand = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
+export type DuplicateTrackGroup = {
+  albumId: string;
+  albumTitle: string;
+  bandName: string;
+  trackNumber: number;
+  songs: { id: string; title: string; slug: string }[];
+};
+
+export type SongWithoutScore = {
+  id: string;
+  title: string;
+  slug: string;
+  albumTitle: string | null;
+  bandName: string;
+};
+
+export type DbHealthReport = {
+  unlinkedSongs: UnlinkedSong[];
+  emptyAlbums: EmptyAlbum[];
+  emptyBands: EmptyBand[];
+  duplicateTrackNumbers: DuplicateTrackGroup[];
+  songsWithoutScores: SongWithoutScore[];
+};
+
+export type CleanupResults = {
+  results: Record<string, number>;
+};
+
 export const adminApi = {
   listUsers: () =>
     api.get<AdminUser[]>('/api/admin/users'),
@@ -29,4 +83,10 @@ export const adminApi = {
 
   runDbMigrate: () =>
     api.post<{ results: MigrationResult[] }>('/api/admin/db-migrate', {}),
+
+  getDbHealth: () =>
+    api.get<DbHealthReport>('/api/admin/db-health'),
+
+  runDbCleanup: (actions: string[]) =>
+    api.post<CleanupResults>('/api/admin/db-cleanup', { actions }),
 };

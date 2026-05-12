@@ -18,6 +18,7 @@ const adminLinks = [
   { to: '/admin/users',        label: 'User Moderation' },
   { to: '/admin/contributions', label: 'Contributions' },
   { to: '/admin/db',           label: 'DB Migrations' },
+  { to: '/admin/db-health',   label: 'DB Health' },
   { to: '/settings?tab=icons', label: 'App Icons & Branding' },
   { to: '/view',               label: 'Public Site ↗', newTab: true },
 ];
