@@ -1,97 +1,138 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { adminApi, type MissingSong } from '../api/admin';
 import { songsApi } from '../api/songs';
 
+type SongMode = 'idle' | 'ai-loading' | 'online-loading' | 'preview' | 'saving' | 'done' | 'error';
+
 type SongStatus = {
-  mode: 'idle' | 'ai-loading' | 'online-loading' | 'preview' | 'saving' | 'done' | 'error';
+  mode: SongMode;
   text: string;
   error: string;
 };
 
 const blank: SongStatus = { mode: 'idle', text: '', error: '' };
 
-// Group songs by band → album
 function group(songs: MissingSong[]) {
-  const bands = new Map<string, { bandId: string; bandName: string; albums: Map<string, { albumId: string | null; albumTitle: string | null; songs: MissingSong[] }> }>();
+  const bands = new Map<string, {
+    bandId: string;
+    bandName: string;
+    albums: Map<string, { albumKey: string; albumId: string | null; albumTitle: string | null; songs: MissingSong[] }>;
+  }>();
   for (const s of songs) {
     if (!bands.has(s.bandId)) bands.set(s.bandId, { bandId: s.bandId, bandName: s.bandName, albums: new Map() });
     const band = bands.get(s.bandId)!;
     const key = s.albumId ?? '__none__';
-    if (!band.albums.has(key)) band.albums.set(key, { albumId: s.albumId, albumTitle: s.albumTitle, songs: [] });
+    if (!band.albums.has(key)) band.albums.set(key, { albumKey: key, albumId: s.albumId, albumTitle: s.albumTitle, songs: [] });
     band.albums.get(key)!.songs.push(s);
   }
   return Array.from(bands.values()).map((b) => ({ ...b, albums: Array.from(b.albums.values()) }));
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export default function AdminMissingLyricsPage() {
   const [songs, setSongs] = useState<MissingSong[] | null>(null);
   const [states, setStates] = useState<Record<string, SongStatus>>({});
+  // Keep a ref in sync so async batch loops see current state without stale closures
+  const statesRef = useRef(states);
+  statesRef.current = states;
+
+  // Tracks which album keys are currently mid-batch, plus their progress string
+  const [batchRunning, setBatchRunning] = useState<Record<string, string>>({}); // albumKey → "3/8"
 
   const scanMutation = useMutation({
     mutationFn: () => adminApi.getMissingLyrics(),
-    onSuccess: (data) => setSongs(data),
+    onSuccess: (data) => { setSongs(data); setStates({}); },
   });
 
   function st(id: string): SongStatus {
-    return states[id] ?? blank;
+    return statesRef.current[id] ?? blank;
   }
 
-  function set(id: string, update: Partial<SongStatus>) {
+  function setSong(id: string, update: Partial<SongStatus>) {
     setStates((prev) => ({ ...prev, [id]: { ...(prev[id] ?? blank), ...update } }));
   }
 
+  // ── individual actions ──────────────────────────────────────────────────────
+
   async function doAiRecall(song: MissingSong) {
-    set(song.id, { mode: 'ai-loading', error: '' });
+    setSong(song.id, { mode: 'ai-loading', error: '' });
     try {
       await songsApi.fetchAiLyrics(song.id);
-      set(song.id, { mode: 'done' });
+      setSong(song.id, { mode: 'done' });
     } catch (e) {
       const err = e as { status?: number; message?: string };
-      const msg = err.status === 404 ? 'Not recognized by AI' : (err.message ?? 'AI recall failed');
-      set(song.id, { mode: 'error', error: msg });
+      setSong(song.id, {
+        mode: 'error',
+        error: err.status === 404 ? 'Not recognized by AI' : (err.message ?? 'AI recall failed'),
+      });
     }
   }
 
   async function doFindOnline(song: MissingSong) {
-    set(song.id, { mode: 'online-loading', error: '' });
+    setSong(song.id, { mode: 'online-loading', error: '' });
     try {
-      const res = await fetch(
-        `https://api.lyrics.ovh/v1/${encodeURIComponent(song.bandName)}/${encodeURIComponent(song.title)}`
-      );
-      if (!res.ok) throw new Error('not found');
-      const data = await res.json() as { lyrics?: string };
-      if (!data.lyrics?.trim()) throw new Error('empty response');
-      set(song.id, { mode: 'preview', text: data.lyrics.trim() });
-    } catch {
-      set(song.id, { mode: 'error', error: 'Not found online' });
+      const data = await songsApi.lyricsLookup(song.bandName, song.title);
+      if (!data.lyrics?.trim()) throw new Error('empty');
+      setSong(song.id, { mode: 'preview', text: data.lyrics.trim() });
+    } catch (e) {
+      const err = e as { status?: number };
+      setSong(song.id, {
+        mode: 'error',
+        error: err.status === 404 ? 'Not found online' : 'Lookup failed',
+      });
     }
   }
 
   async function doSave(song: MissingSong, text: string) {
-    set(song.id, { mode: 'saving' });
+    setSong(song.id, { mode: 'saving' });
     try {
-      await songsApi.createLyric(song.id, {
-        text: text.trim(),
-        sourceType: 'user_provided',
-        isPrimary: true,
-      });
-      set(song.id, { mode: 'done' });
+      await songsApi.createLyric(song.id, { text: text.trim(), sourceType: 'user_provided', isPrimary: true });
+      setSong(song.id, { mode: 'done' });
     } catch (e) {
-      set(song.id, { mode: 'error', error: e instanceof Error ? e.message : 'Save failed' });
+      setSong(song.id, { mode: 'error', error: e instanceof Error ? e.message : 'Save failed' });
     }
   }
 
+  // ── batch fetch for a whole album ───────────────────────────────────────────
+
+  async function doFetchAlbum(albumKey: string, albumSongs: MissingSong[]) {
+    const toFetch = albumSongs.filter((s) => {
+      const m = st(s.id).mode;
+      return m === 'idle' || m === 'error';
+    });
+    if (toFetch.length === 0) return;
+
+    setBatchRunning((prev) => ({ ...prev, [albumKey]: `0/${toFetch.length}` }));
+
+    for (let i = 0; i < toFetch.length; i++) {
+      const song = toFetch[i]!;
+      // Skip if it was already handled while we were iterating
+      const current = st(song.id).mode;
+      if (current === 'done' || current === 'saving' || current === 'preview') continue;
+
+      setBatchRunning((prev) => ({ ...prev, [albumKey]: `${i + 1}/${toFetch.length}` }));
+      await doFindOnline(song);
+      if (i < toFetch.length - 1) await sleep(250);
+    }
+
+    setBatchRunning((prev) => { const n = { ...prev }; delete n[albumKey]; return n; });
+  }
+
+  // ── derived ─────────────────────────────────────────────────────────────────
+
   const grouped = songs ? group(songs) : [];
   const doneCount = Object.values(states).filter((s) => s.mode === 'done').length;
+  const previewCount = Object.values(states).filter((s) => s.mode === 'preview').length;
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
       <div>
         <h1 className="text-xl font-bold text-surface-100 mb-1">Missing Lyrics</h1>
         <p className="text-sm text-surface-400">
-          Songs with no lyrics at all. Use AI Recall to retrieve from memory, or Find Online to search Lyrics.ovh,
-          edit the result, then save.
+          Songs with no lyrics. "Find Online" proxies Lyrics.ovh through the server.
+          "Fetch all" runs the whole album sequentially — results appear as they come in.
         </p>
       </div>
 
@@ -105,8 +146,9 @@ export default function AdminMissingLyricsPage() {
         </button>
         {songs !== null && (
           <span className="text-sm text-surface-400">
-            {songs.length} songs missing lyrics
-            {doneCount > 0 && <span className="text-green-400 ml-2">· {doneCount} filled this session</span>}
+            {songs.length} songs missing
+            {doneCount > 0 && <span className="text-green-400 ml-2">· {doneCount} saved</span>}
+            {previewCount > 0 && <span className="text-amber-400 ml-2">· {previewCount} ready to save</span>}
           </span>
         )}
         {scanMutation.isError && (
@@ -119,27 +161,47 @@ export default function AdminMissingLyricsPage() {
           <h2 className="text-base font-semibold text-surface-200 mb-3 border-b border-surface-700 pb-1">
             {band.bandName}
           </h2>
-          {band.albums.map((album) => (
-            <div key={album.albumId ?? '__none__'} className="mb-5">
-              <h3 className="text-xs font-semibold uppercase tracking-widest text-surface-500 mb-2">
-                {album.albumTitle ?? 'No album'}
-              </h3>
-              <div className="space-y-1">
-                {album.songs.map((song) => (
-                  <SongRow
-                    key={song.id}
-                    song={song}
-                    status={st(song.id)}
-                    onAiRecall={() => doAiRecall(song)}
-                    onFindOnline={() => doFindOnline(song)}
-                    onTextChange={(t) => set(song.id, { text: t })}
-                    onSave={() => doSave(song, st(song.id).text)}
-                    onRetry={() => set(song.id, { mode: 'idle', error: '' })}
-                  />
-                ))}
+          {band.albums.map((album) => {
+            const isBatching = album.albumKey in batchRunning;
+            const batchLabel = batchRunning[album.albumKey];
+            const fetchable = album.songs.filter((s) => {
+              const m = st(s.id).mode;
+              return m === 'idle' || m === 'error';
+            }).length;
+
+            return (
+              <div key={album.albumKey} className="mb-6">
+                <div className="flex flex-wrap items-center gap-3 mb-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-widest text-surface-500">
+                    {album.albumTitle ?? 'No album'}
+                  </h3>
+                  {fetchable > 0 && (
+                    <button
+                      onClick={() => doFetchAlbum(album.albumKey, album.songs)}
+                      disabled={isBatching}
+                      className="px-2.5 py-0.5 rounded border border-sky-700 text-sky-300 text-xs hover:bg-sky-900/40 disabled:opacity-50 transition-colors"
+                    >
+                      {isBatching ? `Fetching ${batchLabel}…` : `Fetch all ${fetchable}`}
+                    </button>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  {album.songs.map((song) => (
+                    <SongRow
+                      key={song.id}
+                      song={song}
+                      status={st(song.id)}
+                      onAiRecall={() => doAiRecall(song)}
+                      onFindOnline={() => doFindOnline(song)}
+                      onTextChange={(t) => setSong(song.id, { text: t })}
+                      onSave={() => doSave(song, st(song.id).text)}
+                      onRetry={() => setSong(song.id, { mode: 'idle', error: '' })}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ))}
 
@@ -149,6 +211,8 @@ export default function AdminMissingLyricsPage() {
     </div>
   );
 }
+
+// ── song row ──────────────────────────────────────────────────────────────────
 
 function SongRow({
   song,
@@ -172,7 +236,6 @@ function SongRow({
   return (
     <div className="bg-surface-850 border border-surface-700 rounded-lg px-4 py-3">
       <div className="flex flex-wrap items-center gap-3">
-        {/* Track # + title */}
         <span className="text-sm text-surface-200 flex-1 min-w-0 truncate">
           {song.trackNumber != null && (
             <span className="text-surface-500 mr-2 font-mono text-xs">{song.trackNumber}.</span>
@@ -180,24 +243,23 @@ function SongRow({
           {song.title}
         </span>
 
-        {/* Action buttons */}
         {status.mode === 'done' ? (
-          <span className="text-xs text-green-400 font-medium">Saved</span>
+          <span className="text-xs text-green-400 font-medium shrink-0">Saved</span>
         ) : status.mode === 'error' ? (
-          <span className="flex items-center gap-2">
+          <span className="flex items-center gap-2 shrink-0">
             <span className="text-xs text-red-400">{status.error}</span>
             <button onClick={onRetry} className="text-xs text-surface-400 hover:text-surface-200 underline">
               retry
             </button>
           </span>
         ) : (
-          <>
+          <span className="flex items-center gap-2 shrink-0">
             <button
               onClick={onAiRecall}
               disabled={busy}
               className="px-2.5 py-1 rounded border border-purple-700 text-purple-300 text-xs hover:bg-purple-900/40 disabled:opacity-50 transition-colors"
             >
-              {status.mode === 'ai-loading' ? 'AI thinking…' : 'AI Recall'}
+              {status.mode === 'ai-loading' ? 'AI…' : 'AI Recall'}
             </button>
             <button
               onClick={onFindOnline}
@@ -206,11 +268,10 @@ function SongRow({
             >
               {status.mode === 'online-loading' ? 'Searching…' : 'Find Online'}
             </button>
-          </>
+          </span>
         )}
       </div>
 
-      {/* Preview / edit area */}
       {status.mode === 'preview' && (
         <div className="mt-3 space-y-2">
           <textarea
@@ -226,10 +287,7 @@ function SongRow({
             >
               Save lyrics
             </button>
-            <button
-              onClick={onRetry}
-              className="px-3 py-1 text-xs text-surface-400 hover:text-surface-200 transition-colors"
-            >
+            <button onClick={onRetry} className="px-3 py-1 text-xs text-surface-400 hover:text-surface-200">
               Discard
             </button>
           </div>

@@ -24,6 +24,24 @@ songsRouter.get('/search', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// Proxy Lyrics.ovh so browser CORS policies don't block the request
+songsRouter.get('/lyrics-lookup', requireAuth, async (req, res, next) => {
+  try {
+    const artist = typeof req.query['artist'] === 'string' ? req.query['artist'].trim() : '';
+    const title  = typeof req.query['title']  === 'string' ? req.query['title'].trim()  : '';
+    if (!artist || !title) { res.status(400).json({ error: 'artist and title are required' }); return; }
+
+    const url = `https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`;
+    const upstream = await fetch(url, { signal: AbortSignal.timeout(8_000) });
+
+    if (upstream.status === 404) { res.status(404).json({ error: 'not found' }); return; }
+    if (!upstream.ok) { res.status(502).json({ error: `Lyrics.ovh returned ${upstream.status}` }); return; }
+
+    const data = await upstream.json() as { lyrics?: string };
+    res.json({ lyrics: data.lyrics ?? null });
+  } catch (e) { next(e); }
+});
+
 // Song CRUD
 songsRouter.get('/:id', async (req, res, next) => {
   try {
