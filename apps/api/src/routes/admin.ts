@@ -3,6 +3,14 @@ import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { adminKnowledgeService } from '../services/adminKnowledgeService.js';
+import {
+  startBatchJob,
+  stopJob,
+  getJobState,
+  approveItem,
+  rejectItem,
+  clearJob,
+} from '../services/lyricsBatchService.js';
 
 export const adminRouter = Router();
 
@@ -144,7 +152,7 @@ adminRouter.patch('/users/:userId', async (req, res) => {
 type MigrationStatus = { key: string; description: string; applied: boolean };
 
 async function checkMigrations(): Promise<MigrationStatus[]> {
-  const [artworkRows, aiRecallRows] = await Promise.all([
+  const [artworkRows, aiRecallRows, knowledgeImagesRows] = await Promise.all([
     prisma.$queryRaw<{ column_name: string }[]>`
       SELECT column_name FROM information_schema.columns
       WHERE table_name = 'albums' AND column_name = 'artworkUrl'
@@ -153,6 +161,10 @@ async function checkMigrations(): Promise<MigrationStatus[]> {
       SELECT e.enumlabel FROM pg_enum e
       JOIN pg_type t ON e.enumtypid = t.oid
       WHERE t.typname = 'source_type' AND e.enumlabel = 'ai_recall'
+    `,
+    prisma.$queryRaw<{ column_name: string }[]>`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'admin_knowledge_entries' AND column_name = 'images'
     `,
   ]);
   return [
@@ -165,6 +177,11 @@ async function checkMigrations(): Promise<MigrationStatus[]> {
       key: 'source_type_ai_recall',
       description: 'Add ai_recall value to source_type enum (enables AI lyrics recall)',
       applied: aiRecallRows.length > 0,
+    },
+    {
+      key: 'knowledge_images',
+      description: 'Add images JSONB column to admin_knowledge_entries (enables image attachments)',
+      applied: knowledgeImagesRows.length > 0,
     },
   ];
 }
@@ -190,6 +207,8 @@ adminRouter.post('/db-migrate', async (_req, res, next) => {
           await prisma.$executeRaw`ALTER TABLE "albums" ADD COLUMN IF NOT EXISTS "artworkUrl" TEXT`;
         } else if (m.key === 'source_type_ai_recall') {
           await prisma.$executeRaw`ALTER TYPE source_type ADD VALUE IF NOT EXISTS 'ai_recall'`;
+        } else if (m.key === 'knowledge_images') {
+          await prisma.$executeRaw`ALTER TABLE "admin_knowledge_entries" ADD COLUMN IF NOT EXISTS "images" JSONB NOT NULL DEFAULT '[]'`;
         }
         results.push({ key: m.key, description: m.description, status: 'applied' });
       } catch (err) {
@@ -480,4 +499,56 @@ adminRouter.get('/missing-artwork', async (_req, res, next) => {
       bandName: a.band.name,
     })));
   } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// Background lyrics batch job — fetches lyrics for all songs missing them,
+// queues results for admin approval before saving. One job at a time.
+// ---------------------------------------------------------------------------
+
+adminRouter.post('/lyrics-batch/start', (_req, res) => {
+  void startBatchJob(); // fire-and-forget
+  res.json(getJobState());
+});
+
+adminRouter.get('/lyrics-batch/status', (_req, res) => {
+  res.json(getJobState());
+});
+
+adminRouter.post('/lyrics-batch/stop', (_req, res) => {
+  stopJob();
+  res.json(getJobState());
+});
+
+adminRouter.post('/lyrics-batch/clear', (_req, res) => {
+  clearJob();
+  res.json(getJobState());
+});
+
+// Approve: save lyrics to DB then mark approved
+adminRouter.post('/lyrics-batch/approve/:itemId', async (req, res, next) => {
+  try {
+    const item = approveItem(req.params['itemId']!);
+    if (!item) { res.status(404).json({ error: 'Item not found or already processed' }); return; }
+
+    // Deactivate any existing primary lyric first, then create new one
+    await prisma.lyric.updateMany({ where: { songId: item.songId, isPrimary: true }, data: { isPrimary: false } });
+    await prisma.lyric.create({
+      data: {
+        songId: item.songId,
+        text: item.text,
+        sourceType: 'user_provided',
+        sourceLabel: item.source,
+        isPrimary: true,
+      },
+    });
+
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// Reject: just mark rejected in memory
+adminRouter.post('/lyrics-batch/reject/:itemId', (req, res) => {
+  rejectItem(req.params['itemId']!);
+  res.json({ ok: true });
 });

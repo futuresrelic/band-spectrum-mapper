@@ -146,7 +146,7 @@ publicRouter.get('/albums/:albumId/spectrum', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// GET /api/public/cloud — all songs with tags + genre scores for the song cloud
+// GET /api/public/cloud — all songs with tags, genre scores, and axis scores for the song cloud
 publicRouter.get('/cloud', async (_req, res, next) => {
   try {
     const songs = await prisma.song.findMany({
@@ -155,6 +155,9 @@ publicRouter.get('/cloud', async (_req, res, next) => {
         songTags: { include: { tag: { select: { name: true, slug: true } } } },
         aiGenreSpectrum: {
           select: { metal: true, rock: true, pop: true, hiphop: true, electronic: true, folk: true },
+        },
+        score: {
+          select: { aggression: true, complexity: true, atmosphere: true, emotion: true, psychedelic: true, concept: true },
         },
         _count: { select: { ratings: true } },
       },
@@ -168,6 +171,7 @@ publicRouter.get('/cloud', async (_req, res, next) => {
       bandSlug: s.band.slug,
       tags: s.songTags.map((st) => ({ name: st.tag.name, slug: st.tag.slug })),
       genreScores: s.aiGenreSpectrum ?? null,
+      axisScores: s.score ?? null,
       ratingsCount: s._count.ratings,
     }));
 

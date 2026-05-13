@@ -522,6 +522,7 @@ model AdminKnowledgeEntry {
   scope     String   @default("global") // "global" | "band" | "song"
   scopeId   String?  // bandId or songId when scope != "global"
   tags      Json     @default("[]")     // string[] — theme slugs or free labels
+  images    Json     @default("[]")     // KnowledgeImage[] — { url, caption, creditWho, creditPlatform }
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

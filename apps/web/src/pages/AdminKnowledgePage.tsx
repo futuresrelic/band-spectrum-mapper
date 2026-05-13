@@ -4,7 +4,7 @@ import { adminKnowledgeApi } from '../api/adminKnowledge';
 import { bandsApi } from '../api/bands';
 import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
-import type { AdminKnowledgeEntry } from '@band-spectrum-mapper/shared';
+import type { AdminKnowledgeEntry, KnowledgeImage } from '@band-spectrum-mapper/shared';
 
 const SCOPE_LABELS = {
   global: 'Global — all songs',
@@ -27,13 +27,16 @@ type EditorState = {
   content: string;
   scope: 'global' | 'band' | 'song';
   scopeId: string;
-  tags: string;     // comma-separated input
+  tags: string;
+  images: KnowledgeImage[];
   isActive: boolean;
 };
 
 const BLANK: EditorState = {
-  title: '', content: '', scope: 'global', scopeId: '', tags: '', isActive: true,
+  title: '', content: '', scope: 'global', scopeId: '', tags: '', images: [], isActive: true,
 };
+
+const BLANK_IMAGE: KnowledgeImage = { url: '', caption: '', creditWho: '', creditPlatform: '' };
 
 function toEditorState(e: AdminKnowledgeEntry): EditorState {
   return {
@@ -42,8 +45,69 @@ function toEditorState(e: AdminKnowledgeEntry): EditorState {
     scope:    e.scope,
     scopeId:  e.scopeId ?? '',
     tags:     e.tags.join(', '),
+    images:   e.images ?? [],
     isActive: e.isActive,
   };
+}
+
+function ImageRow({
+  img,
+  onChange,
+  onRemove,
+}: {
+  img: KnowledgeImage;
+  onChange: (updated: KnowledgeImage) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="bg-surface-100 rounded-lg p-3 space-y-2 border border-surface-200">
+      <div className="flex items-start gap-2">
+        {img.url && (
+          <img
+            src={img.url}
+            alt={img.caption || 'preview'}
+            className="w-16 h-16 object-cover rounded shrink-0 bg-surface-200"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+        )}
+        <div className="flex-1 space-y-1.5 min-w-0">
+          <input
+            className="input text-sm"
+            placeholder="Image URL (paste a direct link)"
+            value={img.url}
+            onChange={(e) => onChange({ ...img, url: e.target.value })}
+          />
+          <input
+            className="input text-sm"
+            placeholder="Caption — what does this image show? (used by AI)"
+            value={img.caption}
+            onChange={(e) => onChange({ ...img, caption: e.target.value })}
+          />
+          <div className="flex gap-2">
+            <input
+              className="input text-sm flex-1"
+              placeholder="Credit: who posted it?"
+              value={img.creditWho}
+              onChange={(e) => onChange({ ...img, creditWho: e.target.value })}
+            />
+            <input
+              className="input text-sm flex-1"
+              placeholder="Platform (e.g. Reddit, X, Instagram)"
+              value={img.creditPlatform}
+              onChange={(e) => onChange({ ...img, creditPlatform: e.target.value })}
+            />
+          </div>
+        </div>
+        <button
+          onClick={onRemove}
+          className="text-red-400 hover:text-red-600 shrink-0 mt-0.5 text-sm"
+          title="Remove image"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function Editor({
@@ -62,8 +126,24 @@ function Editor({
     queryFn: () => bandsApi.list(),
   });
 
-  const set = (k: keyof EditorState, v: string | boolean) =>
+  const set = (k: keyof EditorState, v: string | boolean | KnowledgeImage[]) =>
     setForm((f) => ({ ...f, [k]: v }));
+
+  function addImage() {
+    setForm((f) => ({ ...f, images: [...f.images, { ...BLANK_IMAGE }] }));
+  }
+
+  function updateImage(idx: number, updated: KnowledgeImage) {
+    setForm((f) => {
+      const images = f.images.slice();
+      images[idx] = updated;
+      return { ...f, images };
+    });
+  }
+
+  function removeImage(idx: number) {
+    setForm((f) => ({ ...f, images: f.images.filter((_, i) => i !== idx) }));
+  }
 
   const valid = form.title.trim() && form.content.trim();
 
@@ -158,6 +238,36 @@ function Editor({
         </p>
       </div>
 
+      {/* Image attachments */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="label mb-0">Images</label>
+          <button
+            type="button"
+            onClick={addImage}
+            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+          >
+            + Add image
+          </button>
+        </div>
+        {form.images.length === 0 && (
+          <p className="text-xs text-surface-400">
+            Attach reference images — screenshots, diagrams, tour photos. Add a caption so the AI
+            understands what each image shows. Images are stored by URL; you host the files yourself.
+          </p>
+        )}
+        <div className="space-y-2 mt-1">
+          {form.images.map((img, idx) => (
+            <ImageRow
+              key={idx}
+              img={img}
+              onChange={(updated) => updateImage(idx, updated)}
+              onRemove={() => removeImage(idx)}
+            />
+          ))}
+        </div>
+      </div>
+
       <div className="flex items-center gap-2">
         <input
           type="checkbox"
@@ -206,6 +316,7 @@ export default function AdminKnowledgePage() {
         scope:    form.scope,
         scopeId:  form.scope !== 'global' ? (form.scopeId || null) : null,
         tags:     form.tags.split(',').map((t) => t.trim()).filter(Boolean),
+        images:   form.images.filter((img) => img.url.trim()),
         isActive: form.isActive,
       };
       return editing === 'new'
@@ -266,8 +377,9 @@ export default function AdminKnowledgePage() {
           by that artist. Song-scoped entries appear only for that one song.
         </p>
         <p className="text-sm text-indigo-700 mt-1">
-          After creating or editing an entry, regenerate a song's Philosophical Themes or Deep
-          Analysis from its admin detail page to see the updated analysis.
+          Images you attach are not sent to the AI directly — their <strong>captions</strong> are
+          included as text context. Add a clear caption so the AI understands what each image shows.
+          After editing, regenerate a song's analysis to see the effect.
         </p>
       </div>
 
@@ -306,10 +418,32 @@ export default function AdminKnowledgePage() {
                   </div>
                   <h3 className="font-semibold text-surface-900">{entry.title}</h3>
                   <p className="text-sm text-surface-600 mt-1 line-clamp-2">{entry.content}</p>
-                  <p className="text-xs text-surface-400 mt-1">
-                    Updated {new Date(entry.updatedAt).toLocaleDateString()}
-                    {' · '}{entry.content.length} chars
-                  </p>
+                  <div className="flex items-center gap-3 mt-1">
+                    <p className="text-xs text-surface-400">
+                      Updated {new Date(entry.updatedAt).toLocaleDateString()}
+                      {' · '}{entry.content.length} chars
+                    </p>
+                    {entry.images && entry.images.length > 0 && (
+                      <span className="text-xs text-surface-400">
+                        · {entry.images.length} image{entry.images.length !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+                  {/* Image thumbnails */}
+                  {entry.images && entry.images.length > 0 && (
+                    <div className="flex gap-1.5 mt-2 flex-wrap">
+                      {entry.images.map((img, i) => (
+                        <img
+                          key={i}
+                          src={img.url}
+                          alt={img.caption || 'image'}
+                          title={img.caption}
+                          className="w-10 h-10 object-cover rounded bg-surface-100"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-2 shrink-0">
                   <button

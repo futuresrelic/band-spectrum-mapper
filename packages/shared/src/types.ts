@@ -419,6 +419,13 @@ export interface BandContextAnalysis {
   updatedAt: string;
 }
 
+export interface KnowledgeImage {
+  url: string;
+  caption: string;
+  creditWho: string;
+  creditPlatform: string;
+}
+
 export interface AdminKnowledgeEntry {
   id: string;
   title: string;
@@ -426,6 +433,7 @@ export interface AdminKnowledgeEntry {
   scope: 'global' | 'band' | 'song';
   scopeId: string | null;
   tags: string[];
+  images: KnowledgeImage[];
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

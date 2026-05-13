@@ -115,6 +115,24 @@ export const adminApi = {
 
   getMissingArtwork: () =>
     api.get<MissingArtworkAlbum[]>('/api/admin/missing-artwork'),
+
+  startLyricsBatch: () =>
+    api.post<BatchJobState>('/api/admin/lyrics-batch/start', {}),
+
+  getLyricsBatchStatus: () =>
+    api.get<BatchJobState>('/api/admin/lyrics-batch/status'),
+
+  stopLyricsBatch: () =>
+    api.post<BatchJobState>('/api/admin/lyrics-batch/stop', {}),
+
+  clearLyricsBatch: () =>
+    api.post<BatchJobState>('/api/admin/lyrics-batch/clear', {}),
+
+  approveLyricsItem: (itemId: string) =>
+    api.post<{ ok: boolean }>(`/api/admin/lyrics-batch/approve/${itemId}`, {}),
+
+  rejectLyricsItem: (itemId: string) =>
+    api.post<{ ok: boolean }>(`/api/admin/lyrics-batch/reject/${itemId}`, {}),
 };
 
 export type MissingSong = {
@@ -133,4 +151,31 @@ export type MissingArtworkAlbum = {
   year: number | null;
   bandId: string;
   bandName: string;
+};
+
+export type BatchItemStatus = 'found' | 'approved' | 'rejected';
+
+export type BatchItem = {
+  id: string;
+  songId: string;
+  songTitle: string;
+  bandName: string;
+  albumTitle: string | null;
+  text: string;
+  source: string;
+  status: BatchItemStatus;
+  foundAt: string;
+};
+
+export type BatchJobState = {
+  status: 'idle' | 'running' | 'done' | 'error';
+  startedAt: string | null;
+  finishedAt: string | null;
+  totalSongs: number;
+  processedSongs: number;
+  foundCount: number;
+  notFoundCount: number;
+  currentSong: string | null;
+  items: BatchItem[];
+  error: string | null;
 };

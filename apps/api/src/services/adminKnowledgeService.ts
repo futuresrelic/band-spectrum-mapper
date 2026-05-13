@@ -1,5 +1,14 @@
 import { prisma } from '../lib/prisma.js';
-import type { AdminKnowledgeEntry } from '@band-spectrum-mapper/shared';
+import type { AdminKnowledgeEntry, KnowledgeImage } from '@band-spectrum-mapper/shared';
+
+function parseImages(raw: unknown): KnowledgeImage[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as unknown[]).filter(
+    (i): i is KnowledgeImage =>
+      typeof i === 'object' && i !== null &&
+      'url' in i && 'caption' in i,
+  );
+}
 
 function serialize(record: {
   id: string;
@@ -8,14 +17,16 @@ function serialize(record: {
   scope: string;
   scopeId: string | null;
   tags: unknown;
+  images?: unknown;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
 }): AdminKnowledgeEntry {
   return {
     ...record,
-    scope: record.scope as AdminKnowledgeEntry['scope'],
-    tags:  Array.isArray(record.tags) ? (record.tags as string[]) : [],
+    scope:  record.scope as AdminKnowledgeEntry['scope'],
+    tags:   Array.isArray(record.tags) ? (record.tags as string[]) : [],
+    images: parseImages(record.images ?? []),
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   };
@@ -40,15 +51,17 @@ export const adminKnowledgeService = {
     scope: string;
     scopeId?: string | null;
     tags?: string[];
+    images?: KnowledgeImage[];
     isActive?: boolean;
   }): Promise<AdminKnowledgeEntry> {
     const row = await prisma.adminKnowledgeEntry.create({
       data: {
-        title: data.title.trim(),
-        content: data.content,
-        scope: data.scope,
-        scopeId: data.scopeId ?? null,
-        tags: data.tags ?? [],
+        title:    data.title.trim(),
+        content:  data.content,
+        scope:    data.scope,
+        scopeId:  data.scopeId ?? null,
+        tags:     data.tags ?? [],
+        images:   (data.images ?? []) as object[],
         isActive: data.isActive ?? true,
       },
     });
@@ -61,17 +74,19 @@ export const adminKnowledgeService = {
     scope: string;
     scopeId: string | null;
     tags: string[];
+    images: KnowledgeImage[];
     isActive: boolean;
   }>): Promise<AdminKnowledgeEntry> {
     const row = await prisma.adminKnowledgeEntry.update({
       where: { id },
       data: {
-        ...(data.title     !== undefined && { title:    data.title.trim() }),
-        ...(data.content   !== undefined && { content:  data.content }),
-        ...(data.scope     !== undefined && { scope:    data.scope }),
-        ...(data.scopeId   !== undefined && { scopeId:  data.scopeId }),
-        ...(data.tags      !== undefined && { tags:     data.tags }),
-        ...(data.isActive  !== undefined && { isActive: data.isActive }),
+        ...(data.title    !== undefined && { title:    data.title.trim() }),
+        ...(data.content  !== undefined && { content:  data.content }),
+        ...(data.scope    !== undefined && { scope:    data.scope }),
+        ...(data.scopeId  !== undefined && { scopeId:  data.scopeId }),
+        ...(data.tags     !== undefined && { tags:     data.tags }),
+        ...(data.images   !== undefined && { images:   data.images as object[] }),
+        ...(data.isActive !== undefined && { isActive: data.isActive }),
         updatedAt: new Date(),
       },
     });
@@ -82,8 +97,6 @@ export const adminKnowledgeService = {
     await prisma.adminKnowledgeEntry.delete({ where: { id } });
   },
 
-  // Returns a formatted context block ready to inject into an AI prompt.
-  // Fetches global entries + band-scoped entries + song-scoped entries.
   async getContextForSong(songId: string, bandId: string): Promise<string> {
     const entries = await prisma.adminKnowledgeEntry.findMany({
       where: {
@@ -99,9 +112,15 @@ export const adminKnowledgeService = {
 
     if (entries.length === 0) return '';
 
-    const blocks = entries.map((e) =>
-      `[${e.title}]\n${e.content.trim()}`,
-    );
+    const blocks = entries.map((e) => {
+      const images = parseImages(e.images);
+      const imageBlock = images.length > 0
+        ? '\nImages:\n' + images.map((img) =>
+            `  - ${img.caption}${img.creditWho ? ` (${img.creditWho}` : ''}${img.creditPlatform ? ` via ${img.creditPlatform}` : ''}${img.creditWho ? ')' : ''}`
+          ).join('\n')
+        : '';
+      return `[${e.title}]\n${e.content.trim()}${imageBlock}`;
+    });
 
     return `CURATOR KNOWLEDGE (provided by site curator — treat as authoritative context):\n\n${blocks.join('\n\n---\n\n')}`;
   },

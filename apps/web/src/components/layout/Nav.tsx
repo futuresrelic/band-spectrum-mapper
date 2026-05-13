@@ -20,6 +20,7 @@ const adminLinks = [
   { to: '/admin/db',              label: 'DB Migrations' },
   { to: '/admin/db-health',      label: 'DB Health' },
   { to: '/admin/missing-lyrics', label: 'Missing Lyrics' },
+  { to: '/admin/lyrics-batch',   label: 'Lyrics Batch Fetch' },
   { to: '/admin/missing-artwork',label: 'Missing Artwork' },
   { to: '/settings?tab=icons', label: 'App Icons & Branding' },
   { to: '/view',               label: 'Public Site ↗', newTab: true },
