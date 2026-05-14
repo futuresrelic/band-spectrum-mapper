@@ -126,6 +126,56 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 - `GET /api/song-nodes?preset&bandIds&albumId` — Cytoscape graph data
 - `GET /api/song-nodes/scopes` — bands and albums for scope pickers
 
+## Batch Improvements + Trivia + Album Art Game (2026-05-14)
+
+### Added
+
+**AI Batch Runner improvements** (`/admin/ai-batch`)
+- Band filter — select specific bands instead of running all
+- Continue from checkpoint — "Continue (X remaining)" button skips rows already
+  marked done/skipped, resuming exactly where you stopped
+- Reload songs button to refresh the list without losing current progress indicators
+
+**Lyrics Batch improvements** (`/admin/lyrics-batch`)
+- Skip instrumentals — songs with `isInstrumental = true` are permanently excluded
+- `noLyricsAt` timestamp — songs tried-and-not-found are recorded; future batches skip
+  them automatically (within 30-day window), avoiding wasted API calls
+- Resume button — continue a stopped batch skipping already-processed songs
+- Not-found list — songs that returned no results appear after completion with
+  "Mark as instrumental" buttons for one-click permanent exclusion
+
+**Trivia Page** (`/trivia`)
+- Admin-only music trivia deck generated from live library data — no AI required
+- Question types: highest score, album release order, album art identification,
+  lyric snippet → song, radar profile → song, band identification
+- Card-by-card reveal with multiple-choice options and correct/wrong feedback
+- Score tracker across the round
+- "Export as social post" — any question + revealed answer exports as 1080×1080 PNG
+  with BSM branding for Facebook/Instagram
+- Band filter and regenerate button for fresh question sets
+
+**Album Art Quiz** (`/play`)
+- Public game accessible to all logged-in users (not admin-only)
+- Randomly selected album art slides in; player identifies the band from 4 options
+- 5-second countdown timer (speeds up with level)
+- 3 lives; streak bonuses (+5 pts per streak ≥ 2)
+- Visual feedback: green/red flash + correct answer reveal
+- Score saved to database at game end; instant rank shown
+- Leaderboard sidebar (top 10 entries)
+- "Leave a comment to earn an extra life" prompt encourages song engagement
+
+**Album Art Quiz Admin** (`/admin/game`)
+- Full leaderboard with player details, score, level, session duration
+- Delete score button for moderation
+- Stats panel: total games played, highest score, most active player
+
+**Database additions**
+- `Song.isInstrumental` — `Boolean @default(false)` — permanent skip flag for lyrics batch
+- `Song.noLyricsAt` — `DateTime?` — auto-set when batch finds no lyrics; clears on approval
+- `GameScore` model — stores score, level, duration per game session per user
+
+---
+
 ## Known Limitations (Initial Build)
 
 - Authentication/authorization not implemented (single-user local deployment)

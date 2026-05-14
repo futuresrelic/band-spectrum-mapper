@@ -27,6 +27,8 @@ import { socialRouter } from './routes/social.js';
 import { songSpectrumRouter } from './routes/songSpectrum.js';
 import { wordCloudRouter } from './routes/wordCloud.js';
 import { songNodesRouter } from './routes/songNodes.js';
+import { gameRouter } from './routes/game.js';
+import { triviaRouter } from './routes/trivia.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -95,6 +97,12 @@ export function createApp() {
 
   // Song Nodes — Cytoscape.js graph data (admin only)
   app.use('/api/song-nodes', songNodesRouter);
+
+  // Album art quiz game
+  app.use('/api/game', gameRouter);
+
+  // Trivia question generator (admin only)
+  app.use('/api/trivia', triviaRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.

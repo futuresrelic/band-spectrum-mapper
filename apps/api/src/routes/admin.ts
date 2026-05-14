@@ -511,6 +511,13 @@ adminRouter.post('/lyrics-batch/start', (_req, res) => {
   res.json(getJobState());
 });
 
+adminRouter.post('/lyrics-batch/resume', async (_req, res, next) => {
+  try {
+    void startBatchJob({ resume: true });
+    res.json(getJobState());
+  } catch (e) { next(e); }
+});
+
 adminRouter.get('/lyrics-batch/status', (_req, res) => {
   res.json(getJobState());
 });
@@ -551,4 +558,57 @@ adminRouter.post('/lyrics-batch/approve/:itemId', async (req, res, next) => {
 adminRouter.post('/lyrics-batch/reject/:itemId', (req, res) => {
   rejectItem(req.params['itemId']!);
   res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// Song flags — mark as instrumental (skip in lyrics batch)
+// ---------------------------------------------------------------------------
+
+adminRouter.patch('/songs/:songId/instrumental', async (req, res, next) => {
+  try {
+    const { isInstrumental } = req.body as { isInstrumental?: boolean };
+    if (typeof isInstrumental !== 'boolean') {
+      res.status(400).json({ error: 'isInstrumental must be a boolean' }); return;
+    }
+    const song = await prisma.song.update({
+      where: { id: req.params['songId']! },
+      data: { isInstrumental },
+    });
+    res.json({ ok: true, isInstrumental: song.isInstrumental });
+  } catch (e) { next(e); }
+});
+
+// Clear noLyricsAt for a song (force retry on next batch)
+adminRouter.patch('/songs/:songId/clear-no-lyrics', async (req, res, next) => {
+  try {
+    await prisma.song.update({
+      where: { id: req.params['songId']! },
+      data: { noLyricsAt: null },
+    });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// Game admin — leaderboard + config
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/game/leaderboard', async (_req, res, next) => {
+  try {
+    const scores = await prisma.gameScore.findMany({
+      take: 50,
+      orderBy: { score: 'desc' },
+      include: {
+        user: { select: { id: true, name: true, email: true, avatarUrl: true } },
+      },
+    });
+    res.json(scores);
+  } catch (e) { next(e); }
+});
+
+adminRouter.delete('/game/scores/:scoreId', async (req, res, next) => {
+  try {
+    await prisma.gameScore.delete({ where: { id: req.params['scoreId']! } });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
 });

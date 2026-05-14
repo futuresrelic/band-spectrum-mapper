@@ -133,6 +133,21 @@ export const adminApi = {
 
   rejectLyricsItem: (itemId: string) =>
     api.post<{ ok: boolean }>(`/api/admin/lyrics-batch/reject/${itemId}`, {}),
+
+  resumeLyricsBatch: () =>
+    api.post<BatchJobState>('/api/admin/lyrics-batch/resume', {}),
+
+  markInstrumental: (songId: string, isInstrumental: boolean) =>
+    api.patch<{ ok: boolean; isInstrumental: boolean }>(`/api/admin/songs/${songId}/instrumental`, { isInstrumental }),
+
+  clearNoLyrics: (songId: string) =>
+    api.patch<{ ok: boolean }>(`/api/admin/songs/${songId}/clear-no-lyrics`, {}),
+
+  getGameLeaderboard: () =>
+    api.get<GameLeaderboardEntry[]>('/api/admin/game/leaderboard'),
+
+  deleteGameScore: (scoreId: string) =>
+    api.delete<{ ok: boolean }>(`/api/admin/game/scores/${scoreId}`),
 };
 
 export type MissingSong = {
@@ -175,7 +190,20 @@ export type BatchJobState = {
   processedSongs: number;
   foundCount: number;
   notFoundCount: number;
+  skippedInstrumentalCount: number;  // NEW
   currentSong: string | null;
   items: BatchItem[];
   error: string | null;
+  processedSongIds: string[];         // NEW
+  notFoundSongIds: string[];          // NEW
+};
+
+export type GameLeaderboardEntry = {
+  id: string;
+  userId: string;
+  score: number;
+  level: number;
+  duration: number;
+  createdAt: string;
+  user: { id: string; name: string | null; email: string; avatarUrl: string | null };
 };

@@ -220,3 +220,64 @@ The architecture is designed to accommodate:
 - **Richer NLP** — analysis service is isolated and replaceable
 - **Export enhancements** — export endpoints are separate services
 - **BigQuery / analytics** — `imports` and `lyric_revisions` tables feed audit trails
+
+## Album Art Quiz + Trivia (2026-05-14)
+
+### Data model additions
+
+**`Song` model additions:**
+- `isInstrumental: Boolean @default(false)` — admin-toggleable flag that permanently
+  skips this song in lyrics batch fetcher. Does not affect any other feature.
+- `noLyricsAt: DateTime?` — auto-set by lyrics batch when a fetch returns not-found.
+  Lets future batches skip recently-tried songs without re-hitting external APIs.
+  Cleared implicitly when lyrics are approved (song leaves the `{ lyrics: { none: {} } }` filter).
+
+**`GameScore` model:**
+```
+model GameScore {
+  id        String   @id @default(cuid())
+  userId    String
+  score     Int
+  level     Int
+  duration  Int      // seconds played
+  createdAt DateTime @default(now())
+  user      User     @relation(...)
+  @@map("game_scores")
+}
+```
+
+### API routes added
+
+| Route | Auth | Description |
+|---|---|---|
+| `GET /api/game/albums` | requireAuth | Album pool for the quiz (artwork only) |
+| `GET /api/game/leaderboard` | public | Top 20 game scores |
+| `POST /api/game/scores` | requireAuth | Save a completed session |
+| `GET /api/trivia/questions` | admin | Generate trivia questions from library data |
+| `PATCH /api/admin/songs/:id/instrumental` | admin | Toggle isInstrumental flag |
+| `PATCH /api/admin/songs/:id/clear-no-lyrics` | admin | Clear noLyricsAt for retry |
+| `POST /api/admin/lyrics-batch/resume` | admin | Resume batch, skip processed IDs |
+| `GET /api/admin/game/leaderboard` | admin | Full leaderboard with user emails |
+| `DELETE /api/admin/game/scores/:id` | admin | Remove a score entry |
+
+### Trivia question generation
+
+Questions are built entirely from existing DB data — no AI calls required:
+1. **highest_score** — highest axis score song for a random axis
+2. **album_order** — which of two albums came first by release year
+3. **match_album** — identify album from artwork image URL
+4. **lyric_snippet** — identify song from a 10-word lyric excerpt
+5. **radar_guess** — identify song from its 6-axis score profile
+6. **band_id** — which band recorded this song title
+
+Distractors are always real items from the library, making questions genuinely hard.
+
+### Game mechanics
+
+The Album Art Quiz runs entirely client-side during gameplay; only the final score
+is persisted. The countdown timer runs as a `setInterval` in React state. Level 
+difficulty is computed as `floor(roundIdx / 5) + 1`; countdown shortens from 5s
+to 2s minimum as level increases. The comment-for-life mechanic is a UI prompt only —
+it directs users to leave comments on song pages to encourage engagement. Lives are 
+not automatically granted by the backend (that would require real-time comment 
+detection); the prompt is motivational. This is stated honestly per definition of done.

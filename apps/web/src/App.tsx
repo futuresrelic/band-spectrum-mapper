@@ -41,6 +41,9 @@ import SocialPostGeneratorPage from './pages/SocialPostGeneratorPage';
 import SongSpectrumPage from './pages/SongSpectrumPage';
 import WordCloudPage from './pages/WordCloudPage';
 import SongNodesPage from './pages/SongNodesPage';
+import TriviaPage from './pages/TriviaPage';
+import PlayPage from './pages/PlayPage';
+import AdminGamePage from './pages/AdminGamePage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -87,13 +90,14 @@ export default function App() {
         <Route path="/view" element={<ViewerIndexPage />} />
         <Route path="/view/:bandSlug" element={<ViewerBandPage />} />
 
-        {/* ── USER: rating surface, any logged-in Google user ── */}
+        {/* ── USER: rating surface + game, any logged-in Google user ── */}
         <Route path="/my" element={<UserLayout />}>
           <Route index element={<Navigate to="/my/rate" replace />} />
           <Route path="rate" element={<UserRatePage />} />
           <Route path="contribute" element={<ContributePage />} />
           <Route path="profile" element={<UserProfilePage />} />
         </Route>
+        <Route path="/play" element={<PlayPage />} />
 
         {/* ── ADMIN: full app, isAdmin required ── */}
         <Route
@@ -122,6 +126,8 @@ export default function App() {
           <Route path="song-spectrum" element={<SongSpectrumPage />} />
           <Route path="word-cloud" element={<WordCloudPage />} />
           <Route path="song-nodes" element={<SongNodesPage />} />
+          <Route path="trivia" element={<TriviaPage />} />
+          <Route path="admin/game" element={<AdminGamePage />} />
           <Route path="discography" element={<DiscographyImportPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="admin/users" element={<AdminUsersPage />} />

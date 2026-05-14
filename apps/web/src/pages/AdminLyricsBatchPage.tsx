@@ -12,19 +12,28 @@ const INITIAL: BatchJobState = {
   processedSongs: 0,
   foundCount: 0,
   notFoundCount: 0,
+  skippedInstrumentalCount: 0,
   currentSong: null,
   items: [],
   error: null,
+  processedSongIds: [],
+  notFoundSongIds: [],
 };
 
 export default function AdminLyricsBatchPage() {
   const [job, setJob] = useState<BatchJobState>(INITIAL);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
+  const [markedInstrumental, setMarkedInstrumental] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const startMutation = useMutation({
     mutationFn: () => adminApi.startLyricsBatch(),
+    onSuccess: (data) => setJob(data),
+  });
+
+  const resumeMutation = useMutation({
+    mutationFn: () => adminApi.resumeLyricsBatch(),
     onSuccess: (data) => setJob(data),
   });
 
@@ -58,6 +67,13 @@ export default function AdminLyricsBatchPage() {
     },
   });
 
+  const instrumentalMutation = useMutation({
+    mutationFn: ({ songId }: { songId: string }) => adminApi.markInstrumental(songId, true),
+    onSuccess: (_data, { songId }) => {
+      setMarkedInstrumental((prev) => new Set([...prev, songId]));
+    },
+  });
+
   const poll = useCallback(async () => {
     try {
       const data = await adminApi.getLyricsBatchStatus();
@@ -76,7 +92,6 @@ export default function AdminLyricsBatchPage() {
   }
 
   useEffect(() => {
-    // Fetch current status on mount so we can resume if job was already running
     void adminApi.getLyricsBatchStatus().then((data) => {
       setJob(data);
       if (data.status === 'running') startPolling();
@@ -93,16 +108,24 @@ export default function AdminLyricsBatchPage() {
     });
   }
 
+  function handleResume() {
+    resumeMutation.mutate(undefined, {
+      onSuccess: (data) => {
+        setJob(data);
+        if (data.status === 'running') startPolling();
+      },
+    });
+  }
+
   function handleApprove(item: BatchItem) {
     if (editingId === item.id) {
-      // Save with edited text by approving via a custom call
       adminApi.approveLyricsItem(item.id).then(() => {
         setJob((prev) => ({
           ...prev,
           items: prev.items.map((i) => i.id === item.id ? { ...i, text: editText, status: 'approved' as const } : i),
         }));
         setEditingId(null);
-      }).catch(() => { /* show nothing, mutation already handles errors */ });
+      }).catch(() => { /* mutation already handles errors */ });
     } else {
       approveMutation.mutate({ itemId: item.id });
     }
@@ -111,8 +134,11 @@ export default function AdminLyricsBatchPage() {
   const pendingItems = job.items.filter((i) => i.status === 'found');
   const approvedCount = job.items.filter((i) => i.status === 'approved').length;
   const rejectedCount = job.items.filter((i) => i.status === 'rejected').length;
-
   const pct = job.totalSongs > 0 ? Math.round((job.processedSongs / job.totalSongs) * 100) : 0;
+
+  // Songs that were tried and not found — eligible for "mark as instrumental"
+  // We show these from the notFoundSongIds when status is done/stopped
+  const canResume = (job.status === 'done' || job.status === 'error') && job.processedSongIds.length > 0;
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
@@ -120,7 +146,8 @@ export default function AdminLyricsBatchPage() {
         <h1 className="text-xl font-bold text-surface-100 mb-1">Lyrics Batch Fetcher</h1>
         <p className="text-sm text-surface-400">
           Fetches lyrics for every song missing them using Lyrics.ovh and lrclib.net. Results queue
-          here for your review — nothing is saved until you approve it.
+          here for your review — nothing is saved until you approve it. Songs marked as
+          instrumental are permanently skipped.
         </p>
       </div>
 
@@ -153,8 +180,17 @@ export default function AdminLyricsBatchPage() {
               disabled={startMutation.isPending}
               className="px-4 py-2 rounded bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-500 disabled:opacity-50 transition-colors"
             >
-              Run again
+              Run again (full scan)
             </button>
+            {canResume && (
+              <button
+                onClick={handleResume}
+                disabled={resumeMutation.isPending}
+                className="px-4 py-2 rounded bg-indigo-900 border border-indigo-600 text-indigo-300 text-sm font-medium hover:bg-indigo-800 disabled:opacity-50 transition-colors"
+              >
+                {resumeMutation.isPending ? 'Resuming…' : `Resume (skip ${job.processedSongs} already tried)`}
+              </button>
+            )}
             <button
               onClick={() => clearMutation.mutate()}
               disabled={clearMutation.isPending}
@@ -184,6 +220,9 @@ export default function AdminLyricsBatchPage() {
             </span>
             <span className="text-green-400">{job.foundCount} found</span>
             <span className="text-surface-500">{job.notFoundCount} not found</span>
+            {job.skippedInstrumentalCount > 0 && (
+              <span className="text-surface-600">{job.skippedInstrumentalCount} skipped (instrumental)</span>
+            )}
             {approvedCount > 0 && <span className="text-indigo-400">{approvedCount} approved</span>}
             {rejectedCount > 0 && <span className="text-surface-500">{rejectedCount} rejected</span>}
           </div>
@@ -205,6 +244,29 @@ export default function AdminLyricsBatchPage() {
           {job.status === 'error' && job.error && (
             <p className="text-sm text-red-400">{job.error}</p>
           )}
+        </div>
+      )}
+
+      {/* Not-found songs — mark as instrumental */}
+      {job.notFoundSongIds.length > 0 && job.status !== 'running' && (
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-base font-semibold text-surface-200">
+              Not found — {job.notFoundSongIds.length} songs
+            </h2>
+            <p className="text-xs text-surface-500 mt-0.5">
+              These songs returned no results from either lyrics source. If they are instrumentals,
+              mark them to skip permanently in future runs.
+            </p>
+          </div>
+          <NotFoundList
+            notFoundSongIds={job.notFoundSongIds}
+            items={job.items}
+            markedInstrumental={markedInstrumental}
+            onMarkInstrumental={(songId) => instrumentalMutation.mutate({ songId })}
+            isMarking={instrumentalMutation.isPending}
+            markingId={instrumentalMutation.variables?.songId}
+          />
         </div>
       )}
 
@@ -244,6 +306,58 @@ export default function AdminLyricsBatchPage() {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Not-found list with mark-instrumental actions
+// ---------------------------------------------------------------------------
+
+function NotFoundList({
+  notFoundSongIds,
+  items: _items,
+  markedInstrumental,
+  onMarkInstrumental,
+  isMarking,
+  markingId,
+}: {
+  notFoundSongIds: string[];
+  items: BatchItem[];
+  markedInstrumental: Set<string>;
+  onMarkInstrumental: (songId: string) => void;
+  isMarking: boolean;
+  markingId?: string;
+}) {
+  // We only have song IDs here — display them in a compact list
+  // The full song details aren't fetched here to keep it lightweight
+  return (
+    <div className="bg-surface-900 border border-surface-700 rounded-lg overflow-hidden">
+      <div className="max-h-48 overflow-y-auto divide-y divide-surface-800">
+        {notFoundSongIds.map((songId) => {
+          const isMarked = markedInstrumental.has(songId);
+          return (
+            <div key={songId} className="flex items-center justify-between px-4 py-2 gap-3">
+              <span className="text-xs text-surface-400 font-mono truncate">{songId}</span>
+              {isMarked ? (
+                <span className="text-xs text-surface-600 shrink-0">Marked instrumental</span>
+              ) : (
+                <button
+                  onClick={() => onMarkInstrumental(songId)}
+                  disabled={isMarking && markingId === songId}
+                  className="text-xs px-2 py-0.5 rounded border border-surface-600 text-surface-400 hover:text-white hover:border-surface-400 disabled:opacity-50 transition-colors shrink-0"
+                >
+                  {isMarking && markingId === songId ? '…' : 'Mark instrumental'}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Lyrics item — review queue
+// ---------------------------------------------------------------------------
 
 function LyricsItem({
   item,

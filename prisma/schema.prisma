@@ -60,6 +60,8 @@ model Song {
   trackNumber     Int?
   durationSeconds Int?
   notes           String?
+  isInstrumental  Boolean   @default(false)
+  noLyricsAt      DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -364,6 +366,7 @@ model User {
   analysisRatings      SongAnalysisRating[]
   contributions        PendingContribution[] @relation("ContributionAuthor")
   contributionReviews  PendingContribution[] @relation("ContributionReviewer")
+  gameScores  GameScore[]
 
   @@map("users")
 }
@@ -576,4 +579,21 @@ model PendingContribution {
   reviewer User? @relation("ContributionReviewer", fields: [reviewedById], references: [id])
 
   @@map("pending_contributions")
+}
+
+// ---------------------------------------------------------------------------
+// Game scores — saved at end of each Album Art Quiz session
+// ---------------------------------------------------------------------------
+
+model GameScore {
+  id        String   @id @default(cuid())
+  userId    String
+  score     Int
+  level     Int
+  duration  Int      // seconds played
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("game_scores")
 }

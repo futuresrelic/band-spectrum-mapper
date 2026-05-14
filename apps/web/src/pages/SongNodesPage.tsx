@@ -36,6 +36,22 @@ const EDGE_COLORS: Record<string, string> = {
   shared_word:   '#64748b44',
 };
 
+// Base font sizes (px) per node type — kept in sync with buildCyStyle
+function getBaseFont(type: string): number {
+  if (type === 'artist') return 13;
+  if (type === 'emotion') return 12;
+  return 11;
+}
+
+// Update every node's font-size so text stays the same physical size on screen
+function updateFontSizes(cy: Core): void {
+  const z = cy.zoom();
+  cy.nodes().forEach((node) => {
+    const type = (node.data('type') as string) || 'song';
+    node.style('font-size', `${getBaseFont(type) / z}px`);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Cytoscape style
 // ---------------------------------------------------------------------------
@@ -60,7 +76,7 @@ function buildCyStyle() {
         'height': 'data(size)',
         'border-width': '1.5px',
         'border-color': '#ffffff22',
-        'min-zoomed-font-size': 9,
+        'min-zoomed-font-size': 4,
       },
     },
     {
@@ -121,6 +137,14 @@ function buildCyStyle() {
       selector: '.highlighted',
       style: { 'opacity': 1 },
     },
+    {
+      selector: '.locked',
+      style: {
+        'border-width': '3px',
+        'border-color': '#ffffff',
+        'border-opacity': 0.7,
+      },
+    },
   ];
 }
 
@@ -136,34 +160,20 @@ function buildLayoutConfig(preset: GraphLayoutPreset) {
         concentric: (n: NodeSingular) => n.data('type') === 'album' ? 3
           : n.data('type') === 'song' ? 2 : 1,
         levelWidth: () => 1 };
-
     case 'theme-constellation':
       return { ...base, name: 'cose',
-        nodeRepulsion: () => 12000,
-        edgeElasticity: () => 50,
-        idealEdgeLength: () => 60 };
-
+        nodeRepulsion: () => 12000, edgeElasticity: () => 50, idealEdgeLength: () => 60 };
     case 'emotional-similarity':
       return { ...base, name: 'cose',
-        nodeRepulsion: () => 8000,
-        edgeElasticity: () => 200,
-        idealEdgeLength: () => 80,
-        gravity: 1.2 };
-
+        nodeRepulsion: () => 8000, edgeElasticity: () => 200, idealEdgeLength: () => 80, gravity: 1.2 };
     case 'lyrical-dna':
       return { ...base, name: 'cose',
-        nodeRepulsion: () => 10000,
-        edgeElasticity: () => 80,
-        idealEdgeLength: () => 70 };
-
+        nodeRepulsion: () => 10000, edgeElasticity: () => 80, idealEdgeLength: () => 70 };
     case 'artist-universe':
     case 'maynard-universe':
     default:
       return { ...base, name: 'cose',
-        nodeRepulsion: () => 15000,
-        edgeElasticity: () => 45,
-        idealEdgeLength: () => 80,
-        gravity: 0.8 };
+        nodeRepulsion: () => 15000, edgeElasticity: () => 45, idealEdgeLength: () => 80, gravity: 0.8 };
   }
 }
 
@@ -271,12 +281,7 @@ function NodeDetailPanel({
 // Export helpers
 // ---------------------------------------------------------------------------
 
-function exportCytoscapePng(
-  cy: Core,
-  filename: string,
-  width = 1080,
-  height = 1080,
-): void {
+function exportCytoscapePng(cy: Core, filename: string, width = 1080, height = 1080): void {
   const dataUrl = cy.png({
     output: 'base64uri',
     bg: '#060d1a',
@@ -293,21 +298,15 @@ function exportCytoscapePng(
 
   const img = new Image();
   img.onload = () => {
-    // Centre the graph in the export frame
     const aspect = img.width / img.height;
     let dw = width, dh = height;
     if (aspect > 1) dh = width / aspect;
     else dw = height * aspect;
-    const dx = (width - dw) / 2;
-    const dy = (height - dh) / 2;
-    ctx.drawImage(img, dx, dy, dw, dh);
-
-    // Branding
+    ctx.drawImage(img, (width - dw) / 2, (height - dh) / 2, dw, dh);
     ctx.fillStyle = '#1e3a5f99';
     ctx.font = 'bold 14px "Inter", system-ui';
     ctx.textAlign = 'right';
     ctx.fillText('Band Spectrum Mapper', width - 16, height - 16);
-
     canvas.toBlob((blob) => {
       if (!blob) return;
       const a = document.createElement('a');
@@ -320,20 +319,32 @@ function exportCytoscapePng(
 }
 
 // ---------------------------------------------------------------------------
-// Legend
+// Interactive legend — click to filter/highlight node or edge types
 // ---------------------------------------------------------------------------
 
-function GraphLegend() {
-  const types: { type: NodeType; label: string; shape: string }[] = [
-    { type: 'song',    label: 'Song',     shape: '●' },
-    { type: 'album',   label: 'Album',    shape: '●' },
-    { type: 'artist',  label: 'Artist',   shape: '●' },
-    { type: 'theme',   label: 'Theme',    shape: '◆' },
-    { type: 'tag',     label: 'Tag',      shape: '■' },
-    { type: 'keyword', label: 'Keyword',  shape: '■' },
-    { type: 'emotion', label: 'Emotion',  shape: '⬠' },
+function InteractiveLegend({
+  nodeFilter,
+  edgeFilter,
+  onNodeType,
+  onEdgeType,
+  onClear,
+}: {
+  nodeFilter: NodeType | null;
+  edgeFilter: string | null;
+  onNodeType: (type: NodeType) => void;
+  onEdgeType: (type: string) => void;
+  onClear: () => void;
+}) {
+  const nodeTypes: { type: NodeType; label: string; shape: string }[] = [
+    { type: 'song',    label: 'Song',    shape: '●' },
+    { type: 'album',   label: 'Album',   shape: '●' },
+    { type: 'artist',  label: 'Artist',  shape: '●' },
+    { type: 'theme',   label: 'Theme',   shape: '◆' },
+    { type: 'tag',     label: 'Tag',     shape: '■' },
+    { type: 'keyword', label: 'Keyword', shape: '■' },
+    { type: 'emotion', label: 'Emotion', shape: '⬠' },
   ];
-  const edges: { type: string; label: string }[] = [
+  const edgeTypes: { type: string; label: string }[] = [
     { type: 'same_artist',   label: 'Same artist' },
     { type: 'same_album',    label: 'Same album' },
     { type: 'shared_tag',    label: 'Shared tag' },
@@ -341,31 +352,60 @@ function GraphLegend() {
     { type: 'conceptual',    label: 'AI theme link' },
     { type: 'shared_word',   label: 'Shared word' },
   ];
+
+  const hasFilter = nodeFilter !== null || edgeFilter !== null;
+
   return (
     <div className="bg-surface-800/60 rounded-lg p-3 text-xs space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-surface-500 text-xs">Click to filter</span>
+        {hasFilter && (
+          <button onClick={onClear} className="text-indigo-400 hover:text-indigo-200 text-xs transition-colors">
+            Clear ✕
+          </button>
+        )}
+      </div>
+
       <div>
         <div className="text-surface-400 uppercase tracking-wider font-semibold mb-1.5">Nodes</div>
-        <div className="space-y-1">
-          {types.map((t) => (
-            <div key={t.type} className="flex items-center gap-2">
-              <span style={{ color: NODE_COLORS[t.type] }}>{t.shape}</span>
-              <span className="text-surface-300">{t.label}</span>
-            </div>
-          ))}
+        <div className="space-y-0.5">
+          {nodeTypes.map((t) => {
+            const active = nodeFilter === t.type;
+            return (
+              <button
+                key={t.type}
+                onClick={() => onNodeType(t.type)}
+                className={`w-full flex items-center gap-2 px-1.5 py-1 rounded transition-colors text-left
+                  ${active ? 'bg-white/10 ring-1 ring-white/20' : 'hover:bg-surface-700/60'}`}
+              >
+                <span style={{ color: NODE_COLORS[t.type] }}>{t.shape}</span>
+                <span className={active ? 'text-white font-medium' : 'text-surface-300'}>{t.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
+
       <div>
         <div className="text-surface-400 uppercase tracking-wider font-semibold mb-1.5">Edges</div>
-        <div className="space-y-1">
-          {edges.map((e) => (
-            <div key={e.type} className="flex items-center gap-2">
-              <div
-                className="w-6 h-0.5 rounded"
-                style={{ background: EDGE_COLORS[e.type]?.replace('44', 'cc') }}
-              />
-              <span className="text-surface-300">{e.label}</span>
-            </div>
-          ))}
+        <div className="space-y-0.5">
+          {edgeTypes.map((e) => {
+            const active = edgeFilter === e.type;
+            return (
+              <button
+                key={e.type}
+                onClick={() => onEdgeType(e.type)}
+                className={`w-full flex items-center gap-2 px-1.5 py-1 rounded transition-colors text-left
+                  ${active ? 'bg-white/10 ring-1 ring-white/20' : 'hover:bg-surface-700/60'}`}
+              >
+                <div
+                  className="w-6 h-0.5 rounded shrink-0"
+                  style={{ background: EDGE_COLORS[e.type]?.replace('44', 'cc') }}
+                />
+                <span className={active ? 'text-white font-medium' : 'text-surface-300'}>{e.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -379,11 +419,16 @@ function GraphLegend() {
 export default function SongNodesPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
+  const lockedNodeIdsRef = useRef(new Set<string>());
+
   const [preset, setPreset] = useState<GraphLayoutPreset>('artist-universe');
   const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
   const [selectedAlbumId, setSelectedAlbumId] = useState('');
   const [selectedNode, setSelectedNode] = useState<ReturnType<Core['$']> | null>(null);
   const [graphLabel, setGraphLabel] = useState('');
+  const [lockedCount, setLockedCount] = useState(0);
+  const [legendNodeFilter, setLegendNodeFilter] = useState<NodeType | null>(null);
+  const [legendEdgeFilter, setLegendEdgeFilter] = useState<string | null>(null);
 
   const { data: scopes } = useQuery({
     queryKey: ['song-nodes-scopes'],
@@ -411,11 +456,16 @@ export default function SongNodesPage() {
   useEffect(() => {
     if (!containerRef.current || !graphData) return;
 
-    // Destroy existing instance
     if (cyRef.current) {
       cyRef.current.destroy();
       cyRef.current = null;
     }
+
+    // Reset per-graph UI state
+    lockedNodeIdsRef.current.clear();
+    setLockedCount(0);
+    setLegendNodeFilter(null);
+    setLegendEdgeFilter(null);
 
     const elements = buildElements(graphData.nodes, graphData.edges);
     if (!elements.length) return;
@@ -432,7 +482,39 @@ export default function SongNodesPage() {
     cyRef.current = cy;
     setGraphLabel(graphData.label);
 
-    // Node click → highlight neighbours, show detail
+    // Zoom-constant text: font-size = base / zoom so it stays same screen size
+    let rafPending = false;
+    cy.on('zoom', () => {
+      if (rafPending) return;
+      rafPending = true;
+      requestAnimationFrame(() => {
+        if (!cy.destroyed()) updateFontSizes(cy);
+        rafPending = false;
+      });
+    });
+
+    // Set correct font sizes once the initial layout settles
+    cy.one('layoutstop', () => {
+      if (!cy.destroyed()) updateFontSizes(cy);
+    });
+
+    // Double-tap to lock/unlock a node's position
+    cy.on('dbltap', 'node', (evt: EventObject) => {
+      const node = evt.target as NodeSingular;
+      const id = node.id();
+      if (lockedNodeIdsRef.current.has(id)) {
+        lockedNodeIdsRef.current.delete(id);
+        node.unlock();
+        node.removeClass('locked');
+      } else {
+        lockedNodeIdsRef.current.add(id);
+        node.lock();
+        node.addClass('locked');
+      }
+      setLockedCount(lockedNodeIdsRef.current.size);
+    });
+
+    // Single tap → highlight neighbours, show detail
     cy.on('tap', 'node', (evt: EventObject) => {
       const node = evt.target as NodeSingular;
       cy.elements().removeClass('highlighted faded');
@@ -442,7 +524,7 @@ export default function SongNodesPage() {
       setSelectedNode(cy.$(`#${CSS.escape(node.id())}`));
     });
 
-    // Background click → reset
+    // Background tap → clear selection
     cy.on('tap', (evt: EventObject) => {
       if (evt.target === cy) {
         cy.elements().removeClass('highlighted faded');
@@ -462,6 +544,8 @@ export default function SongNodesPage() {
     );
   }, []);
 
+  // ── Layout & arrange controls ─────────────────────────────────────────────
+
   function doExport(size: 1080 | 1920) {
     if (!cyRef.current || !graphData) return;
     exportCytoscapePng(
@@ -480,6 +564,106 @@ export default function SongNodesPage() {
   function fitView() {
     cyRef.current?.fit(undefined, 40);
   }
+
+  // Breadthfirst tree: Artist → Album → Song
+  function runHierarchyLayout() {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.layout({
+      name: 'breadthfirst',
+      roots: cy.nodes('[type = "artist"]'),
+      directed: true,
+      spacingFactor: 1.75,
+      animate: true,
+      animationDuration: 700,
+      fit: true,
+      padding: 40,
+    } as cytoscape.LayoutOptions).run();
+  }
+
+  // Force layout — saves locked node positions and restores them after
+  function runFreeLayout() {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const locked = cy.nodes('.locked');
+    const savedPos = new Map<string, { x: number; y: number }>();
+    locked.forEach((n) => {
+      const p = n.position();
+      savedPos.set(n.id(), { x: p.x, y: p.y });
+    });
+
+    cy.one('layoutstop', () => {
+      locked.forEach((n) => {
+        const p = savedPos.get(n.id());
+        if (p) n.position(p);
+      });
+    });
+
+    cy.layout({
+      name: 'cose',
+      nodeRepulsion: () => 14000,
+      edgeElasticity: () => 45,
+      idealEdgeLength: () => 80,
+      gravity: 0.8,
+      animate: true,
+      animationDuration: 600,
+      fit: savedPos.size === 0,
+      padding: 40,
+    } as cytoscape.LayoutOptions).run();
+  }
+
+  function unlockAll() {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.nodes('.locked').forEach((n) => { n.unlock(); n.removeClass('locked'); });
+    lockedNodeIdsRef.current.clear();
+    setLockedCount(0);
+  }
+
+  // ── Legend filter controls ────────────────────────────────────────────────
+
+  function handleLegendNodeType(type: NodeType) {
+    const cy = cyRef.current;
+    if (!cy) return;
+    if (legendNodeFilter === type) {
+      cy.elements().removeClass('highlighted faded');
+      setLegendNodeFilter(null);
+    } else {
+      cy.elements().removeClass('highlighted faded');
+      cy.nodes(`[type = "${type}"]`).addClass('highlighted');
+      cy.nodes().not(`[type = "${type}"]`).addClass('faded');
+      cy.edges().addClass('faded');
+      setLegendNodeFilter(type);
+      setLegendEdgeFilter(null);
+    }
+  }
+
+  function handleLegendEdgeType(type: string) {
+    const cy = cyRef.current;
+    if (!cy) return;
+    if (legendEdgeFilter === type) {
+      cy.elements().removeClass('highlighted faded');
+      setLegendEdgeFilter(null);
+    } else {
+      cy.elements().removeClass('highlighted faded');
+      cy.edges(`[edgeType = "${type}"]`).addClass('highlighted');
+      cy.edges().not(`[edgeType = "${type}"]`).addClass('faded');
+      cy.nodes().addClass('faded');
+      // Reveal the nodes that participate in this edge type
+      cy.edges(`[edgeType = "${type}"]`).connectedNodes().removeClass('faded').addClass('highlighted');
+      setLegendEdgeFilter(type);
+      setLegendNodeFilter(null);
+    }
+  }
+
+  function clearLegendFilter() {
+    cyRef.current?.elements().removeClass('highlighted faded');
+    setLegendNodeFilter(null);
+    setLegendEdgeFilter(null);
+  }
+
+  // cyReady drives conditional sidebar sections without relying on ref in JSX
+  const cyReady = !!graphLabel && !isFetching;
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -505,11 +689,7 @@ export default function SongNodesPage() {
                     ${preset === lp.id
                       ? 'bg-indigo-600 text-white'
                       : 'bg-surface-800 text-surface-300 hover:bg-surface-700'}`}
-                  onClick={() => {
-                    setPreset(lp.id);
-                    setSelectedAlbumId('');
-                    setSelectedNode(null);
-                  }}
+                  onClick={() => { setPreset(lp.id); setSelectedAlbumId(''); setSelectedNode(null); }}
                   title={lp.description}
                 >
                   {lp.label}
@@ -518,12 +698,10 @@ export default function SongNodesPage() {
             </div>
           </div>
 
-          {/* Band picker (most presets) */}
+          {/* Band picker */}
           {!isUniversal && !needsAlbum && scopes && (
             <div>
-              <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-2">
-                Artists
-              </div>
+              <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-2">Artists</div>
               <div className="max-h-40 overflow-y-auto space-y-0.5">
                 {scopes.bands.map((b) => (
                   <label key={b.id} className="flex items-center gap-2 cursor-pointer group">
@@ -554,34 +732,67 @@ export default function SongNodesPage() {
               >
                 <option value="">— pick album —</option>
                 {scopes.albums.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.band.name} / {a.title}
-                  </option>
+                  <option key={a.id} value={a.id}>{a.band.name} / {a.title}</option>
                 ))}
               </select>
             </div>
           )}
 
-          {/* Graph controls */}
-          {cyRef.current && (
-            <div className="flex gap-1.5">
-              <button
-                className="flex-1 px-2 py-1.5 bg-surface-700 hover:bg-surface-600 text-xs text-white rounded"
-                onClick={fitView}
-              >
-                Fit
-              </button>
-              <button
-                className="flex-1 px-2 py-1.5 bg-surface-700 hover:bg-surface-600 text-xs text-white rounded"
-                onClick={resetLayout}
-              >
-                Re-layout
-              </button>
+          {/* Arrange controls */}
+          {cyReady && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Arrange</div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  className="px-2 py-1.5 bg-surface-700 hover:bg-surface-600 text-xs text-white rounded transition-colors"
+                  onClick={fitView}
+                >
+                  Fit
+                </button>
+                <button
+                  className="px-2 py-1.5 bg-surface-700 hover:bg-surface-600 text-xs text-white rounded transition-colors"
+                  onClick={resetLayout}
+                >
+                  Re-layout
+                </button>
+                <button
+                  className="col-span-2 px-2 py-1.5 bg-indigo-800 hover:bg-indigo-700 text-xs text-white rounded transition-colors"
+                  title="Artist → Album → Song tree layout"
+                  onClick={runHierarchyLayout}
+                >
+                  Hierarchy tree
+                </button>
+                <button
+                  className="col-span-2 px-2 py-1.5 bg-surface-700 hover:bg-surface-600 text-xs text-white rounded transition-colors"
+                  title="Force layout — locked nodes snap back after"
+                  onClick={runFreeLayout}
+                >
+                  Arrange free
+                </button>
+              </div>
+
+              {lockedCount > 0 ? (
+                <div className="flex items-center justify-between pt-0.5">
+                  <span className="text-xs text-amber-400 font-medium">
+                    {lockedCount} node{lockedCount !== 1 ? 's' : ''} locked
+                  </span>
+                  <button
+                    className="text-xs text-surface-500 hover:text-white transition-colors"
+                    onClick={unlockAll}
+                  >
+                    Unlock all
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-surface-600 leading-tight pt-0.5">
+                  Double-click a node to lock its position
+                </p>
+              )}
             </div>
           )}
 
           {/* Export */}
-          {graphData?.nodes.length && (
+          {graphData && graphData.nodes.length > 0 && (
             <div className="space-y-2">
               <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Export</div>
               <button
@@ -607,7 +818,13 @@ export default function SongNodesPage() {
             }} />
           )}
 
-          <GraphLegend />
+          <InteractiveLegend
+            nodeFilter={legendNodeFilter}
+            edgeFilter={legendEdgeFilter}
+            onNodeType={handleLegendNodeType}
+            onEdgeType={handleLegendEdgeType}
+            onClear={clearLegendFilter}
+          />
         </aside>
 
         {/* ── Graph canvas ── */}
@@ -636,7 +853,7 @@ export default function SongNodesPage() {
           {isFetching && (
             <div className="flex items-center justify-center h-[600px] rounded-xl bg-surface-900/50 border border-surface-800">
               <div className="flex gap-1.5">
-                {[0,1,2].map((i) => (
+                {[0, 1, 2].map((i) => (
                   <div key={i} className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"
                     style={{ animationDelay: `${i * 0.15}s` }} />
                 ))}
@@ -644,9 +861,7 @@ export default function SongNodesPage() {
             </div>
           )}
 
-          {error && (
-            <div className="text-red-400 text-sm p-4">{String(error)}</div>
-          )}
+          {error && <div className="text-red-400 text-sm p-4">{String(error)}</div>}
 
           {!isFetching && canQuery && graphData?.nodes.length === 0 && (
             <div className="flex items-center justify-center h-[600px] rounded-xl bg-surface-900/50 border border-surface-800 text-surface-500 text-sm">
@@ -661,9 +876,9 @@ export default function SongNodesPage() {
             style={{ width: '100%', height: '680px', background: '#060d1a' }}
           />
 
-          {!isFetching && graphData?.nodes.length && (
+          {!isFetching && graphData && graphData.nodes.length > 0 && (
             <p className="mt-3 text-xs text-surface-600 text-center">
-              Click any node to highlight its connections. Scroll to zoom · drag to pan.
+              Click to highlight connections · double-click to lock position · scroll to zoom · drag to pan
             </p>
           )}
         </main>

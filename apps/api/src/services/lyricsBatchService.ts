@@ -24,9 +24,12 @@ export interface BatchJobState {
   processedSongs: number;
   foundCount: number;
   notFoundCount: number;
+  skippedInstrumentalCount: number;
   currentSong: string | null;
   items: BatchItem[];
   error: string | null;
+  processedSongIds: string[];
+  notFoundSongIds: string[];
 }
 
 const state: BatchJobState = {
@@ -37,9 +40,12 @@ const state: BatchJobState = {
   processedSongs: 0,
   foundCount: 0,
   notFoundCount: 0,
+  skippedInstrumentalCount: 0,
   currentSong: null,
   items: [],
   error: null,
+  processedSongIds: [],
+  notFoundSongIds: [],
 };
 
 function makeId(): string {
@@ -81,23 +87,52 @@ async function fetchLyrics(artist: string, title: string): Promise<{ text: strin
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-export async function startBatchJob(): Promise<void> {
+// Songs that were tried and not found within the last 30 days are skipped by default.
+const NOT_FOUND_SKIP_DAYS = 30;
+
+export async function startBatchJob(opts?: { resume?: boolean; forceAll?: boolean }): Promise<void> {
   if (state.status === 'running') return;
 
+  const isResume = opts?.resume === true;
+  const forceAll = opts?.forceAll === true;
+
+  // On fresh start, reset everything. On resume, keep existing IDs and items.
+  if (!isResume) {
+    state.startedAt = new Date().toISOString();
+    state.finishedAt = null;
+    state.totalSongs = 0;
+    state.processedSongs = 0;
+    state.foundCount = 0;
+    state.notFoundCount = 0;
+    state.skippedInstrumentalCount = 0;
+    state.currentSong = null;
+    state.items = [];
+    state.error = null;
+    state.processedSongIds = [];
+    state.notFoundSongIds = [];
+  } else {
+    // Resume: clear error, update start time
+    state.startedAt = state.startedAt ?? new Date().toISOString();
+    state.finishedAt = null;
+    state.error = null;
+  }
+
   state.status = 'running';
-  state.startedAt = new Date().toISOString();
-  state.finishedAt = null;
-  state.totalSongs = 0;
-  state.processedSongs = 0;
-  state.foundCount = 0;
-  state.notFoundCount = 0;
-  state.currentSong = null;
-  state.items = [];
-  state.error = null;
 
   try {
+    const cutoff = forceAll ? null : new Date(Date.now() - NOT_FOUND_SKIP_DAYS * 24 * 60 * 60 * 1000);
+
     const songs = await prisma.song.findMany({
-      where: { lyrics: { none: {} } },
+      where: {
+        lyrics: { none: {} },
+        isInstrumental: false,
+        ...(cutoff ? {
+          OR: [
+            { noLyricsAt: null },
+            { noLyricsAt: { lt: cutoff } },
+          ],
+        } : {}),
+      },
       select: {
         id: true,
         title: true,
@@ -107,14 +142,19 @@ export async function startBatchJob(): Promise<void> {
       orderBy: [{ band: { name: 'asc' } }, { title: 'asc' }],
     });
 
-    state.totalSongs = songs.length;
+    // Filter out already-processed IDs when resuming
+    const skipIds = new Set(state.processedSongIds);
+    const toProcess = isResume ? songs.filter((s) => !skipIds.has(s.id)) : songs;
 
-    for (const song of songs) {
+    state.totalSongs = (isResume ? state.processedSongs : 0) + toProcess.length;
+
+    for (const song of toProcess) {
       if (state.status !== 'running') break;
 
       state.currentSong = `${song.band.name} — ${song.title}`;
       const result = await fetchLyrics(song.band.name, song.title);
       state.processedSongs++;
+      state.processedSongIds.push(song.id);
 
       if (result) {
         state.foundCount++;
@@ -131,6 +171,12 @@ export async function startBatchJob(): Promise<void> {
         });
       } else {
         state.notFoundCount++;
+        state.notFoundSongIds.push(song.id);
+        // Mark song so future batches skip it by default
+        await prisma.song.update({
+          where: { id: song.id },
+          data: { noLyricsAt: new Date() },
+        }).catch(() => { /* non-fatal */ });
       }
 
       await sleep(300);
@@ -147,7 +193,7 @@ export async function startBatchJob(): Promise<void> {
 }
 
 export function getJobState(): BatchJobState {
-  return { ...state, items: state.items.slice() };
+  return { ...state, items: state.items.slice(), processedSongIds: state.processedSongIds.slice(), notFoundSongIds: state.notFoundSongIds.slice() };
 }
 
 export function stopJob(): void {
@@ -173,6 +219,8 @@ export function clearJob(): void {
   Object.assign(state, {
     status: 'idle', startedAt: null, finishedAt: null,
     totalSongs: 0, processedSongs: 0, foundCount: 0, notFoundCount: 0,
+    skippedInstrumentalCount: 0,
     currentSong: null, items: [], error: null,
+    processedSongIds: [], notFoundSongIds: [],
   });
 }

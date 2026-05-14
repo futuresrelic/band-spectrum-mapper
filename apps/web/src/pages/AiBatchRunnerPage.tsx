@@ -50,10 +50,14 @@ async function runJob(songId: string, job: JobType, force: boolean): Promise<voi
     return;
   }
   if (job === 'tags') {
-    // Tags always regenerate (they upsert, not replace — safe to re-run)
     await analysisApi.generateAiTags(songId);
     return;
   }
+}
+
+// Returns true if all selected jobs for this row are already completed/skipped
+function isRowDone(row: SongRow, jobs: JobType[]): boolean {
+  return jobs.every((j) => row.statuses[j] === 'done' || row.statuses[j] === 'skipped');
 }
 
 export default function AiBatchRunnerPage() {
@@ -65,6 +69,8 @@ export default function AiBatchRunnerPage() {
   const [currentIdx, setCurrentIdx] = useState(-1);
   const [doneCount, setDoneCount] = useState(0);
   const [errorCount, setErrorCount] = useState(0);
+  const [filterBandIds, setFilterBandIds] = useState<Set<string>>(new Set());
+  const [showBandFilter, setShowBandFilter] = useState(false);
   const abortRef = useRef(false);
 
   const { data: bands, isLoading: bandsLoading } = useQuery({
@@ -80,10 +86,21 @@ export default function AiBatchRunnerPage() {
     });
   };
 
+  const toggleBand = (bandId: string) => {
+    setFilterBandIds((prev) => {
+      const next = new Set(prev);
+      next.has(bandId) ? next.delete(bandId) : next.add(bandId);
+      return next;
+    });
+  };
+
   const loadAllSongs = useCallback(async () => {
     if (!bands) return;
     const all: SongRow[] = [];
-    for (const band of bands) {
+    const bandsToLoad = filterBandIds.size > 0
+      ? bands.filter((b) => filterBandIds.has(b.id))
+      : bands;
+    for (const band of bandsToLoad) {
       const songs = await bandsApi.listSongs(band.id);
       for (const song of songs) {
         const statuses: Record<JobType, RowStatus> = {
@@ -99,26 +116,47 @@ export default function AiBatchRunnerPage() {
     setCurrentIdx(-1);
     setDoneCount(0);
     setErrorCount(0);
-  }, [bands]);
+  }, [bands, filterBandIds]);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (continueFromCheckpoint = false) => {
     if (rows.length === 0) { await loadAllSongs(); return; }
     if (selectedJobs.size === 0) return;
 
     abortRef.current = false;
     setRunning(true);
-    setDoneCount(0);
-    setErrorCount(0);
+
+    // When continuing, don't reset existing done/skipped counts
+    if (!continueFromCheckpoint) {
+      setDoneCount(0);
+      setErrorCount(0);
+      // Reset all rows to pending
+      setRows((prev) => prev.map((r) => ({
+        ...r,
+        statuses: Object.fromEntries(
+          (Object.keys(r.statuses) as JobType[]).map((j) => [j, 'pending' as RowStatus])
+        ) as Record<JobType, RowStatus>,
+        errors: Object.fromEntries(
+          (Object.keys(r.errors) as JobType[]).map((j) => [j, ''])
+        ) as Record<JobType, string>,
+      })));
+    }
 
     const jobs = [...selectedJobs];
 
     for (let i = 0; i < rows.length; i++) {
       if (abortRef.current) break;
       const row = rows[i]!;
+
+      // Skip rows that are already fully done when continuing
+      if (continueFromCheckpoint && isRowDone(row, jobs)) continue;
+
       setCurrentIdx(i);
 
       for (const job of jobs) {
         if (abortRef.current) break;
+        // Skip individual jobs already done when continuing
+        if (continueFromCheckpoint && (row.statuses[job] === 'done' || row.statuses[job] === 'skipped')) continue;
+
         setRows((prev) =>
           prev.map((r, idx) =>
             idx === i ? { ...r, statuses: { ...r.statuses, [job]: 'running' } } : r,
@@ -135,7 +173,6 @@ export default function AiBatchRunnerPage() {
         } catch (e) {
           const status = (e as Error & { status?: number }).status;
           if (status === 404) {
-            // Song has no lyrics — skip silently, don't count as error
             setRows((prev) =>
               prev.map((r, idx) =>
                 idx === i ? { ...r, statuses: { ...r.statuses, [job]: 'skipped' } } : r,
@@ -157,7 +194,6 @@ export default function AiBatchRunnerPage() {
         }
       }
 
-      // Delay between songs (not after last)
       if (i < rows.length - 1 && !abortRef.current && delayMs > 0) {
         await new Promise((r) => setTimeout(r, delayMs));
       }
@@ -170,12 +206,20 @@ export default function AiBatchRunnerPage() {
   const stop = () => { abortRef.current = true; };
   const reset = () => { setRows([]); setCurrentIdx(-1); setDoneCount(0); setErrorCount(0); };
 
-  const totalJobs = rows.length * selectedJobs.size;
+  const jobs = [...selectedJobs];
+  const totalJobs = rows.length * jobs.length;
   const skippedCount = rows.reduce(
-    (n, r) => n + [...selectedJobs].filter((j) => r.statuses[j] === 'skipped').length, 0,
+    (n, r) => n + jobs.filter((j) => r.statuses[j] === 'skipped').length, 0,
   );
   const processedCount = doneCount + errorCount + skippedCount;
   const progress = totalJobs > 0 ? Math.round((processedCount / totalJobs) * 100) : 0;
+
+  // Detect checkpoint: some rows done, some still pending
+  const hasCheckpoint = rows.length > 0 && !running &&
+    rows.some((r) => jobs.some((j) => r.statuses[j] === 'done' || r.statuses[j] === 'skipped')) &&
+    rows.some((r) => jobs.some((j) => r.statuses[j] === 'pending' || r.statuses[j] === 'error'));
+
+  const pendingCount = rows.filter((r) => !isRowDone(r, jobs)).length;
 
   const statusCls: Record<RowStatus, string> = {
     pending: 'text-surface-300',
@@ -224,6 +268,49 @@ export default function AiBatchRunnerPage() {
           </div>
         </div>
 
+        {/* Band filter */}
+        <div className="border-t border-surface-100 pt-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="label">Band filter</p>
+            <button
+              className="text-xs text-indigo-600 hover:text-indigo-800"
+              onClick={() => setShowBandFilter((s) => !s)}
+              disabled={running}
+            >
+              {showBandFilter ? 'Hide' : (filterBandIds.size > 0 ? `${filterBandIds.size} selected — edit` : 'Filter by band')}
+            </button>
+          </div>
+          {filterBandIds.size === 0 && !showBandFilter && (
+            <p className="text-xs text-surface-500">All bands will be included.</p>
+          )}
+          {showBandFilter && bands && (
+            <div className="grid grid-cols-2 gap-1 mt-2 max-h-48 overflow-y-auto pr-1">
+              <label className="col-span-2 flex items-center gap-2 text-xs cursor-pointer mb-1">
+                <input
+                  type="checkbox"
+                  className="rounded"
+                  checked={filterBandIds.size === 0}
+                  onChange={() => setFilterBandIds(new Set())}
+                  disabled={running}
+                />
+                <span className="font-medium">All bands</span>
+              </label>
+              {bands.map((band) => (
+                <label key={band.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="rounded"
+                    checked={filterBandIds.has(band.id)}
+                    onChange={() => toggleBand(band.id)}
+                    disabled={running}
+                  />
+                  <span className="truncate">{band.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Force regenerate */}
         <div className="border-t border-surface-100 pt-4">
           <label className="flex items-start gap-2 cursor-pointer">
@@ -269,16 +356,25 @@ export default function AiBatchRunnerPage() {
         {/* Buttons */}
         <div className="flex gap-3 flex-wrap items-center">
           {rows.length === 0 ? (
-            <button className="btn-secondary" onClick={loadAllSongs} disabled={bandsLoading || running}>
-              {bandsLoading ? 'Loading bands…' : 'Load all songs'}
+            <button className="btn-secondary" onClick={() => void loadAllSongs()} disabled={bandsLoading || running}>
+              {bandsLoading ? 'Loading bands…' : 'Load songs'}
             </button>
           ) : (
             <>
-              <button className="btn-primary" onClick={start} disabled={running || selectedJobs.size === 0}>
-                {running
-                  ? 'Running…'
-                  : `${forceRegenerate ? 'Regenerate' : 'Run'} ${selectedJobs.size} job${selectedJobs.size !== 1 ? 's' : ''} on ${rows.length} songs`}
-              </button>
+              {!running && (
+                <button className="btn-primary" onClick={() => void start(false)} disabled={selectedJobs.size === 0}>
+                  {forceRegenerate ? 'Regenerate all' : `Run on ${rows.length} songs`}
+                </button>
+              )}
+              {hasCheckpoint && !running && (
+                <button
+                  className="btn-secondary text-indigo-700 border-indigo-300 hover:border-indigo-500"
+                  onClick={() => void start(true)}
+                  disabled={selectedJobs.size === 0}
+                >
+                  Continue ({pendingCount} remaining)
+                </button>
+              )}
               {running && (
                 <button className="btn-secondary text-red-600 border-red-300 hover:border-red-500" onClick={stop}>
                   Stop
@@ -287,20 +383,32 @@ export default function AiBatchRunnerPage() {
               {!running && (
                 <button className="btn-ghost text-sm" onClick={reset}>Reset</button>
               )}
+              {!running && rows.length > 0 && (
+                <button className="btn-ghost text-sm" onClick={() => void loadAllSongs()} disabled={bandsLoading}>
+                  Reload songs
+                </button>
+              )}
             </>
           )}
           {bands && !running && (
             <span className="text-xs text-surface-500 ml-auto">
-              {bands.length} band{bands.length !== 1 ? 's' : ''} in library
+              {bands.length} band{bands.length !== 1 ? 's' : ''}
               {rows.length > 0 && ` · ${rows.length} songs loaded`}
             </span>
           )}
         </div>
 
         {/* Mode indicator */}
-        {forceRegenerate && (
+        {forceRegenerate && rows.length > 0 && (
           <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-            Force Regenerate is ON — every song will call OpenAI regardless of cached results. This will use API credits for all {rows.length > 0 ? rows.length : '...'} songs × {selectedJobs.size} job{selectedJobs.size !== 1 ? 's' : ''}.
+            Force Regenerate is ON — every song will call OpenAI regardless of cached results.
+          </div>
+        )}
+
+        {hasCheckpoint && (
+          <div className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-3 py-2">
+            Scan paused — {rows.length - pendingCount} songs done, {pendingCount} remaining.
+            Click <strong>Continue</strong> to resume from where you left off, or <strong>Run on {rows.length} songs</strong> to restart from scratch.
           </div>
         )}
 
@@ -344,7 +452,7 @@ export default function AiBatchRunnerPage() {
                   <th className="py-2 px-3 font-medium">Band</th>
                   {(Object.keys(JOB_LABELS) as JobType[]).filter((j) => selectedJobs.has(j)).map((j) => (
                     <th key={j} className="py-2 px-3 font-medium text-center" title={JOB_DESCRIPTIONS[j]}>
-                      {JOB_LABELS[j].replace('AI ', '')}
+                      {JOB_LABELS[j]!.replace('AI ', '')}
                     </th>
                   ))}
                 </tr>
@@ -378,10 +486,11 @@ export default function AiBatchRunnerPage() {
 
       {rows.length === 0 && (
         <div className="card text-center py-10 text-surface-500 text-sm">
-          <p>Click <strong>Load all songs</strong> to populate the song list, then <strong>Run</strong> to start.</p>
+          <p>Click <strong>Load songs</strong> to populate the song list, then <strong>Run</strong> to start.</p>
           <p className="text-xs mt-2 text-surface-400">
             By default, songs with existing AI results are returned instantly without calling OpenAI.
-            Enable <strong>Force Regenerate</strong> above to discard cached results and regenerate everything.
+            Use <strong>Band filter</strong> to run only selected bands.
+            Use <strong>Continue</strong> to resume after stopping.
           </p>
         </div>
       )}

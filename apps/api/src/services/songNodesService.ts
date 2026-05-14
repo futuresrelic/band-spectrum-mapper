@@ -165,27 +165,31 @@ async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
 
-  const bandSet = new Map<string, string>(); // id → name
-  const albumSet = new Map<string, string>(); // id → title
-  const tagSet = new Map<string, string>();   // id → name
+  const bandSet = new Map<string, string>();         // bandId → name
+  const albumSet = new Map<string, string>();        // albumId → title
+  const albumBandMap = new Map<string, string>();    // albumId → bandId
+  const tagSet = new Map<string, string>();          // tagId → name
   let edgeIdx = 0;
 
   for (const s of songs) {
     nodes.push(songNode(s));
     bandSet.set(s.band.id, s.band.name);
-    if (s.album) albumSet.set(s.album.id, s.album.title);
+    if (s.album) {
+      albumSet.set(s.album.id, s.album.title);
+      albumBandMap.set(s.album.id, s.band.id);
+    }
 
-    // song → artist
-    edges.push({
-      id: `e${edgeIdx++}`, source: `song:${s.id}`,
-      target: `artist:${s.band.id}`, type: 'same_artist', weight: 1,
-    });
-
-    // song → album
+    // song → album (or song → artist when no album)
     if (s.album) {
       edges.push({
         id: `e${edgeIdx++}`, source: `song:${s.id}`,
         target: `album:${s.album.id}`, type: 'same_album', weight: 0.9,
+      });
+    } else {
+      // Albumless songs connect directly to their artist
+      edges.push({
+        id: `e${edgeIdx++}`, source: `song:${s.id}`,
+        target: `artist:${s.band.id}`, type: 'same_artist', weight: 0.7,
       });
     }
 
@@ -206,10 +210,17 @@ async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
       data: { color: NODE_COLORS.artist, size: Math.min(60, 20 + songCount * 3) } });
   }
 
-  // Album nodes
+  // Album nodes + album → artist edges (clean 3-tier hierarchy)
   for (const [id, title] of albumSet) {
     nodes.push({ id: `album:${id}`, type: 'album', label: title,
       data: { color: NODE_COLORS.album } });
+    const bandId = albumBandMap.get(id);
+    if (bandId) {
+      edges.push({
+        id: `e${edgeIdx++}`, source: `album:${id}`,
+        target: `artist:${bandId}`, type: 'same_artist', weight: 1,
+      });
+    }
   }
 
   // Tag nodes (only tags shared by ≥ 2 songs)
