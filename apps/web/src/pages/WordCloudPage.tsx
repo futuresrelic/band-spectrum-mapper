@@ -376,7 +376,11 @@ export default function WordCloudPage() {
   const [scope, setScope] = useState<ScopeType>('universe');
   const [scopeId, setScopeId] = useState('');
   const [minFreq, setMinFreq] = useState(2);
+  const [maxFreq, setMaxFreq] = useState(0); // 0 = no upper limit
   const [limit, setLimit] = useState(100);
+  const [includeLyrics, setIncludeLyrics] = useState(true);
+  const [includeThemes, setIncludeThemes] = useState(true);
+  const [includeTags, setIncludeTags] = useState(true);
   const [selectedWord, setSelectedWord] = useState<CloudWord | null>(null);
   const [highlightWord, setHighlightWord] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -384,12 +388,16 @@ export default function WordCloudPage() {
   const canQuery = scope === 'universe' || !!scopeId;
 
   const { data, isFetching, error } = useQuery<WordCloudData>({
-    queryKey: ['word-cloud', scope, scopeId, minFreq, limit],
+    queryKey: ['word-cloud', scope, scopeId, minFreq, maxFreq, limit, includeLyrics, includeThemes, includeTags],
     queryFn: () => wordCloudApi.getData({
       scope,
       id: scopeId || undefined,
       minFreq,
+      ...(maxFreq > 0 ? { maxFreq } : {}),
       limit,
+      includeLyrics,
+      includeThemes,
+      includeTags,
     }),
     enabled: canQuery,
   });
@@ -439,10 +447,51 @@ export default function WordCloudPage() {
               Min frequency: {minFreq}
             </div>
             <input
-              type="range" min={1} max={10} value={minFreq}
+              type="range" min={1} max={20} value={minFreq}
               onChange={(e) => setMinFreq(Number(e.target.value))}
               className="w-full accent-indigo-500"
             />
+          </div>
+
+          <div>
+            <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-1">
+              Max frequency: <span className={maxFreq === 0 ? 'text-surface-600' : 'text-indigo-400'}>
+                {maxFreq === 0 ? 'Any' : maxFreq}
+              </span>
+            </div>
+            <input
+              type="range" min={0} max={50} value={maxFreq}
+              onChange={(e) => setMaxFreq(Number(e.target.value))}
+              className="w-full accent-indigo-500"
+            />
+            <p className="text-xs text-surface-600 mt-0.5 leading-tight">
+              {maxFreq > 0
+                ? `Only words appearing ≤ ${maxFreq}× — isolates rare/specific words`
+                : 'Drag left to isolate rare words'}
+            </p>
+          </div>
+
+          <div>
+            <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-2">Sources</div>
+            <div className="space-y-1.5">
+              {([
+                { key: 'lyrics',  label: 'Lyrics',     val: includeLyrics,  set: setIncludeLyrics },
+                { key: 'themes',  label: 'AI Themes',  val: includeThemes,  set: setIncludeThemes },
+                { key: 'tags',    label: 'Tags',        val: includeTags,    set: setIncludeTags },
+              ] as const).map(({ key, label, val, set }) => (
+                <label key={key} className="flex items-center gap-2 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={val}
+                    onChange={(e) => set(e.target.checked)}
+                    className="accent-indigo-500"
+                  />
+                  <span className={`text-xs transition-colors ${val ? 'text-surface-200' : 'text-surface-600'}`}>
+                    {label}
+                  </span>
+                </label>
+              ))}
+            </div>
           </div>
 
           <div>
@@ -545,8 +594,9 @@ export default function WordCloudPage() {
 
           {!isFetching && words.length > 0 && (
             <div className="mt-4 text-xs text-surface-600 text-center">
-              Click any word to see which songs contain it.
-              Words are sized by combined lyric frequency + AI theme strength + tag weight.
+              Click any word to see which songs contain it. Sized by{' '}
+              {[includeLyrics && 'lyric frequency', includeThemes && 'AI theme strength', includeTags && 'tag weight']
+                .filter(Boolean).join(' + ') || 'combined score'}.
             </div>
           )}
         </main>

@@ -22,6 +22,11 @@ wordCloudRouter.get('/', async (req, res, next): Promise<void> => {
     const id = (req.query['id'] as string) ?? '';
     const limit = Math.min(200, parseInt((req.query['limit'] as string) ?? '120', 10) || 120);
     const minFreq = parseInt((req.query['minFreq'] as string) ?? '2', 10) || 2;
+    const maxFreqRaw = parseInt((req.query['maxFreq'] as string) ?? '0', 10);
+    const maxFreqFilter = maxFreqRaw > 0 ? maxFreqRaw : undefined;
+    const includeLyrics = (req.query['includeLyrics'] as string) !== 'false';
+    const includeThemes = (req.query['includeThemes'] as string) !== 'false';
+    const includeTags   = (req.query['includeTags']   as string) !== 'false';
 
     if (!VALID_SCOPES.includes(scope as CloudScope)) {
       res.status(400).json({ error: `scope must be one of: ${VALID_SCOPES.join(', ')}` });
@@ -32,7 +37,10 @@ wordCloudRouter.get('/', async (req, res, next): Promise<void> => {
       return;
     }
 
-    const data = await buildWordCloud(scope as CloudScope, id, { limit, minFreq });
+    const data = await buildWordCloud(scope as CloudScope, id, {
+      limit, minFreq, includeLyrics, includeThemes, includeTags,
+      ...(maxFreqFilter !== undefined ? { maxFreqFilter } : {}),
+    });
     res.json(data);
   } catch (err) { next(err); }
 });

@@ -429,6 +429,8 @@ export default function SongNodesPage() {
   const [lockedCount, setLockedCount] = useState(0);
   const [legendNodeFilter, setLegendNodeFilter] = useState<NodeType | null>(null);
   const [legendEdgeFilter, setLegendEdgeFilter] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState<'pan' | 'select'>('pan');
+  const [showTags, setShowTags] = useState(true);
 
   const { data: scopes } = useQuery({
     queryKey: ['song-nodes-scopes'],
@@ -466,6 +468,7 @@ export default function SongNodesPage() {
     setLockedCount(0);
     setLegendNodeFilter(null);
     setLegendEdgeFilter(null);
+    setSelectionMode('pan');
 
     const elements = buildElements(graphData.nodes, graphData.edges);
     if (!elements.length) return;
@@ -537,6 +540,23 @@ export default function SongNodesPage() {
       cyRef.current = null;
     };
   }, [graphData]);
+
+  // Apply selection vs pan mode to existing cy instance
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.userPanningEnabled(selectionMode === 'pan');
+    cy.boxSelectionEnabled(selectionMode === 'select');
+  }, [selectionMode]);
+
+  // Show/hide tag nodes and shared_tag edges
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const display = showTags ? 'element' : 'none';
+    cy.nodes('[type = "tag"]').style('display', display);
+    cy.edges('[edgeType = "shared_tag"]').style('display', display);
+  }, [showTags, graphLabel]); // graphLabel as proxy for cy being mounted
 
   const toggleBand = useCallback((id: string) => {
     setSelectedBandIds((prev) =>
@@ -610,6 +630,91 @@ export default function SongNodesPage() {
       fit: savedPos.size === 0,
       padding: 40,
     } as cytoscape.LayoutOptions).run();
+  }
+
+  // Custom column layout: each artist gets a column, albums spread below, songs below albums
+  function runNeatLayout() {
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    const SONG_W   = 58;    // horizontal spacing per song
+    const ALBUM_W  = 140;   // minimum column width per album
+    const ROW_H    = 240;   // vertical distance between rows
+    const GROUP_PAD = 100;  // extra gap between artist groups
+
+    // Build hierarchy maps from the graph edges
+    const artistAlbums = new Map<string, string[]>();  // artistId → albumIds
+    const albumSongs   = new Map<string, string[]>();  // albumId  → songIds
+    const artistDirect = new Map<string, string[]>();  // artistId → albumless songIds
+
+    cy.edges('[edgeType = "same_artist"]').forEach((edge) => {
+      const srcType = edge.source().data('type') as string;
+      const tgtId   = edge.target().id();
+      const srcId   = edge.source().id();
+      if (srcType === 'album') {
+        const a = artistAlbums.get(tgtId) ?? [];
+        a.push(srcId);
+        artistAlbums.set(tgtId, a);
+      } else if (srcType === 'song') {
+        const a = artistDirect.get(tgtId) ?? [];
+        a.push(srcId);
+        artistDirect.set(tgtId, a);
+      }
+    });
+    cy.edges('[edgeType = "same_album"]').forEach((edge) => {
+      if ((edge.source().data('type') as string) !== 'song') return;
+      const tgtId = edge.target().id();
+      const srcId = edge.source().id();
+      const a = albumSongs.get(tgtId) ?? [];
+      a.push(srcId);
+      albumSongs.set(tgtId, a);
+    });
+
+    let xCursor = 0;
+    cy.nodes('[type = "artist"]').forEach((artistNode) => {
+      const albumIds     = artistAlbums.get(artistNode.id()) ?? [];
+      const directSongs  = artistDirect.get(artistNode.id())  ?? [];
+
+      // How wide is each album's song block?
+      const albumWidths = albumIds.map((aid) => {
+        const sCount = (albumSongs.get(aid) ?? []).length;
+        return Math.max(ALBUM_W, sCount * SONG_W);
+      });
+      const directW    = directSongs.length * SONG_W;
+      const subtreeW   = albumWidths.reduce((s, w) => s + w, 0) + directW;
+      const groupW     = Math.max(ALBUM_W, subtreeW) + GROUP_PAD;
+
+      // Artist sits centred over its group
+      artistNode.position({ x: xCursor + groupW / 2, y: 0 });
+
+      // Albums in a row below the artist
+      let xAlbum = xCursor;
+      albumIds.forEach((aid, ai) => {
+        const albumNode = cy.getElementById(aid);
+        const aw        = albumWidths[ai] ?? ALBUM_W;
+        const albumX    = xAlbum + aw / 2;
+        albumNode.position({ x: albumX, y: ROW_H });
+
+        // Songs in a row below their album
+        const songIds   = albumSongs.get(aid) ?? [];
+        const songStart = albumX - ((songIds.length - 1) * SONG_W) / 2;
+        songIds.forEach((sid, si) => {
+          cy.getElementById(sid).position({ x: songStart + si * SONG_W, y: ROW_H * 2 });
+        });
+        xAlbum += aw;
+      });
+
+      // Albumless songs sit directly below the artist, after all albums
+      directSongs.forEach((sid, si) => {
+        cy.getElementById(sid).position({ x: xAlbum + si * SONG_W, y: ROW_H });
+      });
+
+      xCursor += groupW;
+    });
+
+    cy.fit(undefined, 60);
+    // Re-apply zoom-constant font sizes after repositioning
+    setTimeout(() => { if (cyRef.current && !cyRef.current.destroyed()) updateFontSizes(cyRef.current); }, 80);
   }
 
   function unlockAll() {
@@ -756,6 +861,13 @@ export default function SongNodesPage() {
                   Re-layout
                 </button>
                 <button
+                  className="col-span-2 px-2 py-1.5 bg-indigo-700 hover:bg-indigo-600 text-xs text-white rounded transition-colors"
+                  title="Place each artist as a column, albums below, songs below albums — neat and spaced"
+                  onClick={runNeatLayout}
+                >
+                  Neat columns
+                </button>
+                <button
                   className="col-span-2 px-2 py-1.5 bg-indigo-800 hover:bg-indigo-700 text-xs text-white rounded transition-colors"
                   title="Artist → Album → Song tree layout"
                   onClick={runHierarchyLayout}
@@ -788,6 +900,46 @@ export default function SongNodesPage() {
                   Double-click a node to lock its position
                 </p>
               )}
+            </div>
+          )}
+
+          {/* Visibility / interaction */}
+          {cyReady && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Visibility</div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showTags}
+                  onChange={(e) => setShowTags(e.target.checked)}
+                  className="accent-indigo-500"
+                />
+                <span className={`text-xs transition-colors ${showTags ? 'text-surface-200' : 'text-surface-600'}`}>
+                  Show tags
+                </span>
+              </label>
+
+              <div className="pt-1">
+                <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-1.5">Interact</div>
+                <button
+                  className={`w-full px-2 py-1.5 text-xs rounded transition-colors ${
+                    selectionMode === 'select'
+                      ? 'bg-amber-600 hover:bg-amber-500 text-white'
+                      : 'bg-surface-700 hover:bg-surface-600 text-white'
+                  }`}
+                  title={selectionMode === 'select'
+                    ? 'Exit selection mode — back to pan/zoom'
+                    : 'Drag a box to select multiple nodes, then drag any selected node to move them all'}
+                  onClick={() => setSelectionMode((m) => m === 'select' ? 'pan' : 'select')}
+                >
+                  {selectionMode === 'select' ? '✓ Box select (active)' : 'Box select'}
+                </button>
+                {selectionMode === 'select' && (
+                  <p className="text-xs text-amber-300/70 leading-tight mt-1">
+                    Drag empty space to draw a selection box. Drag any selected node to move the group.
+                  </p>
+                )}
+              </div>
             </div>
           )}
 

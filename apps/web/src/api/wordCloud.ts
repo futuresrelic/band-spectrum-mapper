@@ -33,11 +33,19 @@ export const wordCloudApi = {
     id?: string;
     limit?: number;
     minFreq?: number;
+    maxFreq?: number;
+    includeLyrics?: boolean;
+    includeThemes?: boolean;
+    includeTags?: boolean;
   }): Promise<WordCloudData> {
     const qs = new URLSearchParams({ scope: params.scope });
     if (params.id) qs.set('id', params.id);
     if (params.limit) qs.set('limit', String(params.limit));
     if (params.minFreq) qs.set('minFreq', String(params.minFreq));
+    if (params.maxFreq) qs.set('maxFreq', String(params.maxFreq));
+    if (params.includeLyrics === false) qs.set('includeLyrics', 'false');
+    if (params.includeThemes === false) qs.set('includeThemes', 'false');
+    if (params.includeTags === false) qs.set('includeTags', 'false');
     return api.get(`/api/word-cloud?${qs}`);
   },
 

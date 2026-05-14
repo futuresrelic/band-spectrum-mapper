@@ -129,9 +129,23 @@ async function getScopeLabel(scope: CloudScope, id: string): Promise<string> {
 export async function buildWordCloud(
   scope: CloudScope,
   id: string,
-  opts: { limit?: number; minFreq?: number } = {},
+  opts: {
+    limit?: number;
+    minFreq?: number;
+    maxFreqFilter?: number;
+    includeLyrics?: boolean;
+    includeThemes?: boolean;
+    includeTags?: boolean;
+  } = {},
 ): Promise<WordCloudData> {
-  const { limit = 120, minFreq = 2 } = opts;
+  const {
+    limit = 120,
+    minFreq = 2,
+    maxFreqFilter,
+    includeLyrics = true,
+    includeThemes = true,
+    includeTags = true,
+  } = opts;
 
   const customStopwords = await getCustomStopwords();
   const songIds = await fetchSongIds(scope, id);
@@ -141,24 +155,30 @@ export async function buildWordCloud(
     return { words: [], scope, label, totalTokens: 0, uniqueWords: 0 };
   }
 
-  // ── Fetch all the data we need in parallel ────────────────────────────────
+  // ── Fetch all the data we need in parallel (skip disabled sources) ─────────
   const [lyrics, songMeta, aiAnalyses, tags] = await Promise.all([
-    prisma.lyric.findMany({
-      where: { songId: { in: songIds }, isPrimary: true },
-      select: { songId: true, text: true },
-    }),
+    includeLyrics
+      ? prisma.lyric.findMany({
+          where: { songId: { in: songIds }, isPrimary: true },
+          select: { songId: true, text: true },
+        })
+      : Promise.resolve([]),
     prisma.song.findMany({
       where: { id: { in: songIds } },
       select: { id: true, title: true, band: { select: { name: true } } },
     }),
-    prisma.songAiAnalysis.findMany({
-      where: { songId: { in: songIds } },
-      select: { songId: true, themes: true },
-    }),
-    prisma.songTag.findMany({
-      where: { songId: { in: songIds } },
-      include: { tag: true, song: { select: { id: true, title: true, band: { select: { name: true } } } } },
-    }),
+    includeThemes
+      ? prisma.songAiAnalysis.findMany({
+          where: { songId: { in: songIds } },
+          select: { songId: true, themes: true },
+        })
+      : Promise.resolve([]),
+    includeTags
+      ? prisma.songTag.findMany({
+          where: { songId: { in: songIds } },
+          include: { tag: true, song: { select: { id: true, title: true, band: { select: { name: true } } } } },
+        })
+      : Promise.resolve([]),
   ]);
 
   const songById = new Map(songMeta.map((s) => [s.id, s]));
@@ -214,14 +234,14 @@ export async function buildWordCloud(
   const maxTagCount = Math.max(1, ...([...tagWordMap.values()].map((e) => e.count)));
 
   // ── Combine all candidate words ───────────────────────────────────────────
-  // Union of words appearing in lyrics, themes, or tags
+  // Union of enabled source words
   const allWords = new Set([
-    ...wordFreq.keys(),
-    ...themeWords.keys(),
-    ...tagWordMap.keys(),
+    ...(includeLyrics ? wordFreq.keys() : []),
+    ...(includeThemes ? themeWords.keys() : []),
+    ...(includeTags ? tagWordMap.keys() : []),
   ]);
 
-  const maxFreq = Math.max(1, ...([...wordFreq.values()].map((e) => e.freq)));
+  const maxFreqNorm = Math.max(1, ...([...wordFreq.values()].map((e) => e.freq)));
 
   const results: CloudWord[] = [];
 
@@ -230,10 +250,12 @@ export async function buildWordCloud(
     const freq = freqEntry?.freq ?? 0;
 
     if (freq < minFreq && !themeWords.has(word) && !tagWordMap.has(word)) continue;
+    // Max frequency filter: skip words that appear too often (for rare-word analysis)
+    if (maxFreqFilter !== undefined && maxFreqFilter > 0 && freq > maxFreqFilter) continue;
 
-    const freqNorm = freq / maxFreq;
-    const themeBoost = (themeWords.get(word) ?? 0) / maxThemeCount;
-    const tagBoost = ((tagWordMap.get(word)?.count ?? 0)) / maxTagCount;
+    const freqNorm = includeLyrics ? freq / maxFreqNorm : 0;
+    const themeBoost = includeThemes ? (themeWords.get(word) ?? 0) / maxThemeCount : 0;
+    const tagBoost = includeTags ? ((tagWordMap.get(word)?.count ?? 0)) / maxTagCount : 0;
 
     const weight = Math.round(
       (freqNorm * 0.55 + themeBoost * 0.30 + tagBoost * 0.15) * 100,
