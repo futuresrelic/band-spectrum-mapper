@@ -85,13 +85,14 @@ songSpectrumRouter.post(
         return;
       }
 
-      const { songTitle, artistName, youtubeUrl, analysisId, lyricsContext } =
+      const { songTitle, artistName, youtubeUrl, analysisId, lyricsContext, songId } =
         req.body as {
           songTitle?: string;
           artistName?: string;
           youtubeUrl?: string;
           analysisId?: string;
           lyricsContext?: string;
+          songId?: string;
         };
 
       if (!songTitle?.trim()) {
@@ -129,6 +130,7 @@ songSpectrumRouter.post(
         songTitle: songTitle.trim(),
         artistName: artistName.trim(),
         ...(youtubeUrl?.trim() ? { youtubeUrl: youtubeUrl.trim() } : {}),
+        ...(songId?.trim() ? { songId: songId.trim() } : {}),
         audioFileName: req.file.originalname,
         audioAnalysis: analysis,
         scores: flatScores,

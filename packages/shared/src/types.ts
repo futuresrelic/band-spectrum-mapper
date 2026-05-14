@@ -514,6 +514,8 @@ export interface AudioAnalysisResult {
   bpmConfidence: number;       // 0–1
   key: string;                 // e.g. "A minor"
   keyConfidence: number;       // 0–1
+  timeSignature: string;       // e.g. "4/4", "7/8", "9/8"
+  polyrhythmic: boolean;       // true when complex/mixed meter detected
   loudness: AudioLoudness;
   waveform: number[];          // ~1000 amplitude points, –1 to 1
   spectrogram: AudioSpectrogram;

@@ -8,6 +8,7 @@ import type {
   ScoreAxisDetail,
 } from '@band-spectrum-mapper/shared';
 import { songSpectrumApi } from '../api/songSpectrum';
+import { api } from '../lib/api';
 import WaveformViz from '../components/songSpectrum/WaveformViz';
 import SpectrogramViz from '../components/songSpectrum/SpectrogramViz';
 import SectionTimeline from '../components/songSpectrum/SectionTimeline';
@@ -170,6 +171,8 @@ function AudioFeatureTable({ audio }: { audio: AudioAnalysisResult }) {
   const rows: [string, string][] = [
     ['BPM', `${audio.bpm.toFixed(1)} (confidence: ${(audio.bpmConfidence * 100).toFixed(0)}%)`],
     ['Key', `${audio.key} (confidence: ${(audio.keyConfidence * 100).toFixed(0)}%)`],
+    ['Time signature', audio.timeSignature ?? '—'],
+    ['Polyrhythmic', audio.polyrhythmic ? 'Yes' : 'No'],
     ['Duration', `${Math.floor(audio.duration / 60)}:${String(Math.round(audio.duration % 60)).padStart(2, '0')}`],
     ['Mean loudness', `${audio.loudness.meanDb.toFixed(1)} dBFS`],
     ['Dynamic range', `${audio.loudness.dynamicRange.toFixed(1)} dB`],
@@ -250,6 +253,115 @@ function AnalysisList({
 }
 
 // ---------------------------------------------------------------------------
+// Library band/song picker — links analysis to an existing library song
+// ---------------------------------------------------------------------------
+
+interface LibraryBand { id: string; name: string }
+interface LibrarySong { id: string; title: string }
+
+function LibrarySongPicker({
+  selectedBandId,
+  selectedSongId,
+  onSelect,
+  onClear,
+}: {
+  selectedBandId: string | null;
+  selectedSongId: string | null;
+  onSelect: (bandId: string, bandName: string, songId: string, songTitle: string) => void;
+  onClear: () => void;
+}) {
+  const [bandId, setBandId] = useState<string>(selectedBandId ?? '');
+
+  const { data: bands = [] } = useQuery<LibraryBand[]>({
+    queryKey: ['bands-slim'],
+    queryFn: () => api.get<{ id: string; name: string }[]>('/api/bands').then((bs) =>
+      bs.map((b) => ({ id: b.id, name: b.name })).sort((a, b) => a.name.localeCompare(b.name))
+    ),
+  });
+
+  const { data: songs = [] } = useQuery<LibrarySong[]>({
+    queryKey: ['band-songs-slim', bandId],
+    queryFn: () => api.get<{ id: string; title: string }[]>(`/api/bands/${bandId}/songs`).then((ss) =>
+      ss.map((s) => ({ id: s.id, title: s.title }))
+    ),
+    enabled: Boolean(bandId),
+  });
+
+  const selectedBandName = bands.find((b) => b.id === bandId)?.name ?? '';
+
+  function handleBandChange(id: string) {
+    setBandId(id);
+    if (!id) onClear();
+  }
+
+  function handleSongChange(songId: string) {
+    if (!songId || !bandId) return;
+    const song = songs.find((s) => s.id === songId);
+    if (song) onSelect(bandId, selectedBandName, song.id, song.title);
+  }
+
+  return (
+    <div className="bg-surface-800/60 border border-surface-700 rounded-lg p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-surface-300 uppercase tracking-wider">
+          Link to Library Song
+        </span>
+        {selectedSongId && (
+          <button
+            className="text-xs text-surface-500 hover:text-red-400 transition-colors"
+            onClick={onClear}
+          >
+            Unlink
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-surface-400 mb-1">Band</label>
+          <select
+            className="w-full bg-surface-700 border border-surface-600 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+            value={bandId}
+            onChange={(e) => handleBandChange(e.target.value)}
+          >
+            <option value="">— select band —</option>
+            {bands.map((b) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs text-surface-400 mb-1">Song</label>
+          <select
+            className="w-full bg-surface-700 border border-surface-600 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500 disabled:opacity-40"
+            disabled={!bandId || songs.length === 0}
+            value={selectedSongId ?? ''}
+            onChange={(e) => handleSongChange(e.target.value)}
+          >
+            <option value="">— select song —</option>
+            {songs.map((s) => (
+              <option key={s.id} value={s.id}>{s.title}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {selectedSongId && (
+        <p className="text-xs text-indigo-400">
+          Linked: {selectedBandName} — {songs.find((s) => s.id === selectedSongId)?.title ?? selectedSongId}
+        </p>
+      )}
+      {!selectedSongId && (
+        <p className="text-xs text-surface-600">
+          Optional — links the analysis to the library song so lyrics context is available.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -279,6 +391,8 @@ export default function SongSpectrumPage() {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [activeAnalysis, setActiveAnalysis] = useState<SongSpectrumAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
+  const [selectedBandId, setSelectedBandId] = useState<string | null>(null);
 
   // YouTube fetch mutation
   const ytMutation = useMutation({
@@ -300,6 +414,7 @@ export default function SongSpectrumPage() {
         songTitle: songTitle.trim(),
         artistName: artistName.trim(),
         youtubeUrl: youtubeUrl.trim() || undefined,
+        ...(selectedSongId ? { songId: selectedSongId } : {}),
       }),
     onSuccess: (result) => {
       setActiveAnalysis(result);
@@ -330,6 +445,8 @@ export default function SongSpectrumPage() {
     setAudioFile(null);
     setActiveAnalysis(null);
     setError(null);
+    setSelectedSongId(null);
+    setSelectedBandId(null);
     setStep('identity');
   }
 
@@ -404,6 +521,24 @@ export default function SongSpectrumPage() {
           {/* ── STEP: Identity ── */}
           {step === 'identity' && (
             <div className="max-w-xl space-y-5">
+
+              {/* Library linker */}
+              <LibrarySongPicker
+                selectedBandId={selectedBandId}
+                selectedSongId={selectedSongId}
+                onSelect={(bId, bName, sId, sTitle) => {
+                  setSelectedBandId(bId);
+                  setSelectedSongId(sId);
+                  setArtistName(bName);
+                  setSongTitle(sTitle);
+                }}
+                onClear={() => {
+                  setSelectedBandId(null);
+                  setSelectedSongId(null);
+                }}
+              />
+
+              {/* Manual name fields (auto-filled from picker, still editable) */}
               <div className="grid grid-cols-2 gap-4">
                 <label className="block">
                   <span className="block text-xs font-medium text-surface-300 mb-1.5">Artist / Band *</span>
@@ -538,6 +673,9 @@ export default function SongSpectrumPage() {
                   <div className="text-xs text-surface-600 mt-0.5">
                     Analysed {new Date(activeAnalysis.createdAt).toLocaleString()}
                     {activeAnalysis.audioFileName && ` · ${activeAnalysis.audioFileName}`}
+                    {activeAnalysis.songId && (
+                      <span className="ml-2 text-indigo-500">● linked to library</span>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-2 shrink-0">

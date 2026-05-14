@@ -20,6 +20,7 @@ export const songSpectrumApi = {
     youtubeUrl?: string;
     analysisId?: string;
     lyricsContext?: string;
+    songId?: string;
   }): Promise<SongSpectrumAnalysis> {
     const fd = new FormData();
     fd.append('audio', params.file, params.file.name);
@@ -28,6 +29,7 @@ export const songSpectrumApi = {
     if (params.youtubeUrl) fd.append('youtubeUrl', params.youtubeUrl);
     if (params.analysisId) fd.append('analysisId', params.analysisId);
     if (params.lyricsContext) fd.append('lyricsContext', params.lyricsContext);
+    if (params.songId) fd.append('songId', params.songId);
     return api.postForm('/api/song-spectrum/analyze-audio', fd);
   },
 

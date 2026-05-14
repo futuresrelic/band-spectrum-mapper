@@ -108,6 +108,95 @@ def detect_sections(y: np.ndarray, sr: int, n_sections: int = 8) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Time signature / meter detection
+# ---------------------------------------------------------------------------
+
+# Candidate meters to test (numerator of the time signature)
+_CANDIDATE_METERS = [2, 3, 4, 5, 6, 7, 8, 9, 12]
+
+def _sig_string(numerator: int, bpm: float) -> str:
+    """Map a meter numerator to a conventional time-signature string."""
+    mapping = {
+        2: "2/4",
+        3: "3/4",
+        4: "4/4",
+        6: "6/8",
+        12: "12/8",
+    }
+    if numerator in mapping:
+        return mapping[numerator]
+    # For odd / compound meters use /8 when tempo is fast (feels like subdivisions)
+    denom = 8 if bpm >= 108 else 4
+    return f"{numerator}/{denom}"
+
+
+def detect_time_signature(y: np.ndarray, sr: int) -> tuple[str, bool]:
+    """
+    Estimate the most likely time signature and whether the track is polyrhythmic.
+
+    Method
+    ------
+    1. Beat-track to get beat frames.
+    2. Sample onset-strength at each beat position.
+    3. For each candidate meter N, compute the autocorrelation of the beat-
+       strength sequence at lag N.  The meter with the highest autocorrelation
+       (indicating that every Nth beat is similar in strength — a regular
+       downbeat pattern) wins.
+    4. Polyrhythmic flag: True when the winning meter is odd/compound (5, 7, 9+)
+       *or* when beat-interval variation is high enough to suggest meter changes.
+
+    Returns
+    -------
+    (time_signature, polyrhythmic)  e.g. ("7/8", True)
+    """
+    try:
+        tempo_arr, beat_frames = librosa.beat.beat_track(y=y, sr=sr, units='frames')
+        bpm = float(np.mean(tempo_arr)) if hasattr(tempo_arr, '__len__') else float(tempo_arr)
+    except Exception:
+        return "4/4", False
+
+    if len(beat_frames) < 8:
+        return "4/4", False
+
+    # Onset strength sampled at each beat frame
+    try:
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+    except Exception:
+        return "4/4", False
+
+    beat_strengths = onset_env[np.clip(beat_frames, 0, len(onset_env) - 1)]
+
+    # Autocorrelation at each candidate lag
+    best_n = 4
+    best_corr = -np.inf
+
+    for n in _CANDIDATE_METERS:
+        if len(beat_strengths) <= n * 2:
+            continue
+        bs = beat_strengths
+        r = float(np.corrcoef(bs[n:], bs[:-n])[0, 1])
+        if np.isnan(r):
+            continue
+        # Prefer smaller meters when correlation is equal (Occam's razor)
+        bonus = -n * 0.002
+        if r + bonus > best_corr:
+            best_corr = r + bonus
+            best_n = n
+
+    time_sig = _sig_string(best_n, bpm)
+
+    # Polyrhythmic: complex meter (5, 7, 9+) or high inter-beat-interval variance
+    ibis = np.diff(beat_frames.astype(float))
+    ibi_cv = float(np.std(ibis) / (np.mean(ibis) + 1e-6))
+    complex_meter = best_n not in (2, 3, 4, 6, 8, 12)
+    # IBI coefficient-of-variation > 0.22 suggests unsteady / mixed meter
+    irregular_pulse = ibi_cv > 0.22
+
+    polyrhythmic = bool(complex_meter or (irregular_pulse and best_n not in (2, 4, 8)))
+    return time_sig, polyrhythmic
+
+
+# ---------------------------------------------------------------------------
 # Main analysis function
 # ---------------------------------------------------------------------------
 
@@ -173,6 +262,9 @@ def analyze_audio(file_path: str) -> dict:
     # ---- Structural sections ------------------------------------------------
     sections = detect_sections(y, sr)
 
+    # ---- Time signature / polyrhythm ----------------------------------------
+    time_signature, polyrhythmic = detect_time_signature(y, sr)
+
     # ---- Spectral features --------------------------------------------------
     spec_centroid = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
     spec_rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)[0]
@@ -205,6 +297,8 @@ def analyze_audio(file_path: str) -> dict:
         "bpmConfidence": bpm_confidence,
         "key": key_label,
         "keyConfidence": key_confidence,
+        "timeSignature": time_signature,
+        "polyrhythmic": polyrhythmic,
         "loudness": {
             "meanDb": round(mean_db, 2),
             "peakDb": round(peak_db, 2),
