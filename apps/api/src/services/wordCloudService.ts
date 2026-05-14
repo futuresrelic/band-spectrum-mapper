@@ -82,8 +82,11 @@ async function fetchSongIds(scope: CloudScope, id: string): Promise<string[]> {
     }
 
     case 'artist': {
+      // id may be a single bandId or comma-separated list for multi-band clouds
+      const ids = id.split(',').map((s) => s.trim()).filter(Boolean);
+      if (!ids.length) return [];
       const songs = await prisma.song.findMany({
-        where: { bandId: id },
+        where: { bandId: { in: ids } },
         select: { id: true },
       });
       return songs.map((s) => s.id);
@@ -114,8 +117,14 @@ async function getScopeLabel(scope: CloudScope, id: string): Promise<string> {
       return a ? `${a.title} — ${a.band.name}` : id;
     }
     case 'artist': {
-      const b = await prisma.band.findUnique({ where: { id } });
-      return b?.name ?? id;
+      const ids = id.split(',').map((s) => s.trim()).filter(Boolean);
+      if (ids.length === 0) return 'Artist';
+      const bands = await prisma.band.findMany({
+        where: { id: { in: ids } },
+        select: { name: true },
+        orderBy: { name: 'asc' },
+      });
+      return bands.map((b) => b.name).join(' + ');
     }
     case 'universe':
       return 'All Songs';

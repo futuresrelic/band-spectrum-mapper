@@ -250,13 +250,27 @@ interface ScopeSelectorProps {
   setScope: (s: ScopeType) => void;
   scopeId: string;
   setScopeId: (id: string) => void;
+  selectedBandIds: string[];
+  setSelectedBandIds: (ids: string[]) => void;
 }
 
-function ScopeSelector({ scope, setScope, scopeId, setScopeId }: ScopeSelectorProps) {
+function ScopeSelector({
+  scope, setScope,
+  scopeId, setScopeId,
+  selectedBandIds, setSelectedBandIds,
+}: ScopeSelectorProps) {
   const { data: scopes } = useQuery({
     queryKey: ['word-cloud-scopes'],
     queryFn: wordCloudApi.getScopes,
   });
+
+  function toggleBand(id: string) {
+    setSelectedBandIds(
+      selectedBandIds.includes(id)
+        ? selectedBandIds.filter((x) => x !== id)
+        : [...selectedBandIds, id],
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -270,7 +284,7 @@ function ScopeSelector({ scope, setScope, scopeId, setScopeId }: ScopeSelectorPr
                 ${scope === s
                   ? 'bg-indigo-600 text-white'
                   : 'bg-surface-800 text-surface-300 hover:bg-surface-700'}`}
-              onClick={() => { setScope(s); setScopeId(''); }}
+              onClick={() => { setScope(s); setScopeId(''); setSelectedBandIds([]); }}
             >
               {s === 'universe' ? 'All Songs' : s}
             </button>
@@ -280,17 +294,36 @@ function ScopeSelector({ scope, setScope, scopeId, setScopeId }: ScopeSelectorPr
 
       {scope === 'artist' && scopes && (
         <div>
-          <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-1.5">Artist</div>
-          <select
-            className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white"
-            value={scopeId}
-            onChange={(e) => setScopeId(e.target.value)}
-          >
-            <option value="">— pick artist —</option>
-            {scopes.bands.map((b) => (
-              <option key={b.id} value={b.id}>{b.name}</option>
-            ))}
-          </select>
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Artists</div>
+            {selectedBandIds.length > 0 && (
+              <button
+                className="text-xs text-surface-500 hover:text-surface-200 transition-colors"
+                onClick={() => setSelectedBandIds([])}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <div className="max-h-44 overflow-y-auto space-y-0.5">
+            {scopes.bands.map((b) => {
+              const checked = selectedBandIds.includes(b.id);
+              return (
+                <label key={b.id} className="flex items-center gap-2 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleBand(b.id)}
+                    className="accent-indigo-500"
+                  />
+                  <span className={`text-xs transition-colors
+                    ${checked ? 'text-white' : 'text-surface-400 group-hover:text-surface-200'}`}>
+                    {b.name}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -375,6 +408,7 @@ const CANVAS_SIZE = 880;
 export default function WordCloudPage() {
   const [scope, setScope] = useState<ScopeType>('universe');
   const [scopeId, setScopeId] = useState('');
+  const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
   const [minFreq, setMinFreq] = useState(2);
   const [maxFreq, setMaxFreq] = useState(0); // 0 = no upper limit
   const [limit, setLimit] = useState(100);
@@ -385,13 +419,18 @@ export default function WordCloudPage() {
   const [highlightWord, setHighlightWord] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const canQuery = scope === 'universe' || !!scopeId;
+  // Derive effective id and canQuery based on scope
+  const effectiveId = scope === 'artist' ? selectedBandIds.join(',') : scopeId;
+  const canQuery =
+    scope === 'universe' ||
+    (scope === 'artist' && selectedBandIds.length > 0) ||
+    (scope !== 'artist' && !!scopeId);
 
   const { data, isFetching, error } = useQuery<WordCloudData>({
-    queryKey: ['word-cloud', scope, scopeId, minFreq, maxFreq, limit, includeLyrics, includeThemes, includeTags],
+    queryKey: ['word-cloud', scope, effectiveId, minFreq, maxFreq, limit, includeLyrics, includeThemes, includeTags],
     queryFn: () => wordCloudApi.getData({
       scope,
-      id: scopeId || undefined,
+      id: effectiveId || undefined,
       minFreq,
       ...(maxFreq > 0 ? { maxFreq } : {}),
       limit,
@@ -440,6 +479,7 @@ export default function WordCloudPage() {
           <ScopeSelector
             scope={scope} setScope={setScope}
             scopeId={scopeId} setScopeId={setScopeId}
+            selectedBandIds={selectedBandIds} setSelectedBandIds={setSelectedBandIds}
           />
 
           <div>
@@ -554,7 +594,9 @@ export default function WordCloudPage() {
 
           {!canQuery && (
             <div className="flex items-center justify-center h-96 text-surface-500 text-sm">
-              Select a {scope} to see the word cloud.
+              {scope === 'artist'
+                ? 'Select one or more artists to build the cloud.'
+                : `Select a ${scope} to see the word cloud.`}
             </div>
           )}
 
