@@ -78,7 +78,8 @@ model Song {
   genreRatings    SongGenreRating[]
   analysisRatings SongAnalysisRating[]
   aiGenreSpectrum SongAiGenreSpectrum?
-  themeScores     SongThemeScore[]
+  themeScores        SongThemeScore[]
+  spectrumAnalyses   SongSpectrumAnalysis[]
 
   @@unique([bandId, slug])
   @@map("songs")
@@ -534,6 +535,29 @@ model AdminKnowledgeEntry {
 // Pending library contributions — users request bands/albums via MusicBrainz.
 // Admin reviews and approves (auto-imports) or rejects.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Song Spectrum Analyzer — standalone audio analysis results
+// Created by the /song-spectrum module. Optionally linked to a library song.
+// ---------------------------------------------------------------------------
+
+model SongSpectrumAnalysis {
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  songTitle      String
+  artistName     String
+  youtubeUrl     String?
+  ytMetadata     Json?    // YouTubeMetadata | null
+  audioFileName  String?
+  audioAnalysis  Json?    // AudioAnalysisResult | null — from Python worker
+  scores         Json     @default("{}")  // Record<ScoreAxis, number>
+  scoreBreakdown Json     @default("{}")  // Record<ScoreAxis, ScoreAxisDetail>
+  songId         String?
+  song           Song?    @relation(fields: [songId], references: [id], onDelete: SetNull)
+
+  @@map("song_spectrum_analyses")
+}
 
 model PendingContribution {
   id           String    @id @default(cuid())

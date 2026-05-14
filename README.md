@@ -99,6 +99,12 @@ npm run dev
 | `DATABASE_URL` | PostgreSQL connection string | Yes |
 | `PORT` | API listen port (default: 3001) | No |
 | `NODE_ENV` | `development` or `production` | Yes |
+| `OPENAI_API_KEY` | OpenAI key for AI analysis features | For AI features |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID | For auth |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | For auth |
+| `AUDIO_WORKER_URL` | URL of Python audio worker (e.g. `http://localhost:8001`) | For Song Spectrum Analyzer |
+| `YOUTUBE_API_KEY` | YouTube Data API v3 key — metadata import only | For YouTube metadata fetch |
+| `ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT` | Set `true` to allow yt-dlp audio download (dev only) | Never in production |
 
 ### apps/web/.env
 
@@ -138,7 +144,11 @@ npm run db:seed
 3. Add an **API** service pointing to this repo
    - Build command: `npm run build --workspace=apps/api`
    - Start command: `npm run start --workspace=apps/api`
-   - Set env vars: `NODE_ENV=production`
+   - Set env vars: `NODE_ENV=production`, `OPENAI_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+4. (Optional) Add an **Audio Worker** service pointing to `apps/audio-worker/`
+   - Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - Copy the internal Railway URL into the API service's `AUDIO_WORKER_URL` env var
+   - See `apps/audio-worker/README.md` for full setup instructions
 4. Add a **Web** service pointing to this repo
    - Build command: `npm run build --workspace=apps/web`
    - Set env var: `VITE_API_URL=<your-api-railway-url>`

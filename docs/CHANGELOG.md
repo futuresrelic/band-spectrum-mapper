@@ -57,6 +57,42 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+---
+
+## Song Spectrum Analyzer + Social Content System (2026-05-14)
+
+### Added
+
+**Song Spectrum Analyzer** (`/song-spectrum`)
+- New integrated audio-analysis module, independent of the existing library but
+  optionally linkable to library songs.
+- Python audio worker (`apps/audio-worker/`) — FastAPI service using librosa,
+  numpy, scipy. Deployed as a separate Railway service; controlled by env var
+  `AUDIO_WORKER_URL`. Gracefully disabled when not set.
+- Audio analysis: BPM + confidence, key estimation (Krumhansl–Schmuckler),
+  loudness / dynamic range, waveform envelope, spectrogram (64 bins × 200 frames),
+  structural sections (agglomerative), spectral features, onset density, chroma
+  profile, 13 MFCC means.
+- Transparent heuristic scores (0–100) for all six BSM axes — each score shows
+  contributing audio features, confidence rating, and plain-English explanation.
+- YouTube metadata import (YouTube Data API v3 — title, channel, description,
+  thumbnail, duration, tags). Metadata only; controlled by `YOUTUBE_API_KEY`.
+- Canvas waveform and spectrogram visualizations; section timeline bar;
+  per-axis accordion breakdown; JSON export.
+- Prisma model `SongSpectrumAnalysis`; auto-created on Railway via `prisma db push`.
+
+**Social Content System** (Phases 1–3)
+- Social Export: server-side PNG via `@resvg/resvg-js`; 4 themes × 2 formats.
+- Social Post Generator (`/social`): AI captions / hashtags via gpt-4o for 5
+  platforms, 8 post types, 4 tones.
+- AI Social Strategist: global floating chat panel with BSM brand voice,
+  song context injection, conversation history.
+
+**Other**
+- Lyrics Batch Fetcher (`/admin/lyrics-batch`): background fetch + admin approval.
+- Knowledge Feed image attachments with caption-based AI context.
+- Song Cloud: axis filter sliders, list view, zoom + pan.
+
 ## Known Limitations (Initial Build)
 
 - Authentication/authorization not implemented (single-user local deployment)

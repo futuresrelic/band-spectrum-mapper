@@ -459,5 +459,92 @@ export interface ThemeSimilarSong {
   similarity: number;      // 0.0 – 1.0 cosine similarity
 }
 
+// ---------------------------------------------------------------------------
+// Song Spectrum Analyzer — audio analysis types
+// ---------------------------------------------------------------------------
+
+export interface YouTubeMetadata {
+  videoId: string;
+  title: string;
+  channel: string;
+  description: string;
+  publishedAt: string;
+  thumbnailUrl: string | null;
+  duration: string | null;     // ISO 8601 (e.g. "PT4M33S")
+  durationSeconds: number | null;
+  tags: string[];
+  categoryId: string | null;
+}
+
+export interface AudioLoudness {
+  meanDb: number;
+  peakDb: number;
+  dynamicRange: number;
+  rmsEnvelope: number[];       // ~200 points, 0-1 normalised
+}
+
+export interface AudioSpectrogram {
+  data: number[][];            // [timeFrame][freqBin] — dB values, reduced resolution
+  times: number[];             // seconds
+  freqs: number[];             // Hz
+}
+
+export interface AudioSection {
+  start: number;               // seconds
+  end: number;                 // seconds
+  label: string;               // "A", "B", "C", …
+}
+
+export interface AudioFeatures {
+  spectralCentroid: number;    // mean Hz
+  spectralRolloff: number;     // mean Hz
+  spectralFlux: number;        // mean frame-to-frame change
+  spectralContrast: number;    // mean dB contrast
+  zeroCrossingRate: number;    // mean ratio
+  rhythmicDensity: number;     // onsets per second
+  transientDensity: number;    // hard transients per second
+  chromaProfile: number[];     // 12 chroma classes, normalised
+  mfcc: number[];              // first 13 MFCCs (means)
+}
+
+export interface AudioAnalysisResult {
+  duration: number;            // seconds
+  sampleRate: number;
+  bpm: number;
+  bpmConfidence: number;       // 0–1
+  key: string;                 // e.g. "A minor"
+  keyConfidence: number;       // 0–1
+  loudness: AudioLoudness;
+  waveform: number[];          // ~1000 amplitude points, –1 to 1
+  spectrogram: AudioSpectrogram;
+  sections: AudioSection[];
+  features: AudioFeatures;
+}
+
+export interface ScoreAxisDetail {
+  score: number;               // 0–100
+  confidence: number;          // 0–1
+  audioFeatures: string[];     // human-readable contributing factors
+  lyricsFeatures: string[];    // lyrics/context factors (may be empty)
+  explanation: string;
+}
+
+export type SpectrumScores = Record<string, number>;  // axis → 0-100
+
+export interface SongSpectrumAnalysis {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  songTitle: string;
+  artistName: string;
+  youtubeUrl: string | null;
+  ytMetadata: YouTubeMetadata | null;
+  audioFileName: string | null;
+  audioAnalysis: AudioAnalysisResult | null;
+  scores: SpectrumScores;
+  scoreBreakdown: Record<string, ScoreAxisDetail>;
+  songId: string | null;
+}
+
 // Re-export axis type for convenience
 export type { ScoreAxis, SourceType, ImportStatus };

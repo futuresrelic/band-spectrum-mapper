@@ -10,8 +10,9 @@ const links = [
   { to: '/imports',     label: 'Imports' },
   { to: '/discography', label: 'Discography' },
   { to: '/cloud',       label: 'Song Cloud' },
-  { to: '/social',      label: 'Social' },
-  { to: '/settings',    label: 'Settings' },
+  { to: '/social',         label: 'Social' },
+  { to: '/song-spectrum',  label: 'Song Spectrum' },
+  { to: '/settings',       label: 'Settings' },
 ];
 
 const adminLinks = [

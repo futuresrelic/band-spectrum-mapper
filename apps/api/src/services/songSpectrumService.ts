@@ -1,0 +1,331 @@
+/**
+ * Song Spectrum Analyzer — service layer.
+ *
+ * Feature flags:
+ *   AUDIO_WORKER_URL   — Python FastAPI audio analysis service URL
+ *   YOUTUBE_API_KEY    — YouTube Data API v3 key (metadata only, no download)
+ */
+
+import { prisma } from '../lib/prisma.js';
+import { Prisma } from '@prisma/client';
+import type {
+  SongSpectrumAnalysis,
+  YouTubeMetadata,
+  AudioAnalysisResult,
+  ScoreAxisDetail,
+  SpectrumScores,
+} from '@band-spectrum-mapper/shared';
+
+// ---------------------------------------------------------------------------
+// Feature-flag helpers
+// ---------------------------------------------------------------------------
+
+export function isAudioWorkerConfigured(): boolean {
+  return Boolean(process.env['AUDIO_WORKER_URL']);
+}
+
+export function isYouTubeConfigured(): boolean {
+  return Boolean(process.env['YOUTUBE_API_KEY']);
+}
+
+// ---------------------------------------------------------------------------
+// YouTube metadata — official Data API v3 only, no audio download
+// ---------------------------------------------------------------------------
+
+function extractVideoId(urlOrId: string): string | null {
+  // Already a plain ID (11 chars, no slashes)
+  if (/^[a-zA-Z0-9_-]{11}$/.test(urlOrId)) return urlOrId;
+
+  try {
+    const u = new URL(urlOrId);
+    // youtube.com/watch?v=
+    if (u.hostname.includes('youtube.com') && u.searchParams.get('v')) {
+      return u.searchParams.get('v');
+    }
+    // youtu.be/<id>
+    if (u.hostname === 'youtu.be') {
+      return u.pathname.slice(1).split('?')[0] || null;
+    }
+    // youtube.com/embed/<id>  or  youtube.com/shorts/<id>
+    const pathMatch = u.pathname.match(/\/(embed|shorts|v)\/([a-zA-Z0-9_-]{11})/);
+    if (pathMatch) return pathMatch[2] ?? null;
+  } catch {
+    // not a valid URL
+  }
+  return null;
+}
+
+function iso8601ToSeconds(duration: string): number | null {
+  // PT4M33S → 273
+  const m = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return null;
+  const h = parseInt(m[1] ?? '0', 10);
+  const min = parseInt(m[2] ?? '0', 10);
+  const sec = parseInt(m[3] ?? '0', 10);
+  return h * 3600 + min * 60 + sec;
+}
+
+export async function fetchYouTubeMetadata(urlOrId: string): Promise<YouTubeMetadata> {
+  if (!isYouTubeConfigured()) {
+    throw Object.assign(new Error('YouTube API key not configured'), { statusCode: 503 });
+  }
+
+  const videoId = extractVideoId(urlOrId);
+  if (!videoId) {
+    throw Object.assign(new Error('Cannot extract a valid YouTube video ID from the provided URL'), { statusCode: 400 });
+  }
+
+  const apiKey = process.env['YOUTUBE_API_KEY']!;
+  const endpoint =
+    `https://www.googleapis.com/youtube/v3/videos` +
+    `?part=snippet,contentDetails` +
+    `&id=${encodeURIComponent(videoId)}` +
+    `&key=${encodeURIComponent(apiKey)}`;
+
+  const res = await fetch(endpoint);
+  if (!res.ok) {
+    throw Object.assign(
+      new Error(`YouTube API error: ${res.status} ${res.statusText}`),
+      { statusCode: 502 },
+    );
+  }
+
+  const body = (await res.json()) as {
+    items?: {
+      snippet: {
+        title: string;
+        channelTitle: string;
+        description: string;
+        publishedAt: string;
+        thumbnails?: { high?: { url: string }; medium?: { url: string } };
+        tags?: string[];
+        categoryId?: string;
+      };
+      contentDetails?: { duration?: string };
+    }[];
+  };
+
+  if (!body.items || body.items.length === 0) {
+    throw Object.assign(new Error(`Video not found: ${videoId}`), { statusCode: 404 });
+  }
+
+  const item = body.items[0]!;
+  const snippet = item.snippet;
+  const isoDuration = item.contentDetails?.duration ?? null;
+
+  return {
+    videoId,
+    title: snippet.title,
+    channel: snippet.channelTitle,
+    description: snippet.description,
+    publishedAt: snippet.publishedAt,
+    thumbnailUrl:
+      snippet.thumbnails?.high?.url ?? snippet.thumbnails?.medium?.url ?? null,
+    duration: isoDuration,
+    durationSeconds: isoDuration ? iso8601ToSeconds(isoDuration) : null,
+    tags: snippet.tags ?? [],
+    categoryId: snippet.categoryId ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Audio analysis — proxy to Python worker
+// ---------------------------------------------------------------------------
+
+export async function analyzeAudio(
+  fileBuffer: Buffer,
+  filename: string,
+  lyricsContext: string = '',
+): Promise<{ analysis: AudioAnalysisResult; scores: Record<string, ScoreAxisDetail> }> {
+  if (!isAudioWorkerConfigured()) {
+    throw Object.assign(
+      new Error('Audio analysis worker not configured. Set AUDIO_WORKER_URL environment variable.'),
+      { statusCode: 503 },
+    );
+  }
+
+  const workerUrl = process.env['AUDIO_WORKER_URL']!.replace(/\/$/, '');
+
+  const formData = new FormData();
+  formData.append('file', new Blob([fileBuffer]), filename);
+  formData.append('lyrics_context', lyricsContext);
+
+  const res = await fetch(`${workerUrl}/analyze`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw Object.assign(
+      new Error(`Audio worker error (${res.status}): ${detail}`),
+      { statusCode: res.status >= 500 ? 502 : res.status },
+    );
+  }
+
+  return res.json() as Promise<{
+    analysis: AudioAnalysisResult;
+    scores: Record<string, ScoreAxisDetail>;
+  }>;
+}
+
+// ---------------------------------------------------------------------------
+// Database — save / list / get / delete analyses
+// ---------------------------------------------------------------------------
+
+function serializeAnalysis(row: {
+  id: string;
+  createdAt: Date;
+  updatedAt: Date;
+  songTitle: string;
+  artistName: string;
+  youtubeUrl: string | null;
+  ytMetadata: unknown;
+  audioFileName: string | null;
+  audioAnalysis: unknown;
+  scores: unknown;
+  scoreBreakdown: unknown;
+  songId: string | null;
+}): SongSpectrumAnalysis {
+  return {
+    id: row.id,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    songTitle: row.songTitle,
+    artistName: row.artistName,
+    youtubeUrl: row.youtubeUrl,
+    ytMetadata: (row.ytMetadata as YouTubeMetadata | null) ?? null,
+    audioFileName: row.audioFileName,
+    audioAnalysis: (row.audioAnalysis as AudioAnalysisResult | null) ?? null,
+    scores: (row.scores as SpectrumScores) ?? {},
+    scoreBreakdown: (row.scoreBreakdown as Record<string, ScoreAxisDetail>) ?? {},
+    songId: row.songId,
+  };
+}
+
+export async function createAnalysis(input: {
+  songTitle: string;
+  artistName: string;
+  youtubeUrl?: string;
+  ytMetadata?: YouTubeMetadata;
+  audioFileName?: string;
+  audioAnalysis?: AudioAnalysisResult;
+  scores?: SpectrumScores;
+  scoreBreakdown?: Record<string, ScoreAxisDetail>;
+  songId?: string;
+}): Promise<SongSpectrumAnalysis> {
+  const row = await prisma.songSpectrumAnalysis.create({
+    data: {
+      songTitle: input.songTitle,
+      artistName: input.artistName,
+      youtubeUrl: input.youtubeUrl ?? null,
+      ...(input.ytMetadata !== undefined && {
+        ytMetadata: input.ytMetadata as unknown as Prisma.InputJsonValue,
+      }),
+      audioFileName: input.audioFileName ?? null,
+      ...(input.audioAnalysis !== undefined && {
+        audioAnalysis: input.audioAnalysis as unknown as Prisma.InputJsonValue,
+      }),
+      scores: (input.scores ?? {}) as unknown as Prisma.InputJsonValue,
+      scoreBreakdown: (input.scoreBreakdown ?? {}) as unknown as Prisma.InputJsonValue,
+      songId: input.songId ?? null,
+    },
+  });
+  return serializeAnalysis(row);
+}
+
+export async function updateAnalysis(
+  id: string,
+  patch: Partial<{
+    ytMetadata: YouTubeMetadata;
+    audioFileName: string;
+    audioAnalysis: AudioAnalysisResult;
+    scores: SpectrumScores;
+    scoreBreakdown: Record<string, ScoreAxisDetail>;
+    songId: string | null;
+  }>,
+): Promise<SongSpectrumAnalysis> {
+  const row = await prisma.songSpectrumAnalysis.update({
+    where: { id },
+    data: {
+      ...(patch.ytMetadata !== undefined && {
+        ytMetadata: patch.ytMetadata as unknown as Prisma.InputJsonValue,
+      }),
+      ...(patch.audioFileName !== undefined && { audioFileName: patch.audioFileName }),
+      ...(patch.audioAnalysis !== undefined && {
+        audioAnalysis: patch.audioAnalysis as unknown as Prisma.InputJsonValue,
+      }),
+      ...(patch.scores !== undefined && {
+        scores: patch.scores as unknown as Prisma.InputJsonValue,
+      }),
+      ...(patch.scoreBreakdown !== undefined && {
+        scoreBreakdown: patch.scoreBreakdown as unknown as Prisma.InputJsonValue,
+      }),
+      ...(patch.songId !== undefined && { songId: patch.songId }),
+    },
+  });
+  return serializeAnalysis(row);
+}
+
+export async function listAnalyses(): Promise<SongSpectrumAnalysis[]> {
+  const rows = await prisma.songSpectrumAnalysis.findMany({
+    orderBy: { createdAt: 'desc' },
+  });
+  return rows.map(serializeAnalysis);
+}
+
+export async function getAnalysis(id: string): Promise<SongSpectrumAnalysis | null> {
+  const row = await prisma.songSpectrumAnalysis.findUnique({ where: { id } });
+  return row ? serializeAnalysis(row) : null;
+}
+
+export async function deleteAnalysis(id: string): Promise<void> {
+  await prisma.songSpectrumAnalysis.delete({ where: { id } });
+}
+
+// ---------------------------------------------------------------------------
+// Final score computation — optionally enriched with lyrics from library
+// ---------------------------------------------------------------------------
+
+export async function computeFinalScore(
+  analysisId: string,
+  songId?: string,
+): Promise<SongSpectrumAnalysis> {
+  const existing = await prisma.songSpectrumAnalysis.findUnique({
+    where: { id: analysisId },
+  });
+  if (!existing) {
+    throw Object.assign(new Error('Analysis not found'), { statusCode: 404 });
+  }
+
+  let lyricsContext = '';
+  const linkedSongId = songId ?? existing.songId;
+
+  if (linkedSongId) {
+    const lyric = await prisma.lyric.findFirst({
+      where: { songId: linkedSongId, isPrimary: true },
+      select: { text: true },
+    });
+    if (lyric) lyricsContext = lyric.text.slice(0, 3000);
+  }
+
+  // Re-run scoring with lyrics context if audio analysis is available
+  if (existing.audioAnalysis && lyricsContext) {
+    // Forward to Python worker for re-scoring with lyrics context
+    try {
+      const workerUrl = process.env['AUDIO_WORKER_URL'];
+      if (workerUrl) {
+        // We don't re-upload audio — call a lightweight re-score endpoint
+        // For now, just mark the songId and return (lyrics integration is a Phase 2 enhancement)
+      }
+    } catch {
+      // Non-fatal — proceed with current scores
+    }
+  }
+
+  // Only update songId if it actually changed
+  const patch = linkedSongId !== undefined && linkedSongId !== (existing.songId ?? undefined)
+    ? { songId: linkedSongId }
+    : {};
+  return updateAnalysis(analysisId, patch);
+}
