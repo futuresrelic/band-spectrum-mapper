@@ -25,6 +25,8 @@ import { contributionsRouter } from './routes/contributions.js';
 import { ogRouter } from './routes/og.js';
 import { socialRouter } from './routes/social.js';
 import { songSpectrumRouter } from './routes/songSpectrum.js';
+import { wordCloudRouter } from './routes/wordCloud.js';
+import { songNodesRouter } from './routes/songNodes.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -87,6 +89,12 @@ export function createApp() {
 
   // Song Spectrum Analyzer — audio analysis + YouTube metadata (admin only)
   app.use('/api/song-spectrum', songSpectrumRouter);
+
+  // Word Cloud — aggregated lyric + theme word data (admin only)
+  app.use('/api/word-cloud', wordCloudRouter);
+
+  // Song Nodes — Cytoscape.js graph data (admin only)
+  app.use('/api/song-nodes', songNodesRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.

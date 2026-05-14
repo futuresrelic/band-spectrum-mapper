@@ -12,6 +12,8 @@
   "dependencies": {
     "@band-spectrum-mapper/shared": "*",
     "@tanstack/react-query": "^5.45.0",
+    "@types/cytoscape": "^3.21.9",
+    "cytoscape": "^3.33.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.24.0",

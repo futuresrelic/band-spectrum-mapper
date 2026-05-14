@@ -93,6 +93,39 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 - Knowledge Feed image attachments with caption-based AI context.
 - Song Cloud: axis filter sliders, list view, zoom + pan.
 
+## Word Cloud View + Song Nodes View (2026-05-14)
+
+### Added
+
+**Word Cloud View** (`/word-cloud`)
+- Lyric word cloud aggregated across song / album / artist / universe scope.
+- Words weighted: lyric frequency 55%, AI theme strength 30%, community tags 15%.
+- Custom Archimedean spiral placement algorithm (browser canvas for text
+  measurement, SVG rendering) — no extra dependencies.
+- Non-linear font sizing curve (`weight^0.6`) for dramatic top-word emphasis.
+- Click any word to highlight it in the cloud and view the songs it appears in.
+- Export: 1080×1080 square PNG and 1080×1920 story PNG with dark branding.
+- Social Post Generator integration via floating AI chat panel (`SocialChatPanel`).
+
+**Song Nodes View** (`/song-nodes`)
+- Interactive network graph using Cytoscape.js.
+- Node types: song, album, artist, theme, tag, lyric keyword, emotion/radar dimension.
+- Edge types: same_artist, same_album, shared_tag, similar_radar (cosine ≥ 0.90),
+  conceptual, shared_word.
+- Six layout presets: Artist Universe, Album Cluster, Theme Constellation,
+  Maynard Universe (searches library for Tool / A Perfect Circle / Puscifer),
+  Emotional Similarity Map, Lyrical DNA Map.
+- Dark cinematic design — deep navy background, spectrum-colored nodes, glow effects.
+- Click node to highlight neighbourhood; sidebar shows scores + song/album context.
+- Export: 1080×1080 and 1080×1920 branded PNG via Cytoscape `cy.png()`.
+- Social Post Generator integration via floating AI chat panel.
+
+**API additions**
+- `GET /api/word-cloud?scope&id&limit&minFreq` — weighted word data
+- `GET /api/word-cloud/scopes` — bands, albums, songs with lyrics
+- `GET /api/song-nodes?preset&bandIds&albumId` — Cytoscape graph data
+- `GET /api/song-nodes/scopes` — bands and albums for scope pickers
+
 ## Known Limitations (Initial Build)
 
 - Authentication/authorization not implemented (single-user local deployment)

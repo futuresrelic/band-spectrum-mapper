@@ -39,6 +39,8 @@ import UserProfilePage from './pages/UserProfilePage';
 import SongCloudPage from './pages/SongCloudPage';
 import SocialPostGeneratorPage from './pages/SocialPostGeneratorPage';
 import SongSpectrumPage from './pages/SongSpectrumPage';
+import WordCloudPage from './pages/WordCloudPage';
+import SongNodesPage from './pages/SongNodesPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -118,6 +120,8 @@ export default function App() {
           <Route path="cloud" element={<SongCloudPage />} />
           <Route path="social" element={<SocialPostGeneratorPage />} />
           <Route path="song-spectrum" element={<SongSpectrumPage />} />
+          <Route path="word-cloud" element={<WordCloudPage />} />
+          <Route path="song-nodes" element={<SongNodesPage />} />
           <Route path="discography" element={<DiscographyImportPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="admin/users" element={<AdminUsersPage />} />

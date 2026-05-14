@@ -1,0 +1,558 @@
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { wordCloudApi, type CloudWord, type WordCloudData } from '../api/wordCloud';
+import SocialChatPanel from '../components/social/SocialChatPanel';
+
+// ---------------------------------------------------------------------------
+// Word cloud layout algorithm
+// ---------------------------------------------------------------------------
+
+interface LayoutWord {
+  text: string;
+  weight: number;
+  fontSize: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: string;
+  word: CloudWord;
+}
+
+interface Rect { x: number; y: number; w: number; h: number; }
+
+function overlaps(a: Rect, b: Rect): boolean {
+  const PAD = 4;
+  return !(
+    a.x + a.w + PAD < b.x - PAD ||
+    b.x + b.w + PAD < a.x - PAD ||
+    a.y + a.h + PAD < b.y - PAD ||
+    b.y + b.h + PAD < a.y - PAD
+  );
+}
+
+function weightToFontSize(weight: number, maxWeight: number, min: number, max: number): number {
+  const t = weight / maxWeight;
+  // Non-linear: give top words dramatic size boost
+  const scaled = Math.pow(t, 0.6);
+  return Math.round(min + scaled * (max - min));
+}
+
+function weightToColor(weight: number, maxWeight: number): string {
+  const t = weight / maxWeight;
+  // White (dominant) → indigo-200 → indigo-400 → indigo-700 (minor)
+  if (t > 0.8)  return '#ffffff';
+  if (t > 0.6)  return '#e0e7ff'; // indigo-100
+  if (t > 0.4)  return '#a5b4fc'; // indigo-300
+  if (t > 0.2)  return '#818cf8'; // indigo-400
+  return '#6366f1';                // indigo-500
+}
+
+function measureText(ctx: CanvasRenderingContext2D, text: string, fontSize: number): { w: number; h: number } {
+  ctx.font = `600 ${fontSize}px "Inter", system-ui, sans-serif`;
+  const m = ctx.measureText(text);
+  return { w: m.width, h: fontSize * 1.2 };
+}
+
+function layoutWords(
+  words: CloudWord[],
+  canvasWidth: number,
+  canvasHeight: number,
+): LayoutWord[] {
+  // Offscreen canvas for text measurement
+  const mc = document.createElement('canvas');
+  mc.width = canvasWidth;
+  mc.height = canvasHeight;
+  const ctx = mc.getContext('2d');
+  if (!ctx) return [];
+
+  const maxWeight = Math.max(1, ...words.map((w) => w.weight));
+  const MIN_SIZE = 11;
+  const MAX_SIZE = Math.min(72, Math.floor(canvasWidth / 10));
+
+  const placed: LayoutWord[] = [];
+  const placedRects: Rect[] = [];
+  const cx = canvasWidth / 2;
+  const cy = canvasHeight / 2;
+
+  for (const word of words) {
+    const fontSize = weightToFontSize(word.weight, maxWeight, MIN_SIZE, MAX_SIZE);
+    const { w, h } = measureText(ctx, word.text, fontSize);
+    const color = weightToColor(word.weight, maxWeight);
+
+    let foundX = cx - w / 2;
+    let foundY = cy - h / 2;
+    let placed_ok = false;
+
+    // Archimedean spiral search from centre outward
+    const MAX_STEPS = 3000;
+    const STEP = 0.15;
+    const SPIRAL_SPREAD = 0.45 + (1 - word.weight / maxWeight) * 0.25;
+
+    for (let step = 0; step < MAX_STEPS; step++) {
+      const angle = step * STEP;
+      const r = SPIRAL_SPREAD * step;
+      const tx = cx + r * Math.cos(angle) - w / 2;
+      const ty = cy + r * Math.sin(angle) - h / 2;
+
+      // Keep within canvas bounds with margin
+      const MARGIN = 8;
+      if (tx < MARGIN || ty < MARGIN || tx + w > canvasWidth - MARGIN || ty + h > canvasHeight - MARGIN) {
+        continue;
+      }
+
+      const rect: Rect = { x: tx, y: ty, w, h };
+      if (!placedRects.some((r) => overlaps(rect, r))) {
+        foundX = tx;
+        foundY = ty;
+        placed_ok = true;
+        placedRects.push(rect);
+        break;
+      }
+    }
+
+    if (!placed_ok && placedRects.length > 0) continue; // skip overflow words
+
+    placed.push({
+      text: word.text,
+      weight: word.weight,
+      fontSize,
+      x: foundX + w / 2,  // SVG text anchor = middle
+      y: foundY + h * 0.8, // SVG baseline adjustment
+      w,
+      h,
+      color,
+      word,
+    });
+  }
+
+  return placed;
+}
+
+// ---------------------------------------------------------------------------
+// SVG word cloud renderer
+// ---------------------------------------------------------------------------
+
+interface WordCloudSvgProps {
+  words: CloudWord[];
+  width: number;
+  height: number;
+  onWordClick: (word: CloudWord) => void;
+  highlightWord: string | null;
+  svgRef: React.RefObject<SVGSVGElement>;
+}
+
+function WordCloudSvg({ words, width, height, onWordClick, highlightWord, svgRef }: WordCloudSvgProps) {
+  const [layout, setLayout] = useState<LayoutWord[]>([]);
+
+  useEffect(() => {
+    if (!words.length) { setLayout([]); return; }
+    // Run layout in next tick so canvas is available
+    const id = requestAnimationFrame(() => {
+      setLayout(layoutWords(words, width, height));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [words, width, height]);
+
+  return (
+    <svg
+      ref={svgRef}
+      viewBox={`0 0 ${width} ${height}`}
+      width={width}
+      height={height}
+      style={{ background: '#0d1b2e' }}
+      className="rounded-xl"
+    >
+      <defs>
+        <radialGradient id="bg-grad" cx="50%" cy="50%" r="70%">
+          <stop offset="0%" stopColor="#0d2347" />
+          <stop offset="100%" stopColor="#060d1a" />
+        </radialGradient>
+      </defs>
+      <rect width={width} height={height} fill="url(#bg-grad)" />
+
+      {layout.map((lw) => {
+        const isHighlight = highlightWord === lw.text;
+        const opacity = highlightWord
+          ? isHighlight ? 1 : 0.25
+          : 1;
+        return (
+          <text
+            key={lw.text}
+            x={lw.x}
+            y={lw.y}
+            textAnchor="middle"
+            fontSize={lw.fontSize}
+            fontWeight="600"
+            fontFamily={'"Inter", system-ui, sans-serif'}
+            fill={isHighlight ? '#fff' : lw.color}
+            opacity={opacity}
+            style={{ cursor: 'pointer', userSelect: 'none', transition: 'opacity 0.2s' }}
+            onClick={() => onWordClick(lw.word)}
+          >
+            {lw.text}
+          </text>
+        );
+      })}
+
+      {/* Branding */}
+      <text
+        x={width - 8} y={height - 8}
+        textAnchor="end"
+        fontSize="10"
+        fontFamily="system-ui"
+        fill="#1e3a5f"
+        opacity={0.6}
+      >
+        Band Spectrum Mapper
+      </text>
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Export helpers
+// ---------------------------------------------------------------------------
+
+function exportSvgAsPng(svgEl: SVGSVGElement, filename: string, w: number, h: number): void {
+  const svgData = new XMLSerializer().serializeToString(svgEl);
+  const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#0d1b2e';
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+    }, 'image/png');
+    URL.revokeObjectURL(url);
+  };
+  img.src = url;
+}
+
+// ---------------------------------------------------------------------------
+// Scope selector
+// ---------------------------------------------------------------------------
+
+type ScopeType = 'universe' | 'artist' | 'album' | 'song';
+
+interface ScopeSelectorProps {
+  scope: ScopeType;
+  setScope: (s: ScopeType) => void;
+  scopeId: string;
+  setScopeId: (id: string) => void;
+}
+
+function ScopeSelector({ scope, setScope, scopeId, setScopeId }: ScopeSelectorProps) {
+  const { data: scopes } = useQuery({
+    queryKey: ['word-cloud-scopes'],
+    queryFn: wordCloudApi.getScopes,
+  });
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-2">Scope</div>
+        <div className="flex gap-1.5 flex-wrap">
+          {(['universe', 'artist', 'album', 'song'] as ScopeType[]).map((s) => (
+            <button
+              key={s}
+              className={`px-2.5 py-1 text-xs rounded transition-colors capitalize
+                ${scope === s
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-surface-800 text-surface-300 hover:bg-surface-700'}`}
+              onClick={() => { setScope(s); setScopeId(''); }}
+            >
+              {s === 'universe' ? 'All Songs' : s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {scope === 'artist' && scopes && (
+        <div>
+          <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-1.5">Artist</div>
+          <select
+            className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white"
+            value={scopeId}
+            onChange={(e) => setScopeId(e.target.value)}
+          >
+            <option value="">— pick artist —</option>
+            {scopes.bands.map((b) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {scope === 'album' && scopes && (
+        <div>
+          <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-1.5">Album</div>
+          <select
+            className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white"
+            value={scopeId}
+            onChange={(e) => setScopeId(e.target.value)}
+          >
+            <option value="">— pick album —</option>
+            {scopes.albums.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.band.name} / {a.title}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {scope === 'song' && scopes && (
+        <div>
+          <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-1.5">Song</div>
+          <select
+            className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white"
+            value={scopeId}
+            onChange={(e) => setScopeId(e.target.value)}
+          >
+            <option value="">— pick song —</option>
+            {scopes.songs.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.band.name} / {s.title}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Word detail panel
+// ---------------------------------------------------------------------------
+
+function WordDetail({ word, onClose }: { word: CloudWord; onClose: () => void }) {
+  return (
+    <div className="bg-surface-800 rounded-lg p-4">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <span className="text-lg font-bold text-white">{word.text}</span>
+          <div className="text-xs text-surface-400 mt-0.5">
+            weight {word.weight} · freq {word.frequency}
+            {word.themeBoost > 0.1 && ` · theme ×${(word.themeBoost * 100).toFixed(0)}%`}
+            {word.tagBoost > 0.1 && ` · tag ×${(word.tagBoost * 100).toFixed(0)}%`}
+          </div>
+        </div>
+        <button onClick={onClose} className="text-surface-500 hover:text-white text-sm">✕</button>
+      </div>
+
+      <div className="text-xs text-surface-400 mb-2 font-medium uppercase tracking-wider">
+        Found in {word.songs.length} song{word.songs.length !== 1 ? 's' : ''}
+      </div>
+      <ul className="space-y-1 max-h-48 overflow-y-auto">
+        {word.songs.map((s) => (
+          <li key={s.id} className="text-xs text-surface-200">
+            <span className="text-surface-500">{s.band}</span> — {s.title}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
+const CANVAS_SIZE = 880;
+
+export default function WordCloudPage() {
+  const [scope, setScope] = useState<ScopeType>('universe');
+  const [scopeId, setScopeId] = useState('');
+  const [minFreq, setMinFreq] = useState(2);
+  const [limit, setLimit] = useState(100);
+  const [selectedWord, setSelectedWord] = useState<CloudWord | null>(null);
+  const [highlightWord, setHighlightWord] = useState<string | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  const canQuery = scope === 'universe' || !!scopeId;
+
+  const { data, isFetching, error } = useQuery<WordCloudData>({
+    queryKey: ['word-cloud', scope, scopeId, minFreq, limit],
+    queryFn: () => wordCloudApi.getData({
+      scope,
+      id: scopeId || undefined,
+      minFreq,
+      limit,
+    }),
+    enabled: canQuery,
+  });
+
+  const handleWordClick = useCallback((word: CloudWord) => {
+    setSelectedWord(word);
+    setHighlightWord(word.text);
+  }, []);
+
+  const clearHighlight = useCallback(() => {
+    setSelectedWord(null);
+    setHighlightWord(null);
+  }, []);
+
+  function doExport(size: 1080 | 1920) {
+    if (!svgRef.current || !data) return;
+    const h = size === 1920 ? 1920 : 1080;
+    exportSvgAsPng(
+      svgRef.current,
+      `word-cloud-${data.label.replace(/[^a-z0-9]+/gi, '-')}-${size}x${h}.png`,
+      1080, h,
+    );
+  }
+
+  const words = data?.words ?? [];
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white">
+      <div className="max-w-7xl mx-auto px-4 py-8 flex gap-6">
+
+        {/* ── Sidebar ── */}
+        <aside className="w-56 shrink-0 space-y-6">
+          <div>
+            <h1 className="text-sm font-bold text-white uppercase tracking-widest">Word Cloud</h1>
+            <p className="text-xs text-surface-500 mt-1">
+              Dominant words weighted by lyrics, AI themes, and tags.
+            </p>
+          </div>
+
+          <ScopeSelector
+            scope={scope} setScope={setScope}
+            scopeId={scopeId} setScopeId={setScopeId}
+          />
+
+          <div>
+            <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-2">
+              Min frequency: {minFreq}
+            </div>
+            <input
+              type="range" min={1} max={10} value={minFreq}
+              onChange={(e) => setMinFreq(Number(e.target.value))}
+              className="w-full accent-indigo-500"
+            />
+          </div>
+
+          <div>
+            <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-2">
+              Max words: {limit}
+            </div>
+            <input
+              type="range" min={20} max={200} step={10} value={limit}
+              onChange={(e) => setLimit(Number(e.target.value))}
+              className="w-full accent-indigo-500"
+            />
+          </div>
+
+          {data && (
+            <div className="text-xs text-surface-500 space-y-0.5">
+              <div>{data.words.length} words shown</div>
+              <div>{data.uniqueWords} unique tokens</div>
+              <div>{data.totalTokens.toLocaleString()} total tokens</div>
+            </div>
+          )}
+
+          {data && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Export</div>
+              <button
+                className="w-full px-3 py-2 bg-surface-700 hover:bg-surface-600 text-xs text-white rounded transition-colors"
+                onClick={() => doExport(1080)}
+              >
+                Download 1080×1080
+              </button>
+              <button
+                className="w-full px-3 py-2 bg-surface-700 hover:bg-surface-600 text-xs text-white rounded transition-colors"
+                onClick={() => doExport(1920)}
+              >
+                Download Story 1080×1920
+              </button>
+            </div>
+          )}
+
+          {selectedWord && (
+            <WordDetail word={selectedWord} onClose={clearHighlight} />
+          )}
+        </aside>
+
+        {/* ── Main ── */}
+        <main className="flex-1 min-w-0">
+          {data?.label && (
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-surface-300">{data.label}</h2>
+              {highlightWord && (
+                <button
+                  onClick={clearHighlight}
+                  className="text-xs text-indigo-400 hover:text-indigo-300"
+                >
+                  Clear highlight
+                </button>
+              )}
+            </div>
+          )}
+
+          {!canQuery && (
+            <div className="flex items-center justify-center h-96 text-surface-500 text-sm">
+              Select a {scope} to see the word cloud.
+            </div>
+          )}
+
+          {isFetching && (
+            <div className="flex items-center justify-center h-96">
+              <div className="flex gap-1.5">
+                {[0,1,2].map((i) => (
+                  <div key={i} className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"
+                    style={{ animationDelay: `${i * 0.15}s` }} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="text-red-400 text-sm p-4">{String(error)}</div>
+          )}
+
+          {!isFetching && canQuery && !words.length && data && (
+            <div className="flex items-center justify-center h-96 text-surface-500 text-sm">
+              No words found. Try lowering min frequency or choosing a larger scope.
+            </div>
+          )}
+
+          {!isFetching && words.length > 0 && (
+            <div className="flex justify-center">
+              <WordCloudSvg
+                words={words}
+                width={CANVAS_SIZE}
+                height={CANVAS_SIZE}
+                onWordClick={handleWordClick}
+                highlightWord={highlightWord}
+                svgRef={svgRef}
+              />
+            </div>
+          )}
+
+          {!isFetching && words.length > 0 && (
+            <div className="mt-4 text-xs text-surface-600 text-center">
+              Click any word to see which songs contain it.
+              Words are sized by combined lyric frequency + AI theme strength + tag weight.
+            </div>
+          )}
+        </main>
+      </div>
+
+      <SocialChatPanel songLabel={data ? `Word Cloud: ${data.label}` : 'Word Cloud'} />
+    </div>
+  );
+}

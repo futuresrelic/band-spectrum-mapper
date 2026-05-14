@@ -1,0 +1,675 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import cytoscape from 'cytoscape';
+import type { Core, NodeSingular, EventObject } from 'cytoscape';
+import {
+  songNodesApi,
+  LAYOUT_PRESETS,
+  type GraphLayoutPreset,
+  type GraphNode,
+  type GraphEdge,
+  type NodeType,
+} from '../api/songNodes';
+import { AXIS_LABELS } from '@band-spectrum-mapper/shared';
+import SocialChatPanel from '../components/social/SocialChatPanel';
+
+// ---------------------------------------------------------------------------
+// Color maps
+// ---------------------------------------------------------------------------
+
+const NODE_COLORS: Record<NodeType, string> = {
+  song:     '#6366f1',
+  album:    '#8b5cf6',
+  artist:   '#f59e0b',
+  theme:    '#10b981',
+  tag:      '#06b6d4',
+  keyword:  '#64748b',
+  emotion:  '#ec4899',
+};
+
+const EDGE_COLORS: Record<string, string> = {
+  same_artist:   '#f59e0b44',
+  same_album:    '#8b5cf644',
+  shared_tag:    '#06b6d444',
+  similar_radar: '#ec489944',
+  conceptual:    '#10b98144',
+  shared_word:   '#64748b44',
+};
+
+// ---------------------------------------------------------------------------
+// Cytoscape style
+// ---------------------------------------------------------------------------
+
+function buildCyStyle() {
+  return [
+    {
+      selector: 'node',
+      style: {
+        'background-color': 'data(color)',
+        'label': 'data(label)',
+        'font-size': '11px',
+        'font-family': '"Inter", system-ui, sans-serif',
+        'font-weight': '600',
+        'color': '#e2e8f0',
+        'text-valign': 'bottom',
+        'text-halign': 'center',
+        'text-margin-y': '4px',
+        'text-outline-color': '#060d1a',
+        'text-outline-width': '2px',
+        'width': 'data(size)',
+        'height': 'data(size)',
+        'border-width': '1.5px',
+        'border-color': '#ffffff22',
+        'min-zoomed-font-size': 9,
+      },
+    },
+    {
+      selector: 'node[type = "song"]',
+      style: { 'width': 24, 'height': 24 },
+    },
+    {
+      selector: 'node[type = "artist"]',
+      style: { 'width': 42, 'height': 42, 'font-size': '13px' },
+    },
+    {
+      selector: 'node[type = "album"]',
+      style: { 'width': 32, 'height': 32 },
+    },
+    {
+      selector: 'node[type = "theme"]',
+      style: { 'width': 28, 'height': 28, 'shape': 'diamond' },
+    },
+    {
+      selector: 'node[type = "tag"]',
+      style: { 'width': 22, 'height': 22, 'shape': 'tag' },
+    },
+    {
+      selector: 'node[type = "keyword"]',
+      style: { 'width': 18, 'height': 18, 'shape': 'rectangle' },
+    },
+    {
+      selector: 'node[type = "emotion"]',
+      style: { 'width': 36, 'height': 36, 'shape': 'pentagon', 'font-size': '12px' },
+    },
+    {
+      selector: 'node:selected',
+      style: {
+        'border-width': '3px',
+        'border-color': '#fff',
+        'background-color': '#fff',
+        'color': '#000',
+      },
+    },
+    {
+      selector: 'edge',
+      style: {
+        'width': 1.2,
+        'line-color': 'data(edgeColor)',
+        'curve-style': 'bezier',
+        'opacity': 0.7,
+      },
+    },
+    {
+      selector: 'edge[edgeWeight > 0.8]',
+      style: { 'width': 2.5 },
+    },
+    {
+      selector: '.faded',
+      style: { 'opacity': 0.12 },
+    },
+    {
+      selector: '.highlighted',
+      style: { 'opacity': 1 },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Cytoscape layout configs per preset
+// ---------------------------------------------------------------------------
+
+function buildLayoutConfig(preset: GraphLayoutPreset) {
+  const base = { animate: true, animationDuration: 600, fit: true, padding: 40 };
+  switch (preset) {
+    case 'album-cluster':
+      return { ...base, name: 'concentric',
+        concentric: (n: NodeSingular) => n.data('type') === 'album' ? 3
+          : n.data('type') === 'song' ? 2 : 1,
+        levelWidth: () => 1 };
+
+    case 'theme-constellation':
+      return { ...base, name: 'cose',
+        nodeRepulsion: () => 12000,
+        edgeElasticity: () => 50,
+        idealEdgeLength: () => 60 };
+
+    case 'emotional-similarity':
+      return { ...base, name: 'cose',
+        nodeRepulsion: () => 8000,
+        edgeElasticity: () => 200,
+        idealEdgeLength: () => 80,
+        gravity: 1.2 };
+
+    case 'lyrical-dna':
+      return { ...base, name: 'cose',
+        nodeRepulsion: () => 10000,
+        edgeElasticity: () => 80,
+        idealEdgeLength: () => 70 };
+
+    case 'artist-universe':
+    case 'maynard-universe':
+    default:
+      return { ...base, name: 'cose',
+        nodeRepulsion: () => 15000,
+        edgeElasticity: () => 45,
+        idealEdgeLength: () => 80,
+        gravity: 0.8 };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Build Cytoscape element array from API data
+// ---------------------------------------------------------------------------
+
+function buildElements(nodes: GraphNode[], edges: GraphEdge[]) {
+  const nodeEls = nodes.map((n) => ({
+    data: {
+      id: n.id,
+      label: n.label.length > 22 ? n.label.slice(0, 20) + '…' : n.label,
+      fullLabel: n.label,
+      type: n.type,
+      color: n.data.color ?? NODE_COLORS[n.type],
+      size: n.data.size ?? undefined,
+      scores: n.data.scores,
+      bandName: n.data.bandName,
+      albumTitle: n.data.albumTitle,
+      count: n.data.count,
+    },
+  }));
+
+  const edgeEls = edges.map((e) => ({
+    data: {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      edgeType: e.type,
+      edgeColor: EDGE_COLORS[e.type] ?? '#ffffff22',
+      edgeWeight: e.weight,
+      label: e.label,
+    },
+  }));
+
+  return [...nodeEls, ...edgeEls];
+}
+
+// ---------------------------------------------------------------------------
+// Node detail panel
+// ---------------------------------------------------------------------------
+
+function NodeDetailPanel({
+  node,
+  onClose,
+}: {
+  node: ReturnType<Core['$']> | null;
+  onClose: () => void;
+}) {
+  if (!node || node.length === 0) return null;
+
+  const d = node.data() as {
+    fullLabel: string;
+    type: NodeType;
+    scores?: Record<string, number>;
+    bandName?: string;
+    albumTitle?: string;
+    count?: number;
+  };
+
+  return (
+    <div className="bg-surface-800 rounded-lg p-3 text-xs">
+      <div className="flex items-start justify-between mb-2">
+        <div>
+          <div className="font-bold text-white text-sm">{d.fullLabel}</div>
+          <div
+            className="text-xs font-semibold uppercase tracking-wider mt-0.5"
+            style={{ color: NODE_COLORS[d.type] }}
+          >
+            {d.type}
+          </div>
+        </div>
+        <button onClick={onClose} className="text-surface-500 hover:text-white">✕</button>
+      </div>
+
+      {d.bandName && (
+        <div className="text-surface-400 mb-1">{d.bandName}{d.albumTitle ? ` / ${d.albumTitle}` : ''}</div>
+      )}
+      {d.count !== undefined && (
+        <div className="text-surface-400 mb-1">Used in {d.count} song{d.count !== 1 ? 's' : ''}</div>
+      )}
+      {d.scores && (
+        <div className="mt-2 space-y-1">
+          {Object.entries(d.scores).map(([axis, val]) => (
+            <div key={axis} className="flex items-center gap-2">
+              <span className="text-surface-500 w-20 text-right">
+                {AXIS_LABELS[axis as keyof typeof AXIS_LABELS] ?? axis}
+              </span>
+              <div className="flex-1 h-1.5 bg-surface-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full"
+                  style={{ width: `${(val / 10) * 100}%`, background: NODE_COLORS.song }}
+                />
+              </div>
+              <span className="text-surface-300 font-mono w-5 text-right">{val}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Export helpers
+// ---------------------------------------------------------------------------
+
+function exportCytoscapePng(
+  cy: Core,
+  filename: string,
+  width = 1080,
+  height = 1080,
+): void {
+  const dataUrl = cy.png({
+    output: 'base64uri',
+    bg: '#060d1a',
+    scale: Math.ceil(width / cy.width()),
+    full: false,
+  });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#060d1a';
+  ctx.fillRect(0, 0, width, height);
+
+  const img = new Image();
+  img.onload = () => {
+    // Centre the graph in the export frame
+    const aspect = img.width / img.height;
+    let dw = width, dh = height;
+    if (aspect > 1) dh = width / aspect;
+    else dw = height * aspect;
+    const dx = (width - dw) / 2;
+    const dy = (height - dh) / 2;
+    ctx.drawImage(img, dx, dy, dw, dh);
+
+    // Branding
+    ctx.fillStyle = '#1e3a5f99';
+    ctx.font = 'bold 14px "Inter", system-ui';
+    ctx.textAlign = 'right';
+    ctx.fillText('Band Spectrum Mapper', width - 16, height - 16);
+
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+    }, 'image/png');
+  };
+  img.src = dataUrl;
+}
+
+// ---------------------------------------------------------------------------
+// Legend
+// ---------------------------------------------------------------------------
+
+function GraphLegend() {
+  const types: { type: NodeType; label: string; shape: string }[] = [
+    { type: 'song',    label: 'Song',     shape: '●' },
+    { type: 'album',   label: 'Album',    shape: '●' },
+    { type: 'artist',  label: 'Artist',   shape: '●' },
+    { type: 'theme',   label: 'Theme',    shape: '◆' },
+    { type: 'tag',     label: 'Tag',      shape: '■' },
+    { type: 'keyword', label: 'Keyword',  shape: '■' },
+    { type: 'emotion', label: 'Emotion',  shape: '⬠' },
+  ];
+  const edges: { type: string; label: string }[] = [
+    { type: 'same_artist',   label: 'Same artist' },
+    { type: 'same_album',    label: 'Same album' },
+    { type: 'shared_tag',    label: 'Shared tag' },
+    { type: 'similar_radar', label: 'Similar radar' },
+    { type: 'conceptual',    label: 'AI theme link' },
+    { type: 'shared_word',   label: 'Shared word' },
+  ];
+  return (
+    <div className="bg-surface-800/60 rounded-lg p-3 text-xs space-y-3">
+      <div>
+        <div className="text-surface-400 uppercase tracking-wider font-semibold mb-1.5">Nodes</div>
+        <div className="space-y-1">
+          {types.map((t) => (
+            <div key={t.type} className="flex items-center gap-2">
+              <span style={{ color: NODE_COLORS[t.type] }}>{t.shape}</span>
+              <span className="text-surface-300">{t.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div className="text-surface-400 uppercase tracking-wider font-semibold mb-1.5">Edges</div>
+        <div className="space-y-1">
+          {edges.map((e) => (
+            <div key={e.type} className="flex items-center gap-2">
+              <div
+                className="w-6 h-0.5 rounded"
+                style={{ background: EDGE_COLORS[e.type]?.replace('44', 'cc') }}
+              />
+              <span className="text-surface-300">{e.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
+export default function SongNodesPage() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const cyRef = useRef<Core | null>(null);
+  const [preset, setPreset] = useState<GraphLayoutPreset>('artist-universe');
+  const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
+  const [selectedAlbumId, setSelectedAlbumId] = useState('');
+  const [selectedNode, setSelectedNode] = useState<ReturnType<Core['$']> | null>(null);
+  const [graphLabel, setGraphLabel] = useState('');
+
+  const { data: scopes } = useQuery({
+    queryKey: ['song-nodes-scopes'],
+    queryFn: songNodesApi.getScopes,
+  });
+
+  const needsAlbum = preset === 'album-cluster';
+  const isUniversal = preset === 'maynard-universe';
+
+  const canQuery = isUniversal
+    || (needsAlbum && !!selectedAlbumId)
+    || (!needsAlbum && selectedBandIds.length > 0);
+
+  const { data: graphData, isFetching, error } = useQuery({
+    queryKey: ['song-nodes', preset, selectedBandIds.join(','), selectedAlbumId],
+    queryFn: () => songNodesApi.getGraph({
+      preset,
+      bandIds: selectedBandIds,
+      albumId: selectedAlbumId || undefined,
+    }),
+    enabled: canQuery,
+  });
+
+  // ── Mount / update Cytoscape ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!containerRef.current || !graphData) return;
+
+    // Destroy existing instance
+    if (cyRef.current) {
+      cyRef.current.destroy();
+      cyRef.current = null;
+    }
+
+    const elements = buildElements(graphData.nodes, graphData.edges);
+    if (!elements.length) return;
+
+    const cy = cytoscape({
+      container: containerRef.current,
+      elements,
+      style: buildCyStyle() as unknown as cytoscape.StylesheetStyle[],
+      layout: buildLayoutConfig(graphData.preset),
+      minZoom: 0.1,
+      maxZoom: 6,
+    });
+
+    cyRef.current = cy;
+    setGraphLabel(graphData.label);
+
+    // Node click → highlight neighbours, show detail
+    cy.on('tap', 'node', (evt: EventObject) => {
+      const node = evt.target as NodeSingular;
+      cy.elements().removeClass('highlighted faded');
+      const neighbourhood = node.closedNeighborhood();
+      neighbourhood.addClass('highlighted');
+      cy.elements().not(neighbourhood).addClass('faded');
+      setSelectedNode(cy.$(`#${CSS.escape(node.id())}`));
+    });
+
+    // Background click → reset
+    cy.on('tap', (evt: EventObject) => {
+      if (evt.target === cy) {
+        cy.elements().removeClass('highlighted faded');
+        setSelectedNode(null);
+      }
+    });
+
+    return () => {
+      cy.destroy();
+      cyRef.current = null;
+    };
+  }, [graphData]);
+
+  const toggleBand = useCallback((id: string) => {
+    setSelectedBandIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }, []);
+
+  function doExport(size: 1080 | 1920) {
+    if (!cyRef.current || !graphData) return;
+    exportCytoscapePng(
+      cyRef.current,
+      `song-nodes-${graphData.preset}-${size}x${size === 1920 ? 1920 : 1080}.png`,
+      1080,
+      size === 1920 ? 1920 : 1080,
+    );
+  }
+
+  function resetLayout() {
+    if (!cyRef.current || !graphData) return;
+    cyRef.current.layout(buildLayoutConfig(graphData.preset) as cytoscape.LayoutOptions).run();
+  }
+
+  function fitView() {
+    cyRef.current?.fit(undefined, 40);
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white">
+      <div className="max-w-7xl mx-auto px-4 py-8 flex gap-5">
+
+        {/* ── Sidebar ── */}
+        <aside className="w-56 shrink-0 space-y-5">
+          <div>
+            <h1 className="text-sm font-bold text-white uppercase tracking-widest">Song Nodes</h1>
+            <p className="text-xs text-surface-500 mt-1">
+              Interactive network of songs, themes, and connections.
+            </p>
+          </div>
+
+          {/* Layout preset picker */}
+          <div>
+            <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-2">Layout</div>
+            <div className="space-y-1">
+              {LAYOUT_PRESETS.map((lp) => (
+                <button
+                  key={lp.id}
+                  className={`w-full text-left px-2.5 py-1.5 text-xs rounded transition-colors
+                    ${preset === lp.id
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-surface-800 text-surface-300 hover:bg-surface-700'}`}
+                  onClick={() => {
+                    setPreset(lp.id);
+                    setSelectedAlbumId('');
+                    setSelectedNode(null);
+                  }}
+                  title={lp.description}
+                >
+                  {lp.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Band picker (most presets) */}
+          {!isUniversal && !needsAlbum && scopes && (
+            <div>
+              <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-2">
+                Artists
+              </div>
+              <div className="max-h-40 overflow-y-auto space-y-0.5">
+                {scopes.bands.map((b) => (
+                  <label key={b.id} className="flex items-center gap-2 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={selectedBandIds.includes(b.id)}
+                      onChange={() => toggleBand(b.id)}
+                      className="accent-indigo-500"
+                    />
+                    <span className={`text-xs transition-colors
+                      ${selectedBandIds.includes(b.id) ? 'text-white' : 'text-surface-400 group-hover:text-surface-200'}`}>
+                      {b.name}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Album picker */}
+          {needsAlbum && scopes && (
+            <div>
+              <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-2">Album</div>
+              <select
+                className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white"
+                value={selectedAlbumId}
+                onChange={(e) => setSelectedAlbumId(e.target.value)}
+              >
+                <option value="">— pick album —</option>
+                {scopes.albums.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.band.name} / {a.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Graph controls */}
+          {cyRef.current && (
+            <div className="flex gap-1.5">
+              <button
+                className="flex-1 px-2 py-1.5 bg-surface-700 hover:bg-surface-600 text-xs text-white rounded"
+                onClick={fitView}
+              >
+                Fit
+              </button>
+              <button
+                className="flex-1 px-2 py-1.5 bg-surface-700 hover:bg-surface-600 text-xs text-white rounded"
+                onClick={resetLayout}
+              >
+                Re-layout
+              </button>
+            </div>
+          )}
+
+          {/* Export */}
+          {graphData?.nodes.length && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Export</div>
+              <button
+                className="w-full px-3 py-2 bg-surface-700 hover:bg-surface-600 text-xs text-white rounded transition-colors"
+                onClick={() => doExport(1080)}
+              >
+                Download 1080×1080
+              </button>
+              <button
+                className="w-full px-3 py-2 bg-surface-700 hover:bg-surface-600 text-xs text-white rounded transition-colors"
+                onClick={() => doExport(1920)}
+              >
+                Download Story 1080×1920
+              </button>
+            </div>
+          )}
+
+          {/* Node detail */}
+          {selectedNode && selectedNode.length > 0 && (
+            <NodeDetailPanel node={selectedNode} onClose={() => {
+              setSelectedNode(null);
+              cyRef.current?.elements().removeClass('highlighted faded');
+            }} />
+          )}
+
+          <GraphLegend />
+        </aside>
+
+        {/* ── Graph canvas ── */}
+        <main className="flex-1 min-w-0">
+          {graphLabel && (
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-surface-300">{graphLabel}</h2>
+              {graphData && (
+                <span className="text-xs text-surface-500">
+                  {graphData.nodes.length} nodes · {graphData.edges.length} edges
+                </span>
+              )}
+            </div>
+          )}
+
+          {!canQuery && (
+            <div className="flex items-center justify-center h-[600px] rounded-xl bg-surface-900/50 border border-surface-800 text-surface-500 text-sm">
+              {isUniversal
+                ? 'Loading Maynard Universe…'
+                : needsAlbum
+                  ? 'Select an album to build the cluster.'
+                  : 'Select one or more artists to build the graph.'}
+            </div>
+          )}
+
+          {isFetching && (
+            <div className="flex items-center justify-center h-[600px] rounded-xl bg-surface-900/50 border border-surface-800">
+              <div className="flex gap-1.5">
+                {[0,1,2].map((i) => (
+                  <div key={i} className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"
+                    style={{ animationDelay: `${i * 0.15}s` }} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="text-red-400 text-sm p-4">{String(error)}</div>
+          )}
+
+          {!isFetching && canQuery && graphData?.nodes.length === 0 && (
+            <div className="flex items-center justify-center h-[600px] rounded-xl bg-surface-900/50 border border-surface-800 text-surface-500 text-sm">
+              No graph data — try a different layout or add songs to the library.
+            </div>
+          )}
+
+          <div
+            ref={containerRef}
+            className={`rounded-xl overflow-hidden border border-surface-800 transition-opacity duration-300
+              ${isFetching ? 'opacity-0 pointer-events-none h-0' : 'opacity-100'}`}
+            style={{ width: '100%', height: '680px', background: '#060d1a' }}
+          />
+
+          {!isFetching && graphData?.nodes.length && (
+            <p className="mt-3 text-xs text-surface-600 text-center">
+              Click any node to highlight its connections. Scroll to zoom · drag to pan.
+            </p>
+          )}
+        </main>
+      </div>
+
+      <SocialChatPanel songLabel={graphData ? `Song Nodes: ${graphData.label}` : 'Song Nodes'} />
+    </div>
+  );
+}
