@@ -111,23 +111,32 @@ def detect_sections(y: np.ndarray, sr: int, n_sections: int = 8) -> list[dict]:
 # Time signature / meter detection
 # ---------------------------------------------------------------------------
 
-# Candidate meters to test (numerator of the time signature)
-_CANDIDATE_METERS = [2, 3, 4, 5, 6, 7, 8, 9, 12]
+# Candidate meter numerators (beats per measure)
+_CANDIDATE_METERS = [2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13]
+
+# Default librosa hop length — must match what onset_strength uses
+_HOP = 512
+
 
 def _sig_string(numerator: int, bpm: float) -> str:
     """Map a meter numerator to a conventional time-signature string."""
-    mapping = {
-        2: "2/4",
-        3: "3/4",
-        4: "4/4",
-        6: "6/8",
-        12: "12/8",
-    }
-    if numerator in mapping:
-        return mapping[numerator]
-    # For odd / compound meters use /8 when tempo is fast (feels like subdivisions)
-    denom = 8 if bpm >= 108 else 4
+    simple = {2: "2/4", 3: "3/4", 4: "4/4", 6: "6/8", 8: "8/8", 12: "12/8"}
+    if numerator in simple:
+        return simple[numerator]
+    # Odd / compound: denominator 8 for fast tempos (subdivided pulse), 4 for slow
+    denom = 8 if bpm >= 100 else 4
     return f"{numerator}/{denom}"
+
+
+def _acf_at_lag(env: np.ndarray, lag: int) -> float:
+    """Pearson correlation of `env` with itself shifted by `lag` samples."""
+    if lag <= 0 or lag >= len(env):
+        return 0.0
+    n = len(env) - lag
+    if n < 20:
+        return 0.0
+    r = float(np.corrcoef(env[lag:], env[:n])[0, 1])
+    return r if not np.isnan(r) else 0.0
 
 
 def detect_time_signature(y: np.ndarray, sr: int) -> tuple[str, bool]:
@@ -136,61 +145,81 @@ def detect_time_signature(y: np.ndarray, sr: int) -> tuple[str, bool]:
 
     Method
     ------
-    1. Beat-track to get beat frames.
-    2. Sample onset-strength at each beat position.
-    3. For each candidate meter N, compute the autocorrelation of the beat-
-       strength sequence at lag N.  The meter with the highest autocorrelation
-       (indicating that every Nth beat is similar in strength — a regular
-       downbeat pattern) wins.
-    4. Polyrhythmic flag: True when the winning meter is odd/compound (5, 7, 9+)
-       *or* when beat-interval variation is high enough to suggest meter changes.
+    1. Beat-track to find the quarter-note BPM.
+    2. Compute frame-level onset-strength autocorrelation (ACF) at lags that
+       correspond to N beats at *both* the quarter-note AND eighth-note level.
+       Using frame-level ACF avoids the "every 2nd beat looks similar in 4/4"
+       bias that plagues beat-sampled ACF.
+    3. For each candidate N, compute a "primary-period score":
+         acf[N] - max(acf[M] for M in strict-divisors-of-N) * 0.75
+       This penalises lags that are already explained by a shorter sub-period,
+       so 4/4 is preferred over 2/4 when both ACF values are similar.
+    4. Polyrhythmic: True when the best meter is odd/compound (5, 7, 9, 11, 13)
+       OR when the inter-beat-interval coefficient of variation is high (> 0.25),
+       indicating that the pulse is unsteady / the meter changes across sections.
 
     Returns
     -------
-    (time_signature, polyrhythmic)  e.g. ("7/8", True)
+    (time_signature: str, polyrhythmic: bool)  e.g. ("7/8", True)
     """
     try:
-        tempo_arr, beat_frames = librosa.beat.beat_track(y=y, sr=sr, units='frames')
+        tempo_arr, beat_frames = librosa.beat.beat_track(y=y, sr=sr, units='frames',
+                                                          hop_length=_HOP)
         bpm = float(np.mean(tempo_arr)) if hasattr(tempo_arr, '__len__') else float(tempo_arr)
     except Exception:
         return "4/4", False
 
-    if len(beat_frames) < 8:
+    if bpm <= 0 or len(beat_frames) < 8:
         return "4/4", False
 
-    # Onset strength sampled at each beat frame
     try:
-        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=_HOP)
     except Exception:
         return "4/4", False
 
-    beat_strengths = onset_env[np.clip(beat_frames, 0, len(onset_env) - 1)]
+    fps = sr / _HOP  # frames per second
 
-    # Autocorrelation at each candidate lag
-    best_n = 4
-    best_corr = -np.inf
+    # --- Frame-level ACF at candidate meter lags ----------------------------
+    # Try both quarter-note and eighth-note pulse levels so we catch odd
+    # time signatures like 7/8 even when librosa tracks quarter-note BPM.
+    frames_per_qtr  = fps * 60.0 / bpm          # quarter note pulse
+    frames_per_8th  = fps * 60.0 / (bpm * 2.0)  # eighth note pulse
 
+    acf: dict[int, float] = {}
     for n in _CANDIDATE_METERS:
-        if len(beat_strengths) <= n * 2:
-            continue
-        bs = beat_strengths
-        r = float(np.corrcoef(bs[n:], bs[:-n])[0, 1])
-        if np.isnan(r):
-            continue
-        # Prefer smaller meters when correlation is equal (Occam's razor)
-        bonus = -n * 0.002
-        if r + bonus > best_corr:
-            best_corr = r + bonus
-            best_n = n
+        # Quarter-note level
+        lag_q = int(round(n * frames_per_qtr))
+        r_q   = _acf_at_lag(onset_env, lag_q)
+        # Eighth-note level (same N but at 2× pulse rate)
+        lag_8 = int(round(n * frames_per_8th))
+        r_8   = _acf_at_lag(onset_env, lag_8)
+        # Keep the stronger of the two interpretations
+        acf[n] = max(r_q, r_8)
 
+    # --- Primary-period score: penalise sub-harmonics -----------------------
+    def primary_score(n: int) -> float:
+        r = acf[n]
+        # Find the highest ACF value among strict divisors present in our set
+        divisor_acfs = [acf[m] for m in _CANDIDATE_METERS if m < n and n % m == 0]
+        if divisor_acfs:
+            # n is penalised if a sub-divisor already captures most of the periodicity
+            sub = max(divisor_acfs)
+            r -= sub * 0.75
+        return r
+
+    primary_scores = {n: primary_score(n) for n in _CANDIDATE_METERS if acf[n] > 0}
+    if not primary_scores:
+        return "4/4", False
+
+    best_n = max(primary_scores, key=lambda k: primary_scores[k])
     time_sig = _sig_string(best_n, bpm)
 
-    # Polyrhythmic: complex meter (5, 7, 9+) or high inter-beat-interval variance
+    # --- Polyrhythmic flag --------------------------------------------------
     ibis = np.diff(beat_frames.astype(float))
     ibi_cv = float(np.std(ibis) / (np.mean(ibis) + 1e-6))
-    complex_meter = best_n not in (2, 3, 4, 6, 8, 12)
-    # IBI coefficient-of-variation > 0.22 suggests unsteady / mixed meter
-    irregular_pulse = ibi_cv > 0.22
+    complex_meter  = best_n not in (2, 3, 4, 6, 8, 12)
+    # IBI CV > 0.25 → beat intervals are uneven → mixed/changing meter
+    irregular_pulse = ibi_cv > 0.25
 
     polyrhythmic = bool(complex_meter or (irregular_pulse and best_n not in (2, 4, 8)))
     return time_sig, polyrhythmic
@@ -214,10 +243,10 @@ def analyze_audio(file_path: str) -> dict:
     duration = float(librosa.get_duration(y=y, sr=sr))
 
     # ---- BPM ----------------------------------------------------------------
-    tempo_arr, _ = librosa.beat.beat_track(y=y, sr=sr)
+    tempo_arr, _ = librosa.beat.beat_track(y=y, sr=sr, hop_length=_HOP)
     bpm = float(np.mean(tempo_arr)) if hasattr(tempo_arr, "__len__") else float(tempo_arr)
     # Rough confidence from onset strength variance
-    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=_HOP)
     bpm_confidence = round(
         float(np.clip(np.std(onset_env) / (np.mean(onset_env) + 1e-6), 0, 1)), 3
     )

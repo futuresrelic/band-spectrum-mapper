@@ -5,6 +5,7 @@ import type {
   SongSpectrumAnalysis,
   YouTubeMetadata,
   AudioAnalysisResult,
+  MusicBrainzSongData,
   ScoreAxisDetail,
 } from '@band-spectrum-mapper/shared';
 import { songSpectrumApi } from '../api/songSpectrum';
@@ -253,6 +254,48 @@ function AnalysisList({
 }
 
 // ---------------------------------------------------------------------------
+// MusicBrainz metadata panel
+// ---------------------------------------------------------------------------
+
+function MusicBrainzPanel({ data }: { data: MusicBrainzSongData }) {
+  const allTags = [...data.genres, ...data.tags].slice(0, 14);
+  return (
+    <div className="bg-surface-800/50 border border-surface-700/50 rounded-lg px-4 py-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-bold uppercase tracking-widest text-surface-400">
+          MusicBrainz
+        </span>
+        {data.releaseTitle && (
+          <span className="text-xs text-surface-500">
+            {data.releaseTitle}{data.releaseDate ? ` · ${data.releaseDate.slice(0, 4)}` : ''}
+          </span>
+        )}
+      </div>
+      {data.disambiguation && (
+        <p className="text-xs text-surface-400 italic">{data.disambiguation}</p>
+      )}
+      {allTags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {data.genres.map((g) => (
+            <span key={g} className="text-xs bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 rounded px-2 py-0.5">
+              {g}
+            </span>
+          ))}
+          {data.tags.slice(0, 8).map((t) => (
+            <span key={t} className="text-xs bg-surface-700 text-surface-400 rounded px-2 py-0.5">
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+      {allTags.length === 0 && (
+        <p className="text-xs text-surface-600">No genre tags found in MusicBrainz.</p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Library band/song picker — links analysis to an existing library song
 // ---------------------------------------------------------------------------
 
@@ -393,6 +436,8 @@ export default function SongSpectrumPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
   const [selectedBandId, setSelectedBandId] = useState<string | null>(null);
+  const [analysisNotes, setAnalysisNotes] = useState('');
+  const [reAnalysisId, setReAnalysisId] = useState<string | null>(null);
 
   // YouTube fetch mutation
   const ytMutation = useMutation({
@@ -415,6 +460,8 @@ export default function SongSpectrumPage() {
         artistName: artistName.trim(),
         youtubeUrl: youtubeUrl.trim() || undefined,
         ...(selectedSongId ? { songId: selectedSongId } : {}),
+        ...(reAnalysisId ? { analysisId: reAnalysisId } : {}),
+        ...(analysisNotes.trim() ? { analysisNotes: analysisNotes.trim() } : {}),
       }),
     onSuccess: (result) => {
       setActiveAnalysis(result);
@@ -447,7 +494,22 @@ export default function SongSpectrumPage() {
     setError(null);
     setSelectedSongId(null);
     setSelectedBandId(null);
+    setAnalysisNotes('');
+    setReAnalysisId(null);
     setStep('identity');
+  }
+
+  function startReAnalyze(analysis: SongSpectrumAnalysis) {
+    setSongTitle(analysis.songTitle);
+    setArtistName(analysis.artistName);
+    setYoutubeUrl(analysis.youtubeUrl ?? '');
+    setYtMeta(analysis.ytMetadata);
+    setAudioFile(null);
+    setActiveAnalysis(analysis);
+    setError(null);
+    setReAnalysisId(analysis.id);
+    setAnalysisNotes(analysis.audioAnalysis?.userNotes ?? '');
+    setStep('upload');
   }
 
   function exportJson() {
@@ -591,6 +653,21 @@ export default function SongSpectrumPage() {
 
               {ytMeta && <YouTubeMetaPanel meta={ytMeta} />}
 
+              {/* Analyst notes */}
+              <div>
+                <label className="block text-xs font-medium text-surface-300 mb-1.5">
+                  Musical characteristics / analyst notes{' '}
+                  <span className="text-surface-500 font-normal">(optional)</span>
+                </label>
+                <textarea
+                  className="w-full bg-surface-800 border border-surface-700 rounded px-3 py-2 text-sm text-white placeholder-surface-500 focus:outline-none focus:border-indigo-500 resize-none"
+                  rows={3}
+                  placeholder={`e.g. "polyrhythmic, odd time signatures, math rock, fibonacci rhythms"\nKeywords inform the axis scoring.`}
+                  value={analysisNotes}
+                  onChange={(e) => setAnalysisNotes(e.target.value)}
+                />
+              </div>
+
               {error && <p className="text-sm text-red-400">{error}</p>}
 
               <button
@@ -686,10 +763,17 @@ export default function SongSpectrumPage() {
                     Export JSON
                   </button>
                   <button
+                    className="px-3 py-1.5 bg-indigo-700 hover:bg-indigo-600 text-xs text-white rounded transition-colors"
+                    onClick={() => startReAnalyze(activeAnalysis)}
+                    title="Upload new audio for this same entry — overwrites the existing analysis"
+                  >
+                    ↺ Re-analyze
+                  </button>
+                  <button
                     className="px-3 py-1.5 bg-surface-700 hover:bg-surface-600 text-xs text-white rounded transition-colors"
                     onClick={startNew}
                   >
-                    + New Analysis
+                    + New
                   </button>
                 </div>
               </div>
@@ -697,6 +781,19 @@ export default function SongSpectrumPage() {
               {/* YouTube metadata */}
               {activeAnalysis.ytMetadata && (
                 <YouTubeMetaPanel meta={activeAnalysis.ytMetadata} />
+              )}
+
+              {/* Analyst notes */}
+              {audioAnalysis?.userNotes && (
+                <div className="bg-surface-800/60 border border-surface-700/50 rounded-lg px-4 py-3 text-xs text-surface-300">
+                  <span className="text-surface-500 font-semibold uppercase tracking-wider mr-2">Analyst notes</span>
+                  {audioAnalysis.userNotes}
+                </div>
+              )}
+
+              {/* MusicBrainz metadata */}
+              {audioAnalysis?.musicBrainzData && (
+                <MusicBrainzPanel data={audioAnalysis.musicBrainzData} />
               )}
 
               {/* Scores grid */}

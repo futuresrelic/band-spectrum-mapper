@@ -507,6 +507,15 @@ export interface AudioFeatures {
   mfcc: number[];              // first 13 MFCCs (means)
 }
 
+export interface MusicBrainzSongData {
+  recordingId: string | null;
+  genres: string[];
+  tags: string[];
+  disambiguation: string | null;
+  releaseTitle: string | null;
+  releaseDate: string | null;
+}
+
 export interface AudioAnalysisResult {
   duration: number;            // seconds
   sampleRate: number;
@@ -521,6 +530,9 @@ export interface AudioAnalysisResult {
   spectrogram: AudioSpectrogram;
   sections: AudioSection[];
   features: AudioFeatures;
+  // Optional fields added by the Node API layer (not from Python worker)
+  userNotes?: string;
+  musicBrainzData?: MusicBrainzSongData;
 }
 
 export interface ScoreAxisDetail {

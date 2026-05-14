@@ -16,6 +16,7 @@ import type { YouTubeMetadata } from '@band-spectrum-mapper/shared';
 import {
   fetchYouTubeMetadata,
   analyzeAudio,
+  fetchMusicBrainzData,
   createAnalysis,
   updateAnalysis,
   listAnalyses,
@@ -85,13 +86,14 @@ songSpectrumRouter.post(
         return;
       }
 
-      const { songTitle, artistName, youtubeUrl, analysisId, lyricsContext, songId } =
+      const { songTitle, artistName, youtubeUrl, analysisId, lyricsContext, analysisNotes, songId } =
         req.body as {
           songTitle?: string;
           artistName?: string;
           youtubeUrl?: string;
           analysisId?: string;
           lyricsContext?: string;
+          analysisNotes?: string;
           songId?: string;
         };
 
@@ -104,11 +106,25 @@ songSpectrumRouter.post(
         return;
       }
 
-      const { analysis, scores } = await analyzeAudio(
-        req.file.buffer,
-        req.file.originalname,
-        lyricsContext ?? '',
-      );
+      // Combine analyst notes with any lyrics context — scorer uses both
+      const combinedContext = [analysisNotes ?? '', lyricsContext ?? '']
+        .filter(Boolean).join('\n\n');
+
+      // Run audio analysis and MusicBrainz lookup in parallel
+      const [{ analysis: rawAnalysis, scores }, mbData] = await Promise.all([
+        analyzeAudio(req.file.buffer, req.file.originalname, combinedContext),
+        fetchMusicBrainzData(
+          (artistName ?? '').trim(),
+          (songTitle ?? '').trim(),
+        ),
+      ]);
+
+      // Merge analyst notes and MusicBrainz data into the analysis object
+      const analysis = {
+        ...rawAnalysis,
+        ...(analysisNotes?.trim() ? { userNotes: analysisNotes.trim() } : {}),
+        ...(mbData ? { musicBrainzData: mbData } : {}),
+      };
 
       const flatScores: Record<string, number> = {};
       for (const [axis, detail] of Object.entries(scores)) {

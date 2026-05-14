@@ -12,6 +12,7 @@ import type {
   SongSpectrumAnalysis,
   YouTubeMetadata,
   AudioAnalysisResult,
+  MusicBrainzSongData,
   ScoreAxisDetail,
   SpectrumScores,
 } from '@band-spectrum-mapper/shared';
@@ -126,6 +127,76 @@ export async function fetchYouTubeMetadata(urlOrId: string): Promise<YouTubeMeta
     tags: snippet.tags ?? [],
     categoryId: snippet.categoryId ?? null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// MusicBrainz lookup — free, no auth, rate-limit: 1 req/s
+// ---------------------------------------------------------------------------
+
+export async function fetchMusicBrainzData(
+  artistName: string,
+  songTitle: string,
+): Promise<MusicBrainzSongData | null> {
+  try {
+    const q = encodeURIComponent(`recording:"${songTitle}" AND artist:"${artistName}"`);
+    const url = `https://musicbrainz.org/ws/2/recording/?query=${q}&fmt=json&limit=5`;
+
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'BandSpectrumMapper/1.0 (https://github.com/futuresrelic/band-spectrum-mapper)',
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!res.ok) return null;
+
+    const body = await res.json() as {
+      recordings?: {
+        id: string;
+        title: string;
+        disambiguation?: string;
+        tags?: { name: string; count: number }[];
+        genres?: { name: string; count: number }[];
+        releases?: {
+          title: string;
+          date?: string;
+        }[];
+      }[];
+    };
+
+    const recordings = body.recordings ?? [];
+    if (!recordings.length) return null;
+
+    // Pick the best match: first recording whose title matches closely
+    const lowerTitle = songTitle.toLowerCase();
+    const match = recordings.find(
+      (r) => r.title.toLowerCase() === lowerTitle,
+    ) ?? recordings[0]!;
+
+    const genres = (match.genres ?? [])
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8)
+      .map((g) => g.name);
+
+    const tags = (match.tags ?? [])
+      .filter((t) => !genres.includes(t.name))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+      .map((t) => t.name);
+
+    const release = match.releases?.[0] ?? null;
+
+    return {
+      recordingId: match.id,
+      genres,
+      tags,
+      disambiguation: match.disambiguation ?? null,
+      releaseTitle: release?.title ?? null,
+      releaseDate: release?.date ?? null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------

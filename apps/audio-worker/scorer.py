@@ -368,24 +368,103 @@ AXES = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Hint / context parser
+# ---------------------------------------------------------------------------
+
+# Maps hint keywords → (axis, additive_boost_0_100)
+_HINT_RULES: list[tuple[str, str, float]] = [
+    # Rhythm complexity
+    ("polyrhythm",      "complexity",   +15),
+    ("polyrhythmic",    "complexity",   +15),
+    ("odd time",        "complexity",   +12),
+    ("odd meter",       "complexity",   +12),
+    ("mixed meter",     "complexity",   +12),
+    ("changing time",   "complexity",   +10),
+    ("math rock",       "complexity",   +14),
+    ("math metal",      "complexity",   +14),
+    ("prog",            "complexity",   +8),
+    ("fibonacci",       "complexity",   +12),
+    ("fibonacci",       "psychedelic",  +8),
+    ("7/8",             "complexity",   +10),
+    ("9/8",             "complexity",   +10),
+    ("5/4",             "complexity",   +8),
+    ("13/8",            "complexity",   +12),
+    ("11/8",            "complexity",   +10),
+    # Genre / mood
+    ("ambient",         "atmosphere",   +15),
+    ("drone",           "atmosphere",   +12),
+    ("post-rock",       "atmosphere",   +8),
+    ("post rock",       "atmosphere",   +8),
+    ("shoegaze",        "atmosphere",   +12),
+    ("metal",           "aggression",   +10),
+    ("heavy",           "aggression",   +8),
+    ("aggressive",      "aggression",   +10),
+    ("calm",            "aggression",   -10),
+    ("mellow",          "aggression",   -8),
+    ("cinematic",       "atmosphere",   +10),
+    ("cinematic",       "concept",      +8),
+    ("conceptual",      "concept",      +12),
+    ("epic",            "concept",      +8),
+    ("psychedelic",     "psychedelic",  +12),
+    ("trippy",          "psychedelic",  +10),
+    ("emotional",       "emotion",      +12),
+    ("intense",         "emotion",      +8),
+    ("meditative",      "atmosphere",   +8),
+    ("meditative",      "psychedelic",  +5),
+    ("jazz",            "complexity",   +6),
+    ("jazz",            "psychedelic",  +5),
+]
+
+
+def _parse_hints(context: str) -> dict[str, float]:
+    """Return axis → cumulative boost from free-text hints."""
+    if not context:
+        return {}
+    text = context.lower()
+    boosts: dict[str, float] = {}
+    for keyword, axis, boost in _HINT_RULES:
+        if keyword in text:
+            boosts[axis] = boosts.get(axis, 0.0) + boost
+    return boosts
+
+
+# ---------------------------------------------------------------------------
+# Main scorer
+# ---------------------------------------------------------------------------
+
 def compute_scores(analysis: dict, lyrics_context: str = "") -> dict:
     """
     Compute ScoreAxisDetail for all six axes.
 
-    `lyrics_context` is ignored in this version (audio-only scoring).
-    Future: pass to a small LLM for lyrics-informed adjustments.
+    `lyrics_context` can contain either raw lyrics or free-form musical
+    descriptions ("polyrhythmic", "odd time", "ambient", etc.).  Keywords
+    from the description are parsed into per-axis score boosts so that
+    analyst notes meaningfully inform the final output.
     """
     features = analysis.get("features", {})
     loudness = analysis.get("loudness", {})
 
+    # Parse any musical hint keywords from the context string
+    hint_boosts = _parse_hints(lyrics_context)
+
     result = {}
     for axis_name, scorer_fn in AXES:
         score, confidence, factor_list, explanation = scorer_fn(analysis, features, loudness)
+
+        # Apply hint boosts and record them as lyricsFeatures
+        lyrics_factors: list[str] = []
+        if axis_name in hint_boosts:
+            boost = hint_boosts[axis_name]
+            score = int(clamp(score + boost))
+            sign = "+" if boost >= 0 else ""
+            lyrics_factors.append(f"Analyst hint boost: {sign}{boost:.0f}")
+
         result[axis_name] = {
             "score": score,
             "confidence": confidence,
             "audioFeatures": factor_list,
-            "lyricsFeatures": [],
+            "lyricsFeatures": lyrics_factors,
             "explanation": explanation,
         }
 
