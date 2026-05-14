@@ -7,5 +7,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Railway injects $PORT; fall back to 8001 for local dev
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8001}"]
+# Python reads $PORT directly — no shell expansion needed
+CMD ["python", "main.py"]
