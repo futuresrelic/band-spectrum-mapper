@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { analysisApi } from '../api/analysis';
+import SocialExportPanel from '../components/social/SocialExportPanel';
+import SocialChatPanel from '../components/social/SocialChatPanel';
 import { songsApi } from '../api/songs';
 import { useAuth } from '../contexts/AuthContext';
 import type { SongAxisScore, SongAiSpectrum, SongAiGenreSpectrum } from '@band-spectrum-mapper/shared';
@@ -795,16 +797,19 @@ export default function ShareSongPage() {
               </a>
             ))}
           </div>
-
-          <p className="text-center text-[11px] text-slate-600">
-            Instagram: copy the link above and paste into your story or caption
-          </p>
         </div>
 
-        <p className="text-center text-xs text-slate-700 mt-4">
-          Screenshot this card to share as an image
-        </p>
+        {/* Export panel */}
+        <div className="mt-4">
+          <SocialExportPanel songId={song.id} />
+        </div>
       </div>
+
+      {/* AI Chat Panel — song-aware */}
+      <SocialChatPanel
+        songId={song.id}
+        songLabel={`${song.band.name} — ${song.title}`}
+      />
     </div>
   );
 }

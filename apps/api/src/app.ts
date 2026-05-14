@@ -23,6 +23,7 @@ import { genreRatingsRouter } from './routes/genre-ratings.js';
 import { musicBrainzRouter } from './routes/musicbrainz.js';
 import { contributionsRouter } from './routes/contributions.js';
 import { ogRouter } from './routes/og.js';
+import { socialRouter } from './routes/social.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -79,6 +80,9 @@ export function createApp() {
 
   // OG image generation (PNG for social share cards)
   app.use('/api/og', ogRouter);
+
+  // Social content generation — AI post generator + strategist chat (admin only)
+  app.use('/api/social', socialRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.

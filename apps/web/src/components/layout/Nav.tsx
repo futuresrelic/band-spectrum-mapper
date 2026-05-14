@@ -10,6 +10,7 @@ const links = [
   { to: '/imports',     label: 'Imports' },
   { to: '/discography', label: 'Discography' },
   { to: '/cloud',       label: 'Song Cloud' },
+  { to: '/social',      label: 'Social' },
   { to: '/settings',    label: 'Settings' },
 ];
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Nav from './Nav';
+import SocialChatPanel from '../social/SocialChatPanel';
 
 export default function Layout() {
   const [navOpen, setNavOpen] = useState(false);
@@ -42,6 +43,9 @@ export default function Layout() {
           <Outlet />
         </div>
       </main>
+
+      {/* Global AI Social Strategist — available on every admin page */}
+      <SocialChatPanel />
     </div>
   );
 }

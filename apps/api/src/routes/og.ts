@@ -277,7 +277,7 @@ ${genreBars}`
 }
 
 // ---------------------------------------------------------------------------
-// Route: GET /api/og/songs/:songId  → PNG
+// Route: GET /api/og/songs/:songId  → PNG (landscape OG image)
 // ---------------------------------------------------------------------------
 
 ogRouter.get('/songs/:songId', async (req, res, next) => {
@@ -315,6 +315,320 @@ ogRouter.get('/songs/:songId', async (req, res, next) => {
 
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
+    res.end(png);
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// Export: GET /api/og/songs/:songId/export?format=square|story&theme=dark|minimal|manuscript|neon
+// Social-optimized export formats — not cached (content changes with theme/format)
+// ---------------------------------------------------------------------------
+
+type ExportTheme = 'dark' | 'minimal' | 'manuscript' | 'neon';
+type ExportFormat = 'square' | 'story';
+
+interface ExportSvgInput {
+  title: string;
+  bandName: string;
+  albumTitle: string | null;
+  year: number | null;
+  spectrumScores: Record<string, number> | null;
+  genreScores: Record<string, number> | null;
+  theme: ExportTheme;
+  format: ExportFormat;
+}
+
+function buildExportSvg(input: ExportSvgInput): string {
+  const { title, bandName, albumTitle, year, spectrumScores, genreScores, theme, format } = input;
+  const W = 1080;
+  const H = format === 'story' ? 1920 : 1080;
+
+  const radarCx = W / 2;
+  const radarCy = format === 'story' ? 680 : H / 2 - 40;
+  const radarR  = format === 'story' ? 280 : 220;
+
+  const hasScores = spectrumScores && Object.values(spectrumScores).some((v) => v > 0);
+
+  // ── Theme palettes ──────────────────────────────────────────────────────────
+
+  const themes: Record<ExportTheme, {
+    bg: string; bg2: string; textPrimary: string; textSecondary: string;
+    textMuted: string; accent: string; gridColor: string; lineColor: string;
+    axisColors: Record<string, string>;
+  }> = {
+    dark: {
+      bg: '#0d1b2e', bg2: '#0a0f1e',
+      textPrimary: '#f1f5f9', textSecondary: '#94a3b8', textMuted: '#334155',
+      accent: '#6366f1',
+      gridColor: '#1e2d45', lineColor: '#1e3a5f',
+      axisColors: { aggression: '#ff3a3a', complexity: '#ff9500', atmosphere: '#34c8e8', emotion: '#ff375f', psychedelic: '#bf5af2', concept: '#30d158' },
+    },
+    minimal: {
+      bg: '#ffffff', bg2: '#f8f9fa',
+      textPrimary: '#111827', textSecondary: '#6b7280', textMuted: '#d1d5db',
+      accent: '#4f46e5',
+      gridColor: '#e5e7eb', lineColor: '#d1d5db',
+      axisColors: { aggression: '#ef4444', complexity: '#f97316', atmosphere: '#06b6d4', emotion: '#f59e0b', psychedelic: '#8b5cf6', concept: '#22c55e' },
+    },
+    manuscript: {
+      bg: '#0a0a0a', bg2: '#0f0f0f',
+      textPrimary: '#e8e0d0', textSecondary: '#a09070', textMuted: '#403828',
+      accent: '#c8a86b',
+      gridColor: '#1a1710', lineColor: '#2a2418',
+      axisColors: { aggression: '#c84040', complexity: '#c87820', atmosphere: '#2080a0', emotion: '#c05060', psychedelic: '#8040b0', concept: '#408040' },
+    },
+    neon: {
+      bg: '#030308', bg2: '#05050f',
+      textPrimary: '#ffffff', textSecondary: '#a0a0c0', textMuted: '#202030',
+      accent: '#00ff88',
+      gridColor: '#0f0f20', lineColor: '#1a1a35',
+      axisColors: { aggression: '#ff1a1a', complexity: '#ff8800', atmosphere: '#00e5ff', emotion: '#ff0066', psychedelic: '#cc00ff', concept: '#00ff44' },
+    },
+  };
+
+  const pal = themes[theme];
+
+  // ── Score polygon ───────────────────────────────────────────────────────────
+
+  function radarAngle(i: number) { return (-Math.PI / 2) + i * (Math.PI / 3); }
+  function rPx(i: number, f: number) { return radarCx + f * radarR * Math.cos(radarAngle(i)); }
+  function rPy(i: number, f: number) { return radarCy + f * radarR * Math.sin(radarAngle(i)); }
+
+  function hexPath(f: number) {
+    const pts = AXES.map((_, i) => `${rPx(i, f).toFixed(1)},${rPy(i, f).toFixed(1)}`);
+    return `M ${pts.join(' L ')} Z`;
+  }
+
+  function scorePolygon() {
+    if (!hasScores || !spectrumScores) return '';
+    const pts = AXES.map((ax, i) => {
+      const f = (spectrumScores[ax] ?? 0) / 10;
+      return `${rPx(i, f).toFixed(1)},${rPy(i, f).toFixed(1)}`;
+    });
+    const fillOpacity = theme === 'minimal' ? '0.08' : '0.15';
+    const strokeColor = theme === 'minimal' ? pal.accent : '#ffffff';
+    return `<polygon points="${pts.join(' ')}" fill="${strokeColor}" fill-opacity="${fillOpacity}" stroke="${strokeColor}" stroke-width="2.5" stroke-opacity="0.9"/>`;
+  }
+
+  function axisGradients() {
+    return AXES.map((ax, i) => {
+      const color = pal.axisColors[ax] ?? '#ffffff';
+      const tip = { x: rPx(i, 1.15).toFixed(1), y: rPy(i, 1.15).toFixed(1) };
+      const id = `axg_${ax}`;
+      return `<linearGradient id="${id}" x1="${radarCx}" y1="${radarCy}" x2="${tip.x}" y2="${tip.y}" gradientUnits="userSpaceOnUse">
+  <stop offset="0%" stop-color="${color}" stop-opacity="0"/>
+  <stop offset="100%" stop-color="${color}" stop-opacity="0.7"/>
+</linearGradient>
+<polygon points="${[`${radarCx},${radarCy}`].concat(
+        (() => {
+          const pts: string[] = [];
+          const startDeg = (radarAngle(i) - Math.PI / 6) * (180 / Math.PI) - 1;
+          const endDeg   = (radarAngle(i) + Math.PI / 6) * (180 / Math.PI) + 1;
+          for (let d = startDeg; d <= endDeg; d += 3) {
+            const r = d * Math.PI / 180;
+            pts.push(`${(radarCx + (radarR + 15) * Math.cos(r)).toFixed(1)},${(radarCy + (radarR + 15) * Math.sin(r)).toFixed(1)}`);
+          }
+          return pts;
+        })()
+      ).join(' ')}" fill="url(#${id})"/>`;
+    }).join('\n');
+  }
+
+  function gridLines() {
+    const fractions = [0.25, 0.5, 0.75, 1.0];
+    return fractions.map((f) => `<path d="${hexPath(f)}" fill="none" stroke="${pal.gridColor}" stroke-width="${f === 1 ? 1.5 : 0.8}"/>`).join('\n');
+  }
+
+  function axisLines() {
+    return AXES.map((_, i) =>
+      `<line x1="${radarCx}" y1="${radarCy}" x2="${rPx(i, 1).toFixed(1)}" y2="${rPy(i, 1).toFixed(1)}" stroke="${pal.gridColor}" stroke-width="1"/>`
+    ).join('\n');
+  }
+
+  const AXIS_LABELS: Record<string, string> = {
+    aggression: 'Aggr', complexity: 'Cmplx', atmosphere: 'Atmo', emotion: 'Emot', psychedelic: 'Psyc', concept: 'Conc',
+  };
+
+  function axisLabels() {
+    return AXES.map((ax, i) => {
+      const labelR = radarR + (format === 'story' ? 44 : 38);
+      const x = radarCx + labelR * Math.cos(radarAngle(i));
+      const y = radarCy + labelR * Math.sin(radarAngle(i));
+      const scoreVal = hasScores && spectrumScores ? (spectrumScores[ax] ?? 0).toFixed(1) : '—';
+      const color = pal.axisColors[ax] ?? pal.textSecondary;
+      const fs = format === 'story' ? 24 : 20;
+      return `<text x="${x.toFixed(1)}" y="${(y - 6).toFixed(1)}" text-anchor="middle" font-family="Arial,sans-serif" font-size="${fs}" font-weight="700" fill="${color}" opacity="0.9">${AXIS_LABELS[ax]}</text>
+<text x="${x.toFixed(1)}" y="${(y + fs * 0.9).toFixed(1)}" text-anchor="middle" font-family="Arial,sans-serif" font-size="${Math.floor(fs * 0.85)}" fill="${pal.textSecondary}">${scoreVal}</text>`;
+    }).join('\n');
+  }
+
+  // ── Genre bars (compact) ────────────────────────────────────────────────────
+
+  function genreBarsSvg(startY: number, barWidth: number, barX: number): string {
+    if (!genreScores) return '';
+    const barH = format === 'story' ? 14 : 11;
+    const gap  = format === 'story' ? 38 : 30;
+    return GENRE_ORDER.map((g, i) => {
+      const score = genreScores[g] ?? 0;
+      const pct = (score / 10) * barWidth;
+      const y = startY + i * gap;
+      const color = GENRE_COLORS[g];
+      return `<text x="${barX}" y="${y}" font-family="Arial,sans-serif" font-size="${barH + 1}" fill="${pal.textSecondary}">${GENRE_LABELS[g]}</text>
+<rect x="${barX}" y="${y + 5}" width="${barWidth}" height="${barH}" rx="3" fill="${pal.gridColor}"/>
+<rect x="${barX}" y="${y + 5}" width="${pct.toFixed(1)}" height="${barH}" rx="3" fill="${color}" opacity="0.9"/>
+<text x="${barX + barWidth + 10}" y="${y + barH}" font-family="Arial,sans-serif" font-size="${barH}" fill="${color}" font-weight="700">${score.toFixed(1)}</text>`;
+    }).join('\n');
+  }
+
+  // ── Square layout ───────────────────────────────────────────────────────────
+
+  if (format === 'square') {
+    const titleFs = title.length > 22 ? 52 : title.length > 15 ? 62 : 72;
+    const titleY  = 180;
+
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<defs>
+  <linearGradient id="sqbg" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+    <stop offset="0%" stop-color="${pal.bg}"/>
+    <stop offset="100%" stop-color="${pal.bg2}"/>
+  </linearGradient>
+</defs>
+
+<!-- Background -->
+<rect width="${W}" height="${H}" fill="url(#sqbg)"/>
+
+<!-- Top accent line -->
+<rect x="80" y="60" width="80" height="4" rx="2" fill="${pal.accent}"/>
+
+<!-- Band name -->
+<text x="80" y="110" font-family="Arial,sans-serif" font-size="22" font-weight="700" letter-spacing="4" fill="${pal.accent}">${esc(bandName.toUpperCase())}</text>
+
+<!-- Song title -->
+<text x="80" y="${titleY}" font-family="Arial,sans-serif" font-size="${titleFs}" font-weight="700" letter-spacing="-1" fill="${pal.textPrimary}">${esc(truncate(title, 24))}</text>
+
+<!-- Album -->
+${albumTitle ? `<text x="80" y="${titleY + 42}" font-family="Arial,sans-serif" font-size="20" fill="${pal.textSecondary}">${esc(albumTitle)}${year ? ` · ${year}` : ''}</text>` : ''}
+
+<!-- Radar -->
+${gridLines()}
+${axisLines()}
+${axisGradients()}
+${scorePolygon()}
+${axisLabels()}
+
+<!-- Genre bars (compact, bottom-right) -->
+${genreScores ? genreBarsSvg(H - 280, 200, W - 340) : ''}
+
+<!-- Divider line -->
+<line x1="80" y1="${H - 90}" x2="${W - 80}" y2="${H - 90}" stroke="${pal.lineColor}" stroke-width="1"/>
+
+<!-- Footer branding -->
+<text x="80" y="${H - 54}" font-family="Arial,sans-serif" font-size="18" font-weight="700" letter-spacing="3" fill="${pal.textMuted}">BAND SPECTRUM MAPPER</text>
+<text x="80" y="${H - 30}" font-family="Arial,sans-serif" font-size="14" fill="${pal.textMuted}">bandspectrummapper.com · music as psychology</text>
+</svg>`;
+  }
+
+  // ── Story layout (1080×1920) ────────────────────────────────────────────────
+
+  const titleFs = title.length > 20 ? 72 : 86;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<defs>
+  <linearGradient id="stbg" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
+    <stop offset="0%" stop-color="${pal.bg}"/>
+    <stop offset="60%" stop-color="${pal.bg2}"/>
+    <stop offset="100%" stop-color="${pal.bg}"/>
+  </linearGradient>
+</defs>
+
+<!-- Background -->
+<rect width="${W}" height="${H}" fill="url(#stbg)"/>
+
+<!-- Top bar -->
+<rect x="0" y="0" width="${W}" height="8" fill="${pal.accent}"/>
+
+<!-- Header -->
+<text x="540" y="110" text-anchor="middle" font-family="Arial,sans-serif" font-size="24" font-weight="700" letter-spacing="6" fill="${pal.textMuted}">BAND SPECTRUM MAPPER</text>
+<line x1="160" y1="140" x2="920" y2="140" stroke="${pal.gridColor}" stroke-width="1"/>
+
+<!-- Band name -->
+<text x="540" y="220" text-anchor="middle" font-family="Arial,sans-serif" font-size="28" font-weight="700" letter-spacing="4" fill="${pal.accent}">${esc(bandName.toUpperCase())}</text>
+
+<!-- Song title -->
+<text x="540" y="${220 + titleFs + 16}" text-anchor="middle" font-family="Arial,sans-serif" font-size="${titleFs}" font-weight="700" letter-spacing="-2" fill="${pal.textPrimary}">${esc(truncate(title, 20))}</text>
+
+<!-- Album -->
+${albumTitle ? `<text x="540" y="${220 + titleFs + 72}" text-anchor="middle" font-family="Arial,sans-serif" font-size="26" fill="${pal.textSecondary}">${esc(albumTitle)}${year ? ` · ${year}` : ''}</text>` : ''}
+
+<!-- Divider -->
+<line x1="160" y1="440" x2="920" y2="440" stroke="${pal.gridColor}" stroke-width="1"/>
+
+<!-- Radar (centered, large) -->
+${gridLines()}
+${axisLines()}
+${axisGradients()}
+${scorePolygon()}
+${axisLabels()}
+
+<!-- Genre section -->
+<text x="540" y="1040" text-anchor="middle" font-family="Arial,sans-serif" font-size="22" font-weight="700" letter-spacing="4" fill="${pal.textMuted}">GENRE APPEAL</text>
+<line x1="160" y1="1060" x2="920" y2="1060" stroke="${pal.gridColor}" stroke-width="1"/>
+
+${genreScores ? genreBarsSvg(1090, 360, 160) : `<text x="540" y="1120" text-anchor="middle" font-family="Arial,sans-serif" font-size="22" fill="${pal.textMuted}">No genre data yet</text>`}
+
+<!-- Bottom branding -->
+<line x1="160" y1="${H - 120}" x2="920" y2="${H - 120}" stroke="${pal.gridColor}" stroke-width="1"/>
+<text x="540" y="${H - 70}" text-anchor="middle" font-family="Arial,sans-serif" font-size="24" font-weight="700" letter-spacing="4" fill="${pal.textMuted}">BAND SPECTRUM MAPPER</text>
+<text x="540" y="${H - 38}" text-anchor="middle" font-family="Arial,sans-serif" font-size="18" fill="${pal.textMuted}">music as psychology</text>
+</svg>`;
+}
+
+ogRouter.get('/songs/:songId/export', async (req, res, next) => {
+  try {
+    const { songId } = req.params as { songId: string };
+    const format  = (req.query['format']  as ExportFormat)  || 'square';
+    const theme   = (req.query['theme']   as ExportTheme)   || 'dark';
+
+    const validFormats: ExportFormat[]  = ['square', 'story'];
+    const validThemes:  ExportTheme[]   = ['dark', 'minimal', 'manuscript', 'neon'];
+    if (!validFormats.includes(format)) { res.status(400).json({ error: 'Invalid format' }); return; }
+    if (!validThemes.includes(theme))   { res.status(400).json({ error: 'Invalid theme' }); return; }
+
+    const [song, aiSpectrum, aiGenre] = await Promise.all([
+      prisma.song.findUnique({
+        where: { id: songId },
+        include: { band: { select: { name: true } }, album: { select: { title: true, year: true } } },
+      }),
+      prisma.songAiSpectrum.findUnique({ where: { songId } }),
+      prisma.songAiGenreSpectrum.findUnique({ where: { songId } }),
+    ]);
+
+    if (!song) { res.status(404).json({ error: 'Song not found' }); return; }
+
+    const spectrumScores: Record<string, number> | null = aiSpectrum
+      ? { aggression: +aiSpectrum.aggression, complexity: +aiSpectrum.complexity, atmosphere: +aiSpectrum.atmosphere, emotion: +aiSpectrum.emotion, psychedelic: +aiSpectrum.psychedelic, concept: +aiSpectrum.concept }
+      : null;
+    const genreScores: Record<string, number> | null = aiGenre
+      ? { metal: +aiGenre.metal, rock: +aiGenre.rock, pop: +aiGenre.pop, hiphop: +aiGenre.hiphop, electronic: +aiGenre.electronic, folk: +aiGenre.folk }
+      : null;
+
+    const svg = buildExportSvg({
+      title: song.title, bandName: song.band.name,
+      albumTitle: song.album?.title ?? null, year: song.album?.year ?? null,
+      spectrumScores, genreScores, theme, format,
+    });
+
+    const W = 1080;
+    const H = format === 'story' ? 1920 : 1080;
+    const resvg = new Resvg(svg, { font: { loadSystemFonts: true }, fitTo: { mode: 'width', value: W } });
+    const png = resvg.render().asPng();
+
+    const filename = `${song.band.name.replace(/[^a-z0-9]/gi, '-')}-${song.title.replace(/[^a-z0-9]/gi, '-')}-${format}-${theme}.png`.toLowerCase();
+
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('X-Image-Width', String(W));
+    res.setHeader('X-Image-Height', String(H));
     res.end(png);
   } catch (e) { next(e); }
 });

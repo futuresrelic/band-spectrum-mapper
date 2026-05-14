@@ -37,6 +37,7 @@ import ShareSongPage from './pages/ShareSongPage';
 import ShareAlbumPage from './pages/ShareAlbumPage';
 import UserProfilePage from './pages/UserProfilePage';
 import SongCloudPage from './pages/SongCloudPage';
+import SocialPostGeneratorPage from './pages/SocialPostGeneratorPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -114,6 +115,7 @@ export default function App() {
           <Route path="lyrics-builder" element={<LyricsBuilderPage />} />
           <Route path="admin/ai-batch" element={<AiBatchRunnerPage />} />
           <Route path="cloud" element={<SongCloudPage />} />
+          <Route path="social" element={<SocialPostGeneratorPage />} />
           <Route path="discography" element={<DiscographyImportPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="admin/users" element={<AdminUsersPage />} />
