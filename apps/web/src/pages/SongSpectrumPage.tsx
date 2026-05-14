@@ -484,6 +484,17 @@ export default function SongSpectrumPage() {
     },
   });
 
+  // Push to library mutation
+  const [pushSuccess, setPushSuccess] = useState(false);
+  const pushMutation = useMutation({
+    mutationFn: (id: string) => songSpectrumApi.pushToLibrary(id),
+    onSuccess: () => {
+      setPushSuccess(true);
+      setTimeout(() => setPushSuccess(false), 4000);
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
   function startNew() {
     setSongTitle('');
     setArtistName('');
@@ -496,6 +507,7 @@ export default function SongSpectrumPage() {
     setSelectedBandId(null);
     setAnalysisNotes('');
     setReAnalysisId(null);
+    setPushSuccess(false);
     setStep('identity');
   }
 
@@ -562,7 +574,7 @@ export default function SongSpectrumPage() {
             <AnalysisList
               analyses={analyses}
               selectedId={activeAnalysis?.id ?? null}
-              onSelect={(a) => { setActiveAnalysis(a); setStep('results'); }}
+              onSelect={(a) => { setActiveAnalysis(a); setStep('results'); setPushSuccess(false); }}
               onDelete={(id) => deleteMutation.mutate(id)}
             />
           </div>
@@ -769,6 +781,19 @@ export default function SongSpectrumPage() {
                   >
                     ↺ Re-analyze
                   </button>
+                  {activeAnalysis.songId && (
+                    <button
+                      className={`px-3 py-1.5 text-xs text-white rounded transition-colors
+                        ${pushSuccess
+                          ? 'bg-emerald-700 cursor-default'
+                          : 'bg-teal-700 hover:bg-teal-600 disabled:opacity-50'}`}
+                      disabled={pushMutation.isPending || pushSuccess}
+                      onClick={() => pushMutation.mutate(activeAnalysis.id)}
+                      title="Copy these scores (÷10) to the linked library song's Core spectrum"
+                    >
+                      {pushSuccess ? '✓ Pushed' : pushMutation.isPending ? 'Pushing…' : '↑ Push to Library'}
+                    </button>
+                  )}
                   <button
                     className="px-3 py-1.5 bg-surface-700 hover:bg-surface-600 text-xs text-white rounded transition-colors"
                     onClick={startNew}

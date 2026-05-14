@@ -60,4 +60,8 @@ export const songSpectrumApi = {
   delete(id: string): Promise<void> {
     return api.delete(`/api/song-spectrum/analyses/${id}`);
   },
+
+  pushToLibrary(id: string): Promise<{ ok: boolean; pushed: Record<string, number> }> {
+    return api.post(`/api/song-spectrum/analyses/${id}/push-to-library`, {});
+  },
 };

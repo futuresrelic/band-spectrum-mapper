@@ -493,6 +493,7 @@ export interface AudioSection {
   start: number;               // seconds
   end: number;                 // seconds
   label: string;               // "A", "B", "C", …
+  timeSignature?: string;      // e.g. "7/8" — detected for this section
 }
 
 export interface AudioFeatures {

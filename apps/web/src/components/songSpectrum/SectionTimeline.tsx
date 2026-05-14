@@ -1,11 +1,7 @@
-interface Section {
-  start: number;
-  end: number;
-  label: string;
-}
+import type { AudioSection } from '@band-spectrum-mapper/shared';
 
 interface Props {
-  sections: Section[];
+  sections: AudioSection[];
   duration: number;
   className?: string;
 }
@@ -24,29 +20,65 @@ function formatTime(sec: number): string {
 export default function SectionTimeline({ sections, duration, className }: Props) {
   if (!sections.length || duration <= 0) return null;
 
+  // Determine if there are any time signatures to display
+  const hasSectionTs = sections.some((s) => s.timeSignature);
+  const uniqueTs = hasSectionTs
+    ? [...new Set(sections.map((s) => s.timeSignature).filter(Boolean))]
+    : [];
+  const hasChanges = uniqueTs.length > 1;
+
   return (
     <div className={className}>
-      <div className="text-xs text-surface-400 mb-1.5 font-medium uppercase tracking-wider">
-        Structure
+      <div className="flex items-center gap-3 mb-1.5">
+        <span className="text-xs text-surface-400 font-medium uppercase tracking-wider">
+          Structure
+        </span>
+        {hasChanges && (
+          <span className="text-xs bg-amber-900/40 text-amber-400 border border-amber-700/50 rounded px-1.5 py-0.5">
+            ⟳ Meter changes detected
+          </span>
+        )}
+        {hasSectionTs && !hasChanges && uniqueTs[0] && (
+          <span className="text-xs text-surface-500">{uniqueTs[0]} throughout</span>
+        )}
       </div>
 
       {/* Bar */}
-      <div className="relative h-8 rounded overflow-hidden flex">
+      <div className="relative rounded overflow-hidden flex" style={{ height: hasSectionTs ? '52px' : '32px' }}>
         {sections.map((sec, i) => {
           const pct = ((sec.end - sec.start) / duration) * 100;
+          const color = SECTION_COLORS[i % SECTION_COLORS.length]!;
+          // Mark sections whose time sig differs from the most common one
+          const prevTs = sections[i - 1]?.timeSignature;
+          const tsChanged = i > 0 && sec.timeSignature && prevTs && sec.timeSignature !== prevTs;
           return (
             <div
               key={i}
-              className="relative flex items-center justify-center text-xs font-bold text-white overflow-hidden group cursor-default"
+              className="relative flex flex-col items-center justify-center text-white overflow-hidden group cursor-default select-none"
               style={{
                 width: `${pct}%`,
-                backgroundColor: SECTION_COLORS[i % SECTION_COLORS.length],
+                backgroundColor: color,
                 minWidth: '1%',
               }}
-              title={`${sec.label}: ${formatTime(sec.start)} – ${formatTime(sec.end)}`}
+              title={[
+                `${sec.label}: ${formatTime(sec.start)} – ${formatTime(sec.end)}`,
+                sec.timeSignature ? `Time: ${sec.timeSignature}` : '',
+              ].filter(Boolean).join('\n')}
             >
-              <span className="select-none">{sec.label}</span>
-              {/* divider */}
+              {/* Meter-change marker at the left edge */}
+              {tsChanged && (
+                <span
+                  className="absolute left-0 top-0 bottom-0 w-0.5 bg-white/70"
+                  title={`Meter changes to ${sec.timeSignature}`}
+                />
+              )}
+              <span className="text-xs font-bold leading-none">{sec.label}</span>
+              {sec.timeSignature && (
+                <span className="text-[9px] leading-none opacity-80 mt-0.5">
+                  {sec.timeSignature}
+                </span>
+              )}
+              {/* section divider */}
               {i < sections.length - 1 && (
                 <span className="absolute right-0 top-0 bottom-0 w-px bg-black/20" />
               )}
@@ -67,10 +99,13 @@ export default function SectionTimeline({ sections, duration, className }: Props
         {sections.map((sec, i) => (
           <span key={i} className="flex items-center gap-1 text-xs text-surface-400">
             <span
-              className="w-2 h-2 rounded-sm inline-block"
+              className="w-2 h-2 rounded-sm inline-block shrink-0"
               style={{ backgroundColor: SECTION_COLORS[i % SECTION_COLORS.length] }}
             />
             {sec.label} ({formatTime(sec.start)}–{formatTime(sec.end)})
+            {sec.timeSignature && (
+              <span className="text-surface-600 font-mono">{sec.timeSignature}</span>
+            )}
           </span>
         ))}
       </div>

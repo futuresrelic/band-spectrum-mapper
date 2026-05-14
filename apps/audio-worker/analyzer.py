@@ -292,7 +292,30 @@ def analyze_audio(file_path: str) -> dict:
     sections = detect_sections(y, sr)
 
     # ---- Time signature / polyrhythm ----------------------------------------
+    # Per-section detection (≥ 3 s sections only)
+    for sec in sections:
+        sec_dur = sec["end"] - sec["start"]
+        if sec_dur >= 3.0:
+            s0 = int(sec["start"] * sr)
+            s1 = int(sec["end"] * sr)
+            y_sec = y[s0:s1]
+            try:
+                sec_ts, _ = detect_time_signature(y_sec, sr)
+                sec["timeSignature"] = sec_ts
+            except Exception:
+                pass
+
+    # Global time signature: computed on full audio
     time_signature, polyrhythmic = detect_time_signature(y, sr)
+
+    # If sections show multiple distinct time signatures → strengthen polyrhythmic flag
+    sec_ts_set = {s["timeSignature"] for s in sections if "timeSignature" in s}
+    if len(sec_ts_set) > 1:
+        polyrhythmic = True
+        # Show all unique signatures detected (most-common first by section count)
+        from collections import Counter
+        ts_counts = Counter(s["timeSignature"] for s in sections if "timeSignature" in s)
+        time_signature = " / ".join(ts for ts, _ in ts_counts.most_common())
 
     # ---- Spectral features --------------------------------------------------
     spec_centroid = librosa.feature.spectral_centroid(y=y, sr=sr)[0]

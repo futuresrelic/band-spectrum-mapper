@@ -12,6 +12,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
+import { prisma } from '../lib/prisma.js';
 import type { YouTubeMetadata } from '@band-spectrum-mapper/shared';
 import {
   fetchYouTubeMetadata,
@@ -251,6 +252,74 @@ songSpectrumRouter.post('/final-score', async (req, res, next): Promise<void> =>
     }
     next(err);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Push audio scores to the linked library song's Core spectrum
+// Audio scores are 0–100; Core scores are 0–10 — divide by 10.
+// ---------------------------------------------------------------------------
+
+songSpectrumRouter.post('/analyses/:id/push-to-library', async (req, res, next): Promise<void> => {
+  try {
+    const item = await getAnalysis(req.params['id']!);
+    if (!item) {
+      res.status(404).json({ error: 'Analysis not found' });
+      return;
+    }
+    if (!item.songId) {
+      res.status(400).json({ error: 'Analysis is not linked to a library song' });
+      return;
+    }
+    if (!Object.keys(item.scores).length) {
+      res.status(400).json({ error: 'Analysis has no scores to push' });
+      return;
+    }
+
+    const song = await prisma.song.findUnique({ where: { id: item.songId } });
+    if (!song) {
+      res.status(404).json({ error: 'Linked library song not found' });
+      return;
+    }
+
+    // Convert 0–100 → 0–10 and upsert SongAxisScore (Core)
+    const toCore = (v: number | undefined) => Math.round((v ?? 0) / 10 * 10) / 10;
+    await prisma.songAxisScore.upsert({
+      where: { songId: item.songId },
+      create: {
+        songId: item.songId,
+        bandId: song.bandId,
+        aggression:  toCore(item.scores['aggression']),
+        complexity:  toCore(item.scores['complexity']),
+        atmosphere:  toCore(item.scores['atmosphere']),
+        emotion:     toCore(item.scores['emotion']),
+        psychedelic: toCore(item.scores['psychedelic']),
+        concept:     toCore(item.scores['concept']),
+        notes: `Pushed from Song Spectrum Analyzer (audio analysis of "${item.audioFileName ?? 'audio'}")`,
+      },
+      update: {
+        aggression:  toCore(item.scores['aggression']),
+        complexity:  toCore(item.scores['complexity']),
+        atmosphere:  toCore(item.scores['atmosphere']),
+        emotion:     toCore(item.scores['emotion']),
+        psychedelic: toCore(item.scores['psychedelic']),
+        concept:     toCore(item.scores['concept']),
+        notes: `Pushed from Song Spectrum Analyzer (audio analysis of "${item.audioFileName ?? 'audio'}")`,
+      },
+    });
+
+    res.json({
+      ok: true,
+      songId: item.songId,
+      pushed: {
+        aggression:  toCore(item.scores['aggression']),
+        complexity:  toCore(item.scores['complexity']),
+        atmosphere:  toCore(item.scores['atmosphere']),
+        emotion:     toCore(item.scores['emotion']),
+        psychedelic: toCore(item.scores['psychedelic']),
+        concept:     toCore(item.scores['concept']),
+      },
+    });
+  } catch (err) { next(err); }
 });
 
 // ---------------------------------------------------------------------------
