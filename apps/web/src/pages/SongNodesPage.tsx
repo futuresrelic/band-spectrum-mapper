@@ -585,20 +585,114 @@ export default function SongNodesPage() {
     cyRef.current?.fit(undefined, 40);
   }
 
-  // Breadthfirst tree: Artist → Album → Song
-  function runHierarchyLayout() {
+  // Radial cluster: Artist at centre → Albums orbit around it → Songs orbit around each Album
+  function runClusterLayout() {
     const cy = cyRef.current;
     if (!cy) return;
-    cy.layout({
-      name: 'breadthfirst',
-      roots: cy.nodes('[type = "artist"]'),
-      directed: true,
-      spacingFactor: 1.75,
-      animate: true,
-      animationDuration: 700,
-      fit: true,
-      padding: 40,
-    } as cytoscape.LayoutOptions).run();
+
+    const TWO_PI      = Math.PI * 2;
+    const MIN_SONG_R  = 90;   // min ring radius for songs around their album
+    const MIN_ALBUM_R = 200;  // min orbit radius for albums around their artist
+    const SONG_ARC    = 44;   // arc-length budget (px) per song on its ring
+    const ALBUM_GAP   = 70;   // extra arc-padding between adjacent album clusters
+    const CLUSTER_GAP = 280;  // horizontal gap between separate artist groups
+
+    // Build hierarchy maps from graph edges
+    const artistAlbums = new Map<string, string[]>();
+    const albumSongs   = new Map<string, string[]>();
+    const artistDirect = new Map<string, string[]>(); // songs with no album
+
+    cy.edges('[edgeType = "same_artist"]').forEach((edge) => {
+      const srcType = edge.source().data('type') as string;
+      const tgtId   = edge.target().id();
+      const srcId   = edge.source().id();
+      if (srcType === 'album') {
+        const a = artistAlbums.get(tgtId) ?? [];
+        a.push(srcId);
+        artistAlbums.set(tgtId, a);
+      } else if (srcType === 'song') {
+        const a = artistDirect.get(tgtId) ?? [];
+        a.push(srcId);
+        artistDirect.set(tgtId, a);
+      }
+    });
+    cy.edges('[edgeType = "same_album"]').forEach((edge) => {
+      if ((edge.source().data('type') as string) !== 'song') return;
+      const tgtId = edge.target().id();
+      const srcId = edge.source().id();
+      const a = albumSongs.get(tgtId) ?? [];
+      a.push(srcId);
+      albumSongs.set(tgtId, a);
+    });
+
+    // Radius of the song ring around an album with n songs
+    const songRingR = (n: number) => Math.max(MIN_SONG_R, (n * SONG_ARC) / TWO_PI);
+
+    // Spread songs in a 300° arc centred on `faceAngle` at radius `r` around (ax, ay)
+    function placeSongsArc(graph: Core, songIds: string[], ax: number, ay: number, r: number, faceAngle: number) {
+      const n = songIds.length;
+      if (n === 0) return;
+      const SPREAD = (300 / 360) * TWO_PI;
+      songIds.forEach((sid, si) => {
+        const a = n === 1 ? faceAngle : (faceAngle - SPREAD / 2) + (si / (n - 1)) * SPREAD;
+        graph.getElementById(sid).position({ x: ax + r * Math.cos(a), y: ay + r * Math.sin(a) });
+      });
+    }
+
+    let xOffset = 0;
+
+    cy.nodes('[type = "artist"]').forEach((artistNode) => {
+      const albumIds    = artistAlbums.get(artistNode.id()) ?? [];
+      const directSongs = artistDirect.get(artistNode.id()) ?? [];
+      const totalSlots  = albumIds.length + (directSongs.length > 0 ? 1 : 0);
+
+      // Per-album song-ring radii
+      const ringRadii = albumIds.map((aid) => songRingR((albumSongs.get(aid) ?? []).length));
+
+      // How much circumference is needed to space all album clusters around the artist?
+      let totalArc = 0;
+      ringRadii.forEach((r) => { totalArc += 2 * r + ALBUM_GAP; });
+      if (directSongs.length > 0) totalArc += 2 * songRingR(directSongs.length) + ALBUM_GAP;
+
+      const albumOrbitR = totalSlots === 0
+        ? 0
+        : Math.max(MIN_ALBUM_R, totalArc / TWO_PI);
+
+      const maxSongR = ringRadii.length > 0
+        ? Math.max(...ringRadii)
+        : (directSongs.length > 0 ? songRingR(directSongs.length) : 0);
+      const clusterR = albumOrbitR > 0 ? albumOrbitR + maxSongR + 50 : maxSongR + 50;
+
+      // Artist sits at the centre of its cluster
+      const cx = xOffset + clusterR;
+      artistNode.position({ x: cx, y: 0 });
+
+      // Albums evenly around the artist starting from top (−π/2)
+      albumIds.forEach((aid, ai) => {
+        const angle = totalSlots > 1 ? (ai / totalSlots) * TWO_PI - Math.PI / 2 : -Math.PI / 2;
+        const ax = cx + albumOrbitR * Math.cos(angle);
+        const ay = albumOrbitR * Math.sin(angle);
+        cy.getElementById(aid).position({ x: ax, y: ay });
+
+        const songIds = albumSongs.get(aid) ?? [];
+        placeSongsArc(cy, songIds, ax, ay, ringRadii[ai]!, angle);
+      });
+
+      // Albumless songs get their own slot in the orbit
+      if (directSongs.length > 0) {
+        const slotAngle = totalSlots > 1
+          ? (albumIds.length / totalSlots) * TWO_PI - Math.PI / 2
+          : -Math.PI / 2;
+        const dx = cx + albumOrbitR * Math.cos(slotAngle);
+        const dy = albumOrbitR * Math.sin(slotAngle);
+        placeSongsArc(cy, directSongs, dx, dy, songRingR(directSongs.length), slotAngle);
+      }
+
+      xOffset += 2 * clusterR + CLUSTER_GAP;
+    });
+
+    cy.fit(undefined, 60);
+    setTimeout(() => { if (cyRef.current && !cyRef.current.destroyed()) updateFontSizes(cyRef.current); }, 80);
   }
 
   // Force layout — saves locked node positions and restores them after
@@ -865,10 +959,10 @@ export default function SongNodesPage() {
                 </button>
                 <button
                   className="col-span-2 px-2 py-1.5 bg-indigo-800 hover:bg-indigo-700 text-xs text-white rounded transition-colors"
-                  title="Artist → Album → Song tree layout"
-                  onClick={runHierarchyLayout}
+                  title="Radial clusters: Artist at centre, albums orbit around it, songs orbit around each album"
+                  onClick={runClusterLayout}
                 >
-                  Hierarchy tree
+                  Cluster (radial)
                 </button>
                 <button
                   className="col-span-2 px-2 py-1.5 bg-surface-700 hover:bg-surface-600 text-xs text-white rounded transition-colors"
