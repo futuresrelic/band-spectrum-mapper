@@ -18,8 +18,10 @@ socialRouter.use(requireAdmin);
 
 socialRouter.post('/generate', async (req, res, next) => {
   try {
-    const { songId, platform, postType, tone, postSize = 'paragraph', variants = 1 } = req.body as {
+    const { songId, albumId, bandId, platform, postType, tone, postSize = 'paragraph', variants = 1 } = req.body as {
       songId?: string;
+      albumId?: string;
+      bandId?: string;
       platform?: string;
       postType?: string;
       tone?: string;
@@ -27,8 +29,12 @@ socialRouter.post('/generate', async (req, res, next) => {
       variants?: number;
     };
 
-    if (!songId || !platform || !postType || !tone) {
-      res.status(400).json({ error: 'songId, platform, postType, and tone are required' });
+    if (!platform || !postType || !tone) {
+      res.status(400).json({ error: 'platform, postType, and tone are required' });
+      return;
+    }
+    if (!songId && !albumId && !bandId) {
+      res.status(400).json({ error: 'One of songId, albumId, or bandId is required' });
       return;
     }
 
@@ -43,7 +49,11 @@ socialRouter.post('/generate', async (req, res, next) => {
     if (!validSizes.includes(postSize)) { res.status(400).json({ error: 'Invalid postSize' }); return; }
 
     const clampedVariants = Math.max(1, Math.min(3, Math.floor(variants)));
-    const posts = await generateSocialPost({ songId, platform, postType, tone, postSize, variants: clampedVariants });
+    const subjectIds: { songId?: string; albumId?: string; bandId?: string } = {};
+    if (songId)  subjectIds.songId  = songId;
+    if (albumId) subjectIds.albumId = albumId;
+    if (bandId)  subjectIds.bandId  = bandId;
+    const posts = await generateSocialPost({ ...subjectIds, platform, postType, tone, postSize, variants: clampedVariants });
 
     res.json({ posts });
   } catch (e) { next(e); }

@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { bandsApi } from '../api/bands';
 import SocialChatPanel from '../components/social/SocialChatPanel';
 import SocialExportPanel from '../components/social/SocialExportPanel';
-import type { Band, Song } from '@band-spectrum-mapper/shared';
+import type { Band, Song, Album } from '@band-spectrum-mapper/shared';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -148,8 +148,12 @@ function PostCard({ post, index, platform }: { post: PostVariant; index: number;
 // Main page
 // ---------------------------------------------------------------------------
 
+type GenerateLevel = 'song' | 'album' | 'band';
+
 export default function SocialPostGeneratorPage() {
+  const [level,           setLevel]    = useState<GenerateLevel>('song');
   const [selectedBand,    setBand]     = useState('');
+  const [selectedAlbumId, setAlbumId]  = useState('');
   const [selectedSongId,  setSongId]   = useState('');
   const [platform,        setPlatform] = useState('facebook');
   const [postType,        setPostType] = useState('radar_analysis');
@@ -168,15 +172,41 @@ export default function SocialPostGeneratorPage() {
     enabled: !!selectedBand,
   });
 
+  const { data: albums } = useQuery({
+    queryKey: ['band-albums', selectedBand],
+    queryFn: () => bandsApi.listAlbums(selectedBand) as Promise<Album[]>,
+    enabled: !!selectedBand && level === 'album',
+  });
+
   const band = bands?.find((b) => b.id === selectedBand);
   const selectedSong = songs?.find((s) => s.id === selectedSongId);
-  const songLabel = (selectedSong && band)
+  const selectedAlbum = albums?.find((a) => a.id === selectedAlbumId);
+
+  const chatSongLabel = level === 'song' && selectedSong && band
     ? `${band.name} — ${selectedSong.title}`
+    : level === 'album' && selectedAlbum && band
+    ? `${band.name} — ${selectedAlbum.title} (album)`
+    : level === 'band' && band
+    ? `${band.name} (artist)`
     : undefined;
+
+  function buildSubjectId(): Record<string, string> {
+    if (level === 'song' && selectedSongId)   return { songId:  selectedSongId };
+    if (level === 'album' && selectedAlbumId) return { albumId: selectedAlbumId };
+    if (level === 'band' && selectedBand)     return { bandId:  selectedBand };
+    return {};
+  }
+
+  function canGenerate(): boolean {
+    if (level === 'song')  return !!selectedSongId;
+    if (level === 'album') return !!selectedAlbumId;
+    if (level === 'band')  return !!selectedBand;
+    return false;
+  }
 
   const generateMutation = useMutation({
     mutationFn: () => api.post<{ posts: PostVariant[] }>('/api/social/generate', {
-      songId: selectedSongId,
+      ...buildSubjectId(),
       platform,
       postType,
       tone,
@@ -207,16 +237,34 @@ export default function SocialPostGeneratorPage() {
           {/* ── Left: Configuration ── */}
           <div className="space-y-5">
 
-            {/* Song selection */}
+            {/* Subject selection */}
             <div className="rounded-2xl border border-white/10 bg-white/3 p-5 space-y-4">
-              <p className="text-xs font-bold uppercase tracking-widest text-white/40">Song</p>
+              <p className="text-xs font-bold uppercase tracking-widest text-white/40">Generate for</p>
 
+              {/* Level picker */}
+              <div className="grid grid-cols-3 gap-1.5">
+                {(['song', 'album', 'band'] as const).map((lvl) => (
+                  <button
+                    key={lvl}
+                    onClick={() => { setLevel(lvl); setSongId(''); setAlbumId(''); }}
+                    className={`py-2 rounded-lg text-xs font-semibold transition-colors capitalize ${
+                      level === lvl
+                        ? 'bg-indigo-600/30 border border-indigo-500/50 text-white'
+                        : 'bg-white/5 border border-white/10 text-white/50 hover:text-white/80'
+                    }`}
+                  >
+                    {lvl === 'band' ? 'Artist' : lvl.charAt(0).toUpperCase() + lvl.slice(1)}
+                  </button>
+                ))}
+              </div>
+
+              {/* Band selector — always shown */}
               <div>
-                <label className="text-xs text-white/50 mb-1 block">Band</label>
+                <label className="text-xs text-white/50 mb-1 block">Artist</label>
                 <select
                   className="w-full bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
                   value={selectedBand}
-                  onChange={(e) => { setBand(e.target.value); setSongId(''); }}
+                  onChange={(e) => { setBand(e.target.value); setSongId(''); setAlbumId(''); }}
                 >
                   <option value="">Select a band…</option>
                   {bands?.map((b) => (
@@ -225,7 +273,25 @@ export default function SocialPostGeneratorPage() {
                 </select>
               </div>
 
-              {selectedBand && (
+              {/* Album selector */}
+              {level === 'album' && selectedBand && (
+                <div>
+                  <label className="text-xs text-white/50 mb-1 block">Album</label>
+                  <select
+                    className="w-full bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
+                    value={selectedAlbumId}
+                    onChange={(e) => setAlbumId(e.target.value)}
+                  >
+                    <option value="">Select an album…</option>
+                    {albums?.map((a) => (
+                      <option key={a.id} value={a.id}>{a.title}{a.year ? ` (${a.year})` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Song selector */}
+              {level === 'song' && selectedBand && (
                 <div>
                   <label className="text-xs text-white/50 mb-1 block">Song</label>
                   <select
@@ -239,6 +305,12 @@ export default function SocialPostGeneratorPage() {
                     ))}
                   </select>
                 </div>
+              )}
+
+              {level === 'band' && selectedBand && (
+                <p className="text-xs text-white/30 italic">
+                  Will aggregate all {songs?.length ?? '…'} songs across the full discography.
+                </p>
               )}
             </div>
 
@@ -345,7 +417,7 @@ export default function SocialPostGeneratorPage() {
             {/* Generate button */}
             <button
               onClick={() => generateMutation.mutate()}
-              disabled={!selectedSongId || generateMutation.isPending}
+              disabled={!canGenerate() || generateMutation.isPending}
               className="w-full py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition-colors"
             >
               {generateMutation.isPending ? 'Generating…' : 'Generate posts'}
@@ -361,18 +433,18 @@ export default function SocialPostGeneratorPage() {
           {/* ── Right: Results ── */}
           <div className="space-y-5">
 
-            {/* Export panel (shown if song selected) */}
-            {selectedSongId && (
+            {/* Export panel (shown when a song is selected) */}
+            {level === 'song' && selectedSongId && (
               <SocialExportPanel songId={selectedSongId} />
             )}
 
             {/* Empty state */}
             {!generateMutation.isPending && posts.length === 0 && (
               <div className="rounded-2xl border border-white/8 p-12 text-center space-y-3">
-                {!selectedSongId ? (
+                {!canGenerate() ? (
                   <>
                     <p className="text-white/30 text-4xl">✦</p>
-                    <p className="text-white/40 text-sm">Select a song to begin</p>
+                    <p className="text-white/40 text-sm">Select {level === 'band' ? 'an artist' : level === 'album' ? 'an album' : 'a song'} to begin</p>
                   </>
                 ) : (
                   <>
@@ -428,7 +500,10 @@ export default function SocialPostGeneratorPage() {
       </div>
 
       {/* AI Chat Panel */}
-      <SocialChatPanel songId={selectedSongId || undefined} songLabel={songLabel} />
+      <SocialChatPanel
+        songId={level === 'song' ? (selectedSongId || undefined) : undefined}
+        songLabel={chatSongLabel}
+      />
     </div>
   );
 }

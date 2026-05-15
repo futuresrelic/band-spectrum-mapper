@@ -22,6 +22,7 @@ interface AxisScores {
 interface CloudSong {
   id: string;
   title: string;
+  bandId: string;
   bandName: string;
   bandSlug: string;
   tags: { name: string; slug: string }[];
@@ -183,6 +184,7 @@ export default function SongCloudPage() {
   const [highlightGenre, setHighlightGenre] = useState<GenrePerspective | null>(null);
   const [highlightTag, setHighlightTag] = useState('');
   const [axisThresholds, setAxisThresholds] = useState<Partial<Record<keyof AxisScores, number>>>({});
+  const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; node: SimNode } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -208,8 +210,16 @@ export default function SongCloudPage() {
     return [...set].sort();
   }, [songs]);
 
+  const allBands = useMemo(() => {
+    if (!songs) return [] as { id: string; name: string }[];
+    const map = new Map<string, string>();
+    songs.forEach((s) => map.set(s.bandId, s.bandName));
+    return [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [songs]);
+
   const hasActiveFilters = highlightGenre !== null || highlightTag !== '' ||
-    Object.values(axisThresholds).some((v) => (v ?? 0) > 0);
+    Object.values(axisThresholds).some((v) => (v ?? 0) > 0) ||
+    selectedBandIds.length > 0;
 
   function passesAxisFilters(node: SimNode): boolean {
     const entries = Object.entries(axisThresholds).filter(([, v]) => (v ?? 0) > 0);
@@ -223,6 +233,10 @@ export default function SongCloudPage() {
 
   function isHighlighted(node: SimNode): boolean {
     if (!passesAxisFilters(node)) return false;
+    if (selectedBandIds.length > 0) {
+      const song = songs?.find((s) => s.id === node.id);
+      if (!song || !selectedBandIds.includes(song.bandId)) return false;
+    }
     if (highlightGenre) {
       const song = songs?.find((s) => s.id === node.id);
       return (song?.genreScores?.[highlightGenre] ?? 0) >= 6;
@@ -310,6 +324,7 @@ export default function SongCloudPage() {
     setHighlightGenre(null);
     setHighlightTag('');
     setAxisThresholds({});
+    setSelectedBandIds([]);
   }
 
   // ── List view sort ──────────────────────────────────────────────────────────
@@ -383,6 +398,32 @@ export default function SongCloudPage() {
                 List
               </button>
             </div>
+
+            {/* Band filter */}
+            {allBands.length > 1 && (
+              <div className="card space-y-2">
+                <p className="text-xs font-bold uppercase tracking-widest text-surface-400">Artist</p>
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {allBands.map((b) => (
+                    <label key={b.id} className="flex items-center gap-2 cursor-pointer group text-sm">
+                      <input
+                        type="checkbox"
+                        checked={selectedBandIds.includes(b.id)}
+                        onChange={() =>
+                          setSelectedBandIds((prev) =>
+                            prev.includes(b.id) ? prev.filter((id) => id !== b.id) : [...prev, b.id],
+                          )
+                        }
+                        className="accent-surface-900"
+                      />
+                      <span className={selectedBandIds.includes(b.id) ? 'font-medium' : 'text-surface-600 group-hover:text-surface-900'}>
+                        {b.name}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Genre audience filter */}
             <div className="card space-y-2">

@@ -465,10 +465,10 @@ export default function WordCloudPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      <div className="max-w-7xl mx-auto px-4 py-8 flex gap-6">
+      <div className="max-w-7xl mx-auto px-4 py-8 flex flex-col lg:flex-row gap-6">
 
         {/* ── Sidebar ── */}
-        <aside className="w-56 shrink-0 space-y-6">
+        <aside className="w-full lg:w-56 lg:shrink-0 space-y-6">
           <div>
             <h1 className="text-sm font-bold text-white uppercase tracking-widest">Word Cloud</h1>
             <p className="text-xs text-surface-500 mt-1">

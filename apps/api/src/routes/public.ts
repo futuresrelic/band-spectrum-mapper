@@ -167,6 +167,7 @@ publicRouter.get('/cloud', async (_req, res, next) => {
     const result = songs.map((s) => ({
       id: s.id,
       title: s.title,
+      bandId: s.bandId,
       bandName: s.band.name,
       bandSlug: s.band.slug,
       tags: s.songTags.map((st) => ({ name: st.tag.name, slug: st.tag.slug })),

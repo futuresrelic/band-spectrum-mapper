@@ -166,12 +166,17 @@ triviaRouter.get('/questions', async (req, res, next) => {
 
     // ── Question type 5: Radar profile → song name ───────────────────────
     try {
-      const scores = await prisma.songAxisScore.findMany({
+      const allScores = await prisma.songAxisScore.findMany({
         where: { song: { ...bandFilter } },
         take: 50,
         include: { song: { include: { band: true } } },
         orderBy: { updatedAt: 'desc' },
       });
+      // Skip songs where every axis is 0 — they produce uninformative questions
+      const scores = allScores.filter((s) =>
+        s.aggression > 0 || s.complexity > 0 || s.atmosphere > 0 ||
+        s.emotion > 0 || s.psychedelic > 0 || s.concept > 0,
+      );
       if (scores.length >= 4) {
         const picked = shuffle(scores)[0]!;
         const distractors = shuffle(scores.filter((s) => s.songId !== picked.songId))

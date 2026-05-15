@@ -53,6 +53,7 @@ const BUILTIN_STOPWORDS = new Set([
 function tokenize(text: string): string[] {
   return text
     .toLowerCase()
+    .replace(/\[[^\]]*\]/g, ' ')   // strip [bracketed annotations]
     .replace(/[^a-z0-9'\s-]/g, ' ')
     .split(/\s+/)
     .map((w) => w.replace(/^['-]+|['-]+$/g, ''))

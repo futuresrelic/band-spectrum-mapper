@@ -632,15 +632,16 @@ export default function SongNodesPage() {
     } as cytoscape.LayoutOptions).run();
   }
 
-  // Custom column layout: each artist gets a column, albums spread below, songs below albums
+  // Custom column layout: artist column header → albums horizontally → songs stacked vertically
   function runNeatLayout() {
     const cy = cyRef.current;
     if (!cy) return;
 
-    const SONG_W   = 58;    // horizontal spacing per song
-    const ALBUM_W  = 140;   // minimum column width per album
-    const ROW_H    = 240;   // vertical distance between rows
-    const GROUP_PAD = 100;  // extra gap between artist groups
+    const SONG_H    = 38;    // vertical gap per song within an album column
+    const ALBUM_W   = 130;   // horizontal width allocated per album column
+    const ROW_H     = 200;   // vertical gap: artist → album row
+    const SONG_TOP  = ROW_H + 180; // y-start for first song (below album node)
+    const GROUP_PAD = 80;    // extra gap between artist groups
 
     // Build hierarchy maps from the graph edges
     const artistAlbums = new Map<string, string[]>();  // artistId → albumIds
@@ -672,42 +673,37 @@ export default function SongNodesPage() {
 
     let xCursor = 0;
     cy.nodes('[type = "artist"]').forEach((artistNode) => {
-      const albumIds     = artistAlbums.get(artistNode.id()) ?? [];
-      const directSongs  = artistDirect.get(artistNode.id())  ?? [];
+      const albumIds    = artistAlbums.get(artistNode.id()) ?? [];
+      const directSongs = artistDirect.get(artistNode.id()) ?? [];
 
-      // How wide is each album's song block?
-      const albumWidths = albumIds.map((aid) => {
-        const sCount = (albumSongs.get(aid) ?? []).length;
-        return Math.max(ALBUM_W, sCount * SONG_W);
-      });
-      const directW    = directSongs.length * SONG_W;
-      const subtreeW   = albumWidths.reduce((s, w) => s + w, 0) + directW;
+      // Each album gets ALBUM_W, direct songs share one column on the right
+      const directColW = directSongs.length > 0 ? ALBUM_W : 0;
+      const subtreeW   = albumIds.length * ALBUM_W + directColW;
       const groupW     = Math.max(ALBUM_W, subtreeW) + GROUP_PAD;
 
-      // Artist sits centred over its group
+      // Artist name sits centred over its column group
       artistNode.position({ x: xCursor + groupW / 2, y: 0 });
 
-      // Albums in a row below the artist
-      let xAlbum = xCursor;
+      // Albums in a horizontal row below the artist, songs stacked vertically below each album
       albumIds.forEach((aid, ai) => {
+        const albumX    = xCursor + ai * ALBUM_W + ALBUM_W / 2;
         const albumNode = cy.getElementById(aid);
-        const aw        = albumWidths[ai] ?? ALBUM_W;
-        const albumX    = xAlbum + aw / 2;
         albumNode.position({ x: albumX, y: ROW_H });
 
-        // Songs in a row below their album
-        const songIds   = albumSongs.get(aid) ?? [];
-        const songStart = albumX - ((songIds.length - 1) * SONG_W) / 2;
+        // Songs stacked vertically in this album's column
+        const songIds = albumSongs.get(aid) ?? [];
         songIds.forEach((sid, si) => {
-          cy.getElementById(sid).position({ x: songStart + si * SONG_W, y: ROW_H * 2 });
+          cy.getElementById(sid).position({ x: albumX, y: SONG_TOP + si * SONG_H });
         });
-        xAlbum += aw;
       });
 
-      // Albumless songs sit directly below the artist, after all albums
-      directSongs.forEach((sid, si) => {
-        cy.getElementById(sid).position({ x: xAlbum + si * SONG_W, y: ROW_H });
-      });
+      // Albumless songs stack vertically in their own column to the right of albums
+      if (directSongs.length > 0) {
+        const directX = xCursor + albumIds.length * ALBUM_W + ALBUM_W / 2;
+        directSongs.forEach((sid, si) => {
+          cy.getElementById(sid).position({ x: directX, y: SONG_TOP + si * SONG_H });
+        });
+      }
 
       xCursor += groupW;
     });
@@ -772,10 +768,10 @@ export default function SongNodesPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      <div className="max-w-7xl mx-auto px-4 py-8 flex gap-5">
+      <div className="max-w-7xl mx-auto px-4 py-8 flex flex-col lg:flex-row gap-5">
 
         {/* ── Sidebar ── */}
-        <aside className="w-56 shrink-0 space-y-5">
+        <aside className="w-full lg:w-56 lg:shrink-0 space-y-5">
           <div>
             <h1 className="text-sm font-bold text-white uppercase tracking-widest">Song Nodes</h1>
             <p className="text-xs text-surface-500 mt-1">

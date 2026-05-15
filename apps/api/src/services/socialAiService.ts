@@ -74,12 +74,15 @@ RULES:
 // ---------------------------------------------------------------------------
 
 interface SocialPostInput {
-  songId: string;
   platform: string;
   postType: string;
   tone: string;
   postSize: string;
   variants: number;
+  // Exactly one of these identifies the subject:
+  songId?: string;
+  albumId?: string;
+  bandId?: string;
 }
 
 interface PostVariant {
@@ -89,52 +92,176 @@ interface PostVariant {
   pollOptions?: string[];
 }
 
-export async function generateSocialPost(input: SocialPostInput): Promise<PostVariant[]> {
-  const client = getClient();
+// ---------------------------------------------------------------------------
+// Context builders — one per subject level
+// ---------------------------------------------------------------------------
 
+type AxesRow = {
+  aggression: number | string; complexity: number | string; atmosphere: number | string;
+  emotion: number | string; psychedelic: number | string; concept: number | string;
+};
+
+function avgAxes(rows: AxesRow[]): string {
+  if (!rows.length) return '';
+  const keys = ['aggression', 'complexity', 'atmosphere', 'emotion', 'psychedelic', 'concept'] as const;
+  const avgs = keys.map((k) => {
+    const vals = rows.map((r) => +r[k]).filter((v) => !isNaN(v));
+    const avg = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
+    return `${k} ${avg.toFixed(1)}`;
+  });
+  return `Average spectrum: ${avgs.join(', ')}`;
+}
+
+async function buildSongSubject(songId: string): Promise<{ subject: string; contextText: string }> {
   const [song, aiSpectrum, aiGenre, aiAnalysis, themes, context] = await Promise.all([
-    prisma.song.findUnique({
-      where: { id: input.songId },
-      include: { band: true, album: true, score: true },
-    }),
-    prisma.songAiSpectrum.findUnique({ where: { songId: input.songId } }),
-    prisma.songAiGenreSpectrum.findUnique({ where: { songId: input.songId } }),
-    prisma.songAiAnalysis.findUnique({ where: { songId: input.songId } }),
-    prisma.songThemeScore.findMany({
-      where: { songId: input.songId },
-      orderBy: { score: 'desc' },
-      take: 5,
-    }),
-    prisma.songContextAnalysis.findUnique({ where: { songId: input.songId } }),
+    prisma.song.findUnique({ where: { id: songId }, include: { band: true, album: true, score: true } }),
+    prisma.songAiSpectrum.findUnique({ where: { songId } }),
+    prisma.songAiGenreSpectrum.findUnique({ where: { songId } }),
+    prisma.songAiAnalysis.findUnique({ where: { songId } }),
+    prisma.songThemeScore.findMany({ where: { songId }, orderBy: { score: 'desc' }, take: 5 }),
+    prisma.songContextAnalysis.findUnique({ where: { songId } }),
   ]);
-
   if (!song) throw new HttpError(404, 'Song not found');
 
   const scoreBlock = song.score
     ? `Core scores: aggression ${song.score.aggression}/10, complexity ${song.score.complexity}/10, atmosphere ${song.score.atmosphere}/10, emotion ${song.score.emotion}/10, psychedelic ${song.score.psychedelic}/10, concept ${song.score.concept}/10`
     : 'No core scores yet';
-
   const aiBlock = aiSpectrum
     ? `AI scores: aggression ${(+aiSpectrum.aggression).toFixed(1)}, complexity ${(+aiSpectrum.complexity).toFixed(1)}, atmosphere ${(+aiSpectrum.atmosphere).toFixed(1)}, emotion ${(+aiSpectrum.emotion).toFixed(1)}, psychedelic ${(+aiSpectrum.psychedelic).toFixed(1)}, concept ${(+aiSpectrum.concept).toFixed(1)}`
     : '';
-
   const genreBlock = aiGenre
     ? `Genre appeal: metal ${(+aiGenre.metal).toFixed(1)}, rock ${(+aiGenre.rock).toFixed(1)}, pop ${(+aiGenre.pop).toFixed(1)}, hiphop ${(+aiGenre.hiphop).toFixed(1)}, electronic ${(+aiGenre.electronic).toFixed(1)}, folk ${(+aiGenre.folk).toFixed(1)}`
     : '';
-
   const themesBlock = themes.length > 0
     ? `Top themes: ${themes.map((t) => `${t.themeSlug} (${(t.score * 10).toFixed(1)}/10)${t.evidence ? ` — "${t.evidence}"` : ''}`).join('; ')}`
     : '';
-
   const analysisBlock = context?.overallNarrative
     ? `Overall analysis: ${context.overallNarrative.slice(0, 400)}`
     : aiAnalysis
     ? `AI analysis: ${aiAnalysis.emotionalRegister}. Themes: ${Array.isArray(aiAnalysis.themes) ? (aiAnalysis.themes as string[]).join(', ') : ''}`
     : '';
 
-  const contextText = [scoreBlock, aiBlock, genreBlock, themesBlock, analysisBlock].filter(Boolean).join('\n');
+  return {
+    subject: `Song: "${song.title}" by ${song.band.name}${song.album ? ` (from ${song.album.title}, ${song.album.year ?? ''})` : ''}`,
+    contextText: [scoreBlock, aiBlock, genreBlock, themesBlock, analysisBlock].filter(Boolean).join('\n'),
+  };
+}
 
-  const userPrompt = `Song: "${song.title}" by ${song.band.name}${song.album ? ` (from ${song.album.title}, ${song.album.year ?? ''})` : ''}
+async function buildAlbumSubject(albumId: string): Promise<{ subject: string; contextText: string }> {
+  const album = await prisma.album.findUnique({
+    where: { id: albumId },
+    include: {
+      band: true,
+      songs: {
+        include: { score: true, aiSpectrum: true, aiGenreSpectrum: true,
+          themeScores: { orderBy: { score: 'desc' }, take: 3 } },
+        orderBy: { trackNumber: 'asc' },
+      },
+    },
+  });
+  if (!album) throw new HttpError(404, 'Album not found');
+
+  const songList = album.songs.map((s) => s.title).join(', ');
+  const coreRows = album.songs.map((s) => s.score).filter(Boolean) as AxesRow[];
+  const aiRows   = album.songs.map((s) => s.aiSpectrum).filter(Boolean) as AxesRow[];
+  const genreRows = album.songs.map((s) => s.aiGenreSpectrum).filter(Boolean);
+
+  const genreAvg = genreRows.length
+    ? `Average genre appeal: metal ${(genreRows.reduce((s, r) => s + +r!.metal, 0) / genreRows.length).toFixed(1)}, rock ${(genreRows.reduce((s, r) => s + +r!.rock, 0) / genreRows.length).toFixed(1)}, pop ${(genreRows.reduce((s, r) => s + +r!.pop, 0) / genreRows.length).toFixed(1)}, hiphop ${(genreRows.reduce((s, r) => s + +r!.hiphop, 0) / genreRows.length).toFixed(1)}, electronic ${(genreRows.reduce((s, r) => s + +r!.electronic, 0) / genreRows.length).toFixed(1)}, folk ${(genreRows.reduce((s, r) => s + +r!.folk, 0) / genreRows.length).toFixed(1)}`
+    : '';
+
+  const topThemes = new Map<string, number>();
+  for (const s of album.songs) {
+    for (const t of s.themeScores) {
+      topThemes.set(t.themeSlug, Math.max(topThemes.get(t.themeSlug) ?? 0, t.score));
+    }
+  }
+  const themesBlock = topThemes.size > 0
+    ? `Recurring themes: ${[...topThemes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([slug]) => slug).join(', ')}`
+    : '';
+
+  return {
+    subject: `Album: "${album.title}" by ${album.band.name}${album.year ? ` (${album.year})` : ''}`,
+    contextText: [
+      `Track list: ${songList}`,
+      coreRows.length ? avgAxes(coreRows) + ' (Core, 0-10)' : '',
+      aiRows.length   ? avgAxes(aiRows)   + ' (AI, 0-10)'   : '',
+      genreAvg,
+      themesBlock,
+    ].filter(Boolean).join('\n'),
+  };
+}
+
+async function buildBandSubject(bandId: string): Promise<{ subject: string; contextText: string }> {
+  const band = await prisma.band.findUnique({
+    where: { id: bandId },
+    include: { albums: { orderBy: { year: 'asc' } } },
+  });
+  if (!band) throw new HttpError(404, 'Band not found');
+
+  const songs = await prisma.song.findMany({
+    where: { bandId },
+    include: { score: true, aiSpectrum: true, aiGenreSpectrum: true,
+      themeScores: { orderBy: { score: 'desc' }, take: 3 } },
+  });
+
+  const albumList = band.albums.map((a) => `${a.title}${a.year ? ` (${a.year})` : ''}`).join(', ');
+  const coreRows  = songs.map((s) => s.score).filter(Boolean) as AxesRow[];
+  const aiRows    = songs.map((s) => s.aiSpectrum).filter(Boolean) as AxesRow[];
+  const genreRows = songs.map((s) => s.aiGenreSpectrum).filter(Boolean);
+
+  const genreAvg = genreRows.length
+    ? `Average genre appeal: metal ${(genreRows.reduce((s, r) => s + +r!.metal, 0) / genreRows.length).toFixed(1)}, rock ${(genreRows.reduce((s, r) => s + +r!.rock, 0) / genreRows.length).toFixed(1)}, pop ${(genreRows.reduce((s, r) => s + +r!.pop, 0) / genreRows.length).toFixed(1)}, hiphop ${(genreRows.reduce((s, r) => s + +r!.hiphop, 0) / genreRows.length).toFixed(1)}, electronic ${(genreRows.reduce((s, r) => s + +r!.electronic, 0) / genreRows.length).toFixed(1)}, folk ${(genreRows.reduce((s, r) => s + +r!.folk, 0) / genreRows.length).toFixed(1)}`
+    : '';
+
+  // Find standout songs per axis
+  type AxisKey = 'aggression' | 'complexity' | 'atmosphere' | 'emotion' | 'psychedelic' | 'concept';
+  const axisKeys: AxisKey[] = ['aggression', 'complexity', 'atmosphere', 'emotion', 'psychedelic', 'concept'];
+  const standouts = axisKeys.map((k) => {
+    const top = songs.filter((s) => s.score).sort((a, b) => +(b.score![k]) - +(a.score![k]))[0];
+    return top ? `highest ${k}: "${top.title}" (${top.score![k]}/10)` : null;
+  }).filter(Boolean);
+
+  const topThemes = new Map<string, number>();
+  for (const s of songs) {
+    for (const t of s.themeScores) {
+      topThemes.set(t.themeSlug, Math.max(topThemes.get(t.themeSlug) ?? 0, t.score));
+    }
+  }
+  const themesBlock = topThemes.size > 0
+    ? `Recurring themes: ${[...topThemes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([slug]) => slug).join(', ')}`
+    : '';
+
+  return {
+    subject: `Artist: ${band.name}`,
+    contextText: [
+      `Discography (${band.albums.length} albums, ${songs.length} songs): ${albumList}`,
+      coreRows.length ? avgAxes(coreRows) + ' across all songs (Core)' : '',
+      aiRows.length   ? avgAxes(aiRows)   + ' across all songs (AI)'   : '',
+      genreAvg,
+      standouts.length ? `Standout tracks — ${standouts.join(' · ')}` : '',
+      themesBlock,
+    ].filter(Boolean).join('\n'),
+  };
+}
+
+export async function generateSocialPost(input: SocialPostInput): Promise<PostVariant[]> {
+  const client = getClient();
+
+  let subject: string;
+  let contextText: string;
+
+  if (input.songId) {
+    ({ subject, contextText } = await buildSongSubject(input.songId));
+  } else if (input.albumId) {
+    ({ subject, contextText } = await buildAlbumSubject(input.albumId));
+  } else if (input.bandId) {
+    ({ subject, contextText } = await buildBandSubject(input.bandId));
+  } else {
+    throw new HttpError(400, 'One of songId, albumId, or bandId is required');
+  }
+
+  const userPrompt = `${subject}
 
 ANALYTICAL DATA:
 ${contextText}

@@ -19,6 +19,7 @@ import { HttpError } from '../middleware/errorHandler.js';
 function normalize(text: string): string {
   return text
     .toLowerCase()
+    .replace(/\[[^\]]*\]/g, ' ')   // strip [bracketed stage directions / annotations]
     .replace(/[^a-z0-9\s'-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
