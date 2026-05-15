@@ -44,6 +44,8 @@ import SongNodesPage from './pages/SongNodesPage';
 import TriviaPage from './pages/TriviaPage';
 import PlayPage from './pages/PlayPage';
 import AdminGamePage from './pages/AdminGamePage';
+import ExplorePage from './pages/ExplorePage';
+import WordHuntPage from './pages/WordHuntPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -89,6 +91,7 @@ export default function App() {
         <Route path="/share/albums/:albumId" element={<ShareAlbumPage />} />
         <Route path="/view" element={<ViewerIndexPage />} />
         <Route path="/view/:bandSlug" element={<ViewerBandPage />} />
+        <Route path="/explore" element={<ExplorePage />} />
 
         {/* ── USER: rating surface + game, any logged-in Google user ── */}
         <Route path="/my" element={<UserLayout />}>
@@ -98,6 +101,7 @@ export default function App() {
           <Route path="profile" element={<UserProfilePage />} />
         </Route>
         <Route path="/play" element={<PlayPage />} />
+        <Route path="/play/word-hunt" element={<WordHuntPage />} />
 
         {/* ── ADMIN: full app, isAdmin required ── */}
         <Route

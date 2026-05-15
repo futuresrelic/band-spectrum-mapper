@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { userRatingService } from '../services/userRatingService.js';
+import { buildGraph, listScopeOptions, type GraphLayoutPreset } from '../services/songNodesService.js';
 
 // Read-only public endpoints — no write access, no auth required.
 // Safe to share. Returns only what viewers need to see.
@@ -177,5 +178,127 @@ publicRouter.get('/cloud', async (_req, res, next) => {
     }));
 
     res.json(result);
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/public/graph?preset=artist-universe&bandIds=id1,id2&albumId=id
+// Public graph data — same service as admin Song Nodes, no auth required.
+// ---------------------------------------------------------------------------
+
+const PUBLIC_PRESETS: GraphLayoutPreset[] = [
+  'artist-universe', 'album-cluster', 'theme-constellation',
+  'emotional-similarity', 'lyrical-dna',
+];
+
+publicRouter.get('/graph', async (req, res, next): Promise<void> => {
+  try {
+    const preset = ((req.query['preset'] as string) || 'artist-universe') as GraphLayoutPreset;
+    if (!PUBLIC_PRESETS.includes(preset)) {
+      res.status(400).json({ error: `preset must be one of: ${PUBLIC_PRESETS.join(', ')}` });
+      return;
+    }
+    const bandIdsRaw = (req.query['bandIds'] as string) ?? '';
+    const albumId    = (req.query['albumId']  as string) ?? '';
+    const bandIds    = bandIdsRaw ? bandIdsRaw.split(',').filter(Boolean) : [];
+    const data = await buildGraph(preset, {
+      bandIds,
+      ...(albumId ? { albumId } : {}),
+    });
+    res.json(data);
+  } catch (e) { next(e); }
+});
+
+// GET /api/public/graph/scopes — bands + albums for the explore page selector
+publicRouter.get('/graph/scopes', async (_req, res, next): Promise<void> => {
+  try {
+    res.json(await listScopeOptions());
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// Word Hunt — challenge word + verification
+// ---------------------------------------------------------------------------
+
+// Shared stopwords list
+const WORD_HUNT_STOPS = new Set([
+  'the','a','an','and','or','but','in','on','at','to','for','of','with',
+  'is','was','are','were','be','been','being','have','has','had','do',
+  'does','did','will','would','can','could','may','might','shall','should',
+  'not','no','it','its','this','that','these','those','i','me','my','mine',
+  'you','your','yours','he','she','we','they','them','their','what','which',
+  'who','all','from','by','as','so','if','up','out','about','into','through',
+  'than','more','just','like','when','there','here','then','now','how',
+  'some','any','each','both','own','him','her','our','us','they','where',
+  'also','even','still','yet','too','very','only','over','after','before',
+  'down','get','got','let','say','said','know','think','see','look','come',
+  'goes','gone','made','make','take','want','well','back','way','much',
+  'one','two','three','four','five','six','seven','eight','nine','ten',
+]);
+
+// GET /api/public/word-hunt/challenge — returns a random challenge word
+publicRouter.get('/word-hunt/challenge', async (_req, res, next): Promise<void> => {
+  try {
+    const lyrics = await prisma.lyric.findMany({
+      where: { isPrimary: true },
+      select: { text: true, songId: true },
+    });
+
+    // word → set of songIds that contain it
+    const wordSongs = new Map<string, Set<string>>();
+    for (const lyric of lyrics) {
+      const words = lyric.text
+        .replace(/\[[^\]]*\]/g, ' ')
+        .toLowerCase()
+        .match(/[a-z]{4,}/g) ?? [];
+      for (const w of new Set(words)) {
+        if (WORD_HUNT_STOPS.has(w)) continue;
+        const s = wordSongs.get(w) ?? new Set<string>();
+        s.add(lyric.songId);
+        wordSongs.set(w, s);
+      }
+    }
+
+    // Prefer words that appear in 2–8 songs — wide enough to be interesting,
+    // narrow enough to be findable.
+    const bucket = Array.from(wordSongs.entries())
+      .filter(([, s]) => s.size >= 2 && s.size <= 8);
+
+    if (bucket.length === 0) {
+      res.status(404).json({ error: 'Not enough lyric data to generate a challenge' });
+      return;
+    }
+
+    const [word, songs] = bucket[Math.floor(Math.random() * bucket.length)]!;
+    res.json({ word, songCount: songs.size });
+  } catch (e) { next(e); }
+});
+
+// GET /api/public/word-hunt/verify?word=X&songId=Y
+publicRouter.get('/word-hunt/verify', async (req, res, next): Promise<void> => {
+  try {
+    const word   = ((req.query['word']   as string) ?? '').toLowerCase().trim();
+    const songId = ((req.query['songId'] as string) ?? '').trim();
+
+    if (!word || !songId) {
+      res.status(400).json({ error: 'word and songId are required' });
+      return;
+    }
+
+    const lyric = await prisma.lyric.findFirst({
+      where: { songId, isPrimary: true },
+      select: { text: true },
+    });
+
+    if (!lyric) {
+      res.json({ found: false, hasLyrics: false });
+      return;
+    }
+
+    const words = new Set(
+      lyric.text.replace(/\[[^\]]*\]/g, ' ').toLowerCase().match(/[a-z]+/g) ?? [],
+    );
+
+    res.json({ found: words.has(word), hasLyrics: true });
   } catch (e) { next(e); }
 });

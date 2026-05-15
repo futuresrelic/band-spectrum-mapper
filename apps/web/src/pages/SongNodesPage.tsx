@@ -431,6 +431,9 @@ export default function SongNodesPage() {
   const [legendEdgeFilter, setLegendEdgeFilter] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState<'pan' | 'select'>('pan');
   const [showTags, setShowTags] = useState(true);
+  const [animatePulse, setAnimatePulse] = useState(true);
+  const animatePulseRef = useRef(true);
+  const animGenRef = useRef(0);
 
   const { data: scopes } = useQuery({
     queryKey: ['song-nodes-scopes'],
@@ -557,6 +560,17 @@ export default function SongNodesPage() {
     cy.nodes('[type = "tag"]').style('display', display);
     cy.edges('[edgeType = "shared_tag"]').style('display', display);
   }, [showTags, graphLabel]); // graphLabel as proxy for cy being mounted
+
+  // Keep the ref in sync so animation callbacks always see current value
+  useEffect(() => { animatePulseRef.current = animatePulse; }, [animatePulse]);
+
+  // Start/stop animation when user toggles the control
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    if (animatePulse) startPulseAnimation(cy);
+    else stopPulseAnimation(cy);
+  }, [animatePulse, graphLabel]); // graphLabel triggers restart when graph reloads
 
   const toggleBand = useCallback((id: string) => {
     setSelectedBandIds((prev) =>
@@ -691,8 +705,36 @@ export default function SongNodesPage() {
       xOffset += 2 * clusterR + CLUSTER_GAP;
     });
 
+    // Reposition tag nodes to the centroid of their connected songs/albums,
+    // then nudge outward away from the nearest artist so they don't sit inside clusters.
+    cy.nodes('[type = "tag"]').forEach((tagNode) => {
+      const connected = tagNode.neighborhood('node[type = "song"], node[type = "album"]');
+      if (connected.length === 0) return;
+      let sumX = 0, sumY = 0;
+      connected.forEach((n) => { const p = n.position(); sumX += p.x; sumY += p.y; });
+      const centX = sumX / connected.length;
+      const centY = sumY / connected.length;
+
+      // Find nearest artist to push the tag outward from
+      let nearAx = centX, nearAy = 0;
+      let nearDist = Infinity;
+      cy.nodes('[type = "artist"]').forEach((a) => {
+        const ap = a.position();
+        const d = Math.hypot(ap.x - centX, ap.y - centY);
+        if (d < nearDist) { nearDist = d; nearAx = ap.x; nearAy = ap.y; }
+      });
+      const vx = centX - nearAx, vy = centY - nearAy;
+      const vlen = Math.hypot(vx, vy) || 1;
+      tagNode.position({ x: centX + (vx / vlen) * 55, y: centY + (vy / vlen) * 55 });
+    });
+
     cy.fit(undefined, 60);
-    setTimeout(() => { if (cyRef.current && !cyRef.current.destroyed()) updateFontSizes(cyRef.current); }, 80);
+    setTimeout(() => {
+      if (cyRef.current && !cyRef.current.destroyed()) {
+        updateFontSizes(cyRef.current);
+        if (animatePulseRef.current) startPulseAnimation(cyRef.current);
+      }
+    }, 80);
   }
 
   // Force layout — saves locked node positions and restores them after
@@ -803,8 +845,12 @@ export default function SongNodesPage() {
     });
 
     cy.fit(undefined, 60);
-    // Re-apply zoom-constant font sizes after repositioning
-    setTimeout(() => { if (cyRef.current && !cyRef.current.destroyed()) updateFontSizes(cyRef.current); }, 80);
+    setTimeout(() => {
+      if (cyRef.current && !cyRef.current.destroyed()) {
+        updateFontSizes(cyRef.current);
+        if (animatePulseRef.current) startPulseAnimation(cyRef.current);
+      }
+    }, 80);
   }
 
   function unlockAll() {
@@ -813,6 +859,36 @@ export default function SongNodesPage() {
     cy.nodes('.locked').forEach((n) => { n.unlock(); n.removeClass('locked'); });
     lockedNodeIdsRef.current.clear();
     setLockedCount(0);
+  }
+
+  // Pulse animation — artist nodes gently breathe in and out
+  function startPulseAnimation(cy: Core) {
+    const gen = ++animGenRef.current;
+    cy.nodes('[type = "artist"]').forEach((node, i) => {
+      const BASE = 42, PEAK = 56, PERIOD = 3000 + i * 700;
+      const breathe = () => {
+        if (cy.destroyed() || animGenRef.current !== gen) return;
+        node.animate({ style: { width: PEAK, height: PEAK } }, {
+          duration: PERIOD / 2, easing: 'ease-in-out',
+          complete: () => {
+            if (cy.destroyed() || animGenRef.current !== gen) return;
+            node.animate({ style: { width: BASE, height: BASE } }, {
+              duration: PERIOD / 2, easing: 'ease-in-out',
+              complete: breathe,
+            });
+          },
+        });
+      };
+      setTimeout(() => { if (animGenRef.current === gen) breathe(); }, i * 350);
+    });
+  }
+
+  function stopPulseAnimation(cy?: Core) {
+    animGenRef.current++;
+    // Snap artist nodes back to their resting size immediately
+    (cy ?? cyRef.current)?.nodes('[type = "artist"]')
+      .stop(true)
+      .style({ width: 42, height: 42 });
   }
 
   // ── Legend filter controls ────────────────────────────────────────────────
@@ -1006,6 +1082,17 @@ export default function SongNodesPage() {
                 />
                 <span className={`text-xs transition-colors ${showTags ? 'text-surface-200' : 'text-surface-600'}`}>
                   Show tags
+                </span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={animatePulse}
+                  onChange={(e) => setAnimatePulse(e.target.checked)}
+                  className="accent-indigo-500"
+                />
+                <span className={`text-xs transition-colors ${animatePulse ? 'text-surface-200' : 'text-surface-600'}`}>
+                  Animate
                 </span>
               </label>
 
