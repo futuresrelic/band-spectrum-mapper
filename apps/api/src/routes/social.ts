@@ -18,11 +18,12 @@ socialRouter.use(requireAdmin);
 
 socialRouter.post('/generate', async (req, res, next) => {
   try {
-    const { songId, platform, postType, tone, variants = 1 } = req.body as {
+    const { songId, platform, postType, tone, postSize = 'paragraph', variants = 1 } = req.body as {
       songId?: string;
       platform?: string;
       postType?: string;
       tone?: string;
+      postSize?: string;
       variants?: number;
     };
 
@@ -34,13 +35,15 @@ socialRouter.post('/generate', async (req, res, next) => {
     const validPlatforms = ['facebook', 'instagram', 'threads', 'tiktok', 'reddit'];
     const validPostTypes = ['radar_analysis', 'emotional', 'philosophy', 'poll', 'entry_point', 'compare', 'meme', 'discussion'];
     const validTones = ['cinematic', 'analytical', 'conversational', 'provocative'];
+    const validSizes = ['single_line', 'short', 'paragraph', 'essay'];
 
     if (!validPlatforms.includes(platform)) { res.status(400).json({ error: 'Invalid platform' }); return; }
     if (!validPostTypes.includes(postType)) { res.status(400).json({ error: 'Invalid postType' }); return; }
     if (!validTones.includes(tone)) { res.status(400).json({ error: 'Invalid tone' }); return; }
+    if (!validSizes.includes(postSize)) { res.status(400).json({ error: 'Invalid postSize' }); return; }
 
     const clampedVariants = Math.max(1, Math.min(3, Math.floor(variants)));
-    const posts = await generateSocialPost({ songId, platform, postType, tone, variants: clampedVariants });
+    const posts = await generateSocialPost({ songId, platform, postType, tone, postSize, variants: clampedVariants });
 
     res.json({ posts });
   } catch (e) { next(e); }

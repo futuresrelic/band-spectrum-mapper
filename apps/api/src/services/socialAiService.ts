@@ -38,6 +38,13 @@ const TONE_NOTES: Record<string, string> = {
   provocative: 'Bold opinion, slight edge. Designed to make people think "wait... actually." Not inflammatory, just confident.',
 };
 
+const POST_SIZE_NOTES: Record<string, string> = {
+  single_line: 'HOOK ONLY — 1 to 2 sentences, under 30 words total. Every word must earn its place. No preamble, no padding.',
+  short:       'SHORT CAPTION — 3 to 5 sentences, under 80 words. Strong opening, one clear idea, clean ending.',
+  paragraph:   'PARAGRAPH — one dense, well-constructed paragraph, 80 to 150 words. Enough room to develop one idea properly.',
+  essay:       'LONG FORM — 2 to 3 paragraphs, 200 to 350 words. Build the idea, develop it, resolve it. A proper piece of writing.',
+};
+
 const BSM_SYSTEM_PROMPT = `You are the social media content strategist for Band Spectrum Mapper — a music psychology and analysis platform.
 
 ABOUT BAND SPECTRUM MAPPER:
@@ -71,6 +78,7 @@ interface SocialPostInput {
   platform: string;
   postType: string;
   tone: string;
+  postSize: string;
   variants: number;
 }
 
@@ -137,6 +145,7 @@ Generate ${input.variants} ${input.variants > 1 ? 'distinct variants' : 'post'} 
 Platform context: ${PLATFORM_NOTES[input.platform] ?? input.platform}
 Post type: ${POST_TYPE_NOTES[input.postType] ?? input.postType}
 Tone: ${TONE_NOTES[input.tone] ?? input.tone}
+Length: ${POST_SIZE_NOTES[input.postSize] ?? POST_SIZE_NOTES['paragraph']}
 
 Return a JSON array with ${input.variants} objects. Each object must have:
 - "body": the main post text
@@ -146,13 +155,21 @@ Return a JSON array with ${input.variants} objects. Each object must have:
 
 Return ONLY valid JSON. No markdown, no explanation.`;
 
+  const maxTokensBySize: Record<string, number> = {
+    single_line: 800,
+    short: 1500,
+    paragraph: 2500,
+    essay: 5000,
+  };
+  const maxTokens = (maxTokensBySize[input.postSize] ?? 2500) * Math.max(1, input.variants);
+
   const response = await client.chat.completions.create({
     model: 'gpt-4o',
     messages: [
       { role: 'system', content: BSM_SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
     ],
-    max_tokens: 2000,
+    max_tokens: Math.min(maxTokens, 8000),
     temperature: 0.85,
   });
 

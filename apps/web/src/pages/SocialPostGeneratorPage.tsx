@@ -47,6 +47,13 @@ const TONES = [
   { id: 'provocative',    label: 'Provocative',    description: 'Bold opinion, slight edge, confident' },
 ];
 
+const POST_SIZES = [
+  { id: 'single_line', label: 'Single line',   sub: '1–2 sentences' },
+  { id: 'short',       label: 'Short',          sub: 'Caption, ~5 sentences' },
+  { id: 'paragraph',   label: 'Paragraph',      sub: '~100 words' },
+  { id: 'essay',       label: 'Essay',          sub: '200–350 words' },
+];
+
 // ---------------------------------------------------------------------------
 // Copy button
 // ---------------------------------------------------------------------------
@@ -147,6 +154,7 @@ export default function SocialPostGeneratorPage() {
   const [platform,        setPlatform] = useState('facebook');
   const [postType,        setPostType] = useState('radar_analysis');
   const [tone,            setTone]     = useState('cinematic');
+  const [postSize,        setPostSize] = useState('paragraph');
   const [variants,        setVariants] = useState(1);
 
   const { data: bands } = useQuery({
@@ -172,6 +180,7 @@ export default function SocialPostGeneratorPage() {
       platform,
       postType,
       tone,
+      postSize,
       variants,
     }),
   });
@@ -292,6 +301,27 @@ export default function SocialPostGeneratorPage() {
                   >
                     <p className="font-medium text-xs">{t.label}</p>
                     <p className="text-xs opacity-50 mt-0.5 leading-tight">{t.description}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Post size */}
+            <div className="rounded-2xl border border-white/10 bg-white/3 p-5 space-y-3">
+              <p className="text-xs font-bold uppercase tracking-widest text-white/40">Post size</p>
+              <div className="grid grid-cols-2 gap-2">
+                {POST_SIZES.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => setPostSize(s.id)}
+                    className={`text-left px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                      postSize === s.id
+                        ? 'bg-indigo-600/25 border border-indigo-500/40 text-white'
+                        : 'hover:bg-white/5 text-white/60 border border-white/8'
+                    }`}
+                  >
+                    <p className="font-medium text-xs">{s.label}</p>
+                    <p className="text-xs opacity-50 mt-0.5">{s.sub}</p>
                   </button>
                 ))}
               </div>
