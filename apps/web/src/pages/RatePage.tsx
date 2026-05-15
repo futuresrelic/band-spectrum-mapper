@@ -8,6 +8,7 @@ import { songsApi } from '../api/songs';
 import { AxisDescription, AxisHelpPanel, DISCLAIMER } from '../components/spectrum/AxisHelp';
 import SignInPrompt from '../components/auth/SignInPrompt';
 import PageHeader from '../components/layout/PageHeader';
+import GenreSpectrumWidget from '../components/GenreSpectrumWidget';
 import type { ScoreAxis, AxisScoreMap } from '@band-spectrum-mapper/shared';
 import { SCORE_AXES } from '@band-spectrum-mapper/shared';
 
@@ -331,6 +332,16 @@ export default function RatePage() {
               </div>
 
               <AxisHelpPanel />
+
+              {/* Genre ratings — all user interactions in one place */}
+              <div className="card space-y-3">
+                <h3>Genre Ratings</h3>
+                <p className="text-xs text-surface-500">
+                  Rate how well this song appeals to fans of each genre (1–10).
+                  Community averages are visible to everyone.
+                </p>
+                <GenreSpectrumWidget songId={selectedSongId} />
+              </div>
             </>
           )}
         </div>

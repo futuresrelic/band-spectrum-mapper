@@ -405,7 +405,7 @@ function LibrarySongPicker({
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs text-surface-400 mb-1">Band</label>
           <select
@@ -591,11 +591,11 @@ export default function SongSpectrumPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      <div className="max-w-7xl mx-auto px-4 py-8 flex gap-6">
+      <div className="max-w-7xl mx-auto px-4 py-8 flex flex-col lg:flex-row gap-6">
 
         {/* ── Sidebar: history ── */}
-        <aside className="w-56 shrink-0">
-          <div className="sticky top-8">
+        <aside className="w-full lg:w-56 lg:shrink-0">
+          <div className="lg:sticky lg:top-8">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xs font-bold uppercase tracking-widest text-surface-400">
                 Analyses
@@ -659,7 +659,7 @@ export default function SongSpectrumPage() {
               />
 
               {/* Manual name fields (auto-filled from picker, still editable) */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <label className="block">
                   <span className="block text-xs font-medium text-surface-300 mb-1.5">Artist / Band *</span>
                   <input
@@ -801,7 +801,7 @@ export default function SongSpectrumPage() {
             <div className="space-y-8">
 
               {/* Header */}
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-bold text-white">{activeAnalysis.songTitle}</h2>
                   <div className="text-surface-400 text-sm">{activeAnalysis.artistName}</div>
@@ -813,7 +813,7 @@ export default function SongSpectrumPage() {
                     )}
                   </div>
                 </div>
-                <div className="flex gap-2 shrink-0">
+                <div className="flex flex-wrap gap-2 sm:shrink-0">
                   <button
                     className="px-3 py-1.5 bg-surface-700 hover:bg-surface-600 text-xs text-white rounded transition-colors"
                     onClick={exportJson}

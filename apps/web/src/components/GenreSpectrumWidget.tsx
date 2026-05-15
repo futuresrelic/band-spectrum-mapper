@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
@@ -107,11 +107,17 @@ interface Props {
   dark?: boolean;
 }
 
+const DEFAULT_SLIDERS = () => Object.fromEntries(GENRE_PERSPECTIVES.map((p) => [p.id, 5])) as Record<string, number>;
+
 export default function GenreSpectrumWidget({ songId, showRegenerate = false, dark = false }: Props) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>('community');
   const [regenerating, setRegenerating] = useState(false);
+  const [genreSliders, setGenreSliders] = useState<Record<string, number>>(DEFAULT_SLIDERS);
+  const [slidersReady, setSlidersReady] = useState(false);
+  const [genreSaving, setGenreSaving] = useState(false);
+  const [genreSaved, setGenreSaved] = useState(false);
 
   // Community + my ratings
   const { data: ratingsData } = useQuery({
@@ -119,6 +125,42 @@ export default function GenreSpectrumWidget({ songId, showRegenerate = false, da
     queryFn: () => api.get<GenreRatingsResponse>(`/api/genre-ratings/songs/${songId}`),
     staleTime: 60_000,
   });
+
+  // Seed sliders from server ratings on first load
+  useEffect(() => {
+    if (slidersReady || !ratingsData) return;
+    setSlidersReady(true);
+    if (ratingsData.myGenreRatings.length) {
+      const updated = DEFAULT_SLIDERS();
+      for (const r of ratingsData.myGenreRatings) {
+        updated[r.perspective] = r.score;
+      }
+      setGenreSliders(updated);
+    }
+  }, [ratingsData, slidersReady]);
+
+  // Reset sliders when songId changes
+  useEffect(() => {
+    setSlidersReady(false);
+    setGenreSliders(DEFAULT_SLIDERS());
+    setGenreSaved(false);
+  }, [songId]);
+
+  async function saveGenreRatings() {
+    setGenreSaving(true);
+    setGenreSaved(false);
+    try {
+      await Promise.all(
+        GENRE_PERSPECTIVES.map((p) =>
+          api.put(`/api/genre-ratings/songs/${songId}/perspectives/${p.id}`, { score: genreSliders[p.id] }),
+        ),
+      );
+      qc.invalidateQueries({ queryKey: ['genre-ratings', songId] });
+      setGenreSaved(true);
+    } finally {
+      setGenreSaving(false);
+    }
+  }
 
   // AI genre spectrum (auto-generate on first access)
   const { data: aiSpectrum, isLoading: aiLoading, isError: aiError } = useQuery({
@@ -214,30 +256,56 @@ export default function GenreSpectrumWidget({ songId, showRegenerate = false, da
 
       {/* Mine tab */}
       {tab === 'mine' && (
-        myScores ? (
-          <>
-            <div className="max-w-xs">
-              <GenreRadarChart datasets={[{ label: 'Mine', scores: myScores, color: '#10B981' }]} />
-            </div>
-            <GenreScoreGrid scores={myScores} />
-            {!user && (
-              <p className={`text-xs mt-2 ${baseText}`}>
-                Showing local ratings.{' '}
-                <a href="/api/auth/google" className="text-indigo-500 hover:text-indigo-400">Sign in</a>
-                {' '}to make them count.
-              </p>
+        user ? (
+          <div className="space-y-3">
+            {myScores && (
+              <div className="max-w-xs">
+                <GenreRadarChart datasets={[{ label: 'Mine', scores: myScores, color: '#10B981' }]} />
+              </div>
             )}
-          </>
+            <div className="space-y-2">
+              {GENRE_PERSPECTIVES.map((p) => (
+                <div key={p.id} className="flex items-center gap-2">
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: GENRE_COLORS[p.id] }}
+                  />
+                  <span className={`text-xs w-24 shrink-0 ${headingText}`}>{GENRE_LABELS[p.id]}</span>
+                  <input
+                    type="range"
+                    min="1" max="10" step="1"
+                    value={genreSliders[p.id] ?? 5}
+                    onChange={(e) => {
+                      setGenreSaved(false);
+                      setGenreSliders((prev) => ({ ...prev, [p.id]: parseInt(e.target.value, 10) }));
+                    }}
+                    className="flex-1 accent-emerald-500"
+                  />
+                  <span className={`text-xs font-mono w-4 text-right ${headingText}`}>
+                    {genreSliders[p.id] ?? 5}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                onClick={() => { void saveGenreRatings(); }}
+                disabled={genreSaving}
+                className="text-xs px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-600 text-white disabled:opacity-50 transition-colors"
+              >
+                {genreSaving ? 'Saving…' : 'Save Genre Ratings'}
+              </button>
+              {genreSaved && (
+                <span className={`text-xs ${baseText}`}>Saved ✓</span>
+              )}
+            </div>
+          </div>
         ) : (
           <div>
-            <p className={`text-sm italic ${baseText} mb-2`}>
-              {user ? "You haven't added genre ratings for this song yet." : 'No local genre ratings found.'}
-            </p>
-            {!user && (
-              <a href="/api/auth/google" className="text-xs text-indigo-500 hover:text-indigo-400">
-                Sign in to rate →
-              </a>
-            )}
+            <p className={`text-sm italic ${baseText} mb-2`}>Sign in to add your genre ratings.</p>
+            <a href="/api/auth/google" className="text-xs text-indigo-500 hover:text-indigo-400">
+              Sign in →
+            </a>
           </div>
         )
       )}
