@@ -18,6 +18,7 @@ import {
   fetchYouTubeMetadata,
   analyzeAudio,
   fetchMusicBrainzData,
+  fetchRhythmResearch,
   createAnalysis,
   updateAnalysis,
   listAnalyses,
@@ -111,20 +112,21 @@ songSpectrumRouter.post(
       const combinedContext = [analysisNotes ?? '', lyricsContext ?? '']
         .filter(Boolean).join('\n\n');
 
-      // Run audio analysis and MusicBrainz lookup in parallel
-      const [{ analysis: rawAnalysis, scores }, mbData] = await Promise.all([
+      // Run audio analysis, MusicBrainz lookup, and GPT rhythm research in parallel
+      const artist = (artistName ?? '').trim();
+      const title  = (songTitle ?? '').trim();
+      const [{ analysis: rawAnalysis, scores }, mbData, rhythmData] = await Promise.all([
         analyzeAudio(req.file.buffer, req.file.originalname, combinedContext),
-        fetchMusicBrainzData(
-          (artistName ?? '').trim(),
-          (songTitle ?? '').trim(),
-        ),
+        fetchMusicBrainzData(artist, title),
+        fetchRhythmResearch(artist, title),
       ]);
 
-      // Merge analyst notes and MusicBrainz data into the analysis object
+      // Merge analyst notes, MusicBrainz data, and rhythm research into the analysis object
       const analysis = {
         ...rawAnalysis,
         ...(analysisNotes?.trim() ? { userNotes: analysisNotes.trim() } : {}),
         ...(mbData ? { musicBrainzData: mbData } : {}),
+        ...(rhythmData ? { rhythmResearch: rhythmData } : {}),
       };
 
       const flatScores: Record<string, number> = {};

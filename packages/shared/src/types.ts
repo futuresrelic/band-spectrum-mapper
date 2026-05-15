@@ -517,6 +517,14 @@ export interface MusicBrainzSongData {
   releaseDate: string | null;
 }
 
+export interface RhythmResearch {
+  timeSignatures: string[];   // e.g. ["9/8", "8/8", "7/8", "5/4"]
+  polyrhythmic: boolean;
+  bpmRange: string | null;    // e.g. "≈ 85 quarter-note BPM"
+  notes: string | null;       // brief GPT explanation
+  model: string;
+}
+
 export interface AudioAnalysisResult {
   duration: number;            // seconds
   sampleRate: number;
@@ -534,6 +542,7 @@ export interface AudioAnalysisResult {
   // Optional fields added by the Node API layer (not from Python worker)
   userNotes?: string;
   musicBrainzData?: MusicBrainzSongData;
+  rhythmResearch?: RhythmResearch;
 }
 
 export interface ScoreAxisDetail {

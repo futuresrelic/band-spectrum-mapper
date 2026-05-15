@@ -6,6 +6,7 @@ import type {
   YouTubeMetadata,
   AudioAnalysisResult,
   MusicBrainzSongData,
+  RhythmResearch,
   ScoreAxisDetail,
 } from '@band-spectrum-mapper/shared';
 import { songSpectrumApi } from '../api/songSpectrum';
@@ -290,6 +291,51 @@ function MusicBrainzPanel({ data }: { data: MusicBrainzSongData }) {
       )}
       {allTags.length === 0 && (
         <p className="text-xs text-surface-600">No genre tags found in MusicBrainz.</p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Rhythm research panel — GPT-sourced known time signature data
+// ---------------------------------------------------------------------------
+
+function RhythmResearchPanel({ data }: { data: RhythmResearch }) {
+  return (
+    <div className="bg-surface-800/50 border border-indigo-700/40 rounded-lg px-4 py-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-bold uppercase tracking-widest text-indigo-400">
+          Rhythm Research
+        </span>
+        <span className="text-xs text-surface-600">{data.model}</span>
+      </div>
+
+      {data.timeSignatures.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-surface-400 shrink-0">Time signatures:</span>
+          {data.timeSignatures.map((ts) => (
+            <span
+              key={ts}
+              className="text-sm font-mono font-bold bg-indigo-900/70 text-indigo-200 border border-indigo-600/50 rounded px-2 py-0.5"
+            >
+              {ts}
+            </span>
+          ))}
+          {data.polyrhythmic && (
+            <span className="text-xs bg-amber-900/50 text-amber-300 border border-amber-700/50 rounded px-2 py-0.5">
+              Polyrhythmic
+            </span>
+          )}
+          {data.bpmRange && (
+            <span className="text-xs text-surface-500 font-mono">{data.bpmRange}</span>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs text-surface-600">No known time signature data found.</p>
+      )}
+
+      {data.notes && (
+        <p className="text-xs text-surface-300 leading-relaxed">{data.notes}</p>
       )}
     </div>
   );
@@ -819,6 +865,11 @@ export default function SongSpectrumPage() {
               {/* MusicBrainz metadata */}
               {audioAnalysis?.musicBrainzData && (
                 <MusicBrainzPanel data={audioAnalysis.musicBrainzData} />
+              )}
+
+              {/* GPT rhythm research */}
+              {audioAnalysis?.rhythmResearch && (
+                <RhythmResearchPanel data={audioAnalysis.rhythmResearch} />
               )}
 
               {/* Scores grid */}

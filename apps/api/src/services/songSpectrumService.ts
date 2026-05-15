@@ -6,6 +6,7 @@
  *   YOUTUBE_API_KEY    — YouTube Data API v3 key (metadata only, no download)
  */
 
+import OpenAI from 'openai';
 import { prisma } from '../lib/prisma.js';
 import { Prisma } from '@prisma/client';
 import type {
@@ -13,6 +14,7 @@ import type {
   YouTubeMetadata,
   AudioAnalysisResult,
   MusicBrainzSongData,
+  RhythmResearch,
   ScoreAxisDetail,
   SpectrumScores,
 } from '@band-spectrum-mapper/shared';
@@ -193,6 +195,69 @@ export async function fetchMusicBrainzData(
       disambiguation: match.disambiguation ?? null,
       releaseTitle: release?.title ?? null,
       releaseDate: release?.date ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GPT rhythm research — uses existing OPENAI_API_KEY, no new dependencies.
+// Returns known time signatures, polyrhythm status, and a brief explanation
+// drawn from GPT's training data (which includes MuseScore, Wikipedia, etc.).
+// Gracefully returns null when the key is absent or the call fails.
+// ---------------------------------------------------------------------------
+
+const RHYTHM_MODEL = 'gpt-4o-mini';
+
+const RHYTHM_PROMPT = `You are a music theory expert with deep knowledge of rhythm and meter.
+Given a song, return ONLY a valid JSON object (no markdown, no extra text) with exactly these fields:
+
+{
+  "timeSignatures": [],      // array of time signature strings found in the song, e.g. ["9/8","8/8","7/8","5/4"]
+  "polyrhythmic": false,     // true if the song uses polyrhythm or multiple simultaneous meters
+  "bpmRange": null,          // string describing the tempo, e.g. "≈ 85 quarter-note BPM" or null if unknown
+  "notes": null              // 1–2 sentence explanation of the rhythmic structure, or null if unknown
+}
+
+If you don't recognise the song or have no reliable information, return:
+{"timeSignatures": [], "polyrhythmic": false, "bpmRange": null, "notes": null}`;
+
+export async function fetchRhythmResearch(
+  artistName: string,
+  songTitle: string,
+): Promise<RhythmResearch | null> {
+  const apiKey = process.env['OPENAI_API_KEY'];
+  if (!apiKey) return null;
+
+  try {
+    const openai = new OpenAI({ apiKey });
+    const completion = await openai.chat.completions.create({
+      model: RHYTHM_MODEL,
+      temperature: 0,
+      max_tokens: 200,
+      messages: [
+        { role: 'system', content: RHYTHM_PROMPT },
+        { role: 'user', content: `Song: "${songTitle}" by ${artistName}` },
+      ],
+    });
+
+    const raw = completion.choices[0]?.message?.content?.trim() ?? '';
+    const cleaned = raw.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
+
+    let parsed: Record<string, unknown>;
+    try { parsed = JSON.parse(cleaned) as Record<string, unknown>; }
+    catch { return null; }
+
+    const toStrArr = (v: unknown): string[] =>
+      Array.isArray(v) ? (v as unknown[]).filter((x) => typeof x === 'string') as string[] : [];
+
+    return {
+      timeSignatures: toStrArr(parsed['timeSignatures']),
+      polyrhythmic: Boolean(parsed['polyrhythmic']),
+      bpmRange: typeof parsed['bpmRange'] === 'string' ? parsed['bpmRange'] : null,
+      notes: typeof parsed['notes'] === 'string' ? parsed['notes'] : null,
+      model: RHYTHM_MODEL,
     };
   } catch {
     return null;
