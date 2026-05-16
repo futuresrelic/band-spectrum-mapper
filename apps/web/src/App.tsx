@@ -42,6 +42,7 @@ import SongSpectrumPage from './pages/SongSpectrumPage';
 import WordCloudPage from './pages/WordCloudPage';
 import SongNodesPage from './pages/SongNodesPage';
 import TriviaPage from './pages/TriviaPage';
+import SocialPlannerPage from './pages/SocialPlannerPage';
 import PlayPage from './pages/PlayPage';
 import AdminGamePage from './pages/AdminGamePage';
 import ExplorePage from './pages/ExplorePage';
@@ -127,6 +128,7 @@ export default function App() {
           <Route path="admin/ai-batch" element={<AiBatchRunnerPage />} />
           <Route path="cloud" element={<SongCloudPage />} />
           <Route path="social" element={<SocialPostGeneratorPage />} />
+          <Route path="social-planner" element={<SocialPlannerPage />} />
           <Route path="song-spectrum" element={<SongSpectrumPage />} />
           <Route path="word-cloud" element={<WordCloudPage />} />
           <Route path="song-nodes" element={<SongNodesPage />} />

@@ -27,6 +27,8 @@ model Band {
   songs           Song[]
   scores          SongAxisScore[]
   contextAnalysis BandContextAnalysis?
+  socialPosts     SocialPost[]
+  contentSeries   ContentSeries[]
 
   @@map("bands")
 }
@@ -46,6 +48,7 @@ model Album {
   band            Band   @relation(fields: [bandId], references: [id], onDelete: Cascade)
   songs           Song[]
   contextAnalysis AlbumContextAnalysis?
+  socialPosts     SocialPost[]
 
   @@unique([bandId, slug])
   @@map("albums")
@@ -82,6 +85,7 @@ model Song {
   aiGenreSpectrum SongAiGenreSpectrum?
   themeScores        SongThemeScore[]
   spectrumAnalyses   SongSpectrumAnalysis[]
+  socialPosts        SocialPost[]
 
   @@unique([bandId, slug])
   @@map("songs")
@@ -596,4 +600,157 @@ model GameScore {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("game_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Social Media Manager — content calendar, post tracking, prompt library
+// ---------------------------------------------------------------------------
+
+enum PostStatus {
+  idea
+  drafted
+  designed
+  scheduled
+  posted
+  needs_follow_up
+  archived
+}
+
+enum AssetType {
+  image
+  video
+  canva_link
+  exported_file
+  background
+  thumbnail
+}
+
+enum PromptCategory {
+  canva_gpt
+  image_background
+  chatgpt_caption
+  claude_development
+  post_generation
+  reply_style
+}
+
+model ContentSeries {
+  id                   String   @id @default(cuid())
+  name                 String
+  description          String?
+  tone                 String?
+  visualStyleNotes     String?
+  defaultCaptionStyle  String?
+  hashtagSet           String[]
+  examplePrompts       String[]
+  bandId               String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  band  Band?        @relation(fields: [bandId], references: [id], onDelete: SetNull)
+  posts SocialPost[]
+
+  @@map("content_series")
+}
+
+model SocialPost {
+  id            String     @id @default(cuid())
+  title         String
+  status        PostStatus @default(idea)
+  postType      String     // e.g. "album-spotlight", "lyric-quote", "trivia", "poll", "behind-scenes"
+  platforms     String[]   // e.g. ["facebook", "instagram"]
+  caption       String?
+  hashtags      String[]
+  cta           String?    // call to action
+  pollOptions   String[]
+  notes         String?
+  bandId        String?
+  albumId       String?
+  songId        String?
+  seriesId      String?
+  plannedAt     DateTime?
+  postedAt      DateTime?
+  postUrl       String?
+  generatedBody String?
+  aiPromptUsed  String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  band    Band?         @relation(fields: [bandId],  references: [id], onDelete: SetNull)
+  album   Album?        @relation(fields: [albumId], references: [id], onDelete: SetNull)
+  song    Song?         @relation(fields: [songId],  references: [id], onDelete: SetNull)
+  series  ContentSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  assets  MediaAsset[]
+  metrics PostMetric?
+
+  @@map("social_posts")
+}
+
+model MediaAsset {
+  id              String    @id @default(cuid())
+  postId          String
+  assetType       AssetType
+  label           String?
+  url             String?
+  canvaDesignUrl  String?
+  exportedPath    String?
+  imagePrompt     String?
+  canvaPrompt     String?
+  notes           String?
+  createdAt       DateTime  @default(now())
+
+  post SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@map("media_assets")
+}
+
+model PostMetric {
+  id             String   @id @default(cuid())
+  postId         String   @unique
+  likes          Int      @default(0)
+  comments       Int      @default(0)
+  shares         Int      @default(0)
+  saves          Int      @default(0)
+  reach          Int      @default(0)
+  views          Int      @default(0)
+  groupPostedTo  String?
+  notes          String?
+  bestComments   String[]
+  futureIdeas    String[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  post SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@map("post_metrics")
+}
+
+model CommentInsight {
+  id               String   @id @default(cuid())
+  rawComments      String
+  bandId           String?
+  sourceUrl        String?
+  suggestedLyrics  String[]
+  recurringThemes  String[]
+  fanPhrasing      String[]
+  futurePostIdeas  String[]
+  pollQuestions    String[]
+  corrections      String[]
+  engagementNotes  String?
+  createdAt        DateTime @default(now())
+
+  @@map("comment_insights")
+}
+
+model PromptTemplate {
+  id          String         @id @default(cuid())
+  name        String
+  category    PromptCategory
+  prompt      String
+  description String?
+  tags        String[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@map("prompt_templates")
 }

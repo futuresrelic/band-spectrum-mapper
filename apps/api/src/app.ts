@@ -24,6 +24,7 @@ import { musicBrainzRouter } from './routes/musicbrainz.js';
 import { contributionsRouter } from './routes/contributions.js';
 import { ogRouter } from './routes/og.js';
 import { socialRouter } from './routes/social.js';
+import { socialPlannerRouter } from './routes/socialPlanner.js';
 import { songSpectrumRouter } from './routes/songSpectrum.js';
 import { wordCloudRouter } from './routes/wordCloud.js';
 import { songNodesRouter } from './routes/songNodes.js';
@@ -88,6 +89,9 @@ export function createApp() {
 
   // Social content generation — AI post generator + strategist chat (admin only)
   app.use('/api/social', socialRouter);
+
+  // Social Media Planner — content calendar, series, prompts, comment mining (admin only)
+  app.use('/api/planner', socialPlannerRouter);
 
   // Song Spectrum Analyzer — audio analysis + YouTube metadata (admin only)
   app.use('/api/song-spectrum', songSpectrumRouter);
