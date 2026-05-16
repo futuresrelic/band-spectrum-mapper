@@ -4,6 +4,31 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Social Media Manager — Content Planner Phase 1 (2026-05-15)
+
+### Added
+
+- **Content Planner** (`/social-planner`, admin) — comprehensive internal planning dashboard
+  - 8 tabs: Calendar, Ideas, Drafts, Designed/Scheduled, Posted, Series, Prompts, Comment Mining
+  - Monthly calendar grid view — click any day to create a post, click a post to edit
+  - Post status workflow: `idea → drafted → designed → scheduled → posted → needs_follow_up → archived`
+  - Post editor drawer: title, type, platforms (FB Page, FB Group, Instagram, TikTok, YouTube Shorts), band/album/song linkage, series, caption, hashtags, CTA, poll options, AI-generated body, asset tracking, performance metrics
+  - Quick status bar for one-click status changes
+- **Content Series system** — define recurring content series (e.g. "The Teachings of TOOL") with tone, visual style notes, default caption style, hashtag sets, and example prompts
+- **Prompt Library** — store reusable prompts by category (Canva GPT, image background, ChatGPT caption, Claude development, post generation, reply style) with copy-to-clipboard
+- **Comment Mining** — paste raw fan comments, AI (GPT-4o) extracts: suggested lyrics, recurring themes, fan phrasing, future post ideas, poll questions, corrections, engagement notes; analysis history saved to DB
+- **Asset tracking** per post: images, video, Canva design links, exported file paths, image generation prompts, Canva GPT prompts
+- **Performance metrics** (manual entry): likes, comments, shares, saves, reach/views, group posted to, best comments, future ideas from this post
+- **AI Assistant panel** — context-aware chat (collapses/expands) in the planner, pre-loaded with post type/band/platform context
+- **Prisma schema additions**: `ContentSeries`, `SocialPost`, `MediaAsset`, `PostMetric`, `CommentInsight`, `PromptTemplate` models; `PostStatus`, `AssetType`, `PromptCategory` enums; back-relations on `Band`, `Album`, `Song`
+- **API**: `GET/POST/PUT/DELETE /api/planner/posts`, `PATCH /api/planner/posts/:id/status`, `GET /api/planner/calendar`, `PUT /posts/:id/metrics`, `POST/DELETE posts/:id/assets`, `GET/POST/PUT/DELETE /series`, `/prompts`, `/comments`, `POST /comments/analyze`
+- **`commentMiningService.ts`** — GPT-4o structured comment analysis with `response_format: json_object`
+
+### Notes
+
+- Phase 1 is fully manual-workflow — no Facebook/Instagram API integration required
+- Run `prisma db push` on Railway to apply new tables (or `prisma migrate dev` locally)
+
 ## [Unreleased]
 
 ### Added
