@@ -66,7 +66,7 @@ function buildCyStyle() {
         'font-size': '11px',
         'font-family': '"Inter", system-ui, sans-serif',
         'font-weight': '600',
-        'color': '#e2e8f0',
+        'color': '#526070',          // dim by default — hover brightens
         'text-valign': 'bottom',
         'text-halign': 'center',
         'text-margin-y': '4px',
@@ -85,7 +85,7 @@ function buildCyStyle() {
     },
     {
       selector: 'node[type = "artist"]',
-      style: { 'width': 42, 'height': 42, 'font-size': '13px' },
+      style: { 'width': 42, 'height': 42, 'font-size': '13px', 'color': '#8da4b4' },
     },
     {
       selector: 'node[type = "album"]',
@@ -114,6 +114,16 @@ function buildCyStyle() {
         'border-color': '#fff',
         'background-color': '#fff',
         'color': '#000',
+      },
+    },
+    // Hover: label snaps to full white, gentle ring glow
+    {
+      selector: 'node.label-hover',
+      style: {
+        'color': '#ffffff',
+        'text-outline-width': '2.5px',
+        'border-width': '2.5px',
+        'border-color': '#ffffff44',
       },
     },
     {
@@ -433,7 +443,8 @@ export default function SongNodesPage() {
   const [showTags, setShowTags] = useState(true);
   const [animatePulse, setAnimatePulse] = useState(true);
   const animatePulseRef = useRef(true);
-  const animGenRef = useRef(0);
+  const animGenRef  = useRef(0);
+  const orbitGenRef = useRef(0);
 
   const { data: scopes } = useQuery({
     queryKey: ['song-nodes-scopes'],
@@ -536,6 +547,14 @@ export default function SongNodesPage() {
         cy.elements().removeClass('highlighted faded');
         setSelectedNode(null);
       }
+    });
+
+    // Hover: brighten label on mouseover, dim on mouseout
+    cy.on('mouseover', 'node', (evt: EventObject) => {
+      (evt.target as NodeSingular).addClass('label-hover');
+    });
+    cy.on('mouseout', 'node', (evt: EventObject) => {
+      (evt.target as NodeSingular).removeClass('label-hover');
     });
 
     return () => {
@@ -881,14 +900,80 @@ export default function SongNodesPage() {
       };
       setTimeout(() => { if (animGenRef.current === gen) breathe(); }, i * 350);
     });
+    startOrbitAnimation(cy);
   }
 
   function stopPulseAnimation(cy?: Core) {
     animGenRef.current++;
-    // Snap artist nodes back to their resting size immediately
-    (cy ?? cyRef.current)?.nodes('[type = "artist"]')
-      .stop(true)
-      .style({ width: 42, height: 42 });
+    const target = cy ?? cyRef.current;
+    target?.nodes('[type = "artist"]').stop(true).style({ width: 42, height: 42 });
+    stopOrbitAnimation(target ?? undefined);
+  }
+
+  // Orbit animation — nodes drift on slow Lissajous paths (feels alive)
+  function startOrbitAnimation(cy: Core) {
+    // Cancel any running orbit and snap back first
+    orbitGenRef.current++;
+    cy.batch(() => {
+      cy.nodes('[type = "artist"], [type = "album"]').forEach((n) => {
+        const b = n.scratch('_orbitBase') as { x: number; y: number } | undefined;
+        if (b) n.position(b);
+      });
+    });
+
+    const gen = ++orbitGenRef.current;
+    // Capture layout positions as orbit centres
+    cy.nodes('[type = "artist"], [type = "album"]').forEach((n) => {
+      n.scratch('_orbitBase', { ...n.position() });
+    });
+
+    // Update base when user manually moves a node
+    const onFree = (evt: EventObject) => {
+      const n = evt.target as NodeSingular;
+      if (['artist', 'album'].includes(n.data('type') as string)) {
+        n.scratch('_orbitBase', { ...n.position() });
+      }
+    };
+    cy.on('free', 'node', onFree);
+
+    let t = 0;
+    const tick = () => {
+      if (cy.destroyed() || orbitGenRef.current !== gen) {
+        cy.off('free', 'node', onFree as (e: EventObject) => void);
+        return;
+      }
+      t += 0.004;
+      cy.batch(() => {
+        cy.nodes('[type = "artist"]').forEach((n, i) => {
+          if (n.grabbed() || n.locked()) return;
+          const b = n.scratch('_orbitBase') as { x: number; y: number } | undefined;
+          if (!b) return;
+          const φ = i * 2.399; // golden angle for phase stagger
+          n.position({ x: b.x + Math.sin(t + φ) * 3.5, y: b.y + Math.cos(t * 0.71 + φ) * 2.5 });
+        });
+        cy.nodes('[type = "album"]').forEach((n, i) => {
+          if (n.grabbed() || n.locked()) return;
+          const b = n.scratch('_orbitBase') as { x: number; y: number } | undefined;
+          if (!b) return;
+          const φ = i * 1.618;
+          n.position({ x: b.x + Math.sin(t * 0.8 + φ) * 2, y: b.y + Math.cos(t * 0.55 + φ) * 1.5 });
+        });
+      });
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  function stopOrbitAnimation(cy?: Core) {
+    orbitGenRef.current++;
+    const target = cy ?? cyRef.current;
+    if (!target) return;
+    target.batch(() => {
+      target.nodes('[type = "artist"], [type = "album"]').forEach((n) => {
+        const b = n.scratch('_orbitBase') as { x: number; y: number } | undefined;
+        if (b) n.position(b);
+      });
+    });
   }
 
   // ── Legend filter controls ────────────────────────────────────────────────

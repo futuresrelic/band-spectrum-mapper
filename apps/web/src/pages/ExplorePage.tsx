@@ -54,7 +54,8 @@ function buildCyStyle() {
       style: {
         'background-color': 'data(color)', 'label': 'data(label)',
         'font-size': '11px', 'font-family': '"Inter", system-ui, sans-serif',
-        'font-weight': '600', 'color': '#e2e8f0',
+        'font-weight': '600',
+        'color': '#526070',              // dim by default
         'text-valign': 'bottom', 'text-halign': 'center', 'text-margin-y': '4px',
         'text-outline-color': '#060d1a', 'text-outline-width': '2px',
         'width': 'data(size)', 'height': 'data(size)',
@@ -62,13 +63,18 @@ function buildCyStyle() {
       },
     },
     { selector: 'node[type = "song"]',    style: { 'width': 24, 'height': 24 } },
-    { selector: 'node[type = "artist"]',  style: { 'width': 42, 'height': 42, 'font-size': '13px' } },
+    { selector: 'node[type = "artist"]',  style: { 'width': 42, 'height': 42, 'font-size': '13px', 'color': '#8da4b4' } },
     { selector: 'node[type = "album"]',   style: { 'width': 32, 'height': 32 } },
     { selector: 'node[type = "theme"]',   style: { 'width': 28, 'height': 28, 'shape': 'diamond' } },
     { selector: 'node[type = "tag"]',     style: { 'width': 22, 'height': 22, 'shape': 'tag' } },
     { selector: 'node[type = "keyword"]', style: { 'width': 18, 'height': 18, 'shape': 'rectangle' } },
     { selector: 'node[type = "emotion"]', style: { 'width': 36, 'height': 36, 'shape': 'pentagon', 'font-size': '12px' } },
     { selector: 'node:selected', style: { 'border-width': '3px', 'border-color': '#fff', 'background-color': '#fff', 'color': '#000' } },
+    // Hover: label pops to white with a subtle ring
+    {
+      selector: 'node.label-hover',
+      style: { 'color': '#ffffff', 'text-outline-width': '2.5px', 'border-width': '2.5px', 'border-color': '#ffffff44' },
+    },
     { selector: 'edge', style: { 'width': 1.2, 'line-color': 'data(edgeColor)', 'curve-style': 'bezier', 'opacity': 0.7 } },
     { selector: 'edge[edgeWeight > 0.8]', style: { 'width': 2.5 } },
     { selector: '.faded', style: { 'opacity': 0.12 } },
@@ -104,15 +110,14 @@ function buildElements(nodes: GraphNode[], edges: GraphEdge[]) {
 }
 
 // ---------------------------------------------------------------------------
-// API helpers (uses public endpoints — no auth needed)
+// API helpers
 // ---------------------------------------------------------------------------
 
 interface Scopes { bands: { id: string; name: string }[]; albums: { id: string; title: string; year: number | null; band: { id: string; name: string } }[] }
 
-function fetchPublicGraph(params: { preset: string; bandIds: string[]; albumId?: string }): Promise<GraphData> {
+function fetchPublicGraph(params: { preset: string; bandIds: string[]; }): Promise<GraphData> {
   const qs = new URLSearchParams({ preset: params.preset });
   if (params.bandIds.length) qs.set('bandIds', params.bandIds.join(','));
-  if (params.albumId) qs.set('albumId', params.albumId);
   return api.get(`/api/public/graph?${qs}`);
 }
 
@@ -156,7 +161,7 @@ function NodeDetailPanel({ node, onClose }: { node: ReturnType<Core['$']> | null
 }
 
 // ---------------------------------------------------------------------------
-// Main page
+// Presets
 // ---------------------------------------------------------------------------
 
 const PUBLIC_PRESETS = [
@@ -168,17 +173,26 @@ const PUBLIC_PRESETS = [
 
 type PublicPreset = typeof PUBLIC_PRESETS[number]['id'];
 
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
 export default function ExplorePage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef        = useRef<Core | null>(null);
   const animGenRef   = useRef(0);
+  const orbitGenRef  = useRef(0);
   const animPulseRef = useRef(true);
 
-  const [preset, setPreset]               = useState<PublicPreset>('artist-universe');
-  const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
-  const [selectedNode, setSelectedNode]   = useState<ReturnType<Core['$']> | null>(null);
-  const [graphLabel, setGraphLabel]       = useState('');
-  const [animatePulse, setAnimatePulse]   = useState(true);
+  const [preset, setPreset]                     = useState<PublicPreset>('artist-universe');
+  const [selectedBandIds, setSelectedBandIds]   = useState<string[]>([]);
+  const [selectedNode, setSelectedNode]         = useState<ReturnType<Core['$']> | null>(null);
+  const [graphLabel, setGraphLabel]             = useState('');
+  const [animatePulse, setAnimatePulse]         = useState(true);
+  const [showTags, setShowTags]                 = useState(true);
+  // tag names visible in the graph, keyed by tagId → tagName
+  const [allTagNames, setAllTagNames]           = useState<{ id: string; label: string }[]>([]);
+  const [hiddenTagIds, setHiddenTagIds]         = useState<Set<string>>(new Set());
 
   useEffect(() => { animPulseRef.current = animatePulse; }, [animatePulse]);
 
@@ -192,7 +206,65 @@ export default function ExplorePage() {
     enabled: canQuery,
   });
 
-  // Pulse animation — artist nodes breathe
+  // ---------------------------------------------------------------------------
+  // Animation helpers
+  // ---------------------------------------------------------------------------
+
+  function startOrbitAnimation(cy: Core) {
+    orbitGenRef.current++;
+    cy.batch(() => {
+      cy.nodes('[type = "artist"], [type = "album"]').forEach((n) => {
+        const b = n.scratch('_orbitBase') as { x: number; y: number } | undefined;
+        if (b) n.position(b);
+      });
+    });
+    const gen = ++orbitGenRef.current;
+    cy.nodes('[type = "artist"], [type = "album"]').forEach((n) => { n.scratch('_orbitBase', { ...n.position() }); });
+
+    const onFree = (evt: EventObject) => {
+      const n = evt.target as NodeSingular;
+      if (['artist', 'album'].includes(n.data('type') as string)) n.scratch('_orbitBase', { ...n.position() });
+    };
+    cy.on('free', 'node', onFree);
+
+    let t = 0;
+    const tick = () => {
+      if (cy.destroyed() || orbitGenRef.current !== gen) {
+        cy.off('free', 'node', onFree as (e: EventObject) => void);
+        return;
+      }
+      t += 0.004;
+      cy.batch(() => {
+        cy.nodes('[type = "artist"]').forEach((n, i) => {
+          if (n.grabbed() || n.locked()) return;
+          const b = n.scratch('_orbitBase') as { x: number; y: number } | undefined;
+          if (!b) return;
+          const φ = i * 2.399;
+          n.position({ x: b.x + Math.sin(t + φ) * 3.5, y: b.y + Math.cos(t * 0.71 + φ) * 2.5 });
+        });
+        cy.nodes('[type = "album"]').forEach((n, i) => {
+          if (n.grabbed() || n.locked()) return;
+          const b = n.scratch('_orbitBase') as { x: number; y: number } | undefined;
+          if (!b) return;
+          const φ = i * 1.618;
+          n.position({ x: b.x + Math.sin(t * 0.8 + φ) * 2, y: b.y + Math.cos(t * 0.55 + φ) * 1.5 });
+        });
+      });
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  function stopOrbit(cy: Core) {
+    orbitGenRef.current++;
+    cy.batch(() => {
+      cy.nodes('[type = "artist"], [type = "album"]').forEach((n) => {
+        const b = n.scratch('_orbitBase') as { x: number; y: number } | undefined;
+        if (b) n.position(b);
+      });
+    });
+  }
+
   function startPulse(cy: Core) {
     const gen = ++animGenRef.current;
     cy.nodes('[type = "artist"]').forEach((node, i) => {
@@ -211,14 +283,19 @@ export default function ExplorePage() {
       };
       setTimeout(() => { if (animGenRef.current === gen) breathe(); }, i * 350);
     });
+    startOrbitAnimation(cy);
   }
 
-  function stopPulse(cy?: Core) {
+  function stopAnimation(cy: Core) {
     animGenRef.current++;
-    (cy ?? cyRef.current)?.nodes('[type = "artist"]').stop(true).style({ width: 42, height: 42 });
+    cy.nodes('[type = "artist"]').stop(true).style({ width: 42, height: 42 });
+    stopOrbit(cy);
   }
 
-  // Radial cluster layout (same algorithm as SongNodesPage)
+  // ---------------------------------------------------------------------------
+  // Cluster (radial) layout — identical algorithm to SongNodesPage
+  // ---------------------------------------------------------------------------
+
   function runClusterLayout(cy: Core) {
     const TWO_PI = Math.PI * 2;
     const MIN_SONG_R = 90, MIN_ALBUM_R = 200, SONG_ARC = 44, ALBUM_GAP = 70, CLUSTER_GAP = 280;
@@ -275,22 +352,23 @@ export default function ExplorePage() {
         const dx = cx + albumOrbitR * Math.cos(slotAngle), dy = albumOrbitR * Math.sin(slotAngle);
         placeSongsArc(cy, directSongs, dx, dy, songRingR(directSongs.length), slotAngle);
       }
-      // Reposition tags near their connected nodes
-      cy.nodes('[type = "tag"]').forEach((tagNode) => {
-        const connected = tagNode.neighborhood('node[type = "song"], node[type = "album"]');
-        if (connected.length === 0) return;
-        let sumX = 0, sumY = 0;
-        connected.forEach((n) => { const p = n.position(); sumX += p.x; sumY += p.y; });
-        const centX = sumX / connected.length, centY = sumY / connected.length;
-        let nearAx = centX, nearAy = 0, nearDist = Infinity;
-        cy.nodes('[type = "artist"]').forEach((a) => {
-          const ap = a.position(), d = Math.hypot(ap.x - centX, ap.y - centY);
-          if (d < nearDist) { nearDist = d; nearAx = ap.x; nearAy = ap.y; }
-        });
-        const vx = centX - nearAx, vy = centY - nearAy, vlen = Math.hypot(vx, vy) || 1;
-        tagNode.position({ x: centX + (vx / vlen) * 55, y: centY + (vy / vlen) * 55 });
-      });
       xOffset += 2 * clusterR + CLUSTER_GAP;
+    });
+
+    // Reposition tags AFTER all hierarchy nodes are placed (outside the artist loop)
+    cy.nodes('[type = "tag"]').forEach((tagNode) => {
+      const connected = tagNode.neighborhood('node[type = "song"], node[type = "album"]');
+      if (connected.length === 0) return;
+      let sumX = 0, sumY = 0;
+      connected.forEach((n) => { const p = n.position(); sumX += p.x; sumY += p.y; });
+      const centX = sumX / connected.length, centY = sumY / connected.length;
+      let nearAx = centX, nearAy = 0, nearDist = Infinity;
+      cy.nodes('[type = "artist"]').forEach((a) => {
+        const ap = a.position(), d = Math.hypot(ap.x - centX, ap.y - centY);
+        if (d < nearDist) { nearDist = d; nearAx = ap.x; nearAy = ap.y; }
+      });
+      const vx = centX - nearAx, vy = centY - nearAy, vlen = Math.hypot(vx, vy) || 1;
+      tagNode.position({ x: centX + (vx / vlen) * 55, y: centY + (vy / vlen) * 55 });
     });
 
     cy.fit(undefined, 60);
@@ -302,7 +380,10 @@ export default function ExplorePage() {
     }, 80);
   }
 
+  // ---------------------------------------------------------------------------
   // Mount / update Cytoscape
+  // ---------------------------------------------------------------------------
+
   useEffect(() => {
     if (!containerRef.current || !graphData) return;
     if (cyRef.current) { cyRef.current.destroy(); cyRef.current = null; }
@@ -320,6 +401,14 @@ export default function ExplorePage() {
 
     cyRef.current = cy;
     setGraphLabel(graphData.label);
+
+    // Collect tag names for the tag filter panel
+    const tags: { id: string; label: string }[] = [];
+    graphData.nodes.forEach((n) => {
+      if (n.type === 'tag') tags.push({ id: n.id, label: n.label });
+    });
+    setAllTagNames(tags.sort((a, b) => a.label.localeCompare(b.label)));
+    setHiddenTagIds(new Set()); // reset on new graph
 
     let rafPending = false;
     cy.on('zoom', () => {
@@ -345,6 +434,10 @@ export default function ExplorePage() {
       if (evt.target === cy) { cy.elements().removeClass('highlighted faded'); setSelectedNode(null); }
     });
 
+    // Hover: label pops to white
+    cy.on('mouseover', 'node', (evt: EventObject) => { (evt.target as NodeSingular).addClass('label-hover'); });
+    cy.on('mouseout',  'node', (evt: EventObject) => { (evt.target as NodeSingular).removeClass('label-hover'); });
+
     return () => { cy.destroy(); cyRef.current = null; };
   }, [graphData]);
 
@@ -353,14 +446,44 @@ export default function ExplorePage() {
     const cy = cyRef.current;
     if (!cy) return;
     if (animatePulse) startPulse(cy);
-    else stopPulse(cy);
+    else stopAnimation(cy);
   }, [animatePulse, graphLabel]);
+
+  // Show/hide ALL tags
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const display = showTags ? 'element' : 'none';
+    cy.nodes('[type = "tag"]').style('display', display);
+    cy.edges('[edgeType = "shared_tag"]').style('display', display);
+  }, [showTags, graphLabel]);
+
+  // Per-tag visibility (when showTags is on but specific tags hidden)
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || !showTags) return;
+    cy.nodes('[type = "tag"]').forEach((n) => {
+      const hidden = hiddenTagIds.has(n.id());
+      n.style('display', hidden ? 'none' : 'element');
+      // Also hide edges connected only to this tag
+    });
+  }, [hiddenTagIds, showTags, graphLabel]);
 
   const toggleBand = useCallback((id: string) => {
     setSelectedBandIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }, []);
 
+  const toggleTag = useCallback((id: string) => {
+    setHiddenTagIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
   const cyReady = !!graphLabel && !isFetching;
+  const showTagPanel = showTags && allTagNames.length > 0;
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -370,15 +493,13 @@ export default function ExplorePage() {
           <h1 className="text-lg font-bold text-white tracking-tight">Explore</h1>
           <p className="text-xs text-white/40 mt-0.5">Interactive music network — click nodes to explore connections</p>
         </div>
-        <a href="/landing" className="text-xs text-indigo-400 hover:text-indigo-200 transition-colors">
-          ← Back
-        </a>
+        <a href="/landing" className="text-xs text-indigo-400 hover:text-indigo-200 transition-colors">← Back</a>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col lg:flex-row gap-5">
 
         {/* Sidebar */}
-        <aside className="w-full lg:w-52 lg:shrink-0 space-y-5">
+        <aside className="w-full lg:w-56 lg:shrink-0 space-y-5">
 
           {/* Layout preset */}
           <div>
@@ -402,7 +523,7 @@ export default function ExplorePage() {
           {scopes && (
             <div>
               <div className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-2">Artists</div>
-              <div className="max-h-52 overflow-y-auto space-y-0.5 pr-1">
+              <div className="max-h-44 overflow-y-auto space-y-0.5 pr-1">
                 {scopes.bands.map((b) => (
                   <label key={b.id} className="flex items-center gap-2 cursor-pointer group">
                     <input type="checkbox" checked={selectedBandIds.includes(b.id)} onChange={() => toggleBand(b.id)} className="accent-indigo-500" />
@@ -422,7 +543,7 @@ export default function ExplorePage() {
 
           {/* Arrange */}
           {cyReady && (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <div className="text-xs font-semibold text-white/40 uppercase tracking-wider">Arrange</div>
               <button
                 className="w-full px-2 py-1.5 bg-indigo-700 hover:bg-indigo-600 text-xs text-white rounded transition-colors"
@@ -439,7 +560,7 @@ export default function ExplorePage() {
             </div>
           )}
 
-          {/* Visibility */}
+          {/* Options */}
           {cyReady && (
             <div className="space-y-1.5">
               <div className="text-xs font-semibold text-white/40 uppercase tracking-wider">Options</div>
@@ -447,6 +568,35 @@ export default function ExplorePage() {
                 <input type="checkbox" checked={animatePulse} onChange={(e) => setAnimatePulse(e.target.checked)} className="accent-indigo-500" />
                 <span className={`text-xs ${animatePulse ? 'text-white/70' : 'text-white/30'}`}>Animate</span>
               </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={showTags} onChange={(e) => setShowTags(e.target.checked)} className="accent-cyan-500" />
+                <span className={`text-xs ${showTags ? 'text-white/70' : 'text-white/30'}`}>Show tags</span>
+              </label>
+            </div>
+          )}
+
+          {/* Tag selector — only when tags are shown */}
+          {cyReady && showTagPanel && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="text-xs font-semibold text-white/40 uppercase tracking-wider">Tags</div>
+                <div className="flex gap-1.5">
+                  <button className="text-xs text-cyan-400 hover:text-cyan-200" onClick={() => setHiddenTagIds(new Set())}>All</button>
+                  <span className="text-white/20">·</span>
+                  <button className="text-xs text-white/40 hover:text-white/70" onClick={() => setHiddenTagIds(new Set(allTagNames.map((t) => t.id)))}>None</button>
+                </div>
+              </div>
+              <div className="max-h-44 overflow-y-auto space-y-0.5 pr-1">
+                {allTagNames.map((t) => {
+                  const visible = !hiddenTagIds.has(t.id);
+                  return (
+                    <label key={t.id} className="flex items-center gap-2 cursor-pointer group">
+                      <input type="checkbox" checked={visible} onChange={() => toggleTag(t.id)} className="accent-cyan-500" />
+                      <span className={`text-xs ${visible ? 'text-cyan-300/80' : 'text-white/25 group-hover:text-white/50'}`}>{t.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -507,7 +657,7 @@ export default function ExplorePage() {
 
           {!isFetching && graphData && graphData.nodes.length > 0 && (
             <p className="mt-3 text-xs text-white/30 text-center">
-              Click a node to highlight its connections · scroll to zoom · drag to pan
+              Click a node to highlight connections · hover to focus label · scroll to zoom · drag to pan
             </p>
           )}
         </main>
