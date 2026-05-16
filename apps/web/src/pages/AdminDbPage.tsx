@@ -21,8 +21,21 @@ function ResultBadge({ status }: { status: MigrationResult['status'] }) {
   return <span className="text-xs font-medium text-red-700 bg-red-100 px-2 py-0.5 rounded">Error</span>;
 }
 
+const NEW_TABLES = [
+  'ContentSeries — content series definitions (name, tone, hashtag sets, prompts)',
+  'SocialPost — planned / drafted / posted social content',
+  'MediaAsset — images, Canva links, prompts attached to posts',
+  'PostMetric — manual performance metrics (likes, comments, reach…)',
+  'CommentInsight — AI-analyzed fan comment batches',
+  'PromptTemplate — reusable prompt library by category',
+];
+
 export default function AdminDbPage() {
   const qc = useQueryClient();
+
+  const dbPush = useMutation({
+    mutationFn: () => adminApi.runDbPush(),
+  });
 
   const { data: migrations, isLoading, error } = useQuery({
     queryKey: ['admin-db-status'],
@@ -134,6 +147,73 @@ export default function AdminDbPage() {
             Migration failed: {migrate.error instanceof Error ? migrate.error.message : 'Unknown error'}
           </p>
         )}
+
+        {/* ── Prisma schema push ── */}
+        <div className="card space-y-3">
+          <h2 className="font-semibold text-surface-900">Social Media Manager — new tables</h2>
+          <p className="text-sm text-surface-600 leading-relaxed">
+            The Content Planner feature added 6 new database tables. Click the button below to
+            create them in the live database. This is safe to run multiple times — existing data
+            is never touched.
+          </p>
+
+          <ul className="space-y-1.5">
+            {NEW_TABLES.map((t) => (
+              <li key={t} className="flex items-start gap-2 text-sm">
+                <span className="mt-0.5 text-blue-500">+</span>
+                <span className="text-surface-700">{t}</span>
+              </li>
+            ))}
+          </ul>
+
+          {!dbPush.data && !dbPush.isPending && (
+            <button
+              className="btn-primary mt-1"
+              onClick={() => {
+                if (confirm('Create the 6 new Social Media Manager tables in the database?')) {
+                  dbPush.mutate();
+                }
+              }}
+            >
+              Create tables now
+            </button>
+          )}
+
+          {dbPush.isPending && (
+            <p className="text-sm text-surface-500">Running prisma db push… this takes up to 30 seconds.</p>
+          )}
+
+          {dbPush.data && (
+            <div className="space-y-2">
+              {dbPush.data.success ? (
+                <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
+                  Done. All tables created successfully. The Content Planner is ready to use.
+                </p>
+              ) : (
+                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+                  Something went wrong. See the output below.
+                </p>
+              )}
+              {dbPush.data.output && (
+                <pre className="text-xs bg-surface-900 text-green-300 rounded p-3 overflow-x-auto whitespace-pre-wrap font-mono">
+                  {dbPush.data.output}
+                </pre>
+              )}
+              <button
+                className="text-sm text-surface-500 hover:text-surface-800 underline"
+                onClick={() => dbPush.reset()}
+              >
+                Run again
+              </button>
+            </div>
+          )}
+
+          {dbPush.error && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+              Request failed: {dbPush.error instanceof Error ? dbPush.error.message : 'Unknown error'}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

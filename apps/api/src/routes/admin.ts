@@ -1,4 +1,8 @@
 import { Router } from 'express';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { fileURLToPath } from 'url';
+import path from 'path';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
@@ -611,4 +615,34 @@ adminRouter.delete('/game/scores/:scoreId', async (req, res, next) => {
     await prisma.gameScore.delete({ where: { id: req.params['scoreId']! } });
     res.json({ ok: true });
   } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// Prisma schema push — creates any new tables defined in schema.prisma
+// ---------------------------------------------------------------------------
+
+const execFileAsync = promisify(execFile);
+
+adminRouter.post('/db-push', async (_req, res, next): Promise<void> => {
+  try {
+    const thisFile = fileURLToPath(import.meta.url);
+    const thisDir  = path.dirname(thisFile);
+    // dist/routes/ → 4 levels up → monorepo root
+    const root       = path.resolve(thisDir, '../../../../');
+    const prismaBin  = path.join(root, 'node_modules', '.bin', 'prisma');
+    const schemaPath = path.join(root, 'prisma', 'schema.prisma');
+
+    const { stdout, stderr } = await execFileAsync(
+      process.execPath,
+      [prismaBin, 'db', 'push', `--schema=${schemaPath}`, '--skip-generate'],
+      { timeout: 120_000 },
+    );
+
+    const output = [stdout, stderr].filter(Boolean).join('\n').trim();
+    res.json({ success: true, output });
+  } catch (err: unknown) {
+    const e = err as { stdout?: string; stderr?: string; message?: string };
+    const output = [e.stdout, e.stderr, e.message].filter(Boolean).join('\n').trim();
+    res.json({ success: false, output });
+  }
 });

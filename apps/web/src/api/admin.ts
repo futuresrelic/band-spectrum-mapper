@@ -92,6 +92,9 @@ export const adminApi = {
   runDbMigrate: () =>
     api.post<{ results: MigrationResult[] }>('/api/admin/db-migrate', {}),
 
+  runDbPush: () =>
+    api.post<{ success: boolean; output: string }>('/api/admin/db-push', {}),
+
   getDbHealth: () =>
     api.get<DbHealthReport>('/api/admin/db-health'),
 
