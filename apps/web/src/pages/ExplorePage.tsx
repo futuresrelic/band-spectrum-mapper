@@ -371,6 +371,11 @@ export default function ExplorePage() {
       tagNode.position({ x: centX + (vx / vlen) * 55, y: centY + (vy / vlen) * 55 });
     });
 
+    // Pre-seed orbit bases with new radial positions so the animation restore
+    // step doesn't snap artist/album nodes back to the old COSE positions.
+    cy.nodes('[type = "artist"], [type = "album"]').forEach((n) => {
+      n.scratch('_orbitBase', { ...n.position() });
+    });
     cy.fit(undefined, 60);
     setTimeout(() => {
       if (!cy.destroyed()) {
