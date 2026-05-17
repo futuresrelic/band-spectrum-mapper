@@ -1,6 +1,17 @@
 import OpenAI from 'openai';
 
-const openai = new OpenAI({ apiKey: process.env['OPENAI_API_KEY'] });
+// Lazy-initialised so a missing key doesn't crash the server on startup.
+// The error surfaces only when the feature is actually used.
+let _openai: OpenAI | null = null;
+function getOpenAI(): OpenAI {
+  if (!_openai) {
+    if (!process.env['OPENAI_API_KEY']) {
+      throw new Error('OPENAI_API_KEY is not set — comment mining is unavailable');
+    }
+    _openai = new OpenAI({ apiKey: process.env['OPENAI_API_KEY'] });
+  }
+  return _openai;
+}
 
 export interface CommentMiningResult {
   suggestedLyrics: string[];
@@ -15,7 +26,7 @@ export interface CommentMiningResult {
 export async function mineComments(rawComments: string, bandName?: string): Promise<CommentMiningResult> {
   const bandCtx = bandName ? ` The band being discussed is "${bandName}".` : '';
 
-  const completion = await openai.chat.completions.create({
+  const completion = await getOpenAI().chat.completions.create({
     model: 'gpt-4o',
     response_format: { type: 'json_object' },
     messages: [
