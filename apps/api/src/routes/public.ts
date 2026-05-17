@@ -236,11 +236,17 @@ const WORD_HUNT_STOPS = new Set([
   'one','two','three','four','five','six','seven','eight','nine','ten',
 ]);
 
-// GET /api/public/word-hunt/challenge — returns a random challenge word
-publicRouter.get('/word-hunt/challenge', async (_req, res, next): Promise<void> => {
+// GET /api/public/word-hunt/challenge?bandIds=id1,id2 — returns a random challenge word
+publicRouter.get('/word-hunt/challenge', async (req, res, next): Promise<void> => {
   try {
+    const bandIdsRaw = (req.query['bandIds'] as string) ?? '';
+    const bandIds = bandIdsRaw ? bandIdsRaw.split(',').filter(Boolean) : [];
+
     const lyrics = await prisma.lyric.findMany({
-      where: { isPrimary: true },
+      where: {
+        isPrimary: true,
+        ...(bandIds.length && { song: { bandId: { in: bandIds } } }),
+      },
       select: { text: true, songId: true },
     });
 
@@ -300,5 +306,40 @@ publicRouter.get('/word-hunt/verify', async (req, res, next): Promise<void> => {
     );
 
     res.json({ found: words.has(word), hasLyrics: true });
+  } catch (e) { next(e); }
+});
+
+// GET /api/public/word-hunt/reveal?word=X&bandIds=id1,id2
+// Returns all songs containing the word — used for the post-give-up reveal.
+publicRouter.get('/word-hunt/reveal', async (req, res, next): Promise<void> => {
+  try {
+    const word       = ((req.query['word']    as string) ?? '').toLowerCase().trim();
+    const bandIdsRaw = ((req.query['bandIds'] as string) ?? '');
+    const bandIds    = bandIdsRaw ? bandIdsRaw.split(',').filter(Boolean) : [];
+
+    if (!word) { res.status(400).json({ error: 'word is required' }); return; }
+
+    const songs = await prisma.song.findMany({
+      where: {
+        ...(bandIds.length && { bandId: { in: bandIds } }),
+        lyrics: { some: { isPrimary: true } },
+      },
+      include: {
+        lyrics: { where: { isPrimary: true }, select: { text: true }, take: 1 },
+        band:   { select: { name: true } },
+      },
+    });
+
+    const results = songs
+      .filter((s) => {
+        const text = s.lyrics[0]?.text ?? '';
+        const wordSet = new Set(
+          text.replace(/\[[^\]]*\]/g, ' ').toLowerCase().match(/[a-z]+/g) ?? [],
+        );
+        return wordSet.has(word);
+      })
+      .map((s) => ({ id: `song:${s.id}`, title: s.title, bandName: s.band.name }));
+
+    res.json({ songs: results });
   } catch (e) { next(e); }
 });

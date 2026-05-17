@@ -213,6 +213,7 @@ export default function ExplorePage() {
   const animGenRef   = useRef(0);
   const orbitGenRef  = useRef(0);
   const animPulseRef = useRef(true);
+  const layoutReadyRef = useRef(false); // true once runClusterLayout (or non-radial layoutstop) fires
 
   const [preset, setPreset]                     = useState<PublicPreset>('artist-universe');
   const [selectedBandIds, setSelectedBandIds]   = useState<string[]>([]);
@@ -498,6 +499,7 @@ export default function ExplorePage() {
     cy.fit(undefined, 60);
     setTimeout(() => {
       if (!cy.destroyed()) {
+        layoutReadyRef.current = true;
         updateFontSizes(cy);
         if (animPulseRef.current) startPulse(cy);
       }
@@ -524,6 +526,7 @@ export default function ExplorePage() {
     });
 
     cyRef.current = cy;
+    layoutReadyRef.current = false; // reset: animation must wait for runClusterLayout
     setGraphLabel(graphData.label);
 
     // Collect tag and theme names for filter panels
@@ -548,10 +551,10 @@ export default function ExplorePage() {
       if (!cy.destroyed()) {
         updateFontSizes(cy);
         if (preset === 'artist-universe') {
-          // Auto-apply radial layout so nodes are in the right place from the start
-          runClusterLayout(cy);
-        } else if (animPulseRef.current) {
-          startPulse(cy);
+          runClusterLayout(cy); // sets layoutReadyRef.current = true internally
+        } else {
+          layoutReadyRef.current = true;
+          if (animPulseRef.current) startPulse(cy);
         }
       }
     });
@@ -582,12 +585,15 @@ export default function ExplorePage() {
     return () => { cy.destroy(); cyRef.current = null; };
   }, [graphData]);
 
-  // Animate toggle
+  // Animate toggle — guard with layoutReadyRef so we don't fire during initial COSE
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
-    if (animatePulse) startPulse(cy);
-    else stopAnimation(cy);
+    if (animatePulse) {
+      if (layoutReadyRef.current) startPulse(cy);
+    } else {
+      stopAnimation(cy);
+    }
   }, [animatePulse, graphLabel]);
 
   // Show/hide ALL tags

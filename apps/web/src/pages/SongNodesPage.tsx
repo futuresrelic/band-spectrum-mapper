@@ -419,6 +419,7 @@ export default function SongNodesPage() {
   const animatePulseRef = useRef(true);
   const animGenRef  = useRef(0);
   const orbitGenRef = useRef(0);
+  const layoutReadyRef = useRef(false); // true once radial layout (or non-radial layoutstop) fires
 
   const { data: scopes } = useQuery({
     queryKey: ['song-nodes-scopes'],
@@ -471,6 +472,7 @@ export default function SongNodesPage() {
     });
 
     cyRef.current = cy;
+    layoutReadyRef.current = false; // reset: animation must wait for radial layout
     setGraphLabel(graphData.label);
 
     // Zoom-constant text: font-size = base / zoom so it stays same screen size
@@ -489,7 +491,10 @@ export default function SongNodesPage() {
       if (!cy.destroyed()) {
         updateFontSizes(cy);
         if (graphData.preset === 'artist-universe' || graphData.preset === 'maynard-universe') {
-          runClusterLayout();
+          runClusterLayout(); // sets layoutReadyRef.current = true internally
+        } else {
+          layoutReadyRef.current = true;
+          if (animatePulseRef.current) startPulseAnimation(cy);
         }
       }
     });
@@ -582,13 +587,16 @@ export default function SongNodesPage() {
   // Keep the ref in sync so animation callbacks always see current value
   useEffect(() => { animatePulseRef.current = animatePulse; }, [animatePulse]);
 
-  // Start/stop animation when user toggles the control
+  // Start/stop animation — guard with layoutReadyRef so we don't fire during COSE
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
-    if (animatePulse) startPulseAnimation(cy);
-    else stopPulseAnimation(cy);
-  }, [animatePulse, graphLabel]); // graphLabel triggers restart when graph reloads
+    if (animatePulse) {
+      if (layoutReadyRef.current) startPulseAnimation(cy);
+    } else {
+      stopPulseAnimation(cy);
+    }
+  }, [animatePulse, graphLabel]);
 
   const toggleBand = useCallback((id: string) => {
     setSelectedBandIds((prev) =>
@@ -788,6 +796,41 @@ export default function SongNodesPage() {
       });
     });
 
+    // Theme placement — same outer-ring algorithm, one step further out than tags.
+    const artistThemeGroups = new Map<string, { tagNode: NodeSingular; angle: number; r: number }[]>();
+    cy.nodes('[type = "theme"]').forEach((themeNode) => {
+      const peers = themeNode.neighborhood('node[type = "song"]');
+      const connected = peers.length > 0 ? peers : themeNode.neighborhood('node[type = "album"]');
+      if (connected.length === 0) return;
+      let sumX = 0, sumY = 0;
+      connected.forEach((n) => { const p = n.position(); sumX += p.x; sumY += p.y; });
+      const centX = sumX / connected.length, centY = sumY / connected.length;
+      let nearId = '', nearAx = centX, nearAy = centY, nearDist = Infinity;
+      cy.nodes('[type = "artist"]').forEach((a) => {
+        const ap = a.position(), d = Math.hypot(ap.x - centX, ap.y - centY);
+        if (d < nearDist) { nearDist = d; nearAx = ap.x; nearAy = ap.y; nearId = a.id(); }
+      });
+      if (!nearId) return;
+      const angle = Math.atan2(centY - nearAy, centX - nearAx);
+      let maxConnR = 0;
+      connected.forEach((n) => { const p = n.position(); maxConnR = Math.max(maxConnR, Math.hypot(p.x - nearAx, p.y - nearAy)); });
+      const r = Math.min(maxConnR + 90, (artistOuterR.get(nearId) ?? maxConnR) + 100);
+      const list = artistThemeGroups.get(nearId) ?? [];
+      list.push({ tagNode: themeNode, angle, r });
+      artistThemeGroups.set(nearId, list);
+    });
+    artistThemeGroups.forEach((themes, artistId) => {
+      const ap = cy.getElementById(artistId).position();
+      themes.sort((a, b) => a.angle - b.angle);
+      for (let i = 1; i < themes.length; i++) {
+        const prev = themes[i - 1]!; const curr = themes[i]!;
+        if (curr.angle - prev.angle < MIN_ARC) curr.angle = prev.angle + MIN_ARC;
+      }
+      themes.forEach(({ tagNode, angle, r }) => {
+        tagNode.position({ x: ap.x + r * Math.cos(angle), y: ap.y + r * Math.sin(angle) });
+      });
+    });
+
     // Pre-seed orbit bases with new radial positions so the animation restore
     // step doesn't snap artist/album nodes back to the old COSE positions.
     cy.nodes('[type = "artist"], [type = "album"]').forEach((n) => {
@@ -796,6 +839,7 @@ export default function SongNodesPage() {
     cy.fit(undefined, 60);
     setTimeout(() => {
       if (cyRef.current && !cyRef.current.destroyed()) {
+        layoutReadyRef.current = true;
         updateFontSizes(cyRef.current);
         if (animatePulseRef.current) startPulseAnimation(cyRef.current);
       }
@@ -912,6 +956,7 @@ export default function SongNodesPage() {
     cy.fit(undefined, 60);
     setTimeout(() => {
       if (cyRef.current && !cyRef.current.destroyed()) {
+        layoutReadyRef.current = true;
         updateFontSizes(cyRef.current);
         if (animatePulseRef.current) startPulseAnimation(cyRef.current);
       }

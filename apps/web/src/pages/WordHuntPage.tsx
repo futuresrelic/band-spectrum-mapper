@@ -113,6 +113,8 @@ export default function WordHuntPage() {
   const [elapsed, setElapsed]                 = useState(0);
   const [running, setRunning]                 = useState(false);
   const [checking, setChecking]               = useState(false);
+  const [revealed, setRevealed]               = useState<{ id: string; title: string; bandName: string }[]>([]);
+  const [revealing, setRevealing]             = useState(false);
 
   // Refs that mirror game state — these are safe to read from stale Cytoscape callbacks
   const challengeRef = useRef<Challenge | null>(null);
@@ -308,18 +310,43 @@ export default function WordHuntPage() {
     setAttempts([]);
     setWon(false);
     setGaveUp(false);
+    setRevealed([]);
     setElapsed(0);
     setRunning(false);
-    wonRef.current     = false;
-    gaveUpRef.current  = false;
+    wonRef.current      = false;
+    gaveUpRef.current   = false;
     checkingRef.current = false;
-    cyRef.current?.nodes().removeClass('found-yes found-no no-lyrics');
+    cyRef.current?.nodes().removeClass('found-yes found-no no-lyrics revealed-song');
     try {
-      const data = await api.get<Challenge>('/api/public/word-hunt/challenge');
+      const qs = selectedBandIds.length ? `?bandIds=${selectedBandIds.join(',')}` : '';
+      const data = await api.get<Challenge>(`/api/public/word-hunt/challenge${qs}`);
       setChallenge(data);
       setRunning(true);
     } finally {
       setLoadingChallenge(false);
+    }
+  }
+
+  async function handleReveal() {
+    if (!challenge || revealing) return;
+    setRevealing(true);
+    try {
+      const qs = new URLSearchParams({ word: challenge.word });
+      if (selectedBandIds.length) qs.set('bandIds', selectedBandIds.join(','));
+      const data = await api.get<{ songs: { id: string; title: string; bandName: string }[] }>(
+        `/api/public/word-hunt/reveal?${qs}`,
+      );
+      setRevealed(data.songs);
+      // Highlight the found songs in the graph
+      const cy = cyRef.current;
+      if (cy) {
+        data.songs.forEach(({ id }) => {
+          const node = cy.$(`#${CSS.escape(id)}`);
+          if (node.length) node.addClass('found-yes');
+        });
+      }
+    } finally {
+      setRevealing(false);
     }
   }
 
@@ -373,6 +400,15 @@ export default function WordHuntPage() {
                 Give up
               </button>
             )}
+            {(gaveUp || won) && revealed.length === 0 && (
+              <button
+                className="w-full px-3 py-1.5 bg-amber-900/40 hover:bg-amber-800/50 text-xs text-amber-300 rounded-lg transition-colors disabled:opacity-40"
+                onClick={handleReveal}
+                disabled={revealing}
+              >
+                {revealing ? 'Revealing…' : '🔍 Reveal answer'}
+              </button>
+            )}
             {selectedBandIds.length === 0 && <p className="text-xs text-amber-400/70">Select artists first</p>}
           </div>
 
@@ -417,6 +453,27 @@ export default function WordHuntPage() {
             </div>
           )}
 
+          {/* Revealed answer */}
+          {revealed.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-xs text-amber-400/70 uppercase tracking-wider font-semibold">Answer</div>
+              <p className="text-xs text-white/40 leading-snug">
+                "{challenge?.word}" appears in {revealed.length} song{revealed.length !== 1 ? 's' : ''}:
+              </p>
+              <div className="space-y-1">
+                {revealed.map((s) => (
+                  <div key={s.id} className="text-xs px-2 py-1 rounded bg-amber-900/30 text-amber-200 flex items-start gap-1.5">
+                    <span className="mt-0.5 shrink-0">♪</span>
+                    <div>
+                      <div className="font-medium">{s.title}</div>
+                      <div className="text-amber-400/60 text-xs">{s.bandName}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Legend */}
           <div className="text-xs space-y-1 text-white/40">
             <div className="font-semibold uppercase tracking-wider mb-1.5">Legend</div>
@@ -449,7 +506,9 @@ export default function WordHuntPage() {
                   <div>
                     <div className="text-xs text-indigo-300 uppercase tracking-widest mb-1">Find this word</div>
                     <div className="text-3xl font-black text-white tracking-widest uppercase">{challenge.word}</div>
-                    <div className="text-xs text-white/40 mt-1">In {challenge.songCount} song{challenge.songCount !== 1 ? 's' : ''} in the library</div>
+                    <div className="text-xs text-white/40 mt-1">
+                      Hidden in {challenge.songCount} song{challenge.songCount !== 1 ? 's' : ''} · click purple nodes to find it
+                    </div>
                   </div>
                   {checking && (
                     <div className="flex gap-1">
