@@ -143,7 +143,7 @@ function buildCyStyle(vs: VisualStyle = DEFAULT_VS) {
       },
     },
     { selector: 'node[type = "song"]',    style: { 'width': 24, 'height': 24 } },
-    { selector: 'node[type = "artist"]',  style: { 'width': 42, 'height': 42, 'font-size': '13px' } },
+    { selector: 'node[type = "artist"]',  style: { 'width': 42, 'height': 42, 'font-size': '13px', 'text-wrap': 'wrap', 'text-max-width': '100px' } },
     { selector: 'node[type = "album"]',   style: { 'width': 32, 'height': 32 } },
     { selector: 'node[type = "theme"]',   style: { 'width': 28, 'height': 28, 'shape': 'diamond' } },
     { selector: 'node[type = "tag"]',     style: { 'width': 22, 'height': 22, 'shape': 'tag' } },
@@ -199,7 +199,7 @@ function buildElements(nodes: GraphNode[], edges: GraphEdge[]) {
   const nodeEls = nodes.map((n) => ({
     data: {
       id: n.id,
-      label: n.label.length > 22 ? n.label.slice(0, 20) + '…' : n.label,
+      label: n.type === 'artist' ? n.label : (n.label.length > 22 ? n.label.slice(0, 20) + '…' : n.label),
       fullLabel: n.label,
       type: n.type,
       color: n.data.color ?? NODE_COLORS[n.type],
