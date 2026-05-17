@@ -58,9 +58,42 @@ function updateFontSizes(cy: Core): void {
 
 interface VisualStyle {
   edgeOpacity:  number;  // 0.1–1.0
-  labelOpacity: number;  // 0 = hover-only; 1 = always visible
+  labelOpacity: number;  // 0 = hover-only; 1 = always visible (base, no selection)
+  labelFalloff: number;  // per-hop opacity drop when a node is selected (0.1–0.5)
 }
-const DEFAULT_VS: VisualStyle = { edgeOpacity: 0.7, labelOpacity: 0 };
+const DEFAULT_VS: VisualStyle = { edgeOpacity: 0.7, labelOpacity: 0, labelFalloff: 0.25 };
+
+// BFS label cascade: selected node = 100%, each hop further drops by `vs.labelFalloff`.
+// Stores result in node scratch '_co' so hover handlers can restore it on mouseout.
+function applyLabelCascade(cy: Core, selectedId: string | null, vs: VisualStyle, showAll: boolean): void {
+  if (showAll) {
+    cy.nodes().forEach((n) => { n.scratch('_co', 1); n.style('text-opacity', 1); });
+    return;
+  }
+  if (!selectedId) {
+    cy.nodes().forEach((n) => { n.scratch('_co', null); n.removeStyle('text-opacity'); });
+    return;
+  }
+  const distances = new Map<string, number>();
+  const queue: Array<{ id: string; dist: number }> = [{ id: selectedId, dist: 0 }];
+  distances.set(selectedId, 0);
+  while (queue.length > 0) {
+    const item = queue.shift()!;
+    cy.getElementById(item.id).neighborhood('node').forEach((neighbor) => {
+      const nid = neighbor.id();
+      if (!distances.has(nid)) {
+        distances.set(nid, item.dist + 1);
+        queue.push({ id: nid, dist: item.dist + 1 });
+      }
+    });
+  }
+  cy.nodes().forEach((node) => {
+    const dist = distances.get(node.id()) ?? Infinity;
+    const opacity = dist === Infinity ? 0 : Math.max(0, 1 - dist * vs.labelFalloff);
+    node.scratch('_co', opacity);
+    node.style('text-opacity', opacity);
+  });
+}
 
 function StyleSlider({ label, value, min, max, step, onChange, format }: {
   label: string; value: number; min: number; max: number; step: number;
@@ -416,6 +449,10 @@ export default function SongNodesPage() {
   const [animatePulse, setAnimatePulse] = useState(true);
   const [vStyle, setVStyle] = useState<VisualStyle>(DEFAULT_VS);
   const [showStylePanel, setShowStylePanel] = useState(false);
+  const [showAllLabels, setShowAllLabels] = useState(false);
+  const vStyleRef         = useRef<VisualStyle>(DEFAULT_VS);
+  const showAllLabelsRef  = useRef(false);
+  const selectedNodeIdRef = useRef<string | null>(null);
   const animatePulseRef = useRef(true);
   const animGenRef  = useRef(0);
   const orbitGenRef = useRef(0);
@@ -473,6 +510,7 @@ export default function SongNodesPage() {
 
     cyRef.current = cy;
     layoutReadyRef.current = false; // reset: animation must wait for radial layout
+    selectedNodeIdRef.current = null;
     setGraphLabel(graphData.label);
 
     // Zoom-constant text: font-size = base / zoom so it stays same screen size
@@ -515,34 +553,45 @@ export default function SongNodesPage() {
       setLockedCount(lockedNodeIdsRef.current.size);
     });
 
-    // Single tap → highlight neighbours, show detail
+    // Single tap → highlight neighbours, cascade labels by distance, show detail
     cy.on('tap', 'node', (evt: EventObject) => {
       const node = evt.target as NodeSingular;
       cy.elements().removeClass('highlighted faded');
       const neighbourhood = node.closedNeighborhood();
       neighbourhood.addClass('highlighted');
       cy.elements().not(neighbourhood).addClass('faded');
+      selectedNodeIdRef.current = node.id();
+      applyLabelCascade(cy, node.id(), vStyleRef.current, showAllLabelsRef.current);
       setSelectedNode(cy.$(`#${CSS.escape(node.id())}`));
     });
 
-    // Background tap → clear selection
+    // Background tap → clear selection and label cascade
     cy.on('tap', (evt: EventObject) => {
       if (evt.target === cy) {
         cy.elements().removeClass('highlighted faded');
+        selectedNodeIdRef.current = null;
+        applyLabelCascade(cy, null, vStyleRef.current, showAllLabelsRef.current);
         setSelectedNode(null);
       }
     });
 
-    // Hover: label and connected edges brighten on mouseover
+    // Hover: force label to full opacity (overrides cascade bypass), restore on mouseout
     cy.on('mouseover', 'node', (evt: EventObject) => {
       const n = evt.target as NodeSingular;
       n.addClass('label-hover');
+      n.style('text-opacity', 1);
       n.connectedEdges().addClass('edge-hover');
     });
     cy.on('mouseout', 'node', (evt: EventObject) => {
       const n = evt.target as NodeSingular;
       n.removeClass('label-hover');
       n.connectedEdges().removeClass('edge-hover');
+      const co = n.scratch('_co') as number | null | undefined;
+      if (co !== null && co !== undefined) {
+        n.style('text-opacity', co);
+      } else {
+        n.removeStyle('text-opacity');
+      }
     });
 
     return () => {
@@ -577,12 +626,22 @@ export default function SongNodesPage() {
     cy.edges('[edgeType = "conceptual"]').style('display', display);
   }, [showThemes, graphLabel]);
 
-  // Live style updates when visual sliders change
+  // Live style updates when visual sliders change; reapply cascade with new falloff
   useEffect(() => {
+    vStyleRef.current = vStyle;
     const cy = cyRef.current;
     if (!cy) return;
     cy.style(buildCyStyle(vStyle) as unknown as cytoscape.StylesheetStyle[]).update();
+    applyLabelCascade(cy, selectedNodeIdRef.current, vStyle, showAllLabelsRef.current);
   }, [vStyle]);
+
+  // Show-all-labels toggle: immediately reapply cascade
+  useEffect(() => {
+    showAllLabelsRef.current = showAllLabels;
+    const cy = cyRef.current;
+    if (!cy) return;
+    applyLabelCascade(cy, selectedNodeIdRef.current, vStyleRef.current, showAllLabels);
+  }, [showAllLabels]);
 
   // Keep the ref in sync so animation callbacks always see current value
   useEffect(() => { animatePulseRef.current = animatePulse; }, [animatePulse]);
@@ -1282,6 +1341,17 @@ export default function SongNodesPage() {
                   Animate
                 </span>
               </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showAllLabels}
+                  onChange={(e) => setShowAllLabels(e.target.checked)}
+                  className="accent-indigo-500"
+                />
+                <span className={`text-xs transition-colors ${showAllLabels ? 'text-surface-200' : 'text-surface-600'}`}>
+                  Show all labels
+                </span>
+              </label>
 
               <div className="pt-1">
                 <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-1.5">Interact</div>
@@ -1320,7 +1390,7 @@ export default function SongNodesPage() {
               {showStylePanel && (
                 <div className="space-y-3">
                   <p className="text-xs text-surface-600 leading-tight">
-                    Labels hidden by default. Hover any node to reveal its name.
+                    Click a node to cascade labels by distance. Hover reveals any label.
                   </p>
                   <StyleSlider
                     label="Edge opacity"
@@ -1330,12 +1400,24 @@ export default function SongNodesPage() {
                     format={(v) => v.toFixed(2)}
                   />
                   <StyleSlider
-                    label="Label visibility"
+                    label="Base label opacity"
                     value={vStyle.labelOpacity}
                     min={0} max={1} step={0.05}
                     onChange={(v) => setVStyle((s) => ({ ...s, labelOpacity: v }))}
                     format={(v) => v === 0 ? 'Hover only' : `${Math.round(v * 100)}%`}
                   />
+                  <StyleSlider
+                    label="Label falloff per hop"
+                    value={vStyle.labelFalloff}
+                    min={0.1} max={0.5} step={0.05}
+                    onChange={(v) => setVStyle((s) => ({ ...s, labelFalloff: v }))}
+                    format={(v) => `−${Math.round(v * 100)}%/hop`}
+                  />
+                  <div className="text-xs text-surface-600 leading-tight">
+                    <span className="text-surface-500">Selected</span> → 100%
+                    · <span className="text-surface-500">1 hop</span> → {Math.round((1 - vStyle.labelFalloff) * 100)}%
+                    · <span className="text-surface-500">2 hops</span> → {Math.max(0, Math.round((1 - 2 * vStyle.labelFalloff) * 100))}%
+                  </div>
                   <button
                     onClick={() => setVStyle(DEFAULT_VS)}
                     className="text-xs text-surface-600 hover:text-surface-200 transition-colors"

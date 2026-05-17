@@ -50,9 +50,42 @@ function updateFontSizes(cy: Core): void {
 // Visual style parameters — driven by sidebar sliders
 interface VisualStyle {
   edgeOpacity:   number;  // 0.1–1.0
-  labelOpacity:  number;  // 0 = hover-only; 1 = always visible
+  labelOpacity:  number;  // 0 = hover-only; 1 = always visible (base, no selection)
+  labelFalloff:  number;  // per-hop opacity drop when a node is selected (0.1–0.5)
 }
-const DEFAULT_VS: VisualStyle = { edgeOpacity: 0.45, labelOpacity: 0 };
+const DEFAULT_VS: VisualStyle = { edgeOpacity: 0.45, labelOpacity: 0, labelFalloff: 0.25 };
+
+// BFS label cascade: selected node = 100%, each hop further drops by `vs.labelFalloff`.
+// Stores result in node scratch '_co' so hover handlers can restore it on mouseout.
+function applyLabelCascade(cy: Core, selectedId: string | null, vs: VisualStyle, showAll: boolean): void {
+  if (showAll) {
+    cy.nodes().forEach((n) => { n.scratch('_co', 1); n.style('text-opacity', 1); });
+    return;
+  }
+  if (!selectedId) {
+    cy.nodes().forEach((n) => { n.scratch('_co', null); n.removeStyle('text-opacity'); });
+    return;
+  }
+  const distances = new Map<string, number>();
+  const queue: Array<{ id: string; dist: number }> = [{ id: selectedId, dist: 0 }];
+  distances.set(selectedId, 0);
+  while (queue.length > 0) {
+    const item = queue.shift()!;
+    cy.getElementById(item.id).neighborhood('node').forEach((neighbor) => {
+      const nid = neighbor.id();
+      if (!distances.has(nid)) {
+        distances.set(nid, item.dist + 1);
+        queue.push({ id: nid, dist: item.dist + 1 });
+      }
+    });
+  }
+  cy.nodes().forEach((node) => {
+    const dist = distances.get(node.id()) ?? Infinity;
+    const opacity = dist === Infinity ? 0 : Math.max(0, 1 - dist * vs.labelFalloff);
+    node.scratch('_co', opacity);
+    node.style('text-opacity', opacity);
+  });
+}
 
 function buildCyStyle(vs: VisualStyle = DEFAULT_VS) {
   return [
@@ -228,6 +261,10 @@ export default function ExplorePage() {
   const [hiddenThemeIds, setHiddenThemeIds]     = useState<Set<string>>(new Set());
   const [vStyle, setVStyle]                     = useState<VisualStyle>(DEFAULT_VS);
   const [showStylePanel, setShowStylePanel]     = useState(false);
+  const [showAllLabels, setShowAllLabels]       = useState(false);
+  const vStyleRef        = useRef<VisualStyle>(DEFAULT_VS);
+  const showAllLabelsRef = useRef(false);
+  const selectedNodeIdRef = useRef<string | null>(null);
 
   useEffect(() => { animPulseRef.current = animatePulse; }, [animatePulse]);
 
@@ -527,6 +564,7 @@ export default function ExplorePage() {
 
     cyRef.current = cy;
     layoutReadyRef.current = false; // reset: animation must wait for runClusterLayout
+    selectedNodeIdRef.current = null;
     setGraphLabel(graphData.label);
 
     // Collect tag and theme names for filter panels
@@ -564,22 +602,36 @@ export default function ExplorePage() {
       cy.elements().removeClass('highlighted faded');
       node.closedNeighborhood().addClass('highlighted');
       cy.elements().not(node.closedNeighborhood()).addClass('faded');
+      selectedNodeIdRef.current = node.id();
+      applyLabelCascade(cy, node.id(), vStyleRef.current, showAllLabelsRef.current);
       setSelectedNode(cy.$(`#${CSS.escape(node.id())}`));
     });
     cy.on('tap', (evt: EventObject) => {
-      if (evt.target === cy) { cy.elements().removeClass('highlighted faded'); setSelectedNode(null); }
+      if (evt.target === cy) {
+        cy.elements().removeClass('highlighted faded');
+        selectedNodeIdRef.current = null;
+        applyLabelCascade(cy, null, vStyleRef.current, showAllLabelsRef.current);
+        setSelectedNode(null);
+      }
     });
 
-    // Hover: label pops to white, connected edges brighten
+    // Hover: label pops to full opacity (overrides cascade bypass), restores on mouseout
     cy.on('mouseover', 'node', (evt: EventObject) => {
       const n = evt.target as NodeSingular;
       n.addClass('label-hover');
+      n.style('text-opacity', 1);
       n.connectedEdges().addClass('edge-hover');
     });
     cy.on('mouseout', 'node', (evt: EventObject) => {
       const n = evt.target as NodeSingular;
       n.removeClass('label-hover');
       n.connectedEdges().removeClass('edge-hover');
+      const co = n.scratch('_co') as number | null | undefined;
+      if (co !== null && co !== undefined) {
+        n.style('text-opacity', co);
+      } else {
+        n.removeStyle('text-opacity');
+      }
     });
 
     return () => { cy.destroy(); cyRef.current = null; };
@@ -632,12 +684,22 @@ export default function ExplorePage() {
     });
   }, [hiddenThemeIds, showThemes, graphLabel]);
 
-  // Live style update when sliders change
+  // Live style update when visual sliders change; reapply cascade with new falloff
   useEffect(() => {
+    vStyleRef.current = vStyle;
     const cy = cyRef.current;
     if (!cy) return;
     cy.style(buildCyStyle(vStyle) as unknown as cytoscape.StylesheetStyle[]).update();
+    applyLabelCascade(cy, selectedNodeIdRef.current, vStyle, showAllLabelsRef.current);
   }, [vStyle]);
+
+  // Show-all-labels toggle: immediately reapply cascade
+  useEffect(() => {
+    showAllLabelsRef.current = showAllLabels;
+    const cy = cyRef.current;
+    if (!cy) return;
+    applyLabelCascade(cy, selectedNodeIdRef.current, vStyleRef.current, showAllLabels);
+  }, [showAllLabels]);
 
   const toggleBand = useCallback((id: string) => {
     setSelectedBandIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
@@ -746,6 +808,10 @@ export default function ExplorePage() {
                 <input type="checkbox" checked={showThemes} onChange={(e) => setShowThemes(e.target.checked)} className="accent-emerald-500" />
                 <span className={`text-xs ${showThemes ? 'text-white/70' : 'text-white/30'}`}>Show themes</span>
               </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={showAllLabels} onChange={(e) => setShowAllLabels(e.target.checked)} className="accent-indigo-500" />
+                <span className={`text-xs ${showAllLabels ? 'text-white/70' : 'text-white/30'}`}>Show all labels</span>
+              </label>
             </div>
           )}
 
@@ -762,7 +828,7 @@ export default function ExplorePage() {
               {showStylePanel && (
                 <div className="space-y-3">
                   <p className="text-xs text-white/30 leading-tight">
-                    Labels hidden by default — hover any node to reveal its name.
+                    Click a node to cascade labels by distance. Hover reveals any label.
                   </p>
                   <StyleSlider
                     label="Edge opacity"
@@ -772,11 +838,18 @@ export default function ExplorePage() {
                     format={(v) => v.toFixed(2)}
                   />
                   <StyleSlider
-                    label="Label visibility"
+                    label="Base label opacity"
                     value={vStyle.labelOpacity}
                     min={0} max={1} step={0.05}
                     onChange={(v) => setVStyle((s) => ({ ...s, labelOpacity: v }))}
                     format={(v) => v === 0 ? 'Hover only' : `${Math.round(v * 100)}%`}
+                  />
+                  <StyleSlider
+                    label="Label falloff per hop"
+                    value={vStyle.labelFalloff}
+                    min={0.1} max={0.5} step={0.05}
+                    onChange={(v) => setVStyle((s) => ({ ...s, labelFalloff: v }))}
+                    format={(v) => `−${Math.round(v * 100)}%/hop`}
                   />
                   <button
                     onClick={() => setVStyle(DEFAULT_VS)}
