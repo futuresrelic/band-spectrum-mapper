@@ -47,15 +47,25 @@ function updateFontSizes(cy: Core): void {
   });
 }
 
-function buildCyStyle() {
+// Visual style parameters — driven by sidebar sliders
+interface VisualStyle {
+  edgeOpacity:    number;  // 0.1–1.0
+  labelBrightness: number; // 20–90 (HSL lightness %)
+  labelSize:      number;  // 8–16 px
+}
+const DEFAULT_VS: VisualStyle = { edgeOpacity: 0.45, labelBrightness: 45, labelSize: 11 };
+
+function buildCyStyle(vs: VisualStyle = DEFAULT_VS) {
+  const labelColor   = `hsl(210 15% ${vs.labelBrightness}%)`;
+  const artistColor  = `hsl(210 20% ${Math.min(vs.labelBrightness + 25, 90)}%)`;
   return [
     {
       selector: 'node',
       style: {
         'background-color': 'data(color)', 'label': 'data(label)',
-        'font-size': '11px', 'font-family': '"Inter", system-ui, sans-serif',
+        'font-size': `${vs.labelSize}px`, 'font-family': '"Inter", system-ui, sans-serif',
         'font-weight': '600',
-        'color': '#526070',              // dim by default
+        'color': labelColor,
         'text-valign': 'bottom', 'text-halign': 'center', 'text-margin-y': '4px',
         'text-outline-color': '#060d1a', 'text-outline-width': '2px',
         'width': 'data(size)', 'height': 'data(size)',
@@ -63,21 +73,19 @@ function buildCyStyle() {
       },
     },
     { selector: 'node[type = "song"]',    style: { 'width': 24, 'height': 24 } },
-    { selector: 'node[type = "artist"]',  style: { 'width': 42, 'height': 42, 'font-size': '13px', 'color': '#8da4b4' } },
+    { selector: 'node[type = "artist"]',  style: { 'width': 42, 'height': 42, 'font-size': `${vs.labelSize + 2}px`, 'color': artistColor } },
     { selector: 'node[type = "album"]',   style: { 'width': 32, 'height': 32 } },
     { selector: 'node[type = "theme"]',   style: { 'width': 28, 'height': 28, 'shape': 'diamond' } },
     { selector: 'node[type = "tag"]',     style: { 'width': 22, 'height': 22, 'shape': 'tag' } },
     { selector: 'node[type = "keyword"]', style: { 'width': 18, 'height': 18, 'shape': 'rectangle' } },
-    { selector: 'node[type = "emotion"]', style: { 'width': 36, 'height': 36, 'shape': 'pentagon', 'font-size': '12px' } },
+    { selector: 'node[type = "emotion"]', style: { 'width': 36, 'height': 36, 'shape': 'pentagon', 'font-size': `${vs.labelSize + 1}px` } },
     { selector: 'node:selected', style: { 'border-width': '3px', 'border-color': '#fff', 'background-color': '#fff', 'color': '#000' } },
-    // Hover: label pops to white with a subtle ring
-    {
-      selector: 'node.label-hover',
-      style: { 'color': '#ffffff', 'text-outline-width': '2.5px', 'border-width': '2.5px', 'border-color': '#ffffff44' },
-    },
-    { selector: 'edge', style: { 'width': 1.2, 'line-color': 'data(edgeColor)', 'curve-style': 'bezier', 'opacity': 0.7 } },
+    { selector: 'node.label-hover', style: { 'color': '#ffffff', 'text-outline-width': '2.5px', 'border-width': '2.5px', 'border-color': '#ffffff44' } },
+    { selector: 'edge', style: { 'width': 1.2, 'line-color': 'data(edgeColor)', 'curve-style': 'bezier', 'opacity': vs.edgeOpacity } },
     { selector: 'edge[edgeWeight > 0.8]', style: { 'width': 2.5 } },
-    { selector: '.faded', style: { 'opacity': 0.12 } },
+    // Connected edges light up on node hover
+    { selector: 'edge.edge-hover', style: { 'opacity': 1, 'width': 2 } },
+    { selector: '.faded',       style: { 'opacity': 0.12 } },
     { selector: '.highlighted', style: { 'opacity': 1 } },
   ];
 }
@@ -174,6 +182,29 @@ const PUBLIC_PRESETS = [
 type PublicPreset = typeof PUBLIC_PRESETS[number]['id'];
 
 // ---------------------------------------------------------------------------
+// StyleSlider — reusable range input for the visual controls panel
+// ---------------------------------------------------------------------------
+
+function StyleSlider({ label, value, min, max, step, onChange, format }: {
+  label: string; value: number; min: number; max: number; step: number;
+  onChange: (v: number) => void; format: (v: number) => string;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-white/50">{label}</span>
+        <span className="text-xs font-mono text-white/40 tabular-nums">{format(value)}</span>
+      </div>
+      <input
+        type="range" min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-full h-1 rounded-full appearance-none cursor-pointer accent-indigo-400 bg-white/10"
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -190,9 +221,13 @@ export default function ExplorePage() {
   const [graphLabel, setGraphLabel]             = useState('');
   const [animatePulse, setAnimatePulse]         = useState(true);
   const [showTags, setShowTags]                 = useState(true);
-  // tag names visible in the graph, keyed by tagId → tagName
+  const [showThemes, setShowThemes]             = useState(true);
   const [allTagNames, setAllTagNames]           = useState<{ id: string; label: string }[]>([]);
   const [hiddenTagIds, setHiddenTagIds]         = useState<Set<string>>(new Set());
+  const [allThemeNames, setAllThemeNames]       = useState<{ id: string; label: string }[]>([]);
+  const [hiddenThemeIds, setHiddenThemeIds]     = useState<Set<string>>(new Set());
+  const [vStyle, setVStyle]                     = useState<VisualStyle>(DEFAULT_VS);
+  const [showStylePanel, setShowStylePanel]     = useState(false);
 
   useEffect(() => { animPulseRef.current = animatePulse; }, [animatePulse]);
 
@@ -420,6 +455,42 @@ export default function ExplorePage() {
       });
     });
 
+    // Theme placement — same outer-ring algorithm, placed one step further out than tags.
+    const artistThemeGroups = new Map<string, { tagNode: NodeSingular; angle: number; r: number }[]>();
+    cy.nodes('[type = "theme"]').forEach((themeNode) => {
+      const peers = themeNode.neighborhood('node[type = "song"]');
+      const connected = peers.length > 0 ? peers : themeNode.neighborhood('node[type = "album"]');
+      if (connected.length === 0) return;
+      let sumX = 0, sumY = 0;
+      connected.forEach((n) => { const p = n.position(); sumX += p.x; sumY += p.y; });
+      const centX = sumX / connected.length, centY = sumY / connected.length;
+      let nearId = '', nearAx = centX, nearAy = centY, nearDist = Infinity;
+      cy.nodes('[type = "artist"]').forEach((a) => {
+        const ap = a.position(), d = Math.hypot(ap.x - centX, ap.y - centY);
+        if (d < nearDist) { nearDist = d; nearAx = ap.x; nearAy = ap.y; nearId = a.id(); }
+      });
+      if (!nearId) return;
+      const angle = Math.atan2(centY - nearAy, centX - nearAx);
+      let maxConnR = 0;
+      connected.forEach((n) => { const p = n.position(); maxConnR = Math.max(maxConnR, Math.hypot(p.x - nearAx, p.y - nearAy)); });
+      // Place themes ~30px further out than tags
+      const r = Math.min(maxConnR + 90, (artistOuterR.get(nearId) ?? maxConnR) + 100);
+      const list = artistThemeGroups.get(nearId) ?? [];
+      list.push({ tagNode: themeNode, angle, r });
+      artistThemeGroups.set(nearId, list);
+    });
+    artistThemeGroups.forEach((themes, artistId) => {
+      const ap = cy.getElementById(artistId).position();
+      themes.sort((a, b) => a.angle - b.angle);
+      for (let i = 1; i < themes.length; i++) {
+        const prev = themes[i - 1]!; const curr = themes[i]!;
+        if (curr.angle - prev.angle < MIN_ARC) curr.angle = prev.angle + MIN_ARC;
+      }
+      themes.forEach(({ tagNode, angle, r }) => {
+        tagNode.position({ x: ap.x + r * Math.cos(angle), y: ap.y + r * Math.sin(angle) });
+      });
+    });
+
     // Pre-seed orbit bases with new radial positions so the animation restore
     // step doesn't snap artist/album nodes back to the old COSE positions.
     cy.nodes('[type = "artist"], [type = "album"]').forEach((n) => {
@@ -448,7 +519,7 @@ export default function ExplorePage() {
     const cy = cytoscape({
       container: containerRef.current,
       elements,
-      style: buildCyStyle() as unknown as cytoscape.StylesheetStyle[],
+      style: buildCyStyle(vStyle) as unknown as cytoscape.StylesheetStyle[],
       layout: { name: 'cose', nodeRepulsion: () => 15000, edgeElasticity: () => 45, idealEdgeLength: () => 80, gravity: 0.8, animate: true, animationDuration: 700, fit: true, padding: 40 } as cytoscape.LayoutOptions,
       minZoom: 0.1, maxZoom: 6,
     });
@@ -456,13 +527,17 @@ export default function ExplorePage() {
     cyRef.current = cy;
     setGraphLabel(graphData.label);
 
-    // Collect tag names for the tag filter panel
+    // Collect tag and theme names for filter panels
     const tags: { id: string; label: string }[] = [];
+    const themes: { id: string; label: string }[] = [];
     graphData.nodes.forEach((n) => {
-      if (n.type === 'tag') tags.push({ id: n.id, label: n.label });
+      if (n.type === 'tag')   tags.push({ id: n.id, label: n.label });
+      if (n.type === 'theme') themes.push({ id: n.id, label: n.label });
     });
     setAllTagNames(tags.sort((a, b) => a.label.localeCompare(b.label)));
-    setHiddenTagIds(new Set()); // reset on new graph
+    setAllThemeNames(themes.sort((a, b) => a.label.localeCompare(b.label)));
+    setHiddenTagIds(new Set());
+    setHiddenThemeIds(new Set());
 
     let rafPending = false;
     cy.on('zoom', () => {
@@ -488,9 +563,17 @@ export default function ExplorePage() {
       if (evt.target === cy) { cy.elements().removeClass('highlighted faded'); setSelectedNode(null); }
     });
 
-    // Hover: label pops to white
-    cy.on('mouseover', 'node', (evt: EventObject) => { (evt.target as NodeSingular).addClass('label-hover'); });
-    cy.on('mouseout',  'node', (evt: EventObject) => { (evt.target as NodeSingular).removeClass('label-hover'); });
+    // Hover: label pops to white, connected edges brighten
+    cy.on('mouseover', 'node', (evt: EventObject) => {
+      const n = evt.target as NodeSingular;
+      n.addClass('label-hover');
+      n.connectedEdges().addClass('edge-hover');
+    });
+    cy.on('mouseout', 'node', (evt: EventObject) => {
+      const n = evt.target as NodeSingular;
+      n.removeClass('label-hover');
+      n.connectedEdges().removeClass('edge-hover');
+    });
 
     return () => { cy.destroy(); cyRef.current = null; };
   }, [graphData]);
@@ -517,27 +600,50 @@ export default function ExplorePage() {
     const cy = cyRef.current;
     if (!cy || !showTags) return;
     cy.nodes('[type = "tag"]').forEach((n) => {
-      const hidden = hiddenTagIds.has(n.id());
-      n.style('display', hidden ? 'none' : 'element');
-      // Also hide edges connected only to this tag
+      n.style('display', hiddenTagIds.has(n.id()) ? 'none' : 'element');
     });
   }, [hiddenTagIds, showTags, graphLabel]);
+
+  // Show/hide ALL themes
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const display = showThemes ? 'element' : 'none';
+    cy.nodes('[type = "theme"]').style('display', display);
+    cy.edges('[edgeType = "conceptual"]').style('display', display);
+  }, [showThemes, graphLabel]);
+
+  // Per-theme visibility
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || !showThemes) return;
+    cy.nodes('[type = "theme"]').forEach((n) => {
+      n.style('display', hiddenThemeIds.has(n.id()) ? 'none' : 'element');
+    });
+  }, [hiddenThemeIds, showThemes, graphLabel]);
+
+  // Live style update when sliders change
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.style(buildCyStyle(vStyle) as unknown as cytoscape.StylesheetStyle[]).update();
+  }, [vStyle]);
 
   const toggleBand = useCallback((id: string) => {
     setSelectedBandIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }, []);
 
   const toggleTag = useCallback((id: string) => {
-    setHiddenTagIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    setHiddenTagIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }, []);
 
-  const cyReady = !!graphLabel && !isFetching;
-  const showTagPanel = showTags && allTagNames.length > 0;
+  const toggleTheme = useCallback((id: string) => {
+    setHiddenThemeIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }, []);
+
+  const cyReady       = !!graphLabel && !isFetching;
+  const showTagPanel  = showTags   && allTagNames.length   > 0;
+  const showThemePanel = showThemes && allThemeNames.length > 0;
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -626,10 +732,58 @@ export default function ExplorePage() {
                 <input type="checkbox" checked={showTags} onChange={(e) => setShowTags(e.target.checked)} className="accent-cyan-500" />
                 <span className={`text-xs ${showTags ? 'text-white/70' : 'text-white/30'}`}>Show tags</span>
               </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={showThemes} onChange={(e) => setShowThemes(e.target.checked)} className="accent-emerald-500" />
+                <span className={`text-xs ${showThemes ? 'text-white/70' : 'text-white/30'}`}>Show themes</span>
+              </label>
             </div>
           )}
 
-          {/* Tag selector — only when tags are shown */}
+          {/* Visual style sliders */}
+          {cyReady && (
+            <div>
+              <button
+                className="flex items-center justify-between w-full text-xs font-semibold text-white/40 uppercase tracking-wider mb-2 hover:text-white/60 transition-colors"
+                onClick={() => setShowStylePanel((v) => !v)}
+              >
+                <span>Visual</span>
+                <span className="text-white/25">{showStylePanel ? '▲' : '▼'}</span>
+              </button>
+              {showStylePanel && (
+                <div className="space-y-3">
+                  <StyleSlider
+                    label="Edge opacity"
+                    value={vStyle.edgeOpacity}
+                    min={0.1} max={1} step={0.05}
+                    onChange={(v) => setVStyle((s) => ({ ...s, edgeOpacity: v }))}
+                    format={(v) => v.toFixed(2)}
+                  />
+                  <StyleSlider
+                    label="Label brightness"
+                    value={vStyle.labelBrightness}
+                    min={20} max={90} step={5}
+                    onChange={(v) => setVStyle((s) => ({ ...s, labelBrightness: v }))}
+                    format={(v) => `${v}%`}
+                  />
+                  <StyleSlider
+                    label="Label size"
+                    value={vStyle.labelSize}
+                    min={8} max={16} step={1}
+                    onChange={(v) => setVStyle((s) => ({ ...s, labelSize: v }))}
+                    format={(v) => `${v}px`}
+                  />
+                  <button
+                    onClick={() => setVStyle(DEFAULT_VS)}
+                    className="text-xs text-white/30 hover:text-white/60 transition-colors"
+                  >
+                    Reset to defaults
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tag selector */}
           {cyReady && showTagPanel && (
             <div>
               <div className="flex items-center justify-between mb-1.5">
@@ -647,6 +801,31 @@ export default function ExplorePage() {
                     <label key={t.id} className="flex items-center gap-2 cursor-pointer group">
                       <input type="checkbox" checked={visible} onChange={() => toggleTag(t.id)} className="accent-cyan-500" />
                       <span className={`text-xs ${visible ? 'text-cyan-300/80' : 'text-white/25 group-hover:text-white/50'}`}>{t.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Theme selector */}
+          {cyReady && showThemePanel && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="text-xs font-semibold text-white/40 uppercase tracking-wider">Themes</div>
+                <div className="flex gap-1.5">
+                  <button className="text-xs text-emerald-400 hover:text-emerald-200" onClick={() => setHiddenThemeIds(new Set())}>All</button>
+                  <span className="text-white/20">·</span>
+                  <button className="text-xs text-white/40 hover:text-white/70" onClick={() => setHiddenThemeIds(new Set(allThemeNames.map((t) => t.id)))}>None</button>
+                </div>
+              </div>
+              <div className="max-h-44 overflow-y-auto space-y-0.5 pr-1">
+                {allThemeNames.map((t) => {
+                  const visible = !hiddenThemeIds.has(t.id);
+                  return (
+                    <label key={t.id} className="flex items-center gap-2 cursor-pointer group">
+                      <input type="checkbox" checked={visible} onChange={() => toggleTheme(t.id)} className="accent-emerald-500" />
+                      <span className={`text-xs ${visible ? 'text-emerald-300/80' : 'text-white/25 group-hover:text-white/50'}`}>{t.label}</span>
                     </label>
                   );
                 })}
