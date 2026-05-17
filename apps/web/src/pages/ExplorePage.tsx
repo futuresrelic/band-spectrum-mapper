@@ -39,21 +39,33 @@ function getBaseFont(type: string): number {
   return 11;
 }
 
-function updateFontSizes(cy: Core): void {
+// wrapWidth is in screen-px — we convert to graph units via zoom so wrapping stays constant on screen
+function updateFontSizes(cy: Core, wrapWidth = 120): void {
   const z = cy.zoom();
   cy.nodes().forEach((node) => {
     const type = (node.data('type') as string) || 'song';
     node.style('font-size', `${getBaseFont(type) / z}px`);
+    if (type === 'artist') node.style('text-max-width', `${wrapWidth / z}px`);
   });
 }
 
-// Visual style parameters — driven by sidebar sliders
+// Visual style parameters — driven by sidebar sliders, persisted in localStorage
 interface VisualStyle {
-  edgeOpacity:   number;  // 0.1–1.0
-  labelOpacity:  number;  // 0 = hover-only; 1 = always visible (base, no selection)
-  labelFalloff:  number;  // per-hop opacity drop when a node is selected (0.1–0.5)
+  edgeOpacity:    number;  // edge transparency
+  edgeWidth:      number;  // base edge line width px
+  labelOpacity:   number;  // 0 = hover-only; 1 = always visible (base, no selection)
+  labelFalloff:   number;  // per-hop opacity drop when a node is selected
+  labelWrapWidth: number;  // screen px before artist names wrap to next line
+  sizeArtist:     number;  // artist node diameter
+  sizeAlbum:      number;  // album node diameter
+  sizeSong:       number;  // song node diameter
 }
-const DEFAULT_VS: VisualStyle = { edgeOpacity: 0.45, labelOpacity: 0, labelFalloff: 0.25 };
+const DEFAULT_VS: VisualStyle = {
+  edgeOpacity: 0.45, edgeWidth: 1.2,
+  labelOpacity: 0, labelFalloff: 0.25, labelWrapWidth: 120,
+  sizeArtist: 42, sizeAlbum: 32, sizeSong: 24,
+};
+const VS_STORAGE_KEY = 'bsm-explore-vs';
 
 // BFS label cascade: selected node = 100%, each hop further drops by `vs.labelFalloff`.
 // Stores result in node scratch '_co' so hover handlers can restore it on mouseout.
@@ -103,9 +115,9 @@ function buildCyStyle(vs: VisualStyle = DEFAULT_VS) {
         'border-width': '1.5px', 'border-color': '#ffffff22', 'min-zoomed-font-size': 4,
       },
     },
-    { selector: 'node[type = "song"]',    style: { 'width': 24, 'height': 24 } },
-    { selector: 'node[type = "artist"]',  style: { 'width': 42, 'height': 42, 'font-size': '13px', 'text-wrap': 'wrap', 'text-max-width': '100px' } },
-    { selector: 'node[type = "album"]',   style: { 'width': 32, 'height': 32 } },
+    { selector: 'node[type = "song"]',    style: { 'width': vs.sizeSong, 'height': vs.sizeSong } },
+    { selector: 'node[type = "artist"]',  style: { 'width': vs.sizeArtist, 'height': vs.sizeArtist, 'font-size': '13px', 'text-wrap': 'wrap', 'text-max-width': '200px' } },
+    { selector: 'node[type = "album"]',   style: { 'width': vs.sizeAlbum, 'height': vs.sizeAlbum } },
     { selector: 'node[type = "theme"]',   style: { 'width': 28, 'height': 28, 'shape': 'diamond' } },
     { selector: 'node[type = "tag"]',     style: { 'width': 22, 'height': 22, 'shape': 'tag' } },
     { selector: 'node[type = "keyword"]', style: { 'width': 18, 'height': 18, 'shape': 'rectangle' } },
@@ -114,9 +126,9 @@ function buildCyStyle(vs: VisualStyle = DEFAULT_VS) {
     { selector: 'node:selected', style: { 'border-width': '3px', 'border-color': '#fff', 'text-opacity': 1, 'color': '#ffffff', 'text-outline-width': '2.5px' } },
     // Hover: label and outline snap to full visibility
     { selector: 'node.label-hover', style: { 'text-opacity': 1, 'color': '#ffffff', 'text-outline-width': '2.5px', 'border-width': '2.5px', 'border-color': '#ffffff44' } },
-    { selector: 'edge', style: { 'width': 1.2, 'line-color': 'data(edgeColor)', 'curve-style': 'bezier', 'opacity': vs.edgeOpacity } },
-    { selector: 'edge[edgeWeight > 0.8]', style: { 'width': 2.5 } },
-    { selector: 'edge.edge-hover', style: { 'opacity': 1, 'width': 2 } },
+    { selector: 'edge', style: { 'width': vs.edgeWidth, 'line-color': 'data(edgeColor)', 'curve-style': 'bezier', 'opacity': vs.edgeOpacity } },
+    { selector: 'edge[edgeWeight > 0.8]', style: { 'width': vs.edgeWidth * 2 } },
+    { selector: 'edge.edge-hover', style: { 'opacity': 1, 'width': vs.edgeWidth * 1.8 } },
     { selector: '.faded',       style: { 'opacity': 0.12 } },
     { selector: '.highlighted', style: { 'opacity': 1 } },
   ];
@@ -259,10 +271,13 @@ export default function ExplorePage() {
   const [hiddenTagIds, setHiddenTagIds]         = useState<Set<string>>(new Set());
   const [allThemeNames, setAllThemeNames]       = useState<{ id: string; label: string }[]>([]);
   const [hiddenThemeIds, setHiddenThemeIds]     = useState<Set<string>>(new Set());
-  const [vStyle, setVStyle]                     = useState<VisualStyle>(DEFAULT_VS);
+  const [vStyle, setVStyle]                     = useState<VisualStyle>(() => {
+    try { const s = localStorage.getItem(VS_STORAGE_KEY); if (s) return { ...DEFAULT_VS, ...JSON.parse(s) as Partial<VisualStyle> }; } catch { /* ignore */ }
+    return DEFAULT_VS;
+  });
   const [showStylePanel, setShowStylePanel]     = useState(false);
   const [showAllLabels, setShowAllLabels]       = useState(false);
-  const vStyleRef        = useRef<VisualStyle>(DEFAULT_VS);
+  const vStyleRef        = useRef<VisualStyle>(vStyle);
   const showAllLabelsRef = useRef(false);
   const selectedNodeIdRef = useRef<string | null>(null);
 
@@ -340,7 +355,9 @@ export default function ExplorePage() {
   function startPulse(cy: Core) {
     const gen = ++animGenRef.current;
     cy.nodes('[type = "artist"]').forEach((node, i) => {
-      const BASE = 42, PEAK = 56, PERIOD = 3000 + i * 700;
+      const BASE = vStyleRef.current.sizeArtist;
+      const PEAK = Math.round(BASE * 1.33);
+      const PERIOD = 3000 + i * 700;
       const breathe = () => {
         if (cy.destroyed() || animGenRef.current !== gen) return;
         node.animate({ style: { width: PEAK, height: PEAK } }, {
@@ -360,7 +377,8 @@ export default function ExplorePage() {
 
   function stopAnimation(cy: Core) {
     animGenRef.current++;
-    cy.nodes('[type = "artist"]').stop(true).style({ width: 42, height: 42 });
+    const sz = vStyleRef.current.sizeArtist;
+    cy.nodes('[type = "artist"]').stop(true).style({ width: sz, height: sz });
     stopOrbit(cy);
   }
 
@@ -537,7 +555,7 @@ export default function ExplorePage() {
     setTimeout(() => {
       if (!cy.destroyed()) {
         layoutReadyRef.current = true;
-        updateFontSizes(cy);
+        updateFontSizes(cy, vStyleRef.current.labelWrapWidth);
         if (animPulseRef.current) startPulse(cy);
       }
     }, 80);
@@ -582,12 +600,12 @@ export default function ExplorePage() {
     let rafPending = false;
     cy.on('zoom', () => {
       if (rafPending) return; rafPending = true;
-      requestAnimationFrame(() => { if (!cy.destroyed()) updateFontSizes(cy); rafPending = false; });
+      requestAnimationFrame(() => { if (!cy.destroyed()) updateFontSizes(cy, vStyleRef.current.labelWrapWidth); rafPending = false; });
     });
 
     cy.one('layoutstop', () => {
       if (!cy.destroyed()) {
-        updateFontSizes(cy);
+        updateFontSizes(cy, vStyleRef.current.labelWrapWidth);
         if (preset === 'artist-universe') {
           runClusterLayout(cy); // sets layoutReadyRef.current = true internally
         } else {
@@ -687,10 +705,16 @@ export default function ExplorePage() {
   // Live style update when visual sliders change; reapply cascade with new falloff
   useEffect(() => {
     vStyleRef.current = vStyle;
+    localStorage.setItem(VS_STORAGE_KEY, JSON.stringify(vStyle));
     const cy = cyRef.current;
     if (!cy) return;
+    // Apply stylesheet first, THEN reapply per-element cascade (cascade must win over stylesheet)
     cy.style(buildCyStyle(vStyle) as unknown as cytoscape.StylesheetStyle[]).update();
     applyLabelCascade(cy, selectedNodeIdRef.current, vStyle, showAllLabelsRef.current);
+    // Update font sizes + wrap width for current zoom
+    updateFontSizes(cy, vStyle.labelWrapWidth);
+    // Restart animation so size changes take effect immediately
+    if (animPulseRef.current && layoutReadyRef.current) { stopAnimation(cy); startPulse(cy); }
   }, [vStyle]);
 
   // Show-all-labels toggle: immediately reapply cascade
@@ -826,35 +850,54 @@ export default function ExplorePage() {
                 <span className="text-white/25">{showStylePanel ? '▲' : '▼'}</span>
               </button>
               {showStylePanel && (
-                <div className="space-y-3">
-                  <p className="text-xs text-white/30 leading-tight">
-                    Click a node to cascade labels by distance. Hover reveals any label.
-                  </p>
-                  <StyleSlider
-                    label="Edge opacity"
-                    value={vStyle.edgeOpacity}
-                    min={0.1} max={1} step={0.05}
-                    onChange={(v) => setVStyle((s) => ({ ...s, edgeOpacity: v }))}
-                    format={(v) => v.toFixed(2)}
-                  />
-                  <StyleSlider
-                    label="Base label opacity"
-                    value={vStyle.labelOpacity}
-                    min={0} max={1} step={0.05}
-                    onChange={(v) => setVStyle((s) => ({ ...s, labelOpacity: v }))}
-                    format={(v) => v === 0 ? 'Hover only' : `${Math.round(v * 100)}%`}
-                  />
-                  <StyleSlider
-                    label="Label falloff per hop"
-                    value={vStyle.labelFalloff}
-                    min={0.1} max={0.5} step={0.05}
-                    onChange={(v) => setVStyle((s) => ({ ...s, labelFalloff: v }))}
-                    format={(v) => `−${Math.round(v * 100)}%/hop`}
-                  />
-                  <button
-                    onClick={() => setVStyle(DEFAULT_VS)}
-                    className="text-xs text-white/30 hover:text-white/60 transition-colors"
-                  >
+                <div className="space-y-4">
+
+                  {/* Nodes */}
+                  <div>
+                    <div className="text-xs font-semibold text-white/30 uppercase tracking-wider mb-2">Nodes</div>
+                    <div className="space-y-2">
+                      <StyleSlider label="Artist size" value={vStyle.sizeArtist} min={20} max={80} step={2}
+                        onChange={(v) => setVStyle((s) => ({ ...s, sizeArtist: v }))} format={(v) => `${v}px`} />
+                      <StyleSlider label="Album size" value={vStyle.sizeAlbum} min={12} max={60} step={2}
+                        onChange={(v) => setVStyle((s) => ({ ...s, sizeAlbum: v }))} format={(v) => `${v}px`} />
+                      <StyleSlider label="Song size" value={vStyle.sizeSong} min={8} max={40} step={2}
+                        onChange={(v) => setVStyle((s) => ({ ...s, sizeSong: v }))} format={(v) => `${v}px`} />
+                    </div>
+                  </div>
+
+                  {/* Labels */}
+                  <div>
+                    <div className="text-xs font-semibold text-white/30 uppercase tracking-wider mb-2">Labels</div>
+                    <div className="space-y-2">
+                      <StyleSlider label="Base opacity" value={vStyle.labelOpacity} min={0} max={1} step={0.05}
+                        onChange={(v) => setVStyle((s) => ({ ...s, labelOpacity: v }))}
+                        format={(v) => v === 0 ? 'Hover only' : `${Math.round(v * 100)}%`} />
+                      <StyleSlider label="Wrap width" value={vStyle.labelWrapWidth} min={40} max={220} step={10}
+                        onChange={(v) => setVStyle((s) => ({ ...s, labelWrapWidth: v }))} format={(v) => `${v}px`} />
+                      <div>
+                        <StyleSlider label="Falloff per hop" value={vStyle.labelFalloff} min={0.05} max={0.5} step={0.05}
+                          onChange={(v) => setVStyle((s) => ({ ...s, labelFalloff: v }))}
+                          format={(v) => `−${Math.round(v * 100)}%`} />
+                        <p className="text-xs text-white/20 mt-1 leading-tight">
+                          Click a node to activate · 1 hop={Math.max(0, Math.round((1 - vStyle.labelFalloff) * 100))}% · 2 hops={Math.max(0, Math.round((1 - 2 * vStyle.labelFalloff) * 100))}%
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Edges */}
+                  <div>
+                    <div className="text-xs font-semibold text-white/30 uppercase tracking-wider mb-2">Edges</div>
+                    <div className="space-y-2">
+                      <StyleSlider label="Opacity" value={vStyle.edgeOpacity} min={0.05} max={1} step={0.05}
+                        onChange={(v) => setVStyle((s) => ({ ...s, edgeOpacity: v }))} format={(v) => v.toFixed(2)} />
+                      <StyleSlider label="Width" value={vStyle.edgeWidth} min={0.5} max={4} step={0.25}
+                        onChange={(v) => setVStyle((s) => ({ ...s, edgeWidth: v }))} format={(v) => `${v}px`} />
+                    </div>
+                  </div>
+
+                  <button onClick={() => setVStyle(DEFAULT_VS)}
+                    className="text-xs text-white/30 hover:text-white/60 transition-colors">
                     Reset to defaults
                   </button>
                 </div>
