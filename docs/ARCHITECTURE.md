@@ -281,3 +281,61 @@ to 2s minimum as level increases. The comment-for-life mechanic is a UI prompt o
 it directs users to leave comments on song pages to encourage engagement. Lives are 
 not automatically granted by the backend (that would require real-time comment 
 detection); the prompt is motivational. This is stated honestly per definition of done.
+
+## Word Hunt Game + Leaderboard Page (2026-05-17)
+
+### Data model additions
+
+**`WordHuntScore` model:**
+```
+model WordHuntScore {
+  id         String   @id @default(cuid())
+  userId     String
+  word       String
+  attempts   Int
+  wrongCount Int
+  timeSec    Int
+  score      Int
+  bandScope  String?  // comma-separated band IDs, or 'all'
+  createdAt  DateTime @default(now())
+  user       User     @relation(...)
+  @@index([score])
+  @@map("word_hunt_scores")
+}
+```
+
+### API routes added
+
+| Route | Auth | Description |
+|---|---|---|
+| `GET /api/public/word-hunt/challenge` | public | Random challenge word from lyrics pool |
+| `GET /api/public/word-hunt/verify` | public | Check if word appears in a song's lyrics |
+| `GET /api/public/word-hunt/leaderboard` | public | Top N Word Hunt scores with player info |
+| `GET /api/public/word-hunt/reveal` | public | All songs containing the word (post-game reveal) |
+| `POST /api/word-hunt/scores` | requireAuth | Persist a won game score; returns rank |
+
+### Public pages added
+
+| Route | Auth | Description |
+|---|---|---|
+| `/leaderboard` | public | Standalone leaderboard page with Album Art Quiz + Word Hunt tabs |
+
+### Landing page
+
+The `/landing` page now includes:
+- Sticky nav links for Library, Explore, Games, Leaderboard
+- "Jump In" quick-access section (6 cards) linking to all major user features
+- Updated final CTA with Explore Graph + Leaderboard buttons
+- Updated footer links
+
+### UserLayout nav
+
+`UserLayout` header now links to Library, Explore, Games, Leaderboard, and Contribute
+so logged-in non-admin users can reach all public features from any `/my/*` page.
+
+### Score formula
+
+Word Hunt score: `max(0, 1000 − wrongCount × 100 − timeSec × 2)`
+
+A perfect game (no wrong guesses, under 8 seconds) scores 1000.
+Each wrong guess costs 100 points; each second costs 2 points.

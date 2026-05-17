@@ -11,18 +11,11 @@ export default function UserLayout() {
           <span className="text-sm font-semibold tracking-wide text-surface-100">
             Band Spectrum Mapper
           </span>
-          <Link
-            to="/view"
-            className="text-xs text-surface-400 hover:text-surface-200 transition-colors"
-          >
-            Browse results
-          </Link>
-          <Link
-            to="/my/contribute"
-            className="text-xs text-surface-400 hover:text-surface-200 transition-colors"
-          >
-            Contribute a band
-          </Link>
+          <Link to="/view"        className="text-xs text-surface-400 hover:text-surface-200 transition-colors">Library</Link>
+          <Link to="/explore"     className="text-xs text-surface-400 hover:text-surface-200 transition-colors">Explore</Link>
+          <Link to="/play"        className="text-xs text-surface-400 hover:text-surface-200 transition-colors">Games</Link>
+          <Link to="/leaderboard" className="text-xs text-surface-400 hover:text-surface-200 transition-colors">Leaderboard</Link>
+          <Link to="/my/contribute" className="text-xs text-surface-400 hover:text-surface-200 transition-colors">Contribute</Link>
         </div>
 
         <div className="flex items-center gap-4">

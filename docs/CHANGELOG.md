@@ -4,6 +4,55 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Leaderboard Page + Landing Page Overhaul (2026-05-17)
+
+### Added
+
+- **`/leaderboard` page** — public, dark-theme standalone page showing top scores for both games
+  - Two tabs: Album Art Quiz | Word Hunt
+  - Album Art Quiz: rank, player avatar/name, level, duration, score from `GET /api/game/leaderboard`
+  - Word Hunt: rank, player, word used, wrong count, time, score from `GET /api/public/word-hunt/leaderboard`
+  - Each tab has an inline "Play Now" CTA button
+
+- **Landing page "Jump In" section** — new section between the hero and the features grid
+  - Six cards linking to: Library, Explore Graph, Album Art Quiz, Word Hunt, Leaderboard, Rate Songs
+  - Each card shows icon, description, auth note where relevant, and a color-coded CTA button
+  - Dark slate background (bg-slate-900) to visually bridge the hero and the white features grid
+
+- **Landing page nav** — added Explore, Games, and Leaderboard links alongside existing Library/Help
+
+- **Landing page final CTA** — added Explore Graph and Leaderboard buttons alongside Browse Library
+
+- **Landing page footer** — added Explore and Leaderboard links
+
+- **UserLayout nav** — added Library, Explore, Games, and Leaderboard links for logged-in users browsing public pages
+
+### Changed
+
+- `App.tsx` — added `<Route path="/leaderboard" element={<LeaderboardPage />} />` as a public route
+
+## Word Hunt — Bug Fix, Scope Toggle, Scoring & Leaderboard (2026-05-17)
+
+### Fixed
+
+- **Verify always returning wrong** — graph node IDs use `song:abc123` prefix; DB expects bare `abc123`.
+  Strip prefix before `GET /api/public/word-hunt/verify` call.
+
+### Added
+
+- **"My bands" / "All bands" scope toggle** — controls both the word pool (challenge endpoint) and
+  the graph displayed during play
+- **Scoring** — `max(0, 1000 − wrongCount×100 − timeSec×2)`; auto-submitted on win via
+  `POST /api/word-hunt/scores` (auth required)
+- **Leaderboard panel** in the Word Hunt game page (collapsible, 15 entries)
+- **Score + rank display** after winning; guests see a sign-in prompt
+- **`WordHuntScore` Prisma model** (`word_hunt_scores` table): userId, word, attempts, wrongCount,
+  timeSec, score, bandScope, createdAt. Railway will auto-create via `prisma db push`.
+- **`POST /api/word-hunt/scores`** — auth-required route, validates and persists score, returns rank
+- **`GET /api/public/word-hunt/leaderboard?limit=N`** — public route, top N scores with player info
+
+---
+
 ## Social Media Manager — Content Planner Phase 1 (2026-05-15)
 
 ### Added

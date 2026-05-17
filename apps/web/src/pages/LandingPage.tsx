@@ -2,6 +2,70 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { SCORE_AXES, AXIS_COLORS, AXIS_LABELS, AXIS_INFO } from '@band-spectrum-mapper/shared';
 
+// Quick-access tiles shown between the hero and the features grid.
+const EXPLORE_TILES = [
+  {
+    icon: '📚',
+    title: 'Browse Library',
+    desc: 'Bands, albums, songs — all free to explore. No account needed.',
+    href: '/view',
+    cta: 'Open Library',
+    color: 'border-indigo-500/30 hover:border-indigo-400/60',
+    btnColor: 'bg-indigo-600 hover:bg-indigo-500',
+    auth: false,
+  },
+  {
+    icon: '🕸️',
+    title: 'Explore the Graph',
+    desc: 'Interactive network visualizing how songs, albums, and artists connect.',
+    href: '/explore',
+    cta: 'Open Graph',
+    color: 'border-violet-500/30 hover:border-violet-400/60',
+    btnColor: 'bg-violet-600 hover:bg-violet-500',
+    auth: false,
+  },
+  {
+    icon: '🖼️',
+    title: 'Album Art Quiz',
+    desc: 'Guess bands from their album covers. Compete for the leaderboard.',
+    href: '/play',
+    cta: 'Play Now',
+    color: 'border-sky-500/30 hover:border-sky-400/60',
+    btnColor: 'bg-sky-600 hover:bg-sky-500',
+    auth: true,
+  },
+  {
+    icon: '🔤',
+    title: 'Word Hunt',
+    desc: 'Find a hidden word scattered across band lyrics. Race the clock.',
+    href: '/play/word-hunt',
+    cta: 'Hunt Words',
+    color: 'border-emerald-500/30 hover:border-emerald-400/60',
+    btnColor: 'bg-emerald-700 hover:bg-emerald-600',
+    auth: true,
+  },
+  {
+    icon: '🏆',
+    title: 'Leaderboard',
+    desc: 'See who is topping the charts across both games. Claim your spot.',
+    href: '/leaderboard',
+    cta: 'View Scores',
+    color: 'border-yellow-500/30 hover:border-yellow-400/60',
+    btnColor: 'bg-yellow-600 hover:bg-yellow-500',
+    auth: false,
+  },
+  {
+    icon: '🎚️',
+    title: 'Rate Songs',
+    desc: 'Score your favourite tracks across the six spectrum axes.',
+    href: '/my/rate',
+    cta: 'Start Rating',
+    color: 'border-rose-500/30 hover:border-rose-400/60',
+    btnColor: 'bg-rose-600 hover:bg-rose-500',
+    auth: true,
+  },
+];
+
 const FEATURES = [
   {
     icon: '🎚️',
@@ -64,9 +128,11 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
           <span className="font-bold text-surface-900 tracking-tight whitespace-nowrap">Band Spectrum Mapper</span>
           <nav className="flex items-center gap-3 text-sm flex-wrap justify-end">
-            <Link to="/view" className="text-surface-600 hover:text-surface-900 transition-colors">Library</Link>
-            <Link to="/help" className="text-surface-600 hover:text-surface-900 transition-colors">Help</Link>
-            <Link to="/legal" className="text-surface-600 hover:text-surface-900 transition-colors">Legal</Link>
+            <Link to="/view"        className="text-surface-600 hover:text-surface-900 transition-colors">Library</Link>
+            <Link to="/explore"     className="text-surface-600 hover:text-surface-900 transition-colors">Explore</Link>
+            <Link to="/play"        className="text-surface-600 hover:text-surface-900 transition-colors">Games</Link>
+            <Link to="/leaderboard" className="text-surface-600 hover:text-surface-900 transition-colors">Leaderboard</Link>
+            <Link to="/help"        className="text-surface-600 hover:text-surface-900 transition-colors">Help</Link>
             {user ? (
               <Link to={user.isAdmin ? '/dashboard' : '/my/rate'} className="btn-primary text-sm">
                 {user.isAdmin ? 'Dashboard' : 'My Ratings'}
@@ -123,6 +189,39 @@ export default function LandingPage() {
           <p className="text-slate-600 text-sm mt-8">
             No account needed to browse. Sign in to rate, comment, and share.
           </p>
+        </div>
+      </section>
+
+      {/* Quick-access tiles */}
+      <section className="py-16 bg-slate-900">
+        <div className="max-w-5xl mx-auto px-6">
+          <h2 className="text-xl font-bold text-white text-center mb-2">Jump in</h2>
+          <p className="text-slate-400 text-center mb-10 text-sm">
+            Everything the platform has to offer — pick where to start.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {EXPLORE_TILES.map((t) => (
+              <div
+                key={t.title}
+                className={`bg-slate-800/60 rounded-xl border p-5 flex flex-col gap-3 transition-colors ${t.color}`}
+              >
+                <div className="text-3xl">{t.icon}</div>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-white mb-1">{t.title}</h3>
+                  <p className="text-sm text-slate-400 leading-relaxed">{t.desc}</p>
+                  {t.auth && (
+                    <p className="text-xs text-slate-600 mt-1">Sign in required</p>
+                  )}
+                </div>
+                <Link
+                  to={t.href}
+                  className={`inline-block text-center text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors ${t.btnColor}`}
+                >
+                  {t.cta}
+                </Link>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -207,11 +306,17 @@ export default function LandingPage() {
         <div className="max-w-3xl mx-auto px-6 text-center">
           <h2 className="text-2xl font-bold mb-4">Ready to dive in?</h2>
           <p className="text-slate-400 mb-8">
-            Start browsing now — no account needed. Sign in to unlock ratings, comments, and sharing.
+            Start browsing now — no account needed. Sign in to unlock ratings, games, and commenting.
           </p>
           <div className="flex flex-wrap gap-4 justify-center">
             <Link to="/view" className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-8 py-3 rounded-lg transition-colors">
               Browse Library
+            </Link>
+            <Link to="/explore" className="bg-violet-700 hover:bg-violet-600 text-white font-semibold px-8 py-3 rounded-lg transition-colors">
+              Explore Graph
+            </Link>
+            <Link to="/leaderboard" className="bg-white/10 hover:bg-white/20 text-white font-semibold px-8 py-3 rounded-lg transition-colors">
+              Leaderboard
             </Link>
             {!user && (
               <a href="/api/auth/google" className="bg-white/10 hover:bg-white/20 text-white font-semibold px-8 py-3 rounded-lg transition-colors">
@@ -235,9 +340,11 @@ export default function LandingPage() {
             >
               ☕ Buy me a coffee
             </a>
-            <Link to="/help" className="hover:text-slate-300 transition-colors">Help & FAQ</Link>
-            <Link to="/legal" className="hover:text-slate-300 transition-colors">Legal</Link>
-            <Link to="/view" className="hover:text-slate-300 transition-colors">Library</Link>
+            <Link to="/explore"     className="hover:text-slate-300 transition-colors">Explore</Link>
+            <Link to="/leaderboard" className="hover:text-slate-300 transition-colors">Leaderboard</Link>
+            <Link to="/help"        className="hover:text-slate-300 transition-colors">Help & FAQ</Link>
+            <Link to="/legal"       className="hover:text-slate-300 transition-colors">Legal</Link>
+            <Link to="/view"        className="hover:text-slate-300 transition-colors">Library</Link>
           </div>
         </div>
       </footer>
