@@ -30,6 +30,7 @@ import { wordCloudRouter } from './routes/wordCloud.js';
 import { songNodesRouter } from './routes/songNodes.js';
 import { gameRouter } from './routes/game.js';
 import { triviaRouter } from './routes/trivia.js';
+import { wordHuntRouter } from './routes/wordHunt.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -104,6 +105,9 @@ export function createApp() {
 
   // Album art quiz game
   app.use('/api/game', gameRouter);
+
+  // Word Hunt game scores (auth required for POST)
+  app.use('/api/word-hunt', wordHuntRouter);
 
   // Trivia question generator (admin only)
   app.use('/api/trivia', triviaRouter);

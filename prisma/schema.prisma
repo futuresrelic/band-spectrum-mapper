@@ -370,7 +370,8 @@ model User {
   analysisRatings      SongAnalysisRating[]
   contributions        PendingContribution[] @relation("ContributionAuthor")
   contributionReviews  PendingContribution[] @relation("ContributionReviewer")
-  gameScores  GameScore[]
+  gameScores           GameScore[]
+  wordHuntScores       WordHuntScore[]
 
   @@map("users")
 }
@@ -740,6 +741,28 @@ model CommentInsight {
   createdAt        DateTime @default(now())
 
   @@map("comment_insights")
+}
+
+// ---------------------------------------------------------------------------
+// Word Hunt game scores — one row per completed (won) game
+// score = max(0, 1000 - wrongCount*100 - timeSec*2)
+// ---------------------------------------------------------------------------
+
+model WordHuntScore {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  word       String
+  attempts   Int      // total guesses including the winning one
+  wrongCount Int      // wrong guesses only
+  timeSec    Int      // elapsed seconds
+  score      Int      // computed formula above
+  bandScope  String?  // null = all bands; comma-sep band IDs if filtered
+  createdAt  DateTime @default(now())
+
+  @@index([score])
+  @@index([userId])
+  @@map("word_hunt_scores")
 }
 
 model PromptTemplate {

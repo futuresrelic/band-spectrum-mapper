@@ -309,6 +309,29 @@ publicRouter.get('/word-hunt/verify', async (req, res, next): Promise<void> => {
   } catch (e) { next(e); }
 });
 
+// GET /api/public/word-hunt/leaderboard?limit=10 — top scores by points
+publicRouter.get('/word-hunt/leaderboard', async (req, res, next): Promise<void> => {
+  try {
+    const limit = Math.min(50, Math.max(1, parseInt((req.query['limit'] as string) ?? '10', 10) || 10));
+    const top = await prisma.wordHuntScore.findMany({
+      orderBy: { score: 'desc' },
+      take: limit,
+      include: { user: { select: { name: true, avatarUrl: true } } },
+    });
+    res.json(top.map((s, i) => ({
+      rank: i + 1,
+      playerName: s.user.name ?? 'Player',
+      avatarUrl: s.user.avatarUrl,
+      word: s.word,
+      score: s.score,
+      attempts: s.attempts,
+      wrongCount: s.wrongCount,
+      timeSec: s.timeSec,
+      createdAt: s.createdAt,
+    })));
+  } catch (e) { next(e); }
+});
+
 // GET /api/public/word-hunt/reveal?word=X&bandIds=id1,id2
 // Returns all songs containing the word — used for the post-give-up reveal.
 publicRouter.get('/word-hunt/reveal', async (req, res, next): Promise<void> => {
