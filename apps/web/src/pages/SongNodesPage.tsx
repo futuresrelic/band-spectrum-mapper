@@ -53,10 +53,39 @@ function updateFontSizes(cy: Core): void {
 }
 
 // ---------------------------------------------------------------------------
+// Visual style system (same as ExplorePage — admin gets full control panel)
+// ---------------------------------------------------------------------------
+
+interface VisualStyle {
+  edgeOpacity:  number;  // 0.1–1.0
+  labelOpacity: number;  // 0 = hover-only; 1 = always visible
+}
+const DEFAULT_VS: VisualStyle = { edgeOpacity: 0.7, labelOpacity: 0 };
+
+function StyleSlider({ label, value, min, max, step, onChange, format }: {
+  label: string; value: number; min: number; max: number; step: number;
+  onChange: (v: number) => void; format: (v: number) => string;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-surface-400">{label}</span>
+        <span className="text-xs font-mono text-surface-500 tabular-nums">{format(value)}</span>
+      </div>
+      <input
+        type="range" min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-full h-1 rounded-full appearance-none cursor-pointer accent-indigo-400 bg-surface-600"
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Cytoscape style
 // ---------------------------------------------------------------------------
 
-function buildCyStyle() {
+function buildCyStyle(vs: VisualStyle = DEFAULT_VS) {
   return [
     {
       selector: 'node',
@@ -66,7 +95,8 @@ function buildCyStyle() {
         'font-size': '11px',
         'font-family': '"Inter", system-ui, sans-serif',
         'font-weight': '600',
-        'color': '#192433',          // near-invisible at rest — hover snaps to white
+        'color': '#ffffff',
+        'text-opacity': vs.labelOpacity,
         'text-valign': 'bottom',
         'text-halign': 'center',
         'text-margin-y': '4px',
@@ -79,83 +109,23 @@ function buildCyStyle() {
         'min-zoomed-font-size': 4,
       },
     },
-    {
-      selector: 'node[type = "song"]',
-      style: { 'width': 24, 'height': 24 },
-    },
-    {
-      selector: 'node[type = "artist"]',
-      style: { 'width': 42, 'height': 42, 'font-size': '13px', 'color': '#223040' },
-    },
-    {
-      selector: 'node[type = "album"]',
-      style: { 'width': 32, 'height': 32 },
-    },
-    {
-      selector: 'node[type = "theme"]',
-      style: { 'width': 28, 'height': 28, 'shape': 'diamond' },
-    },
-    {
-      selector: 'node[type = "tag"]',
-      style: { 'width': 22, 'height': 22, 'shape': 'tag' },
-    },
-    {
-      selector: 'node[type = "keyword"]',
-      style: { 'width': 18, 'height': 18, 'shape': 'rectangle' },
-    },
-    {
-      selector: 'node[type = "emotion"]',
-      style: { 'width': 36, 'height': 36, 'shape': 'pentagon', 'font-size': '12px' },
-    },
-    {
-      selector: 'node:selected',
-      style: {
-        'border-width': '3px',
-        'border-color': '#fff',
-        'background-color': '#fff',
-        'color': '#000',
-      },
-    },
-    // Hover: label snaps to full white, gentle ring glow
-    {
-      selector: 'node.label-hover',
-      style: {
-        'color': '#ffffff',
-        'text-outline-width': '2.5px',
-        'border-width': '2.5px',
-        'border-color': '#ffffff44',
-      },
-    },
-    {
-      selector: 'edge',
-      style: {
-        'width': 1.2,
-        'line-color': 'data(edgeColor)',
-        'curve-style': 'bezier',
-        'opacity': 0.7,
-      },
-    },
-    {
-      selector: 'edge[edgeWeight > 0.8]',
-      style: { 'width': 2.5 },
-    },
+    { selector: 'node[type = "song"]',    style: { 'width': 24, 'height': 24 } },
+    { selector: 'node[type = "artist"]',  style: { 'width': 42, 'height': 42, 'font-size': '13px' } },
+    { selector: 'node[type = "album"]',   style: { 'width': 32, 'height': 32 } },
+    { selector: 'node[type = "theme"]',   style: { 'width': 28, 'height': 28, 'shape': 'diamond' } },
+    { selector: 'node[type = "tag"]',     style: { 'width': 22, 'height': 22, 'shape': 'tag' } },
+    { selector: 'node[type = "keyword"]', style: { 'width': 18, 'height': 18, 'shape': 'rectangle' } },
+    { selector: 'node[type = "emotion"]', style: { 'width': 36, 'height': 36, 'shape': 'pentagon', 'font-size': '12px' } },
+    // Selected: always show label
+    { selector: 'node:selected', style: { 'border-width': '3px', 'border-color': '#fff', 'background-color': '#fff', 'color': '#000', 'text-opacity': 1 } },
+    // Hover: label and outline snap to full visibility
+    { selector: 'node.label-hover', style: { 'text-opacity': 1, 'color': '#ffffff', 'text-outline-width': '2.5px', 'border-width': '2.5px', 'border-color': '#ffffff44' } },
+    { selector: 'edge', style: { 'width': 1.2, 'line-color': 'data(edgeColor)', 'curve-style': 'bezier', 'opacity': vs.edgeOpacity } },
+    { selector: 'edge[edgeWeight > 0.8]', style: { 'width': 2.5 } },
     { selector: 'edge.edge-hover', style: { 'opacity': 1, 'width': 2 } },
-    {
-      selector: '.faded',
-      style: { 'opacity': 0.12 },
-    },
-    {
-      selector: '.highlighted',
-      style: { 'opacity': 1 },
-    },
-    {
-      selector: '.locked',
-      style: {
-        'border-width': '3px',
-        'border-color': '#ffffff',
-        'border-opacity': 0.7,
-      },
-    },
+    { selector: '.faded',       style: { 'opacity': 0.12 } },
+    { selector: '.highlighted', style: { 'opacity': 1 } },
+    { selector: '.locked',      style: { 'border-width': '3px', 'border-color': '#ffffff', 'border-opacity': 0.7 } },
   ];
 }
 
@@ -444,6 +414,8 @@ export default function SongNodesPage() {
   const [showTags, setShowTags] = useState(true);
   const [showThemes, setShowThemes] = useState(true);
   const [animatePulse, setAnimatePulse] = useState(true);
+  const [vStyle, setVStyle] = useState<VisualStyle>(DEFAULT_VS);
+  const [showStylePanel, setShowStylePanel] = useState(false);
   const animatePulseRef = useRef(true);
   const animGenRef  = useRef(0);
   const orbitGenRef = useRef(0);
@@ -492,7 +464,7 @@ export default function SongNodesPage() {
     const cy = cytoscape({
       container: containerRef.current,
       elements,
-      style: buildCyStyle() as unknown as cytoscape.StylesheetStyle[],
+      style: buildCyStyle(vStyle) as unknown as cytoscape.StylesheetStyle[],
       layout: buildLayoutConfig(graphData.preset),
       minZoom: 0.1,
       maxZoom: 6,
@@ -599,6 +571,13 @@ export default function SongNodesPage() {
     cy.nodes('[type = "theme"]').style('display', display);
     cy.edges('[edgeType = "conceptual"]').style('display', display);
   }, [showThemes, graphLabel]);
+
+  // Live style updates when visual sliders change
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.style(buildCyStyle(vStyle) as unknown as cytoscape.StylesheetStyle[]).update();
+  }, [vStyle]);
 
   // Keep the ref in sync so animation callbacks always see current value
   useEffect(() => { animatePulseRef.current = animatePulse; }, [animatePulse]);
@@ -1280,6 +1259,46 @@ export default function SongNodesPage() {
                   </p>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Visual style panel */}
+          {cyReady && (
+            <div>
+              <button
+                className="flex items-center justify-between w-full text-xs font-semibold text-surface-400 uppercase tracking-wider mb-2 hover:text-surface-200 transition-colors"
+                onClick={() => setShowStylePanel((v) => !v)}
+              >
+                <span>Visual</span>
+                <span className="text-surface-600">{showStylePanel ? '▲' : '▼'}</span>
+              </button>
+              {showStylePanel && (
+                <div className="space-y-3">
+                  <p className="text-xs text-surface-600 leading-tight">
+                    Labels hidden by default. Hover any node to reveal its name.
+                  </p>
+                  <StyleSlider
+                    label="Edge opacity"
+                    value={vStyle.edgeOpacity}
+                    min={0.1} max={1} step={0.05}
+                    onChange={(v) => setVStyle((s) => ({ ...s, edgeOpacity: v }))}
+                    format={(v) => v.toFixed(2)}
+                  />
+                  <StyleSlider
+                    label="Label visibility"
+                    value={vStyle.labelOpacity}
+                    min={0} max={1} step={0.05}
+                    onChange={(v) => setVStyle((s) => ({ ...s, labelOpacity: v }))}
+                    format={(v) => v === 0 ? 'Hover only' : `${Math.round(v * 100)}%`}
+                  />
+                  <button
+                    onClick={() => setVStyle(DEFAULT_VS)}
+                    className="text-xs text-surface-600 hover:text-surface-200 transition-colors"
+                  >
+                    Reset to defaults
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

@@ -49,23 +49,21 @@ function updateFontSizes(cy: Core): void {
 
 // Visual style parameters — driven by sidebar sliders
 interface VisualStyle {
-  edgeOpacity:    number;  // 0.1–1.0
-  labelBrightness: number; // 20–90 (HSL lightness %)
-  labelSize:      number;  // 8–16 px
+  edgeOpacity:   number;  // 0.1–1.0
+  labelOpacity:  number;  // 0 = hover-only; 1 = always visible
 }
-const DEFAULT_VS: VisualStyle = { edgeOpacity: 0.45, labelBrightness: 15, labelSize: 11 };
+const DEFAULT_VS: VisualStyle = { edgeOpacity: 0.45, labelOpacity: 0 };
 
 function buildCyStyle(vs: VisualStyle = DEFAULT_VS) {
-  const labelColor   = `hsl(210 15% ${vs.labelBrightness}%)`;
-  const artistColor  = `hsl(210 20% ${Math.min(vs.labelBrightness + 25, 90)}%)`;
   return [
     {
       selector: 'node',
       style: {
         'background-color': 'data(color)', 'label': 'data(label)',
-        'font-size': `${vs.labelSize}px`, 'font-family': '"Inter", system-ui, sans-serif',
+        'font-size': '11px', 'font-family': '"Inter", system-ui, sans-serif',
         'font-weight': '600',
-        'color': labelColor,
+        'color': '#ffffff',
+        'text-opacity': vs.labelOpacity,
         'text-valign': 'bottom', 'text-halign': 'center', 'text-margin-y': '4px',
         'text-outline-color': '#060d1a', 'text-outline-width': '2px',
         'width': 'data(size)', 'height': 'data(size)',
@@ -73,17 +71,18 @@ function buildCyStyle(vs: VisualStyle = DEFAULT_VS) {
       },
     },
     { selector: 'node[type = "song"]',    style: { 'width': 24, 'height': 24 } },
-    { selector: 'node[type = "artist"]',  style: { 'width': 42, 'height': 42, 'font-size': `${vs.labelSize + 2}px`, 'color': artistColor } },
+    { selector: 'node[type = "artist"]',  style: { 'width': 42, 'height': 42, 'font-size': '13px' } },
     { selector: 'node[type = "album"]',   style: { 'width': 32, 'height': 32 } },
     { selector: 'node[type = "theme"]',   style: { 'width': 28, 'height': 28, 'shape': 'diamond' } },
     { selector: 'node[type = "tag"]',     style: { 'width': 22, 'height': 22, 'shape': 'tag' } },
     { selector: 'node[type = "keyword"]', style: { 'width': 18, 'height': 18, 'shape': 'rectangle' } },
-    { selector: 'node[type = "emotion"]', style: { 'width': 36, 'height': 36, 'shape': 'pentagon', 'font-size': `${vs.labelSize + 1}px` } },
-    { selector: 'node:selected', style: { 'border-width': '3px', 'border-color': '#fff', 'background-color': '#fff', 'color': '#000' } },
-    { selector: 'node.label-hover', style: { 'color': '#ffffff', 'text-outline-width': '2.5px', 'border-width': '2.5px', 'border-color': '#ffffff44' } },
+    { selector: 'node[type = "emotion"]', style: { 'width': 36, 'height': 36, 'shape': 'pentagon', 'font-size': '12px' } },
+    // Selected: always show label in black
+    { selector: 'node:selected', style: { 'border-width': '3px', 'border-color': '#fff', 'background-color': '#fff', 'color': '#000', 'text-opacity': 1 } },
+    // Hover: label and outline snap to full visibility
+    { selector: 'node.label-hover', style: { 'text-opacity': 1, 'color': '#ffffff', 'text-outline-width': '2.5px', 'border-width': '2.5px', 'border-color': '#ffffff44' } },
     { selector: 'edge', style: { 'width': 1.2, 'line-color': 'data(edgeColor)', 'curve-style': 'bezier', 'opacity': vs.edgeOpacity } },
     { selector: 'edge[edgeWeight > 0.8]', style: { 'width': 2.5 } },
-    // Connected edges light up on node hover
     { selector: 'edge.edge-hover', style: { 'opacity': 1, 'width': 2 } },
     { selector: '.faded',       style: { 'opacity': 0.12 } },
     { selector: '.highlighted', style: { 'opacity': 1 } },
@@ -756,6 +755,9 @@ export default function ExplorePage() {
               </button>
               {showStylePanel && (
                 <div className="space-y-3">
+                  <p className="text-xs text-white/30 leading-tight">
+                    Labels hidden by default — hover any node to reveal its name.
+                  </p>
                   <StyleSlider
                     label="Edge opacity"
                     value={vStyle.edgeOpacity}
@@ -764,18 +766,11 @@ export default function ExplorePage() {
                     format={(v) => v.toFixed(2)}
                   />
                   <StyleSlider
-                    label="Label brightness"
-                    value={vStyle.labelBrightness}
-                    min={20} max={90} step={5}
-                    onChange={(v) => setVStyle((s) => ({ ...s, labelBrightness: v }))}
-                    format={(v) => `${v}%`}
-                  />
-                  <StyleSlider
-                    label="Label size"
-                    value={vStyle.labelSize}
-                    min={8} max={16} step={1}
-                    onChange={(v) => setVStyle((s) => ({ ...s, labelSize: v }))}
-                    format={(v) => `${v}px`}
+                    label="Label visibility"
+                    value={vStyle.labelOpacity}
+                    min={0} max={1} step={0.05}
+                    onChange={(v) => setVStyle((s) => ({ ...s, labelOpacity: v }))}
+                    format={(v) => v === 0 ? 'Hover only' : `${Math.round(v * 100)}%`}
                   />
                   <button
                     onClick={() => setVStyle(DEFAULT_VS)}
