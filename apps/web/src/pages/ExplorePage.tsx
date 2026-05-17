@@ -355,20 +355,69 @@ export default function ExplorePage() {
       xOffset += 2 * clusterR + CLUSTER_GAP;
     });
 
-    // Reposition tags AFTER all hierarchy nodes are placed (outside the artist loop)
+    // Improved tag positioning: place each tag radially OUTSIDE the song ring.
+    // Step 1 — compute the outermost song/album radius for each artist cluster.
+    const artistOuterR = new Map<string, number>();
+    cy.nodes('[type = "artist"]').forEach((artistNode) => {
+      const { x: ax, y: ay } = artistNode.position();
+      const aid = artistNode.id();
+      let maxR = 80;
+      (artistAlbums.get(aid) ?? []).forEach((albId) => {
+        const ap = cy.getElementById(albId).position();
+        maxR = Math.max(maxR, Math.hypot(ap.x - ax, ap.y - ay));
+        (albumSongs.get(albId) ?? []).forEach((sid) => {
+          const sp = cy.getElementById(sid).position();
+          maxR = Math.max(maxR, Math.hypot(sp.x - ax, sp.y - ay));
+        });
+      });
+      (artistDirect.get(aid) ?? []).forEach((sid) => {
+        const sp = cy.getElementById(sid).position();
+        maxR = Math.max(maxR, Math.hypot(sp.x - ax, sp.y - ay));
+      });
+      artistOuterR.set(aid, maxR);
+    });
+
+    // Step 2 — group each tag by nearest artist and compute its angle + radius.
+    const artistTagGroups = new Map<string, { tagNode: NodeSingular; angle: number; r: number }[]>();
     cy.nodes('[type = "tag"]').forEach((tagNode) => {
-      const connected = tagNode.neighborhood('node[type = "song"], node[type = "album"]');
+      const peers = tagNode.neighborhood('node[type = "song"]');
+      const connected = peers.length > 0 ? peers : tagNode.neighborhood('node[type = "album"]');
       if (connected.length === 0) return;
       let sumX = 0, sumY = 0;
       connected.forEach((n) => { const p = n.position(); sumX += p.x; sumY += p.y; });
       const centX = sumX / connected.length, centY = sumY / connected.length;
-      let nearAx = centX, nearAy = 0, nearDist = Infinity;
+      let nearId = '', nearAx = centX, nearAy = centY, nearDist = Infinity;
       cy.nodes('[type = "artist"]').forEach((a) => {
         const ap = a.position(), d = Math.hypot(ap.x - centX, ap.y - centY);
-        if (d < nearDist) { nearDist = d; nearAx = ap.x; nearAy = ap.y; }
+        if (d < nearDist) { nearDist = d; nearAx = ap.x; nearAy = ap.y; nearId = a.id(); }
       });
-      const vx = centX - nearAx, vy = centY - nearAy, vlen = Math.hypot(vx, vy) || 1;
-      tagNode.position({ x: centX + (vx / vlen) * 55, y: centY + (vy / vlen) * 55 });
+      if (!nearId) return;
+      const angle = Math.atan2(centY - nearAy, centX - nearAx);
+      let maxConnR = 0;
+      connected.forEach((n) => {
+        const p = n.position();
+        maxConnR = Math.max(maxConnR, Math.hypot(p.x - nearAx, p.y - nearAy));
+      });
+      // Place tag just beyond its connected songs, but no further than the cluster outer ring + 70
+      const r = Math.min(maxConnR + 60, (artistOuterR.get(nearId) ?? maxConnR) + 70);
+      const list = artistTagGroups.get(nearId) ?? [];
+      list.push({ tagNode, angle, r });
+      artistTagGroups.set(nearId, list);
+    });
+
+    // Step 3 — sort tags by angle within each artist cluster, enforce minimum gap.
+    const MIN_ARC = 0.16; // ~9° — enough to separate label text at typical radii
+    artistTagGroups.forEach((tags, artistId) => {
+      const ap = cy.getElementById(artistId).position();
+      tags.sort((a, b) => a.angle - b.angle);
+      for (let i = 1; i < tags.length; i++) {
+        const prev = tags[i - 1]!;
+        const curr = tags[i]!;
+        if (curr.angle - prev.angle < MIN_ARC) curr.angle = prev.angle + MIN_ARC;
+      }
+      tags.forEach(({ tagNode, angle, r }) => {
+        tagNode.position({ x: ap.x + r * Math.cos(angle), y: ap.y + r * Math.sin(angle) });
+      });
     });
 
     // Pre-seed orbit bases with new radial positions so the animation restore
