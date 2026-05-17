@@ -66,7 +66,7 @@ function buildCyStyle() {
         'font-size': '11px',
         'font-family': '"Inter", system-ui, sans-serif',
         'font-weight': '600',
-        'color': '#526070',          // dim by default — hover brightens
+        'color': '#192433',          // near-invisible at rest — hover snaps to white
         'text-valign': 'bottom',
         'text-halign': 'center',
         'text-margin-y': '4px',
@@ -85,7 +85,7 @@ function buildCyStyle() {
     },
     {
       selector: 'node[type = "artist"]',
-      style: { 'width': 42, 'height': 42, 'font-size': '13px', 'color': '#8da4b4' },
+      style: { 'width': 42, 'height': 42, 'font-size': '13px', 'color': '#223040' },
     },
     {
       selector: 'node[type = "album"]',
@@ -139,6 +139,7 @@ function buildCyStyle() {
       selector: 'edge[edgeWeight > 0.8]',
       style: { 'width': 2.5 },
     },
+    { selector: 'edge.edge-hover', style: { 'opacity': 1, 'width': 2 } },
     {
       selector: '.faded',
       style: { 'opacity': 0.12 },
@@ -441,6 +442,7 @@ export default function SongNodesPage() {
   const [legendEdgeFilter, setLegendEdgeFilter] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState<'pan' | 'select'>('pan');
   const [showTags, setShowTags] = useState(true);
+  const [showThemes, setShowThemes] = useState(true);
   const [animatePulse, setAnimatePulse] = useState(true);
   const animatePulseRef = useRef(true);
   const animGenRef  = useRef(0);
@@ -510,9 +512,14 @@ export default function SongNodesPage() {
       });
     });
 
-    // Set correct font sizes once the initial layout settles
+    // Set correct font sizes once the initial layout settles; auto-apply radial for universe presets
     cy.one('layoutstop', () => {
-      if (!cy.destroyed()) updateFontSizes(cy);
+      if (!cy.destroyed()) {
+        updateFontSizes(cy);
+        if (graphData.preset === 'artist-universe' || graphData.preset === 'maynard-universe') {
+          runClusterLayout();
+        }
+      }
     });
 
     // Double-tap to lock/unlock a node's position
@@ -549,12 +556,16 @@ export default function SongNodesPage() {
       }
     });
 
-    // Hover: brighten label on mouseover, dim on mouseout
+    // Hover: label and connected edges brighten on mouseover
     cy.on('mouseover', 'node', (evt: EventObject) => {
-      (evt.target as NodeSingular).addClass('label-hover');
+      const n = evt.target as NodeSingular;
+      n.addClass('label-hover');
+      n.connectedEdges().addClass('edge-hover');
     });
     cy.on('mouseout', 'node', (evt: EventObject) => {
-      (evt.target as NodeSingular).removeClass('label-hover');
+      const n = evt.target as NodeSingular;
+      n.removeClass('label-hover');
+      n.connectedEdges().removeClass('edge-hover');
     });
 
     return () => {
@@ -579,6 +590,15 @@ export default function SongNodesPage() {
     cy.nodes('[type = "tag"]').style('display', display);
     cy.edges('[edgeType = "shared_tag"]').style('display', display);
   }, [showTags, graphLabel]); // graphLabel as proxy for cy being mounted
+
+  // Show/hide theme nodes and conceptual edges
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const display = showThemes ? 'element' : 'none';
+    cy.nodes('[type = "theme"]').style('display', display);
+    cy.edges('[edgeType = "conceptual"]').style('display', display);
+  }, [showThemes, graphLabel]);
 
   // Keep the ref in sync so animation callbacks always see current value
   useEffect(() => { animatePulseRef.current = animatePulse; }, [animatePulse]);
@@ -1210,10 +1230,21 @@ export default function SongNodesPage() {
                   type="checkbox"
                   checked={showTags}
                   onChange={(e) => setShowTags(e.target.checked)}
-                  className="accent-indigo-500"
+                  className="accent-cyan-500"
                 />
                 <span className={`text-xs transition-colors ${showTags ? 'text-surface-200' : 'text-surface-600'}`}>
                   Show tags
+                </span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showThemes}
+                  onChange={(e) => setShowThemes(e.target.checked)}
+                  className="accent-emerald-500"
+                />
+                <span className={`text-xs transition-colors ${showThemes ? 'text-surface-200' : 'text-surface-600'}`}>
+                  Show themes
                 </span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">

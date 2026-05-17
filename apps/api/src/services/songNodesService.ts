@@ -169,6 +169,7 @@ async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
   const albumSet = new Map<string, string>();        // albumId → title
   const albumBandMap = new Map<string, string>();    // albumId → bandId
   const tagSet = new Map<string, string>();          // tagId → name
+  const themeSet = new Map<string, number>();        // themeKey → count
   let edgeIdx = 0;
 
   for (const s of songs) {
@@ -199,6 +200,17 @@ async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
       edges.push({
         id: `e${edgeIdx++}`, source: `song:${s.id}`,
         target: `tag:${st.tag.id}`, type: 'shared_tag', weight: 0.6,
+      });
+    }
+
+    // song → themes (from AI batch analysis)
+    const themes = (s.aiAnalysis?.themes as string[] | null) ?? [];
+    for (const t of themes) {
+      const key = t.toLowerCase().trim();
+      themeSet.set(key, (themeSet.get(key) ?? 0) + 1);
+      edges.push({
+        id: `e${edgeIdx++}`, source: `song:${s.id}`,
+        target: `theme:${key}`, type: 'conceptual', weight: 0.7,
       });
     }
   }
@@ -239,6 +251,18 @@ async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
       const pruned = edges.filter(
         (e) => !(e.type === 'shared_tag' && e.target === `tag:${id}`),
       );
+      edges.length = 0;
+      edges.push(...pruned);
+    }
+  }
+
+  // Theme nodes (only themes shared by ≥ 2 songs; requires AI batch to have run)
+  for (const [key, count] of themeSet) {
+    if (count >= 2) {
+      nodes.push({ id: `theme:${key}`, type: 'theme', label: key,
+        data: { color: NODE_COLORS.theme, count } });
+    } else {
+      const pruned = edges.filter((e) => !(e.type === 'conceptual' && e.target === `theme:${key}`));
       edges.length = 0;
       edges.push(...pruned);
     }

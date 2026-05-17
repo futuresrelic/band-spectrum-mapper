@@ -53,7 +53,7 @@ interface VisualStyle {
   labelBrightness: number; // 20–90 (HSL lightness %)
   labelSize:      number;  // 8–16 px
 }
-const DEFAULT_VS: VisualStyle = { edgeOpacity: 0.45, labelBrightness: 45, labelSize: 11 };
+const DEFAULT_VS: VisualStyle = { edgeOpacity: 0.45, labelBrightness: 15, labelSize: 11 };
 
 function buildCyStyle(vs: VisualStyle = DEFAULT_VS) {
   const labelColor   = `hsl(210 15% ${vs.labelBrightness}%)`;
@@ -548,7 +548,12 @@ export default function ExplorePage() {
     cy.one('layoutstop', () => {
       if (!cy.destroyed()) {
         updateFontSizes(cy);
-        if (animPulseRef.current) startPulse(cy);
+        if (preset === 'artist-universe') {
+          // Auto-apply radial layout so nodes are in the right place from the start
+          runClusterLayout(cy);
+        } else if (animPulseRef.current) {
+          startPulse(cy);
+        }
       }
     });
 
