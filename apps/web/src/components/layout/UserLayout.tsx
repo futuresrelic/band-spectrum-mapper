@@ -30,7 +30,7 @@ export default function UserLayout() {
                   </div>
                 )}
                 <span className="text-xs text-surface-300 max-w-[140px] truncate">
-                  {user.name ?? user.email}
+                  {user.username ?? user.name ?? user.email}
                 </span>
               </Link>
               <button

@@ -342,6 +342,7 @@ export interface AuthUser {
   userId: string;
   email: string;
   name?: string;
+  username?: string;
   avatarUrl?: string;
   isAdmin?: boolean;
 }

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -23,6 +24,8 @@ interface ProfileStats {
   }[];
 }
 
+const USERNAME_RE = /^[a-z0-9][a-z0-9_-]{1,18}[a-z0-9]$/;
+
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pending review',
   approved: 'Approved',
@@ -46,6 +49,115 @@ function timeAgo(dateStr: string): string {
   const years = Math.floor(months / 12);
   return `${years} year${years !== 1 ? 's' : ''} ago`;
 }
+
+// ---------------------------------------------------------------------------
+// Username editor card
+// ---------------------------------------------------------------------------
+
+function UsernameCard() {
+  const { user, refreshUser } = useAuth();
+  const [editing, setEditing]   = useState(false);
+  const [input, setInput]       = useState(user?.username ?? '');
+  const [saving, setSaving]     = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+  const [saved, setSaved]       = useState(false);
+
+  if (!user) return null;
+
+  function startEdit() {
+    setInput(user?.username ?? '');
+    setError(null);
+    setSaved(false);
+    setEditing(true);
+  }
+
+  function cancel() {
+    setEditing(false);
+    setError(null);
+  }
+
+  async function save() {
+    const trimmed = input.toLowerCase().trim();
+
+    if (trimmed.length < 3 || trimmed.length > 20) {
+      setError('Must be 3–20 characters'); return;
+    }
+    if (!USERNAME_RE.test(trimmed)) {
+      setError('Only lowercase letters, numbers, hyphens and underscores'); return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await api.patch('/api/auth/me/username', { username: trimmed });
+      await refreshUser();
+      setSaved(true);
+      setEditing(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to save';
+      setError(msg);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="card space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-bold uppercase tracking-widest text-surface-400">Username</p>
+        {!editing && (
+          <button onClick={startEdit} className="text-xs text-indigo-600 hover:underline">
+            Change
+          </button>
+        )}
+      </div>
+
+      {editing ? (
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => { setInput(e.target.value.toLowerCase()); setError(null); }}
+            placeholder="your-username"
+            maxLength={20}
+            className="w-full border border-surface-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-indigo-400"
+            autoFocus
+            onKeyDown={(e) => { if (e.key === 'Enter') void save(); if (e.key === 'Escape') cancel(); }}
+          />
+          <p className="text-xs text-surface-400">
+            3–20 chars · lowercase letters, numbers, hyphens, underscores
+          </p>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          <div className="flex gap-2">
+            <button
+              onClick={() => void save()}
+              disabled={saving}
+              className="btn-primary text-sm disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button onClick={cancel} className="btn-ghost text-sm">Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-base font-semibold text-surface-900">
+            {user.username ?? <span className="text-surface-400 italic">not set</span>}
+          </span>
+          {saved && <span className="text-xs text-green-600">Saved!</span>}
+        </div>
+      )}
+
+      <p className="text-xs text-surface-500 leading-relaxed">
+        Your username is shown on game leaderboards instead of your Google name. Pick something you like — it can be changed any time.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export default function UserProfilePage() {
   const { user, logout } = useAuth();
@@ -78,22 +190,31 @@ export default function UserProfilePage() {
           </div>
         )}
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold truncate">{user.name ?? 'Anonymous'}</h1>
+          <h1 className="text-xl font-bold truncate">
+            {user.username ?? user.name ?? 'Anonymous'}
+          </h1>
+          {user.username && user.name && user.name !== user.username && (
+            <p className="text-sm text-surface-500 truncate">{user.name}</p>
+          )}
           <p className="text-sm text-surface-600 truncate">{user.email}</p>
           {stats?.createdAt && (
-            <p className="text-xs text-surface-400 mt-1">Member since {new Date(stats.createdAt).toLocaleDateString()}</p>
+            <p className="text-xs text-surface-400 mt-1">
+              Member since {new Date(stats.createdAt).toLocaleDateString()}
+            </p>
           )}
           {user.isAdmin && (
-            <span className="inline-block mt-1 text-xs font-medium bg-surface-900 text-white px-2 py-0.5 rounded">Admin</span>
+            <span className="inline-block mt-1 text-xs font-medium bg-surface-900 text-white px-2 py-0.5 rounded">
+              Admin
+            </span>
           )}
         </div>
-        <button
-          onClick={logout}
-          className="btn-ghost text-sm self-start shrink-0"
-        >
+        <button onClick={logout} className="btn-ghost text-sm self-start shrink-0">
           Sign out
         </button>
       </div>
+
+      {/* Username editor */}
+      <UsernameCard />
 
       {/* Stats */}
       {isLoading && <p className="text-surface-500 text-sm">Loading stats…</p>}
@@ -118,9 +239,10 @@ export default function UserProfilePage() {
       <div className="card space-y-3">
         <p className="text-xs font-bold uppercase tracking-widest text-surface-400">Quick actions</p>
         <div className="flex flex-wrap gap-3">
-          <Link to="/my/rate" className="btn-primary text-sm">Rate songs</Link>
+          <Link to="/my/rate"       className="btn-primary text-sm">Rate songs</Link>
+          <Link to="/leaderboard"   className="btn-secondary text-sm">Leaderboard</Link>
           <Link to="/my/contribute" className="btn-secondary text-sm">Contribute a band</Link>
-          <Link to="/view" className="btn-ghost text-sm">Browse library</Link>
+          <Link to="/view"          className="btn-ghost text-sm">Browse library</Link>
         </div>
       </div>
 

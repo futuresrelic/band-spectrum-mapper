@@ -316,11 +316,11 @@ publicRouter.get('/word-hunt/leaderboard', async (req, res, next): Promise<void>
     const top = await prisma.wordHuntScore.findMany({
       orderBy: { score: 'desc' },
       take: limit,
-      include: { user: { select: { name: true, avatarUrl: true } } },
+      include: { user: { select: { name: true, username: true, avatarUrl: true } } },
     });
     res.json(top.map((s, i) => ({
       rank: i + 1,
-      playerName: s.user.name ?? 'Player',
+      playerName: s.user.username ?? s.user.name ?? 'Player',
       avatarUrl: s.user.avatarUrl,
       word: s.word,
       score: s.score,

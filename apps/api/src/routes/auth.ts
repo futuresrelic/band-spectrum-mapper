@@ -65,8 +65,54 @@ authRouter.get(
   },
 );
 
-authRouter.get('/me', requireAuth, (req, res) => {
-  res.json(req.user);
+// GET /api/auth/me — returns fresh DB data so username changes are reflected immediately
+authRouter.get('/me', requireAuth, async (req, res, next) => {
+  try {
+    const dbUser = await prisma.user.findUnique({
+      where: { id: req.user!.userId },
+      select: { id: true, email: true, name: true, username: true, avatarUrl: true, isAdmin: true },
+    });
+    if (!dbUser) { res.status(404).json({ error: 'User not found' }); return; }
+    res.json({
+      userId: dbUser.id,
+      email: dbUser.email,
+      ...(dbUser.name     ? { name: dbUser.name }         : {}),
+      ...(dbUser.username ? { username: dbUser.username }  : {}),
+      ...(dbUser.avatarUrl ? { avatarUrl: dbUser.avatarUrl } : {}),
+      ...(dbUser.isAdmin  ? { isAdmin: true }              : {}),
+    });
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/auth/me/username — update display username
+const USERNAME_RE = /^[a-z0-9][a-z0-9_-]{1,18}[a-z0-9]$/;
+
+authRouter.patch('/me/username', requireAuth, async (req, res, next) => {
+  try {
+    const raw = (req.body as { username?: unknown }).username;
+    if (typeof raw !== 'string') {
+      res.status(400).json({ error: 'username is required' }); return;
+    }
+    const username = raw.toLowerCase().trim();
+    if (username.length < 3 || username.length > 20) {
+      res.status(400).json({ error: 'Username must be 3–20 characters' }); return;
+    }
+    if (!USERNAME_RE.test(username)) {
+      res.status(400).json({ error: 'Only lowercase letters, numbers, hyphens, and underscores allowed' }); return;
+    }
+
+    const existing = await prisma.user.findUnique({ where: { username } });
+    if (existing && existing.id !== req.user!.userId) {
+      res.status(409).json({ error: 'Username already taken' }); return;
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: req.user!.userId },
+      data: { username },
+      select: { username: true },
+    });
+    res.json({ username: updated.username });
+  } catch (e) { next(e); }
 });
 
 // GET /api/auth/me/stats — profile stats + contribution history

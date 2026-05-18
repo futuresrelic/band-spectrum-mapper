@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { setAuthToken } from '../lib/api';
 import type { AuthUser } from '@band-spectrum-mapper/shared';
 
@@ -10,6 +10,7 @@ interface AuthContextValue {
   isLoading: boolean;
   login: () => void;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -17,37 +18,24 @@ const AuthContext = createContext<AuthContextValue>({
   isLoading: true,
   login: () => undefined,
   logout: () => undefined,
+  refreshUser: async () => undefined,
 });
+
+async function fetchMe(token: string): Promise<AuthUser | null> {
+  try {
+    const res = await fetch(`${BASE}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    return res.json() as Promise<AuthUser>;
+  } catch {
+    return null;
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser]       = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    // Token is captured from ?token= URL param into localStorage by main.tsx
-    // before React renders, so we only need to read from localStorage here.
-    const token = localStorage.getItem(STORAGE_KEY);
-    if (token) {
-      try {
-        const raw = JSON.parse(atob(token.split('.')[1]!));
-        if (raw.exp && Date.now() / 1000 > raw.exp) {
-          clearAuth();
-        } else {
-          setAuthToken(token);
-          setUser({
-            userId: raw.userId,
-            email: raw.email,
-            ...(raw.name ? { name: raw.name } : {}),
-            ...(raw.avatarUrl ? { avatarUrl: raw.avatarUrl } : {}),
-            ...(raw.isAdmin ? { isAdmin: true } : {}),
-          });
-        }
-      } catch {
-        clearAuth();
-      }
-    }
-    setIsLoading(false);
-  }, []);
 
   function clearAuth() {
     localStorage.removeItem(STORAGE_KEY);
@@ -55,16 +43,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }
 
-  const login = () => {
-    window.location.href = `${BASE}/api/auth/google`;
-  };
+  const refreshUser = useCallback(async () => {
+    const token = localStorage.getItem(STORAGE_KEY);
+    if (!token) return;
+    const fresh = await fetchMe(token);
+    if (fresh) setUser(fresh);
+  }, []);
 
-  const logout = () => {
-    clearAuth();
-  };
+  useEffect(() => {
+    const token = localStorage.getItem(STORAGE_KEY);
+    if (!token) {
+      setIsLoading(false);
+      return;
+    }
+    try {
+      const raw = JSON.parse(atob(token.split('.')[1]!)) as Record<string, unknown>;
+      if (typeof raw['exp'] === 'number' && Date.now() / 1000 > raw['exp']) {
+        clearAuth();
+        setIsLoading(false);
+        return;
+      }
+      setAuthToken(token);
+      // Instant load from JWT (always has userId + email)
+      setUser({
+        userId:   raw['userId']   as string,
+        email:    raw['email']    as string,
+        ...(raw['name']     ? { name:     raw['name']     as string  } : {}),
+        ...(raw['username'] ? { username: raw['username'] as string  } : {}),
+        ...(raw['avatarUrl'] ? { avatarUrl: raw['avatarUrl'] as string } : {}),
+        ...(raw['isAdmin']  ? { isAdmin:  true }                      : {}),
+      });
+    } catch {
+      clearAuth();
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(false);
+
+    // Refresh from DB in background — picks up username even if not in old JWT
+    const token2 = localStorage.getItem(STORAGE_KEY);
+    if (token2) {
+      void fetchMe(token2).then((fresh) => { if (fresh) setUser(fresh); });
+    }
+  }, []);
+
+  const login = () => { window.location.href = `${BASE}/api/auth/google`; };
+  const logout = () => { clearAuth(); };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

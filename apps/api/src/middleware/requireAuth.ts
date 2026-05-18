@@ -5,6 +5,7 @@ export interface AuthTokenPayload {
   userId: string;
   email: string;
   name?: string;
+  username?: string;
   avatarUrl?: string;
   isAdmin?: boolean;
 }

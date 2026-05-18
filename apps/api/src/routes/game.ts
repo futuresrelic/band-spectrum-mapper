@@ -37,7 +37,7 @@ gameRouter.get('/leaderboard', async (_req, res, next) => {
       take: 20,
       orderBy: { score: 'desc' },
       include: {
-        user: { select: { id: true, name: true, avatarUrl: true } },
+        user: { select: { id: true, name: true, username: true, avatarUrl: true } },
       },
     });
     res.json(scores);

@@ -14,7 +14,7 @@ interface QuizEntry {
   level: number;
   duration: number;
   createdAt: string;
-  user: { id: string; name: string | null; avatarUrl: string | null };
+  user: { id: string; name: string | null; username: string | null; avatarUrl: string | null };
 }
 
 interface WordHuntEntry {
@@ -94,7 +94,7 @@ function QuizTab() {
               <RankBadge rank={i + 1} />
               <Avatar name={e.user.name} url={e.user.avatarUrl} />
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-white truncate">{e.user.name ?? 'Unknown'}</p>
+                <p className="text-sm text-white truncate">{e.user.username ?? e.user.name ?? 'Player'}</p>
                 <p className="text-xs text-gray-500">Level {e.level} · {fmtTime(e.duration)}</p>
               </div>
               <span className="text-sm font-bold text-indigo-400 tabular-nums">
