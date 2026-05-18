@@ -50,8 +50,8 @@ gameRouter.get('/leaderboard', async (_req, res, next) => {
 
 gameRouter.post('/scores', requireAuth, async (req, res, next) => {
   try {
-    const authUser = (req as unknown as { user?: { id: string } }).user;
-    if (!authUser?.id) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
 
     const { score, level, duration } = req.body as {
       score?: unknown; level?: unknown; duration?: unknown;
@@ -69,7 +69,7 @@ gameRouter.post('/scores', requireAuth, async (req, res, next) => {
 
     const saved = await prisma.gameScore.create({
       data: {
-        userId: authUser.id,
+        userId,
         score: Math.floor(score),
         level: Math.floor(level),
         duration: Math.floor(duration),

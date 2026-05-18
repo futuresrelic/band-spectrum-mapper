@@ -7,8 +7,8 @@ export const wordHuntRouter = Router();
 // POST /api/word-hunt/scores — save a won game (auth required)
 wordHuntRouter.post('/scores', requireAuth, async (req, res, next): Promise<void> => {
   try {
-    const authUser = (req as unknown as { user?: { id: string } }).user;
-    if (!authUser?.id) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
 
     const { word, attempts, wrongCount, timeSec, bandScope } = req.body as {
       word?: unknown; attempts?: unknown; wrongCount?: unknown; timeSec?: unknown; bandScope?: unknown;
@@ -31,7 +31,7 @@ wordHuntRouter.post('/scores', requireAuth, async (req, res, next): Promise<void
 
     const saved = await prisma.wordHuntScore.create({
       data: {
-        userId: authUser.id,
+        userId,
         word: word.toLowerCase().trim(),
         attempts: Math.floor(attempts),
         wrongCount: Math.floor(wrongCount),
