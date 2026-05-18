@@ -197,8 +197,8 @@ export type BatchJobState = {
   currentSong: string | null;
   items: BatchItem[];
   error: string | null;
-  processedSongIds: string[];         // NEW
-  notFoundSongIds: string[];          // NEW
+  processedSongIds: string[];
+  notFoundSongs: { id: string; title: string; bandName: string; albumTitle: string | null }[];
 };
 
 export type GameLeaderboardEntry = {

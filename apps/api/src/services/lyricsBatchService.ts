@@ -29,7 +29,7 @@ export interface BatchJobState {
   items: BatchItem[];
   error: string | null;
   processedSongIds: string[];
-  notFoundSongIds: string[];
+  notFoundSongs: { id: string; title: string; bandName: string; albumTitle: string | null }[];
 }
 
 const state: BatchJobState = {
@@ -45,7 +45,7 @@ const state: BatchJobState = {
   items: [],
   error: null,
   processedSongIds: [],
-  notFoundSongIds: [],
+  notFoundSongs: [],
 };
 
 function makeId(): string {
@@ -109,7 +109,7 @@ export async function startBatchJob(opts?: { resume?: boolean; forceAll?: boolea
     state.items = [];
     state.error = null;
     state.processedSongIds = [];
-    state.notFoundSongIds = [];
+    state.notFoundSongs = [];
   } else {
     // Resume: clear error, update start time
     state.startedAt = state.startedAt ?? new Date().toISOString();
@@ -171,7 +171,12 @@ export async function startBatchJob(opts?: { resume?: boolean; forceAll?: boolea
         });
       } else {
         state.notFoundCount++;
-        state.notFoundSongIds.push(song.id);
+        state.notFoundSongs.push({
+          id: song.id,
+          title: song.title,
+          bandName: song.band.name,
+          albumTitle: song.album?.title ?? null,
+        });
         // Mark song so future batches skip it by default
         await prisma.song.update({
           where: { id: song.id },
@@ -193,7 +198,7 @@ export async function startBatchJob(opts?: { resume?: boolean; forceAll?: boolea
 }
 
 export function getJobState(): BatchJobState {
-  return { ...state, items: state.items.slice(), processedSongIds: state.processedSongIds.slice(), notFoundSongIds: state.notFoundSongIds.slice() };
+  return { ...state, items: state.items.slice(), processedSongIds: state.processedSongIds.slice(), notFoundSongs: state.notFoundSongs.slice() };
 }
 
 export function stopJob(): void {

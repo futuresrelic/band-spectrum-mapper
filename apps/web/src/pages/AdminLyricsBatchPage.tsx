@@ -17,7 +17,7 @@ const INITIAL: BatchJobState = {
   items: [],
   error: null,
   processedSongIds: [],
-  notFoundSongIds: [],
+  notFoundSongs: [],
 };
 
 export default function AdminLyricsBatchPage() {
@@ -248,11 +248,11 @@ export default function AdminLyricsBatchPage() {
       )}
 
       {/* Not-found songs — mark as instrumental */}
-      {job.notFoundSongIds.length > 0 && job.status !== 'running' && (
+      {job.notFoundSongs.length > 0 && job.status !== 'running' && (
         <div className="space-y-3">
           <div>
             <h2 className="text-base font-semibold text-surface-200">
-              Not found — {job.notFoundSongIds.length} songs
+              Not found — {job.notFoundSongs.length} songs
             </h2>
             <p className="text-xs text-surface-500 mt-0.5">
               These songs returned no results from either lyrics source. If they are instrumentals,
@@ -260,8 +260,7 @@ export default function AdminLyricsBatchPage() {
             </p>
           </div>
           <NotFoundList
-            notFoundSongIds={job.notFoundSongIds}
-            items={job.items}
+            notFoundSongs={job.notFoundSongs}
             markedInstrumental={markedInstrumental}
             onMarkInstrumental={(songId) => instrumentalMutation.mutate({ songId })}
             isMarking={instrumentalMutation.isPending}
@@ -312,39 +311,40 @@ export default function AdminLyricsBatchPage() {
 // ---------------------------------------------------------------------------
 
 function NotFoundList({
-  notFoundSongIds,
-  items: _items,
+  notFoundSongs,
   markedInstrumental,
   onMarkInstrumental,
   isMarking,
   markingId,
 }: {
-  notFoundSongIds: string[];
-  items: BatchItem[];
+  notFoundSongs: { id: string; title: string; bandName: string; albumTitle: string | null }[];
   markedInstrumental: Set<string>;
   onMarkInstrumental: (songId: string) => void;
   isMarking: boolean;
   markingId?: string;
 }) {
-  // We only have song IDs here — display them in a compact list
-  // The full song details aren't fetched here to keep it lightweight
   return (
     <div className="bg-surface-900 border border-surface-700 rounded-lg overflow-hidden">
-      <div className="max-h-48 overflow-y-auto divide-y divide-surface-800">
-        {notFoundSongIds.map((songId) => {
-          const isMarked = markedInstrumental.has(songId);
+      <div className="max-h-72 overflow-y-auto divide-y divide-surface-800">
+        {notFoundSongs.map((song) => {
+          const isMarked = markedInstrumental.has(song.id);
           return (
-            <div key={songId} className="flex items-center justify-between px-4 py-2 gap-3">
-              <span className="text-xs text-surface-400 font-mono truncate">{songId}</span>
+            <div key={song.id} className="flex items-center justify-between px-4 py-2.5 gap-3">
+              <div className="min-w-0">
+                <p className="text-sm text-surface-200 truncate">{song.title}</p>
+                <p className="text-xs text-surface-500 truncate">
+                  {song.bandName}{song.albumTitle ? ` · ${song.albumTitle}` : ''}
+                </p>
+              </div>
               {isMarked ? (
                 <span className="text-xs text-surface-600 shrink-0">Marked instrumental</span>
               ) : (
                 <button
-                  onClick={() => onMarkInstrumental(songId)}
-                  disabled={isMarking && markingId === songId}
-                  className="text-xs px-2 py-0.5 rounded border border-surface-600 text-surface-400 hover:text-white hover:border-surface-400 disabled:opacity-50 transition-colors shrink-0"
+                  onClick={() => onMarkInstrumental(song.id)}
+                  disabled={isMarking && markingId === song.id}
+                  className="text-xs px-2 py-1 rounded border border-surface-600 text-surface-400 hover:text-white hover:border-surface-400 disabled:opacity-50 transition-colors shrink-0"
                 >
-                  {isMarking && markingId === songId ? '…' : 'Mark instrumental'}
+                  {isMarking && markingId === song.id ? '…' : 'Mark instrumental'}
                 </button>
               )}
             </div>
