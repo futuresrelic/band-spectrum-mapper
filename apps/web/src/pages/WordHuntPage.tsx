@@ -3,11 +3,13 @@
  * Available to any logged-in user (/play/word-hunt).
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import cytoscape from 'cytoscape';
 import type { Core, NodeSingular, EventObject } from 'cytoscape';
 import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+import SiteHeader from '../components/layout/SiteHeader';
 import type { GraphNode, GraphEdge, NodeType } from '../api/songNodes';
 
 // ---------------------------------------------------------------------------
@@ -407,20 +409,19 @@ export default function WordHuntPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      <div className="border-b border-white/10 px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <h1 className="text-base font-bold text-white tracking-tight">Word Hunt</h1>
-          <span className="text-xs text-white/40">Find the word hidden in the library</span>
+      <SiteHeader theme="dark" active="games" />
+      <div className="border-b border-white/10 px-6 py-2.5 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Link to="/games" className="text-xs text-white/40 hover:text-white/70 transition-colors">← Games</Link>
+          <span className="text-white/20">·</span>
+          <h1 className="text-sm font-semibold text-white/80">Word Hunt</h1>
         </div>
-        <div className="flex items-center gap-4">
-          <button
-            className={`text-xs transition-colors ${showLeaderboard ? 'text-indigo-300' : 'text-white/40 hover:text-white/70'}`}
-            onClick={() => setShowLeaderboard((v) => !v)}
-          >
-            🏆 Leaderboard
-          </button>
-          <a href="/landing" className="text-xs text-indigo-400 hover:text-indigo-200">← Back</a>
-        </div>
+        <button
+          className={`text-xs transition-colors ${showLeaderboard ? 'text-indigo-300' : 'text-white/40 hover:text-white/70'}`}
+          onClick={() => setShowLeaderboard((v) => !v)}
+        >
+          🏆 Scores
+        </button>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-5 flex flex-col lg:flex-row gap-5">

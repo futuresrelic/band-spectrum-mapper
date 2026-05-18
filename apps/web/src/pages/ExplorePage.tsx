@@ -8,6 +8,7 @@ import cytoscape from 'cytoscape';
 import type { Core, NodeSingular, EventObject } from 'cytoscape';
 import { api } from '../lib/api';
 import type { GraphData, GraphNode, GraphEdge, NodeType } from '../api/songNodes';
+import SiteHeader from '../components/layout/SiteHeader';
 import { AXIS_LABELS } from '@band-spectrum-mapper/shared';
 
 // ---------------------------------------------------------------------------
@@ -743,13 +744,10 @@ export default function ExplorePage() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      {/* Header */}
-      <div className="border-b border-white/10 px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-bold text-white tracking-tight">Explore</h1>
-          <p className="text-xs text-white/40 mt-0.5">Interactive music network — click nodes to explore connections</p>
-        </div>
-        <a href="/landing" className="text-xs text-indigo-400 hover:text-indigo-200 transition-colors">← Back</a>
+      <SiteHeader theme="dark" active="explore" />
+      <div className="border-b border-white/10 px-6 py-2.5 flex items-center gap-3">
+        <h1 className="text-sm font-semibold text-white/80">Explore</h1>
+        <span className="text-xs text-white/30">Interactive music network — click nodes to explore</span>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col lg:flex-row gap-5">

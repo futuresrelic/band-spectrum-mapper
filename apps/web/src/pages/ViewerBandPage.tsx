@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { analysisApi } from '../api/analysis';
 import { useAuth } from '../contexts/AuthContext';
+import SiteHeader from '../components/layout/SiteHeader';
 import SongSpectrumPanel from '../components/SongSpectrumPanel';
 import CommentSection from '../components/CommentSection';
 import type { Band, Album, Song, Lyric, SongAxisScore } from '@band-spectrum-mapper/shared';
@@ -220,7 +221,8 @@ export default function ViewerBandPage() {
 
   return (
     <div className="min-h-screen bg-surface-100">
-      <div className="max-w-3xl mx-auto px-6 py-12">
+      <SiteHeader theme="light" active="library" />
+      <div className="max-w-3xl mx-auto px-6 py-8">
         <div className="mb-5">
           <Link to="/view" className="text-sm text-surface-500 hover:text-surface-900 hover:underline">← All Bands</Link>
         </div>

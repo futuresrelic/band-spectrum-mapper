@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { gameApi, type GameAlbum, type LeaderboardEntry } from '../api/game';
+import SiteHeader from '../components/layout/SiteHeader';
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -246,11 +248,13 @@ export default function PlayPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
+      <SiteHeader theme="dark" active="games" />
       <div className="max-w-5xl mx-auto px-4 py-8">
         <div className="flex gap-8">
           {/* ── Game area ── */}
           <div className="flex-1 min-w-0">
             <div className="mb-6">
+              <Link to="/games" className="text-xs text-gray-500 hover:text-gray-300 transition-colors mb-2 inline-block">← All Games</Link>
               <h1 className="text-2xl font-bold text-white">Album Art Quiz</h1>
               <p className="text-sm text-gray-400 mt-1">
                 Which band is this album from? Answer before the time runs out.

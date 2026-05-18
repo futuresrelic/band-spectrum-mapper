@@ -1,12 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
-import { useAuth } from '../contexts/AuthContext';
+import SiteHeader from '../components/layout/SiteHeader';
 import type { BandWithCounts } from '@band-spectrum-mapper/shared';
 
 export default function ViewerIndexPage() {
-  const { user } = useAuth();
-
   const { data: bands, isLoading } = useQuery({
     queryKey: ['public-bands'],
     queryFn: () => api.get<BandWithCounts[]>('/api/public/bands'),
@@ -14,31 +12,7 @@ export default function ViewerIndexPage() {
 
   return (
     <div className="min-h-screen bg-surface-50 flex flex-col">
-      {/* Header */}
-      <header className="bg-white border-b border-surface-200 sticky top-0 z-10">
-        <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
-          <Link to="/landing" className="font-bold text-surface-900 tracking-tight hover:text-surface-700 transition-colors">
-            Band Spectrum Mapper
-          </Link>
-          <nav className="flex items-center gap-3 text-sm">
-            <Link to="/help" className="text-surface-600 hover:text-surface-900 transition-colors hidden sm:inline">Help</Link>
-            {user ? (
-              <>
-                {!user.isAdmin && (
-                  <Link to="/my/contribute" className="text-surface-600 hover:text-surface-900 transition-colors hidden sm:inline text-sm">
-                    Contribute
-                  </Link>
-                )}
-                <Link to={user.isAdmin ? '/dashboard' : '/my/rate'} className="btn-primary text-sm">
-                  {user.isAdmin ? 'Dashboard' : 'My Ratings'}
-                </Link>
-              </>
-            ) : (
-              <a href="/api/auth/google" className="btn-primary text-sm">Sign In</a>
-            )}
-          </nav>
-        </div>
-      </header>
+      <SiteHeader theme="light" active="library" />
 
       {/* Content */}
       <div className="flex-1">

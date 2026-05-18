@@ -8,12 +8,12 @@ export default function UserLayout() {
     <div className="min-h-screen bg-surface-50">
       <header className="bg-surface-900 text-white px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-6">
-          <span className="text-sm font-semibold tracking-wide text-surface-100">
+          <Link to="/landing" className="text-sm font-semibold tracking-wide text-surface-100 hover:text-white transition-colors">
             Band Spectrum Mapper
-          </span>
+          </Link>
           <Link to="/view"        className="text-xs text-surface-400 hover:text-surface-200 transition-colors">Library</Link>
           <Link to="/explore"     className="text-xs text-surface-400 hover:text-surface-200 transition-colors">Explore</Link>
-          <Link to="/play"        className="text-xs text-surface-400 hover:text-surface-200 transition-colors">Games</Link>
+          <Link to="/games"       className="text-xs text-surface-400 hover:text-surface-200 transition-colors">Games</Link>
           <Link to="/leaderboard" className="text-xs text-surface-400 hover:text-surface-200 transition-colors">Leaderboard</Link>
           <Link to="/my/contribute" className="text-xs text-surface-400 hover:text-surface-200 transition-colors">Contribute</Link>
         </div>

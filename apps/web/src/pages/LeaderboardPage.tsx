@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import { useAuth } from '../contexts/AuthContext';
+import SiteHeader from '../components/layout/SiteHeader';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -180,41 +180,10 @@ function WordHuntTab() {
 
 export default function LeaderboardPage() {
   const [tab, setTab] = useState<Tab>('quiz');
-  const { user } = useAuth();
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      {/* Sticky header */}
-      <header className="sticky top-0 z-10 border-b border-gray-800 bg-gray-950/95 backdrop-blur">
-        <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
-          <Link
-            to="/landing"
-            className="text-sm font-semibold text-gray-100 tracking-tight hover:text-white transition-colors"
-          >
-            Band Spectrum Mapper
-          </Link>
-          <nav className="flex items-center gap-4 text-sm flex-wrap justify-end">
-            <Link to="/explore" className="text-gray-400 hover:text-gray-200 transition-colors">Explore</Link>
-            <Link to="/play"    className="text-gray-400 hover:text-gray-200 transition-colors">Games</Link>
-            <Link to="/view"    className="text-gray-400 hover:text-gray-200 transition-colors">Library</Link>
-            {user ? (
-              <Link
-                to={user.isAdmin ? '/dashboard' : '/my/rate'}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-3 py-1.5 rounded-lg transition-colors"
-              >
-                {user.isAdmin ? 'Dashboard' : 'My Ratings'}
-              </Link>
-            ) : (
-              <a
-                href="/api/auth/google"
-                className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-3 py-1.5 rounded-lg transition-colors"
-              >
-                Sign In
-              </a>
-            )}
-          </nav>
-        </div>
-      </header>
+      <SiteHeader theme="dark" active="leaderboard" />
 
       <main className="max-w-3xl mx-auto px-6 py-10">
         {/* Page title */}
