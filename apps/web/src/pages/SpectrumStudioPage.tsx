@@ -1,6 +1,7 @@
 /**
- * Spectrum Studio — admin-only data visualisation lab.
- * 10 chart types · per-axis selection · live style panel · PNG export.
+ * Spectrum Studio — admin data visualisation lab.
+ * 10 chart types · universal field system (spectrum + genres + themes + metadata)
+ * Per-field colours · live style panel · PNG export · patch-bay field mapper.
  */
 import { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -8,54 +9,87 @@ import { Navigate, Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 
-// ─── Dimensions ──────────────────────────────────────────────────────────────
+// ─── Canvas dimensions ────────────────────────────────────────────────────────
 
 const VW = 900;
 const VH = 560;
 
-// ─── Axes ────────────────────────────────────────────────────────────────────
+// ─── Field catalog ────────────────────────────────────────────────────────────
+// Every numeric dimension that can be mapped to a chart axis.
+// min/max define the natural scale for normalisation to 0-10 on radar-style charts.
 
-const AXES = ['aggression', 'complexity', 'atmosphere', 'emotion', 'psychedelic', 'concept'] as const;
-type Axis = typeof AXES[number];
+interface StudioField {
+  id:    string;
+  label: string;
+  short: string;   // ≤ 10 chars — used inside chart cells / labels
+  group: string;
+  color: string;
+  min:   number;
+  max:   number;
+}
 
-const AXIS_LABEL: Record<Axis, string> = {
-  aggression:  'Aggression',
-  complexity:  'Complexity',
-  atmosphere:  'Atmosphere',
-  emotion:     'Emotion',
-  psychedelic: 'Psychedelic',
-  concept:     'Concept',
-};
+const FIELD_CATALOG: StudioField[] = [
+  // ── Spectrum (psychological scores, 0–10)
+  { id: 'aggression',  label: 'Aggression',    short: 'Aggr',     group: 'Spectrum', color: '#E5484D', min: 0, max: 10 },
+  { id: 'complexity',  label: 'Complexity',    short: 'Cmpx',     group: 'Spectrum', color: '#8B5CF6', min: 0, max: 10 },
+  { id: 'atmosphere',  label: 'Atmosphere',    short: 'Atmo',     group: 'Spectrum', color: '#06B6D4', min: 0, max: 10 },
+  { id: 'emotion',     label: 'Emotion',       short: 'Emot',     group: 'Spectrum', color: '#F59E0B', min: 0, max: 10 },
+  { id: 'psychedelic', label: 'Psychedelic',   short: 'Psych',    group: 'Spectrum', color: '#22C55E', min: 0, max: 10 },
+  { id: 'concept',     label: 'Concept',       short: 'Conc',     group: 'Spectrum', color: '#F97316', min: 0, max: 10 },
 
-const BASE_AXIS_COLORS: Record<string, string> = {
-  aggression:  '#E5484D',
-  complexity:  '#8B5CF6',
-  atmosphere:  '#06B6D4',
-  emotion:     '#F59E0B',
-  psychedelic: '#22C55E',
-  concept:     '#F97316',
-};
+  // ── AI Genre Accessibility (0–10)
+  { id: 'genre_metal',      label: 'Metal (AI)',      short: 'Metal',  group: 'AI Genres', color: '#64748B', min: 0, max: 10 },
+  { id: 'genre_rock',       label: 'Rock (AI)',       short: 'Rock',   group: 'AI Genres', color: '#FB923C', min: 0, max: 10 },
+  { id: 'genre_pop',        label: 'Pop (AI)',        short: 'Pop',    group: 'AI Genres', color: '#F472B6', min: 0, max: 10 },
+  { id: 'genre_hiphop',     label: 'Hip-hop (AI)',    short: 'HipHop', group: 'AI Genres', color: '#818CF8', min: 0, max: 10 },
+  { id: 'genre_electronic', label: 'Electronic (AI)', short: 'Elec',   group: 'AI Genres', color: '#22D3EE', min: 0, max: 10 },
+  { id: 'genre_folk',       label: 'Folk/Indie (AI)', short: 'Folk',   group: 'AI Genres', color: '#A3E635', min: 0, max: 10 },
 
-// ─── Band palette for multi-song differentiation ─────────────────────────────
+  // ── Philosophical Themes (0–10, scaled from AI score 0–1)
+  { id: 'theme_perception',    label: 'Perception',     short: 'Percep',  group: 'Themes', color: '#34c8e8', min: 0, max: 10 },
+  { id: 'theme_ego_death',     label: 'Ego Death',      short: 'EgoDth',  group: 'Themes', color: '#bf5af2', min: 0, max: 10 },
+  { id: 'theme_introspection', label: 'Introspection',  short: 'Intro',   group: 'Themes', color: '#bf5af2', min: 0, max: 10 },
+  { id: 'theme_shadow_self',   label: 'Shadow Self',    short: 'Shadow',  group: 'Themes', color: '#bf5af2', min: 0, max: 10 },
+  { id: 'theme_acceptance',    label: 'Acceptance',     short: 'Accept',  group: 'Themes', color: '#bf5af2', min: 0, max: 10 },
+  { id: 'theme_transcendence', label: 'Transcendence',  short: 'Trans',   group: 'Themes', color: '#ff375f', min: 0, max: 10 },
+  { id: 'theme_spirituality',  label: 'Spirituality',   short: 'Spirit',  group: 'Themes', color: '#ff375f', min: 0, max: 10 },
+  { id: 'theme_evolution',     label: 'Evolution',      short: 'Evolve',  group: 'Themes', color: '#ff9500', min: 0, max: 10 },
+  { id: 'theme_rebirth',       label: 'Rebirth',        short: 'Rebirth', group: 'Themes', color: '#ff9500', min: 0, max: 10 },
+  { id: 'theme_catharsis',     label: 'Catharsis',      short: 'Cathar',  group: 'Themes', color: '#fbbf24', min: 0, max: 10 },
+  { id: 'theme_communication', label: 'Communication',  short: 'Commun',  group: 'Themes', color: '#30d158', min: 0, max: 10 },
+  { id: 'theme_unity',         label: 'Unity',          short: 'Unity',   group: 'Themes', color: '#30d158', min: 0, max: 10 },
+  { id: 'theme_warning',       label: 'Warning/Caution',short: 'Warning', group: 'Themes', color: '#ff3a3a', min: 0, max: 10 },
+  { id: 'theme_satire',        label: 'Satire',         short: 'Satire',  group: 'Themes', color: '#ff3a3a', min: 0, max: 10 },
+  { id: 'theme_mortality',     label: 'Mortality',      short: 'Mortal',  group: 'Themes', color: '#94a3b8', min: 0, max: 10 },
+  { id: 'theme_apocalypse',    label: 'Apocalypse',     short: 'Apoc',    group: 'Themes', color: '#94a3b8', min: 0, max: 10 },
 
-const BAND_PALETTE = [
-  '#e74c3c','#3498db','#2ecc71','#f1c40f','#9b59b6',
-  '#e67e22','#1abc9c','#e91e63','#00bcd4','#ff5722',
+  // ── Song Metadata (raw values, normalised against min/max for radar-style charts)
+  { id: 'durationSeconds', label: 'Duration (s)',   short: 'Duration', group: 'Metadata', color: '#94a3b8', min: 0,    max: 600  },
+  { id: 'trackNumber',     label: 'Track Number',   short: 'Track #',  group: 'Metadata', color: '#64748b', min: 1,    max: 25   },
+  { id: 'releaseYear',     label: 'Release Year',   short: 'Year',     group: 'Metadata', color: '#78716c', min: 1965, max: 2030 },
 ];
+
+const FIELD_MAP = new Map<string, StudioField>(FIELD_CATALOG.map((f) => [f.id, f]));
+
+// Field groups for the browser UI (order matters)
+const FIELD_GROUPS = ['Spectrum', 'AI Genres', 'Themes', 'Metadata'];
+
+// Default active fields = all Spectrum fields
+const DEFAULT_ACTIVE = FIELD_CATALOG.filter((f) => f.group === 'Spectrum').map((f) => f.id);
 
 // ─── Viz types ────────────────────────────────────────────────────────────────
 
 const VIZ_TYPES = [
-  { id: 'radar',         label: 'Radar',         icon: '⬡', desc: 'Spider chart — one polygon per song' },
-  { id: 'columns',       label: 'Columns',        icon: '▉', desc: 'Grouped vertical bars per song' },
-  { id: 'bars',          label: 'Bars',           icon: '▬', desc: 'Horizontal bars — good for many songs' },
-  { id: 'waveform',      label: 'Waveform',       icon: '∿', desc: 'Smooth area waves across songs' },
-  { id: 'oscilloscope',  label: 'Oscilloscope',   icon: '◎', desc: 'Lissajous — two axes as X/Y trace' },
-  { id: 'vectorscope',   label: 'Vectorscope',    icon: '◯', desc: 'Polar scatter — broadcast-style scope' },
-  { id: 'heatmap',       label: 'Heatmap',        icon: '⊞', desc: 'Colour-coded grid of scores' },
-  { id: 'scatter',       label: 'Scatter',        icon: '⁘', desc: 'Two axes as X/Y, coloured by band' },
-  { id: 'pie',           label: 'Pie / Donut',    icon: '◔', desc: 'Average axis distribution as slices' },
-  { id: 'bubble',        label: 'Bubble',         icon: '⊙', desc: 'Scatter with third axis as bubble size' },
+  { id: 'radar',        label: 'Radar',       icon: '⬡', desc: 'Spider chart — one polygon per song' },
+  { id: 'columns',      label: 'Columns',     icon: '▉', desc: 'Grouped vertical bars per song' },
+  { id: 'bars',         label: 'Bars',        icon: '▬', desc: 'Horizontal bars — good for many songs' },
+  { id: 'waveform',     label: 'Waveform',    icon: '∿', desc: 'Smooth area waves across songs' },
+  { id: 'oscilloscope', label: 'Oscilloscope',icon: '◎', desc: 'Lissajous — two fields as X/Y trace' },
+  { id: 'vectorscope',  label: 'Vectorscope', icon: '◯', desc: 'Polar scatter — broadcast-style scope' },
+  { id: 'heatmap',      label: 'Heatmap',     icon: '⊞', desc: 'Colour-coded grid of scores' },
+  { id: 'scatter',      label: 'Scatter',     icon: '⁘', desc: 'Two fields as X/Y, coloured by band' },
+  { id: 'pie',          label: 'Pie/Donut',   icon: '◔', desc: 'Average distribution of active fields' },
+  { id: 'bubble',       label: 'Bubble',      icon: '⊙', desc: 'Scatter with third field as bubble size' },
 ] as const;
 
 type VizType = typeof VIZ_TYPES[number]['id'];
@@ -63,36 +97,34 @@ type VizType = typeof VIZ_TYPES[number]['id'];
 // ─── Style ────────────────────────────────────────────────────────────────────
 
 interface StudioStyle {
-  bg:          string;
-  fg:          string;
-  gridColor:   string;
-  showGrid:    boolean;
-  showLabels:  boolean;
-  showLegend:  boolean;
-  showTitle:   boolean;
-  titleText:   string;
-  axisColors:  Record<string, string>;
-  fillAlpha:   number;
-  lineWidth:   number;
-  dotRadius:   number;
+  bg:         string;
+  fg:         string;
+  gridColor:  string;
+  showGrid:   boolean;
+  showLabels: boolean;
+  showLegend: boolean;
+  showTitle:  boolean;
+  titleText:  string;
+  fillAlpha:  number;
+  lineWidth:  number;
+  dotRadius:  number;
 }
 
 const DEFAULT_STYLE: StudioStyle = {
-  bg:          '#060d1a',
-  fg:          '#e2e8f0',
-  gridColor:   '#ffffff',
-  showGrid:    true,
-  showLabels:  true,
-  showLegend:  true,
-  showTitle:   true,
-  titleText:   'Band Spectrum Analysis',
-  axisColors:  { ...BASE_AXIS_COLORS },
-  fillAlpha:   0.18,
-  lineWidth:   2,
-  dotRadius:   5,
+  bg:         '#060d1a',
+  fg:         '#e2e8f0',
+  gridColor:  '#ffffff',
+  showGrid:   true,
+  showLabels: true,
+  showLegend: true,
+  showTitle:  true,
+  titleText:  'Band Spectrum Analysis',
+  fillAlpha:  0.18,
+  lineWidth:  2,
+  dotRadius:  5,
 };
 
-const STYLE_KEY = 'bsm-studio-v1';
+const STYLE_KEY = 'bsm-studio-v2';
 
 function loadStyle(): StudioStyle {
   try {
@@ -110,7 +142,8 @@ interface SongData {
   bandId:     string;
   bandName:   string;
   albumTitle: string | null;
-  scores:     Record<string, number> | null;
+  hasScore:   boolean;
+  fields:     Record<string, number | null>;
 }
 
 // ─── SVG helpers ──────────────────────────────────────────────────────────────
@@ -123,9 +156,23 @@ function hex2rgba(hex: string, a: number): string {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-function axColor(style: StudioStyle, ax: string): string {
-  return style.axisColors[ax] ?? BASE_AXIS_COLORS[ax] ?? '#888';
+function fieldColor(field: StudioField): string {
+  return field.color;
 }
+
+// Normalise a raw field value to 0–10 using the field's declared min/max.
+function norm(song: SongData, field: StudioField): number {
+  const raw = song.fields[field.id];
+  if (raw === null || raw === undefined) return 0;
+  const range = field.max - field.min;
+  if (range === 0) return 5;
+  return Math.min(10, Math.max(0, ((raw - field.min) / range) * 10));
+}
+
+const BAND_PALETTE = [
+  '#e74c3c','#3498db','#2ecc71','#f1c40f','#9b59b6',
+  '#e67e22','#1abc9c','#e91e63','#00bcd4','#ff5722',
+];
 
 function buildBandColors(songs: SongData[]): Map<string, string> {
   const m = new Map<string, string>();
@@ -142,12 +189,12 @@ function buildBandColors(songs: SongData[]): Map<string, string> {
 // ─── Shared viz props ─────────────────────────────────────────────────────────
 
 interface VizProps {
-  songs:  SongData[];
-  axes:   Axis[];
-  style:  StudioStyle;
-  axisX:  Axis;
-  axisY:  Axis;
-  axisZ:  Axis;
+  songs:   SongData[];
+  fields:  StudioField[];  // active fields for multi-axis charts
+  style:   StudioStyle;
+  fieldX:  StudioField;
+  fieldY:  StudioField;
+  fieldZ:  StudioField;
 }
 
 function EmptyMsg({ msg }: { msg: string }) {
@@ -161,11 +208,11 @@ function EmptyMsg({ msg }: { msg: string }) {
 
 // ─── 1 · Radar ────────────────────────────────────────────────────────────────
 
-function RadarViz({ songs, axes, style }: VizProps) {
-  if (!songs.length || axes.length < 3) return <EmptyMsg msg="Select ≥ 3 axes and at least one song" />;
+function RadarViz({ songs, fields, style }: VizProps) {
+  if (!songs.length || fields.length < 3) return <EmptyMsg msg="Select ≥ 3 fields and at least one song" />;
   const cx = VW / 2, cy = VH / 2 + 12;
   const R  = Math.min(VW, VH) * 0.29;
-  const n  = axes.length;
+  const n  = fields.length;
 
   const pt = (i: number, r: number) => {
     const a = (i / n) * 2 * Math.PI - Math.PI / 2;
@@ -173,7 +220,7 @@ function RadarViz({ songs, axes, style }: VizProps) {
   };
 
   const polygon = (s: SongData) =>
-    axes.map((ax, i) => { const p = pt(i, ((s.scores?.[ax] ?? 0) / 10) * R); return `${p.x},${p.y}`; }).join(' ');
+    fields.map((f, i) => { const p = pt(i, (norm(s, f) / 10) * R); return `${p.x},${p.y}`; }).join(' ');
 
   const bcm   = buildBandColors(songs);
   const shown = songs.slice(0, 12);
@@ -183,10 +230,10 @@ function RadarViz({ songs, axes, style }: VizProps) {
     <g>
       {style.showGrid && rings.map((v) => (
         <polygon key={v}
-          points={axes.map((_, i) => { const p = pt(i, v * R); return `${p.x},${p.y}`; }).join(' ')}
+          points={fields.map((_, i) => { const p = pt(i, v * R); return `${p.x},${p.y}`; }).join(' ')}
           fill="none" stroke={style.gridColor} strokeOpacity={0.09} strokeWidth={1} />
       ))}
-      {axes.map((_, i) => { const tip = pt(i, R); return (
+      {fields.map((_, i) => { const tip = pt(i, R); return (
         <line key={i} x1={cx} y1={cy} x2={tip.x} y2={tip.y}
           stroke={style.gridColor} strokeOpacity={0.14} strokeWidth={1} />
       ); })}
@@ -197,12 +244,12 @@ function RadarViz({ songs, axes, style }: VizProps) {
             fontSize={9} fontFamily="Inter, system-ui">{v * 10}</text>
         );
       })}
-      {style.showLabels && axes.map((ax, i) => {
+      {style.showLabels && fields.map((f, i) => {
         const p = pt(i, R + 22);
         return (
-          <text key={ax} x={p.x} y={p.y} textAnchor="middle" dominantBaseline="middle"
-            fill={axColor(style, ax)} fontSize={11} fontWeight="700" fontFamily="Inter, system-ui">
-            {AXIS_LABEL[ax]}
+          <text key={f.id} x={p.x} y={p.y} textAnchor="middle" dominantBaseline="middle"
+            fill={fieldColor(f)} fontSize={11} fontWeight="700" fontFamily="Inter, system-ui">
+            {f.short}
           </text>
         );
       })}
@@ -218,19 +265,19 @@ function RadarViz({ songs, axes, style }: VizProps) {
   );
 }
 
-// ─── 2 · Columns (vertical) ───────────────────────────────────────────────────
+// ─── 2 · Columns (vertical grouped bars) ─────────────────────────────────────
 
-function ColumnsViz({ songs, axes, style }: VizProps) {
-  if (!songs.length || !axes.length) return <EmptyMsg msg="Select artists and axes" />;
+function ColumnsViz({ songs, fields, style }: VizProps) {
+  if (!songs.length || !fields.length) return <EmptyMsg msg="Select artists and fields" />;
   const shown = songs.slice(0, 20);
   const pad   = { t: 55, b: 70, l: 36, r: 16 };
   const cw    = VW - pad.l - pad.r;
   const ch    = VH - pad.t - pad.b;
   const nS    = shown.length;
-  const nA    = axes.length;
+  const nF    = fields.length;
   const gW    = cw / nS;
-  const barW  = Math.max(3, (gW * 0.82) / nA);
-  const gap   = Math.max(0, (gW * 0.82 - barW * nA) / Math.max(1, nA - 1));
+  const barW  = Math.max(3, (gW * 0.82) / nF);
+  const gap   = Math.max(0, (gW * 0.82 - barW * nF) / Math.max(1, nF - 1));
   const gPad  = gW * 0.09;
 
   return (
@@ -252,18 +299,19 @@ function ColumnsViz({ songs, axes, style }: VizProps) {
         const gx = si * gW + gPad;
         return (
           <g key={song.id}>
-            {axes.map((ax, ai) => {
-              const val = song.scores?.[ax] ?? 0;
+            {fields.map((f, fi) => {
+              const val = norm(song, f);
               const bh  = (val / 10) * ch;
-              const bx  = gx + ai * (barW + gap);
-              const col = axColor(style, ax);
+              const bx  = gx + fi * (barW + gap);
               return (
-                <g key={ax}>
+                <g key={f.id}>
                   <rect x={bx} y={ch - bh} width={barW} height={Math.max(1, bh)}
-                    fill={col} opacity={0.85} rx={2} />
+                    fill={fieldColor(f)} opacity={0.85} rx={2} />
                   {style.showLabels && bh > 16 && (
                     <text x={bx + barW / 2} y={ch - bh + 10} textAnchor="middle"
-                      fill="#fff" opacity={0.75} fontSize={8} fontFamily="Inter, system-ui">{val}</text>
+                      fill="#fff" opacity={0.75} fontSize={8} fontFamily="Inter, system-ui">
+                      {val.toFixed(1)}
+                    </text>
                   )}
                 </g>
               );
@@ -283,18 +331,18 @@ function ColumnsViz({ songs, axes, style }: VizProps) {
 
 // ─── 3 · Bars (horizontal) ────────────────────────────────────────────────────
 
-function BarsViz({ songs, axes, style }: VizProps) {
-  if (!songs.length || !axes.length) return <EmptyMsg msg="Select artists and axes" />;
+function BarsViz({ songs, fields, style }: VizProps) {
+  if (!songs.length || !fields.length) return <EmptyMsg msg="Select artists and fields" />;
   const shown = songs.slice(0, 18);
   const labW  = 108;
   const pad   = { t: 48, b: 28, l: labW + 8, r: 24 };
   const cw    = VW - pad.l - pad.r;
   const ch    = VH - pad.t - pad.b;
   const nS    = shown.length;
-  const nA    = axes.length;
+  const nF    = fields.length;
   const gH    = ch / nS;
-  const barH  = Math.max(3, (gH * 0.82) / nA);
-  const gap   = Math.max(0, (gH * 0.82 - barH * nA) / Math.max(1, nA - 1));
+  const barH  = Math.max(3, (gH * 0.82) / nF);
+  const gap   = Math.max(0, (gH * 0.82 - barH * nF) / Math.max(1, nF - 1));
   const gPad  = gH * 0.09;
 
   return (
@@ -322,18 +370,19 @@ function BarsViz({ songs, axes, style }: VizProps) {
                 {song.title.length > 14 ? song.title.slice(0, 13) + '…' : song.title}
               </text>
             )}
-            {axes.map((ax, ai) => {
-              const val = song.scores?.[ax] ?? 0;
+            {fields.map((f, fi) => {
+              const val = norm(song, f);
               const bw  = (val / 10) * cw;
-              const by  = gy + ai * (barH + gap);
-              const col = axColor(style, ax);
+              const by  = gy + fi * (barH + gap);
               return (
-                <g key={ax}>
+                <g key={f.id}>
                   <rect x={0} y={by} width={Math.max(1, bw)} height={barH}
-                    fill={col} opacity={0.85} rx={2} />
+                    fill={fieldColor(f)} opacity={0.85} rx={2} />
                   {style.showLabels && bw > 20 && (
                     <text x={bw - 4} y={by + barH / 2} textAnchor="end" dominantBaseline="middle"
-                      fill="#fff" opacity={0.75} fontSize={8} fontFamily="Inter, system-ui">{val}</text>
+                      fill="#fff" opacity={0.75} fontSize={8} fontFamily="Inter, system-ui">
+                      {val.toFixed(1)}
+                    </text>
                   )}
                 </g>
               );
@@ -345,18 +394,18 @@ function BarsViz({ songs, axes, style }: VizProps) {
   );
 }
 
-// ─── 4 · Waveform (multi-axis area chart) ────────────────────────────────────
+// ─── 4 · Waveform ─────────────────────────────────────────────────────────────
 
-function WaveformViz({ songs, axes, style }: VizProps) {
-  if (songs.length < 2 || !axes.length) return <EmptyMsg msg="Select ≥ 2 songs and at least one axis" />;
+function WaveformViz({ songs, fields, style }: VizProps) {
+  if (songs.length < 2 || !fields.length) return <EmptyMsg msg="Select ≥ 2 songs and at least one field" />;
   const pad  = { t: 52, b: 52, l: 32, r: 18 };
   const cw   = VW - pad.l - pad.r;
   const ch   = VH - pad.t - pad.b;
   const step = cw / (songs.length - 1);
 
-  const pts = (ax: Axis) => songs.map((s, i) => ({
+  const pts = (f: StudioField) => songs.map((s, i) => ({
     x: i * step,
-    y: ch - ((s.scores?.[ax] ?? 0) / 10) * ch,
+    y: ch - (norm(s, f) / 10) * ch,
   }));
 
   return (
@@ -374,9 +423,9 @@ function WaveformViz({ songs, axes, style }: VizProps) {
         );
       })}
       <line x1={0} y1={ch} x2={cw} y2={ch} stroke={style.gridColor} strokeOpacity={0.18} />
-      {axes.map((ax) => {
-        const points = pts(ax);
-        const col    = axColor(style, ax);
+      {fields.map((f) => {
+        const points = pts(f);
+        const col    = fieldColor(f);
         const linePath = points.map((p, i) => {
           if (i === 0) return `M ${p.x},${p.y}`;
           const prev = points[i - 1]!;
@@ -386,7 +435,7 @@ function WaveformViz({ songs, axes, style }: VizProps) {
         const first = points[0]!, last = points[points.length - 1]!;
         const areaPath = `${linePath} L ${last.x},${ch} L ${first.x},${ch} Z`;
         return (
-          <g key={ax}>
+          <g key={f.id}>
             <path d={areaPath} fill={hex2rgba(col, style.fillAlpha)} />
             <path d={linePath} fill="none" stroke={col} strokeWidth={style.lineWidth} strokeOpacity={0.9} />
             {points.map((p, i) => (
@@ -409,15 +458,15 @@ function WaveformViz({ songs, axes, style }: VizProps) {
 
 // ─── 5 · Oscilloscope (Lissajous) ────────────────────────────────────────────
 
-function OscilloscopeViz({ songs, style, axisX, axisY }: VizProps) {
+function OscilloscopeViz({ songs, style, fieldX, fieldY }: VizProps) {
   if (songs.length < 2) return <EmptyMsg msg="Select ≥ 2 songs for oscilloscope" />;
   const cx = VW / 2, cy = VH / 2;
   const R  = Math.min(VW, VH) * 0.38;
   const phColor = '#00ff88';
 
   const points = songs.map((s) => ({
-    x: cx + (((s.scores?.[axisX] ?? 5) - 5) / 5) * R,
-    y: cy - (((s.scores?.[axisY] ?? 5) - 5) / 5) * R,
+    x: cx + ((norm(s, fieldX) - 5) / 5) * R,
+    y: cy - ((norm(s, fieldY) - 5) / 5) * R,
   }));
 
   const linePath = points.map((p, i) => {
@@ -448,12 +497,9 @@ function OscilloscopeViz({ songs, style, axisX, axisY }: VizProps) {
             stroke={phColor} strokeOpacity={0.07} strokeWidth={1} />
         );
       })}
-      {/* Wide glow layer */}
       <path d={linePath} fill="none" stroke={phColor} strokeWidth={style.lineWidth * 4} opacity={0.12} />
-      {/* Sharp trace */}
       <path d={linePath} fill="none" stroke={phColor}
         strokeWidth={style.lineWidth} opacity={0.92} filter="url(#scopeGlow)" />
-      {/* Data dots */}
       {points.map((p, i) => (
         <circle key={i} cx={p.x} cy={p.y} r={style.dotRadius * 0.7}
           fill={phColor} opacity={0.65} filter="url(#scopeGlow)" />
@@ -462,11 +508,11 @@ function OscilloscopeViz({ songs, style, axisX, axisY }: VizProps) {
         <>
           <text x={cx + R + 6} y={cy + 4} dominantBaseline="middle"
             fill={phColor} opacity={0.5} fontSize={11} fontFamily="Inter, system-ui">
-            {AXIS_LABEL[axisX]} →
+            {fieldX.short} →
           </text>
           <text x={cx} y={cy - R - 10} textAnchor="middle"
             fill={phColor} opacity={0.5} fontSize={11} fontFamily="Inter, system-ui">
-            ↑ {AXIS_LABEL[axisY]}
+            ↑ {fieldY.short}
           </text>
         </>
       )}
@@ -476,7 +522,7 @@ function OscilloscopeViz({ songs, style, axisX, axisY }: VizProps) {
 
 // ─── 6 · Vectorscope (polar) ─────────────────────────────────────────────────
 
-function VectorscopeViz({ songs, style, axisX, axisY }: VizProps) {
+function VectorscopeViz({ songs, style, fieldX, fieldY }: VizProps) {
   const cx = VW / 2, cy = VH / 2;
   const R  = Math.min(VW, VH) * 0.36;
   const dotColor = '#00ccff';
@@ -505,18 +551,16 @@ function VectorscopeViz({ songs, style, axisX, axisY }: VizProps) {
       <circle cx={cx} cy={cy} r={R}
         fill="none" stroke={dotColor} strokeOpacity={0.2} strokeWidth={1.5} />
       {songs.map((s) => {
-        const xV  = s.scores?.[axisX] ?? 5;
-        const yV  = s.scores?.[axisY] ?? 5;
+        const xV  = norm(s, fieldX);
+        const yV  = norm(s, fieldY);
         const mag = Math.sqrt((xV - 5) ** 2 + (yV - 5) ** 2) / 7.07;
         const ang = Math.atan2(-(yV - 5), xV - 5);
         const px  = cx + mag * R * Math.cos(ang);
         const py  = cy + mag * R * Math.sin(ang);
         return (
           <g key={s.id}>
-            <circle cx={px} cy={py} r={style.dotRadius * 2.4}
-              fill={dotColor} opacity={0.1} />
-            <circle cx={px} cy={py} r={style.dotRadius}
-              fill={dotColor} opacity={0.75} filter="url(#vscopeGlow)" />
+            <circle cx={px} cy={py} r={style.dotRadius * 2.4} fill={dotColor} opacity={0.1} />
+            <circle cx={px} cy={py} r={style.dotRadius}       fill={dotColor} opacity={0.75} filter="url(#vscopeGlow)" />
           </g>
         );
       })}
@@ -524,11 +568,11 @@ function VectorscopeViz({ songs, style, axisX, axisY }: VizProps) {
         <>
           <text x={cx + R + 6} y={cy + 4} dominantBaseline="middle"
             fill={dotColor} opacity={0.45} fontSize={11} fontFamily="Inter, system-ui">
-            {AXIS_LABEL[axisX]} →
+            {fieldX.short} →
           </text>
           <text x={cx} y={cy - R - 10} textAnchor="middle"
             fill={dotColor} opacity={0.45} fontSize={11} fontFamily="Inter, system-ui">
-            ↑ {AXIS_LABEL[axisY]}
+            ↑ {fieldY.short}
           </text>
         </>
       )}
@@ -538,22 +582,22 @@ function VectorscopeViz({ songs, style, axisX, axisY }: VizProps) {
 
 // ─── 7 · Heatmap ─────────────────────────────────────────────────────────────
 
-function HeatmapViz({ songs, axes, style }: VizProps) {
-  if (!songs.length || !axes.length) return <EmptyMsg msg="Select artists and axes" />;
+function HeatmapViz({ songs, fields, style }: VizProps) {
+  if (!songs.length || !fields.length) return <EmptyMsg msg="Select artists and fields" />;
   const shown  = songs.slice(0, 30);
   const labW   = 112;
   const pad    = { t: 52, b: 16, l: labW, r: 16 };
   const cw     = VW - pad.l - pad.r;
   const ch     = VH - pad.t - pad.b;
-  const cellW  = cw / axes.length;
+  const cellW  = cw / fields.length;
   const cellH  = Math.min(28, ch / shown.length);
 
   return (
     <g transform={`translate(${pad.l},${pad.t})`}>
-      {axes.map((ax, i) => (
-        <text key={ax} x={i * cellW + cellW / 2} y={-9} textAnchor="middle"
-          fill={axColor(style, ax)} fontSize={10} fontWeight="700" fontFamily="Inter, system-ui">
-          {AXIS_LABEL[ax]}
+      {fields.map((f, i) => (
+        <text key={f.id} x={i * cellW + cellW / 2} y={-9} textAnchor="middle"
+          fill={fieldColor(f)} fontSize={10} fontWeight="700" fontFamily="Inter, system-ui">
+          {f.short}
         </text>
       ))}
       {shown.map((song, si) => (
@@ -564,21 +608,20 @@ function HeatmapViz({ songs, axes, style }: VizProps) {
               {song.title.length > 16 ? song.title.slice(0, 15) + '…' : song.title}
             </text>
           )}
-          {axes.map((ax, ai) => {
-            const val       = song.scores?.[ax] ?? 0;
+          {fields.map((f, fi) => {
+            const val       = norm(song, f);
             const intensity = val / 10;
-            const col       = axColor(style, ax);
             return (
-              <g key={ax}>
-                <rect x={ai * cellW + 1} y={si * cellH + 1}
+              <g key={f.id}>
+                <rect x={fi * cellW + 1} y={si * cellH + 1}
                   width={cellW - 2} height={cellH - 2}
-                  fill={hex2rgba(col, intensity * 0.88 + 0.04)} rx={2} />
+                  fill={hex2rgba(fieldColor(f), intensity * 0.88 + 0.04)} rx={2} />
                 {style.showLabels && cellH >= 14 && (
-                  <text x={ai * cellW + cellW / 2} y={si * cellH + cellH / 2}
+                  <text x={fi * cellW + cellW / 2} y={si * cellH + cellH / 2}
                     textAnchor="middle" dominantBaseline="middle"
                     fill="#fff" opacity={intensity > 0.35 ? 0.9 : 0.35}
                     fontSize={9} fontFamily="Inter, system-ui, monospace">
-                    {val}
+                    {val.toFixed(1)}
                   </text>
                 )}
               </g>
@@ -592,7 +635,7 @@ function HeatmapViz({ songs, axes, style }: VizProps) {
 
 // ─── 8 · Scatter ─────────────────────────────────────────────────────────────
 
-function ScatterViz({ songs, style, axisX, axisY }: VizProps) {
+function ScatterViz({ songs, style, fieldX, fieldY }: VizProps) {
   const pad = { t: 48, b: 58, l: 58, r: 28 };
   const cw  = VW - pad.l - pad.r;
   const ch  = VH - pad.t - pad.b;
@@ -604,10 +647,8 @@ function ScatterViz({ songs, style, axisX, axisY }: VizProps) {
     <g transform={`translate(${pad.l},${pad.t})`}>
       {style.showGrid && [2, 4, 6, 8, 10].map((v) => (
         <g key={v}>
-          <line x1={px(v)} y1={0} x2={px(v)} y2={ch}
-            stroke={style.gridColor} strokeOpacity={0.06} />
-          <line x1={0} y1={py(v)} x2={cw} y2={py(v)}
-            stroke={style.gridColor} strokeOpacity={0.06} />
+          <line x1={px(v)} y1={0} x2={px(v)} y2={ch} stroke={style.gridColor} strokeOpacity={0.06} />
+          <line x1={0} y1={py(v)} x2={cw}    y2={py(v)} stroke={style.gridColor} strokeOpacity={0.06} />
           {style.showLabels && (
             <>
               <text x={px(v)} y={ch + 14} textAnchor="middle"
@@ -619,10 +660,10 @@ function ScatterViz({ songs, style, axisX, axisY }: VizProps) {
         </g>
       ))}
       <line x1={0} y1={ch} x2={cw} y2={ch} stroke={style.gridColor} strokeOpacity={0.2} />
-      <line x1={0} y1={0} x2={0}  y2={ch}  stroke={style.gridColor} strokeOpacity={0.2} />
+      <line x1={0} y1={0} x2={0}   y2={ch} stroke={style.gridColor} strokeOpacity={0.2} />
       {songs.map((s) => {
-        const x   = px(s.scores?.[axisX] ?? 0);
-        const y   = py(s.scores?.[axisY] ?? 0);
+        const x   = px(norm(s, fieldX));
+        const y   = py(norm(s, fieldY));
         const col = bcm.get(s.bandId) ?? '#888';
         return (
           <g key={s.id}>
@@ -634,13 +675,13 @@ function ScatterViz({ songs, style, axisX, axisY }: VizProps) {
       {style.showLabels && (
         <>
           <text x={cw / 2} y={ch + 33} textAnchor="middle"
-            fill={axColor(style, axisX)} fontSize={12} fontWeight="600" fontFamily="Inter, system-ui">
-            {AXIS_LABEL[axisX]}
+            fill={fieldColor(fieldX)} fontSize={12} fontWeight="600" fontFamily="Inter, system-ui">
+            {fieldX.label}
           </text>
           <text x={-38} y={ch / 2} textAnchor="middle" dominantBaseline="middle"
-            fill={axColor(style, axisY)} fontSize={12} fontWeight="600" fontFamily="Inter, system-ui"
+            fill={fieldColor(fieldY)} fontSize={12} fontWeight="600" fontFamily="Inter, system-ui"
             transform={`rotate(-90,-38,${ch / 2})`}>
-            {AXIS_LABEL[axisY]}
+            {fieldY.label}
           </text>
         </>
       )}
@@ -650,25 +691,25 @@ function ScatterViz({ songs, style, axisX, axisY }: VizProps) {
 
 // ─── 9 · Pie / Donut ─────────────────────────────────────────────────────────
 
-function PieViz({ songs, axes, style }: VizProps) {
-  if (!songs.length || !axes.length) return <EmptyMsg msg="Select artists and axes" />;
+function PieViz({ songs, fields, style }: VizProps) {
+  if (!songs.length || !fields.length) return <EmptyMsg msg="Select artists and fields" />;
   const cx     = VW / 2, cy = VH / 2;
   const outerR = Math.min(VW, VH) * 0.33;
   const innerR = outerR * 0.48;
 
-  const avgs  = axes.map((ax) => ({
-    ax,
-    val: songs.reduce((s, song) => s + (song.scores?.[ax] ?? 0), 0) / songs.length,
+  const avgs  = fields.map((f) => ({
+    f,
+    val: songs.reduce((s, song) => s + norm(song, f), 0) / songs.length,
   }));
   const total = avgs.reduce((s, { val }) => s + val, 0);
-  if (total === 0) return <EmptyMsg msg="No scores available" />;
+  if (total === 0) return <EmptyMsg msg="No data available" />;
 
   let angle = -Math.PI / 2;
-  const slices = avgs.map(({ ax, val }) => {
+  const slices = avgs.map(({ f, val }) => {
     const sweep = (val / total) * 2 * Math.PI;
     const s = angle;
     angle += sweep;
-    return { ax, val, start: s, end: angle, sweep };
+    return { f, val, start: s, end: angle, sweep };
   });
 
   const arc = (s: number, e: number, oR: number, iR: number) => {
@@ -676,21 +717,21 @@ function PieViz({ songs, axes, style }: VizProps) {
     const x2 = cx + oR * Math.cos(e), y2 = cy + oR * Math.sin(e);
     const x3 = cx + iR * Math.cos(e), y3 = cy + iR * Math.sin(e);
     const x4 = cx + iR * Math.cos(s), y4 = cy + iR * Math.sin(s);
-    const lg = e - s > Math.PI ? 1 : 0;
+    const lg  = e - s > Math.PI ? 1 : 0;
     return `M ${x1},${y1} A ${oR},${oR} 0 ${lg} 1 ${x2},${y2} L ${x3},${y3} A ${iR},${iR} 0 ${lg} 0 ${x4},${y4} Z`;
   };
 
   return (
     <g>
-      {slices.map(({ ax, val, start, end, sweep }) => {
-        const col = axColor(style, ax);
+      {slices.map(({ f, val, start, end, sweep }) => {
+        const col = fieldColor(f);
         const mid = start + sweep / 2;
         const lR  = outerR + 22;
         const lx  = cx + lR * Math.cos(mid);
         const ly  = cy + lR * Math.sin(mid);
         const pct = Math.round((val / total) * 100);
         return (
-          <g key={ax}>
+          <g key={f.id}>
             <path d={arc(start, end, outerR, innerR)}
               fill={col} opacity={0.88} stroke={style.bg} strokeWidth={2} />
             {style.showLabels && sweep > 0.28 && (
@@ -698,7 +739,7 @@ function PieViz({ songs, axes, style }: VizProps) {
                 textAnchor={Math.cos(mid) > 0 ? 'start' : 'end'}
                 dominantBaseline="middle"
                 fill={col} fontSize={11} fontWeight="600" fontFamily="Inter, system-ui">
-                {AXIS_LABEL[ax]} {pct}%
+                {f.short} {pct}%
               </text>
             )}
           </g>
@@ -716,7 +757,7 @@ function PieViz({ songs, axes, style }: VizProps) {
 
 // ─── 10 · Bubble ─────────────────────────────────────────────────────────────
 
-function BubbleViz({ songs, style, axisX, axisY, axisZ }: VizProps) {
+function BubbleViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
   const pad   = { t: 48, b: 58, l: 58, r: 28 };
   const cw    = VW - pad.l - pad.r;
   const ch    = VH - pad.t - pad.b;
@@ -730,18 +771,16 @@ function BubbleViz({ songs, style, axisX, axisY, axisZ }: VizProps) {
     <g transform={`translate(${pad.l},${pad.t})`}>
       {style.showGrid && [2, 4, 6, 8, 10].map((v) => (
         <g key={v}>
-          <line x1={px(v)} y1={0} x2={px(v)} y2={ch}
-            stroke={style.gridColor} strokeOpacity={0.06} />
-          <line x1={0} y1={py(v)} x2={cw} y2={py(v)}
-            stroke={style.gridColor} strokeOpacity={0.06} />
+          <line x1={px(v)} y1={0} x2={px(v)} y2={ch} stroke={style.gridColor} strokeOpacity={0.06} />
+          <line x1={0} y1={py(v)} x2={cw} y2={py(v)} stroke={style.gridColor} strokeOpacity={0.06} />
         </g>
       ))}
       <line x1={0} y1={ch} x2={cw} y2={ch} stroke={style.gridColor} strokeOpacity={0.2} />
-      <line x1={0} y1={0} x2={0}  y2={ch}  stroke={style.gridColor} strokeOpacity={0.2} />
+      <line x1={0} y1={0} x2={0}   y2={ch} stroke={style.gridColor} strokeOpacity={0.2} />
       {songs.map((s) => {
-        const x   = px(s.scores?.[axisX] ?? 0);
-        const y   = py(s.scores?.[axisY] ?? 0);
-        const r   = pr(s.scores?.[axisZ] ?? 0);
+        const x   = px(norm(s, fieldX));
+        const y   = py(norm(s, fieldY));
+        const r   = pr(norm(s, fieldZ));
         const col = bcm.get(s.bandId) ?? '#888';
         return (
           <circle key={s.id} cx={x} cy={y} r={r}
@@ -752,17 +791,17 @@ function BubbleViz({ songs, style, axisX, axisY, axisZ }: VizProps) {
       {style.showLabels && (
         <>
           <text x={cw / 2} y={ch + 33} textAnchor="middle"
-            fill={axColor(style, axisX)} fontSize={12} fontWeight="600" fontFamily="Inter, system-ui">
-            {AXIS_LABEL[axisX]}
+            fill={fieldColor(fieldX)} fontSize={12} fontWeight="600" fontFamily="Inter, system-ui">
+            {fieldX.label}
           </text>
           <text x={-38} y={ch / 2} textAnchor="middle" dominantBaseline="middle"
-            fill={axColor(style, axisY)} fontSize={12} fontWeight="600" fontFamily="Inter, system-ui"
+            fill={fieldColor(fieldY)} fontSize={12} fontWeight="600" fontFamily="Inter, system-ui"
             transform={`rotate(-90,-38,${ch / 2})`}>
-            {AXIS_LABEL[axisY]}
+            {fieldY.label}
           </text>
           <text x={cw - 4} y={12} textAnchor="end"
-            fill={axColor(style, axisZ)} opacity={0.5} fontSize={10} fontFamily="Inter, system-ui">
-            size: {AXIS_LABEL[axisZ]}
+            fill={fieldColor(fieldZ)} opacity={0.5} fontSize={10} fontFamily="Inter, system-ui">
+            size: {fieldZ.label}
           </text>
         </>
       )}
@@ -799,6 +838,137 @@ function SliderRow({ label, value, min, max, step, format, onChange }: {
   );
 }
 
+// ─── Field Browser (left sidebar section) ────────────────────────────────────
+
+function FieldBrowser({
+  activeFieldIds, onToggle, onSelectGroup,
+}: {
+  activeFieldIds: string[];
+  onToggle: (id: string) => void;
+  onSelectGroup: (group: string) => void;
+}) {
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set(['Spectrum']));
+
+  const toggle = (g: string) =>
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(g)) next.delete(g); else next.add(g);
+      return next;
+    });
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-white/35">Fields</span>
+        <span className="text-white/20 text-[10px]">{activeFieldIds.length} active</span>
+      </div>
+
+      {FIELD_GROUPS.map((group) => {
+        const groupFields = FIELD_CATALOG.filter((f) => f.group === group);
+        const isOpen      = openGroups.has(group);
+        const activeCount = groupFields.filter((f) => activeFieldIds.includes(f.id)).length;
+
+        return (
+          <div key={group} className="mb-1">
+            {/* Group header */}
+            <div className="flex items-center justify-between py-1 cursor-pointer select-none"
+              onClick={() => toggle(group)}>
+              <div className="flex items-center gap-1.5">
+                <span className="text-white/20 text-[10px] w-3">{isOpen ? '▾' : '▸'}</span>
+                <span className="text-white/60 text-[11px] font-medium">{group}</span>
+                {activeCount > 0 && (
+                  <span className="text-indigo-400 text-[9px] font-mono">({activeCount})</span>
+                )}
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); onSelectGroup(group); }}
+                className="text-[9px] text-white/25 hover:text-indigo-400 transition-colors px-1"
+                title="Toggle all in group">
+                all
+              </button>
+            </div>
+
+            {/* Fields list */}
+            {isOpen && (
+              <div className="pl-4 space-y-0.5">
+                {groupFields.map((f) => {
+                  const on = activeFieldIds.includes(f.id);
+                  return (
+                    <label key={f.id} className="flex items-center gap-2 cursor-pointer group py-0.5">
+                      <input type="checkbox" className="accent-indigo-500 shrink-0"
+                        checked={on} onChange={() => onToggle(f.id)} />
+                      <span className="w-2 h-2 rounded-full shrink-0 inline-block"
+                        style={{ background: f.color, opacity: on ? 1 : 0.25 }} />
+                      <span className={`text-[11px] truncate transition-colors
+                        ${on ? 'text-white/80' : 'text-white/30 group-hover:text-white/55'}`}>
+                        {f.label}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+// ─── Axis Mapper — "patch bay" for 2D/3D chart axes ──────────────────────────
+
+function AxisMapper({
+  fieldX, fieldY, fieldZ,
+  setFieldX, setFieldY, setFieldZ,
+  needsZ,
+}: {
+  fieldX: StudioField; fieldY: StudioField; fieldZ: StudioField;
+  setFieldX: (f: StudioField) => void;
+  setFieldY: (f: StudioField) => void;
+  setFieldZ: (f: StudioField) => void;
+  needsZ: boolean;
+}) {
+  const slots: Array<{ label: string; field: StudioField; set: (f: StudioField) => void }> = [
+    { label: 'X axis', field: fieldX, set: setFieldX },
+    { label: 'Y axis', field: fieldY, set: setFieldY },
+    ...(needsZ ? [{ label: 'Size',   field: fieldZ, set: setFieldZ }] : []),
+  ];
+
+  return (
+    <section>
+      <div className="text-[10px] font-bold uppercase tracking-widest text-white/35 mb-2">
+        Axis Patch
+      </div>
+      <div className="space-y-2">
+        {slots.map(({ label, field, set }) => (
+          <div key={label}>
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: field.color }} />
+              <span className="text-[10px] text-white/40 font-medium">{label}</span>
+            </div>
+            <select
+              value={field.id}
+              onChange={(e) => {
+                const f = FIELD_MAP.get(e.target.value);
+                if (f) set(f);
+              }}
+              className="w-full bg-white/8 border border-white/10 rounded px-2 py-1.5 text-white text-[11px] cursor-pointer"
+            >
+              {FIELD_GROUPS.map((group) => (
+                <optgroup key={group} label={group}>
+                  {FIELD_CATALOG.filter((f) => f.group === group).map((f) => (
+                    <option key={f.id} value={f.id}>{f.label}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function SpectrumStudioPage() {
@@ -807,11 +977,12 @@ export default function SpectrumStudioPage() {
 
   const [vizType,        setVizType]        = useState<VizType>('radar');
   const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
-  const [selectedSongIds, setSelectedSongIds] = useState<string[]>([]);
-  const [selectedAxes,   setSelectedAxes]   = useState<Axis[]>([...AXES]);
-  const [axisX,          setAxisX]          = useState<Axis>('aggression');
-  const [axisY,          setAxisY]          = useState<Axis>('complexity');
-  const [axisZ,          setAxisZ]          = useState<Axis>('atmosphere');
+  // null = all songs; [] = none; string[] = explicit subset
+  const [songFilter,     setSongFilter]     = useState<string[] | null>(null);
+  const [activeFieldIds, setActiveFieldIds] = useState<string[]>(DEFAULT_ACTIVE);
+  const [fieldX,         setFieldX]         = useState<StudioField>(FIELD_CATALOG[0]!);
+  const [fieldY,         setFieldY]         = useState<StudioField>(FIELD_CATALOG[1]!);
+  const [fieldZ,         setFieldZ]         = useState<StudioField>(FIELD_CATALOG[2]!);
   const [style,          setStyle]          = useState<StudioStyle>(loadStyle);
   const [showStylePanel, setShowStylePanel] = useState(true);
   const [exportMsg,      setExportMsg]      = useState('');
@@ -832,17 +1003,35 @@ export default function SpectrumStudioPage() {
     enabled:  !!user?.isAdmin && selectedBandIds.length > 0,
   });
 
-  const scoredSongs = useMemo(() => (songsRaw ?? []).filter((s) => s.scores), [songsRaw]);
+  // Keep songFilter in sync when a new band is loaded — default to 'all'
+  const prevBandKey = useRef('');
+  const bandKey     = selectedBandIds.join(',');
+  useEffect(() => {
+    if (bandKey !== prevBandKey.current) {
+      setSongFilter(null);
+      prevBandKey.current = bandKey;
+    }
+  }, [bandKey]);
+
+  const allSongs = useMemo(() => songsRaw ?? [], [songsRaw]);
 
   const filteredSongs = useMemo(() => {
-    if (!selectedSongIds.length) return scoredSongs;
-    return scoredSongs.filter((s) => selectedSongIds.includes(s.id));
-  }, [scoredSongs, selectedSongIds]);
+    if (songFilter === null) return allSongs;
+    return allSongs.filter((s) => songFilter.includes(s.id));
+  }, [allSongs, songFilter]);
+
+  // The active fields as full objects for chart rendering
+  const activeFields = useMemo(
+    () => activeFieldIds.map((id) => FIELD_MAP.get(id)).filter((f): f is StudioField => !!f),
+    [activeFieldIds],
+  );
 
   const needsXY = ['oscilloscope', 'vectorscope', 'scatter', 'bubble'].includes(vizType);
   const needsZ  = vizType === 'bubble';
 
-  const vizProps: VizProps = { songs: filteredSongs, axes: selectedAxes, style, axisX, axisY, axisZ };
+  const vizProps: VizProps = {
+    songs: filteredSongs, fields: activeFields, style, fieldX, fieldY, fieldZ,
+  };
 
   function renderViz() {
     switch (vizType) {
@@ -853,9 +1042,9 @@ export default function SpectrumStudioPage() {
       case 'oscilloscope': return <OscilloscopeViz  {...vizProps} />;
       case 'vectorscope':  return <VectorscopeViz   {...vizProps} />;
       case 'heatmap':      return <HeatmapViz       {...vizProps} />;
-      case 'scatter':      return <ScatterViz        {...vizProps} />;
-      case 'pie':          return <PieViz            {...vizProps} />;
-      case 'bubble':       return <BubbleViz         {...vizProps} />;
+      case 'scatter':      return <ScatterViz       {...vizProps} />;
+      case 'pie':          return <PieViz           {...vizProps} />;
+      case 'bubble':       return <BubbleViz        {...vizProps} />;
     }
   }
 
@@ -892,18 +1081,45 @@ export default function SpectrumStudioPage() {
 
   const toggleBand = useCallback((id: string) => {
     setSelectedBandIds((p) => p.includes(id) ? p.filter((x) => x !== id) : [...p, id]);
-    setSelectedSongIds([]);
   }, []);
 
-  const toggleAxis = useCallback((ax: Axis) => {
-    setSelectedAxes((p) => p.includes(ax)
-      ? (p.length > 1 ? p.filter((x) => x !== ax) : p)
-      : [...p, ax]);
+  const toggleField = useCallback((id: string) => {
+    setActiveFieldIds((p) =>
+      p.includes(id)
+        ? p.length > 1 ? p.filter((x) => x !== id) : p   // always keep ≥1
+        : [...p, id]);
   }, []);
+
+  const toggleFieldGroup = useCallback((group: string) => {
+    const groupIds = FIELD_CATALOG.filter((f) => f.group === group).map((f) => f.id);
+    setActiveFieldIds((prev) => {
+      const allOn = groupIds.every((id) => prev.includes(id));
+      if (allOn) {
+        // Turn off all in group, but ensure at least one field remains
+        const remaining = prev.filter((id) => !groupIds.includes(id));
+        return remaining.length ? remaining : prev;
+      }
+      const next = [...prev];
+      for (const id of groupIds) if (!next.includes(id)) next.push(id);
+      return next;
+    });
+  }, []);
+
+  // Songs section helpers
+  const toggleSong = useCallback((id: string) => {
+    setSongFilter((prev) => {
+      if (prev === null) {
+        // Switch from "all" to explicit: include everything except this one
+        return allSongs.filter((s) => s.id !== id).map((s) => s.id);
+      }
+      return prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+    });
+  }, [allSongs]);
 
   const showLegendInSvg =
     style.showLegend &&
-    !['oscilloscope','vectorscope','scatter','bubble','pie','heatmap'].includes(vizType);
+    !['oscilloscope','vectorscope','scatter','bubble','pie','heatmap'].includes(vizType) &&
+    activeFields.length > 0;
 
   return (
     <div className="h-screen flex flex-col bg-gray-950 text-white overflow-hidden">
@@ -954,7 +1170,7 @@ export default function SpectrumStudioPage() {
       <div className="flex-1 flex min-h-0">
 
         {/* ── Left sidebar: data selection ───────────────────────── */}
-        <aside className="w-60 shrink-0 bg-gray-900/50 border-r border-white/10 overflow-y-auto">
+        <aside className="w-64 shrink-0 bg-gray-900/50 border-r border-white/10 overflow-y-auto">
           <div className="p-4 space-y-5 text-xs">
 
             {/* Artists */}
@@ -962,7 +1178,7 @@ export default function SpectrumStudioPage() {
               <div className="text-[10px] font-bold uppercase tracking-widest text-white/35 mb-2">Artists</div>
               {bandsData ? (
                 <>
-                  <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
+                  <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
                     {bandsData.map((b) => (
                       <label key={b.id} className="flex items-center gap-2 cursor-pointer group">
                         <input type="checkbox" className="accent-indigo-500"
@@ -975,48 +1191,63 @@ export default function SpectrumStudioPage() {
                     ))}
                   </div>
                   <div className="mt-1.5 flex gap-2">
-                    <button onClick={() => { setSelectedBandIds(bandsData.map((b) => b.id)); setSelectedSongIds([]); }}
-                      className="text-indigo-400 hover:text-indigo-200">All</button>
+                    <button onClick={() => setSelectedBandIds(bandsData.map((b) => b.id))}
+                      className="text-indigo-400 hover:text-indigo-200 text-[11px]">All</button>
                     <span className="text-white/20">·</span>
-                    <button onClick={() => { setSelectedBandIds([]); setSelectedSongIds([]); }}
-                      className="text-white/40 hover:text-white/70">None</button>
+                    <button onClick={() => setSelectedBandIds([])}
+                      className="text-white/40 hover:text-white/70 text-[11px]">None</button>
                   </div>
                 </>
               ) : <p className="text-white/25">Loading…</p>}
             </section>
 
             {/* Songs */}
-            {scoredSongs.length > 0 && (
+            {allSongs.length > 0 && (
               <section>
-                <div className="text-[10px] font-bold uppercase tracking-widest text-white/35 mb-2">
-                  Songs <span className="text-white/20 font-normal">({filteredSongs.length} / {scoredSongs.length} scored)</span>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-white/35">
+                    Songs
+                  </div>
+                  <span className="text-[10px] text-white/20">
+                    {filteredSongs.length}/{allSongs.length}
+                  </span>
                 </div>
-                <div className="flex gap-2 mb-1.5">
-                  <button onClick={() => setSelectedSongIds([])}
-                    className={`transition-colors ${!selectedSongIds.length ? 'text-indigo-400 font-semibold' : 'text-white/40 hover:text-white/70'}`}>
+
+                {/* Selection mode buttons */}
+                <div className="flex gap-2 mb-2">
+                  <button
+                    onClick={() => setSongFilter(null)}
+                    className={`text-[11px] transition-colors ${songFilter === null ? 'text-indigo-400 font-semibold' : 'text-white/40 hover:text-white/70'}`}>
                     All
                   </button>
                   <span className="text-white/20">·</span>
-                  <button onClick={() => setSelectedSongIds(scoredSongs.map((s) => s.id))}
-                    className="text-white/40 hover:text-white/70">Select all</button>
+                  <button
+                    onClick={() => setSongFilter([])}
+                    className={`text-[11px] transition-colors ${Array.isArray(songFilter) && songFilter.length === 0 ? 'text-white/70 font-semibold' : 'text-white/40 hover:text-white/70'}`}>
+                    None
+                  </button>
+                  <span className="text-white/20">·</span>
+                  <button
+                    onClick={() => setSongFilter(allSongs.map((s) => s.id))}
+                    className="text-[11px] text-white/40 hover:text-white/70">
+                    Select all
+                  </button>
                 </div>
+
                 <div className="max-h-52 overflow-y-auto space-y-0.5 pr-1">
-                  {scoredSongs.map((s) => {
-                    const on = !selectedSongIds.length || selectedSongIds.includes(s.id);
+                  {allSongs.map((s) => {
+                    const on = songFilter === null || songFilter.includes(s.id);
                     return (
                       <label key={s.id} className="flex items-center gap-2 cursor-pointer group">
                         <input type="checkbox" className="accent-indigo-500" checked={on}
-                          onChange={() => {
-                            if (!selectedSongIds.length) {
-                              setSelectedSongIds(scoredSongs.filter((x) => x.id !== s.id).map((x) => x.id));
-                            } else {
-                              setSelectedSongIds((p) =>
-                                p.includes(s.id) ? p.filter((x) => x !== s.id) : [...p, s.id]);
-                            }
-                          }} />
-                        <span className={`truncate ${on ? 'text-white/70' : 'text-white/25 group-hover:text-white/50'}`}>
+                          onChange={() => toggleSong(s.id)} />
+                        <span className={`truncate text-[11px] transition-colors
+                          ${on ? 'text-white/70' : 'text-white/25 group-hover:text-white/50'}`}>
                           {s.title}
                         </span>
+                        {!s.hasScore && (
+                          <span className="text-white/20 text-[9px] shrink-0">–</span>
+                        )}
                       </label>
                     );
                   })}
@@ -1024,54 +1255,20 @@ export default function SpectrumStudioPage() {
               </section>
             )}
 
-            {/* Axes */}
-            <section>
-              <div className="text-[10px] font-bold uppercase tracking-widest text-white/35 mb-2">Axes</div>
-              <div className="space-y-1.5">
-                {AXES.map((ax) => (
-                  <label key={ax} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" className="accent-indigo-500"
-                      checked={selectedAxes.includes(ax)}
-                      onChange={() => toggleAxis(ax)} />
-                    <span className="font-semibold" style={{ color: axColor(style, ax) }}>
-                      {AXIS_LABEL[ax]}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </section>
+            {/* Field browser */}
+            <FieldBrowser
+              activeFieldIds={activeFieldIds}
+              onToggle={toggleField}
+              onSelectGroup={toggleFieldGroup}
+            />
 
-            {/* X / Y / Z pickers for relevant viz types */}
+            {/* Axis patch — only for 2D/3D chart types */}
             {needsXY && (
-              <section>
-                <div className="text-[10px] font-bold uppercase tracking-widest text-white/35 mb-2">
-                  Plot Axes
-                </div>
-                <div className="space-y-2">
-                  {(['X','Y'] as const).map((lbl) => {
-                    const val = lbl === 'X' ? axisX : axisY;
-                    const set = lbl === 'X' ? setAxisX : setAxisY;
-                    return (
-                      <div key={lbl} className="flex items-center gap-2">
-                        <span className="text-white/40 w-4 shrink-0">{lbl}</span>
-                        <select value={val} onChange={(e) => set(e.target.value as Axis)}
-                          className="flex-1 bg-white/10 border border-white/10 rounded px-2 py-1 text-white text-xs">
-                          {AXES.map((ax) => <option key={ax} value={ax}>{AXIS_LABEL[ax]}</option>)}
-                        </select>
-                      </div>
-                    );
-                  })}
-                  {needsZ && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-white/40 w-4 shrink-0">S</span>
-                      <select value={axisZ} onChange={(e) => setAxisZ(e.target.value as Axis)}
-                        className="flex-1 bg-white/10 border border-white/10 rounded px-2 py-1 text-white text-xs">
-                        {AXES.map((ax) => <option key={ax} value={ax}>{AXIS_LABEL[ax]}</option>)}
-                      </select>
-                    </div>
-                  )}
-                </div>
-              </section>
+              <AxisMapper
+                fieldX={fieldX} fieldY={fieldY} fieldZ={fieldZ}
+                setFieldX={setFieldX} setFieldY={setFieldY} setFieldZ={setFieldZ}
+                needsZ={needsZ}
+              />
             )}
 
           </div>
@@ -1092,6 +1289,10 @@ export default function SpectrumStudioPage() {
                   style={{ animationDelay: `${i * 0.15}s` }} />
               ))}
             </div>
+          ) : !filteredSongs.length ? (
+            <div className="text-center text-white/25 select-none">
+              <p className="text-sm">No songs selected — use the Songs panel to pick some</p>
+            </div>
           ) : (
             <svg
               ref={svgRef}
@@ -1101,10 +1302,8 @@ export default function SpectrumStudioPage() {
               xmlns="http://www.w3.org/2000/svg"
               fontFamily="Inter, system-ui, sans-serif"
             >
-              {/* Background */}
               <rect width={VW} height={VH} fill={style.bg} rx={6} />
 
-              {/* Title */}
               {style.showTitle && (
                 <text x={VW / 2} y={26} textAnchor="middle"
                   fill={style.fg} fontSize={15} fontWeight="700"
@@ -1113,19 +1312,17 @@ export default function SpectrumStudioPage() {
                 </text>
               )}
 
-              {/* Visualisation */}
               {renderViz()}
 
               {/* Legend strip */}
               {showLegendInSvg && (
-                <g transform={`translate(${(VW - Math.min(selectedAxes.length, 6) * 108) / 2},${VH - 18})`}>
-                  {selectedAxes.slice(0, 6).map((ax, i) => (
-                    <g key={ax} transform={`translate(${i * 108},0)`}>
-                      <rect x={0} y={-6} width={10} height={10} rx={2}
-                        fill={axColor(style, ax)} />
+                <g transform={`translate(${(VW - Math.min(activeFields.length, 8) * 90) / 2},${VH - 18})`}>
+                  {activeFields.slice(0, 8).map((f, i) => (
+                    <g key={f.id} transform={`translate(${i * 90},0)`}>
+                      <rect x={0} y={-6} width={10} height={10} rx={2} fill={f.color} />
                       <text x={14} y={4} fill={style.fg} opacity={0.55}
                         fontSize={10} fontFamily="Inter, system-ui">
-                        {AXIS_LABEL[ax]}
+                        {f.short}
                       </text>
                     </g>
                   ))}
@@ -1146,7 +1343,6 @@ export default function SpectrumStudioPage() {
           <aside className="w-52 shrink-0 bg-gray-900/50 border-l border-white/10 overflow-y-auto">
             <div className="p-4 space-y-5 text-xs">
 
-              {/* Title */}
               <section>
                 <div className="text-[10px] font-bold uppercase tracking-widest text-white/35 mb-2">Chart Title</div>
                 <label className="flex items-center gap-2 mb-2">
@@ -1160,7 +1356,6 @@ export default function SpectrumStudioPage() {
                   className="w-full bg-white/8 border border-white/10 rounded px-2 py-1 text-white text-xs" />
               </section>
 
-              {/* Canvas colors */}
               <section>
                 <div className="text-[10px] font-bold uppercase tracking-widest text-white/35 mb-2">Canvas Colors</div>
                 <div className="space-y-2">
@@ -1173,21 +1368,29 @@ export default function SpectrumStudioPage() {
                 </div>
               </section>
 
-              {/* Axis colors */}
-              <section>
-                <div className="text-[10px] font-bold uppercase tracking-widest text-white/35 mb-2">Axis Colors</div>
-                <div className="space-y-2">
-                  {AXES.map((ax) => (
-                    <ColorRow key={ax} label={AXIS_LABEL[ax]}
-                      value={style.axisColors[ax] ?? BASE_AXIS_COLORS[ax] ?? '#888'}
-                      onChange={(v) => setStyle((s) => ({
-                        ...s, axisColors: { ...s.axisColors, [ax]: v },
-                      }))} />
-                  ))}
-                </div>
-              </section>
+              {/* Per-field colours — only active fields */}
+              {activeFields.length > 0 && (
+                <section>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-white/35 mb-2">
+                    Field Colors
+                  </div>
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {activeFields.map((f) => (
+                      <ColorRow key={f.id} label={f.short}
+                        value={f.color}
+                        onChange={(v) => {
+                          // Update the field's color in the catalog (mutation is fine here;
+                          // FIELD_CATALOG is module-scoped, not frozen)
+                          const entry = FIELD_MAP.get(f.id);
+                          if (entry) entry.color = v;
+                          // Force re-render by touching activeFieldIds
+                          setActiveFieldIds((p) => [...p]);
+                        }} />
+                    ))}
+                  </div>
+                </section>
+              )}
 
-              {/* Numeric sliders */}
               <section>
                 <div className="text-[10px] font-bold uppercase tracking-widest text-white/35 mb-3">Style Controls</div>
                 <div className="space-y-4">
@@ -1203,7 +1406,6 @@ export default function SpectrumStudioPage() {
                 </div>
               </section>
 
-              {/* Display toggles */}
               <section>
                 <div className="text-[10px] font-bold uppercase tracking-widest text-white/35 mb-2">Display</div>
                 <div className="space-y-2">
@@ -1222,7 +1424,6 @@ export default function SpectrumStudioPage() {
                 </div>
               </section>
 
-              {/* Quick presets */}
               <section>
                 <div className="text-[10px] font-bold uppercase tracking-widest text-white/35 mb-2">Presets</div>
                 <div className="grid grid-cols-2 gap-1.5">
@@ -1234,7 +1435,7 @@ export default function SpectrumStudioPage() {
                   ] as const).map(([name, vals]) => (
                     <button key={name}
                       onClick={() => setStyle((s) => ({ ...s, ...vals }))}
-                      className="py-1.5 bg-white/6 hover:bg-white/14 rounded text-white/50 hover:text-white transition-colors">
+                      className="py-1.5 bg-white/6 hover:bg-white/14 rounded text-white/50 hover:text-white transition-colors text-[11px]">
                       {name}
                     </button>
                   ))}
@@ -1242,7 +1443,7 @@ export default function SpectrumStudioPage() {
               </section>
 
               <button onClick={() => setStyle(DEFAULT_STYLE)}
-                className="w-full py-1.5 bg-white/5 hover:bg-white/10 rounded text-white/35 hover:text-white/65 transition-colors">
+                className="w-full py-1.5 bg-white/5 hover:bg-white/10 rounded text-white/35 hover:text-white/65 transition-colors text-[11px]">
                 Reset all defaults
               </button>
 
