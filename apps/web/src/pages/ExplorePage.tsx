@@ -278,11 +278,14 @@ export default function ExplorePage() {
   });
   const [showStylePanel, setShowStylePanel]     = useState(false);
   const [showAllLabels, setShowAllLabels]       = useState(false);
+  const [orbitSpeed, setOrbitSpeed]             = useState(0.004);
   const vStyleRef        = useRef<VisualStyle>(vStyle);
   const showAllLabelsRef = useRef(false);
   const selectedNodeIdRef = useRef<string | null>(null);
+  const orbitSpeedRef    = useRef(0.004);
 
   useEffect(() => { animPulseRef.current = animatePulse; }, [animatePulse]);
+  useEffect(() => { orbitSpeedRef.current = orbitSpeed; }, [orbitSpeed]);
 
   const { data: scopes } = useQuery({ queryKey: ['explore-scopes'], queryFn: fetchPublicScopes });
 
@@ -300,18 +303,21 @@ export default function ExplorePage() {
 
   function startOrbitAnimation(cy: Core) {
     orbitGenRef.current++;
+    // Snap back to bases before seeding new positions
     cy.batch(() => {
-      cy.nodes('[type = "artist"], [type = "album"]').forEach((n) => {
+      cy.nodes().forEach((n) => {
         const b = n.scratch('_orbitBase') as { x: number; y: number } | undefined;
         if (b) n.position(b);
       });
     });
     const gen = ++orbitGenRef.current;
-    cy.nodes('[type = "artist"], [type = "album"]').forEach((n) => { n.scratch('_orbitBase', { ...n.position() }); });
+    // Seed base positions for every node
+    cy.nodes().forEach((n) => { n.scratch('_orbitBase', { ...n.position() }); });
 
+    // When a user drags a node, update its orbit base so it stays where dropped
     const onFree = (evt: EventObject) => {
       const n = evt.target as NodeSingular;
-      if (['artist', 'album'].includes(n.data('type') as string)) n.scratch('_orbitBase', { ...n.position() });
+      n.scratch('_orbitBase', { ...n.position() });
     };
     cy.on('free', 'node', onFree);
 
@@ -321,21 +327,39 @@ export default function ExplorePage() {
         cy.off('free', 'node', onFree as (e: EventObject) => void);
         return;
       }
-      t += 0.004;
+      t += orbitSpeedRef.current;
       cy.batch(() => {
+        // Artists: broad elliptical drift — clearly visible
         cy.nodes('[type = "artist"]').forEach((n, i) => {
           if (n.grabbed() || n.locked()) return;
           const b = n.scratch('_orbitBase') as { x: number; y: number } | undefined;
           if (!b) return;
-          const φ = i * 2.399;
-          n.position({ x: b.x + Math.sin(t + φ) * 3.5, y: b.y + Math.cos(t * 0.71 + φ) * 2.5 });
+          const φ = i * 2.399; // golden-angle phase offset
+          n.position({ x: b.x + Math.sin(t + φ) * 14, y: b.y + Math.cos(t * 0.73 + φ) * 10 });
         });
+        // Albums: medium orbit, slower period
         cy.nodes('[type = "album"]').forEach((n, i) => {
           if (n.grabbed() || n.locked()) return;
           const b = n.scratch('_orbitBase') as { x: number; y: number } | undefined;
           if (!b) return;
           const φ = i * 1.618;
-          n.position({ x: b.x + Math.sin(t * 0.8 + φ) * 2, y: b.y + Math.cos(t * 0.55 + φ) * 1.5 });
+          n.position({ x: b.x + Math.sin(t * 0.82 + φ) * 7, y: b.y + Math.cos(t * 0.57 + φ) * 5 });
+        });
+        // Songs: subtle drift — makes the cloud feel alive
+        cy.nodes('[type = "song"]').forEach((n, i) => {
+          if (n.grabbed() || n.locked()) return;
+          const b = n.scratch('_orbitBase') as { x: number; y: number } | undefined;
+          if (!b) return;
+          const φ = i * 0.917;
+          n.position({ x: b.x + Math.sin(t * 0.61 + φ) * 3, y: b.y + Math.cos(t * 0.44 + φ) * 2.2 });
+        });
+        // Themes / keywords / tags: very gentle shimmer
+        cy.nodes('[type = "theme"],[type = "keyword"],[type = "tag"]').forEach((n, i) => {
+          if (n.grabbed() || n.locked()) return;
+          const b = n.scratch('_orbitBase') as { x: number; y: number } | undefined;
+          if (!b) return;
+          const φ = i * 1.2;
+          n.position({ x: b.x + Math.sin(t * 0.4 + φ) * 1.8, y: b.y + Math.cos(t * 0.3 + φ) * 1.4 });
         });
       });
       requestAnimationFrame(tick);
@@ -346,7 +370,7 @@ export default function ExplorePage() {
   function stopOrbit(cy: Core) {
     orbitGenRef.current++;
     cy.batch(() => {
-      cy.nodes('[type = "artist"], [type = "album"]').forEach((n) => {
+      cy.nodes().forEach((n) => {
         const b = n.scratch('_orbitBase') as { x: number; y: number } | undefined;
         if (b) n.position(b);
       });
@@ -381,6 +405,11 @@ export default function ExplorePage() {
     const sz = vStyleRef.current.sizeArtist;
     cy.nodes('[type = "artist"]').stop(true).style({ width: sz, height: sz });
     stopOrbit(cy);
+    // Reset song/album/theme positions to their bases
+    cy.nodes('[type = "song"],[type = "album"],[type = "theme"],[type = "keyword"],[type = "tag"]').forEach((n) => {
+      const b = n.scratch('_orbitBase') as { x: number; y: number } | undefined;
+      if (b) n.position(b);
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -549,9 +578,233 @@ export default function ExplorePage() {
 
     // Pre-seed orbit bases with new radial positions so the animation restore
     // step doesn't snap artist/album nodes back to the old COSE positions.
-    cy.nodes('[type = "artist"], [type = "album"]').forEach((n) => {
-      n.scratch('_orbitBase', { ...n.position() });
+    cy.nodes().forEach((n) => { n.scratch('_orbitBase', { ...n.position() }); });
+    cy.fit(undefined, 60);
+    setTimeout(() => {
+      if (!cy.destroyed()) {
+        layoutReadyRef.current = true;
+        updateFontSizes(cy, vStyleRef.current.labelWrapWidth);
+        if (animPulseRef.current) startPulse(cy);
+      }
+    }, 80);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Theme Constellation layout — each theme is a hub, songs ring around it
+  // ---------------------------------------------------------------------------
+
+  function runThemeLayout(cy: Core) {
+    const TWO_PI = Math.PI * 2;
+    const themeNodes = cy.nodes('[type = "theme"]');
+
+    if (themeNodes.length === 0) {
+      layoutReadyRef.current = true;
+      updateFontSizes(cy, vStyleRef.current.labelWrapWidth);
+      if (animPulseRef.current) startPulse(cy);
+      return;
+    }
+
+    // Sort themes by how many songs connect to them
+    const themesRanked = themeNodes.toArray().map((n) => ({
+      node: n,
+      songCount: n.neighborhood('node[type = "song"]').length,
+    })).sort((a, b) => b.songCount - a.songCount);
+
+    const nThemes = themesRanked.length;
+    const THEME_R = Math.max(220, nThemes * 55);
+
+    // Arrange themes in a circle
+    themesRanked.forEach(({ node }, i) => {
+      const angle = (i / nThemes) * TWO_PI - Math.PI / 2;
+      node.position({ x: THEME_R * Math.cos(angle), y: THEME_R * Math.sin(angle) });
     });
+
+    // Place songs in rings around their primary theme (most-connected)
+    const songTheme = new Map<string, string>(); // songId → themeId
+    // Two passes: first count connections per song per theme, then assign
+    cy.nodes('[type = "song"]').forEach((songNode) => {
+      let bestTheme = '', bestCount = 0;
+      cy.nodes('[type = "theme"]').forEach((t) => {
+        const connected = t.neighborhood(`#${CSS.escape(songNode.id())}`).length;
+        if (connected > bestCount) { bestCount = connected; bestTheme = t.id(); }
+      });
+      if (bestTheme) songTheme.set(songNode.id(), bestTheme);
+    });
+
+    // Group songs per theme
+    const themeGroups = new Map<string, NodeSingular[]>();
+    cy.nodes('[type = "song"]').forEach((n) => {
+      const tid = songTheme.get(n.id());
+      if (!tid) return;
+      const arr = themeGroups.get(tid) ?? [];
+      arr.push(n);
+      themeGroups.set(tid, arr);
+    });
+
+    themeGroups.forEach((songs, themeId) => {
+      const themeNode = cy.$(`#${CSS.escape(themeId)}`);
+      if (!themeNode.length) return;
+      const { x: tx, y: ty } = themeNode.position();
+      const SONG_R = Math.max(70, (songs.length * 32) / TWO_PI);
+      songs.forEach((s, si) => {
+        const angle = (si / Math.max(1, songs.length)) * TWO_PI - Math.PI / 2;
+        s.position({ x: tx + SONG_R * Math.cos(angle), y: ty + SONG_R * Math.sin(angle) });
+      });
+    });
+
+    // Songs not assigned to any theme: cluster at origin
+    let orphanIdx = 0;
+    cy.nodes('[type = "song"]').forEach((n) => {
+      if (!songTheme.has(n.id())) {
+        const angle = (orphanIdx * 137.5 * Math.PI) / 180;
+        n.position({ x: Math.cos(angle) * 50, y: Math.sin(angle) * 50 });
+        orphanIdx++;
+      }
+    });
+
+    cy.nodes().forEach((n) => { n.scratch('_orbitBase', { ...n.position() }); });
+    cy.fit(undefined, 60);
+    setTimeout(() => {
+      if (!cy.destroyed()) {
+        layoutReadyRef.current = true;
+        updateFontSizes(cy, vStyleRef.current.labelWrapWidth);
+        if (animPulseRef.current) startPulse(cy);
+      }
+    }, 80);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Emotional Similarity layout — emotion anchors as pentagon, songs cluster near dominant
+  // ---------------------------------------------------------------------------
+
+  function runEmotionalLayout(cy: Core) {
+    const TWO_PI = Math.PI * 2;
+    const emotionNodes = cy.nodes('[type = "emotion"]');
+    const ANCHOR_R = 320;
+
+    // Place emotion anchors in a regular polygon (pentagon for 5)
+    const nEmotions = emotionNodes.length;
+    emotionNodes.forEach((n, i) => {
+      const angle = (i / Math.max(1, nEmotions)) * TWO_PI - Math.PI / 2;
+      n.position({ x: ANCHOR_R * Math.cos(angle), y: ANCHOR_R * Math.sin(angle) });
+    });
+
+    // Group songs by their connected emotion anchor
+    const emotionGroups = new Map<string, NodeSingular[]>();
+    cy.nodes('[type = "song"]').forEach((songNode) => {
+      // Find the emotion node this song connects to
+      const anchor = songNode
+        .connectedEdges('[edgeType = "similar_radar"]')
+        .targets('[type = "emotion"]');
+      const anchorId = anchor.length > 0 ? anchor[0]!.id() : null;
+      if (anchorId) {
+        const arr = emotionGroups.get(anchorId) ?? [];
+        arr.push(songNode);
+        emotionGroups.set(anchorId, arr);
+      }
+    });
+
+    emotionGroups.forEach((songs, anchorId) => {
+      const anchor = cy.$(`#${CSS.escape(anchorId)}`);
+      if (!anchor.length) return;
+      const { x: ax, y: ay } = anchor.position();
+      const SONG_R = Math.max(80, (songs.length * 28) / TWO_PI);
+      songs.forEach((s, si) => {
+        const angle = (si / Math.max(1, songs.length)) * TWO_PI - Math.PI / 2;
+        s.position({ x: ax + SONG_R * Math.cos(angle), y: ay + SONG_R * Math.sin(angle) });
+      });
+    });
+
+    // Orphan songs (no dominant emotion) — place in center
+    let orphanIdx = 0;
+    cy.nodes('[type = "song"]').forEach((n) => {
+      const hasAnchor = n.connectedEdges('[edgeType = "similar_radar"]').targets('[type = "emotion"]').length > 0;
+      if (!hasAnchor) {
+        const angle = (orphanIdx * 137.5 * Math.PI) / 180;
+        n.position({ x: Math.cos(angle) * 60, y: Math.sin(angle) * 60 });
+        orphanIdx++;
+      }
+    });
+
+    cy.nodes().forEach((n) => { n.scratch('_orbitBase', { ...n.position() }); });
+    cy.fit(undefined, 60);
+    setTimeout(() => {
+      if (!cy.destroyed()) {
+        layoutReadyRef.current = true;
+        updateFontSizes(cy, vStyleRef.current.labelWrapWidth);
+        if (animPulseRef.current) startPulse(cy);
+      }
+    }, 80);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lyrical DNA layout — keywords as hubs, songs ring around them
+  // ---------------------------------------------------------------------------
+
+  function runLyricalLayout(cy: Core) {
+    const TWO_PI = Math.PI * 2;
+    const kwNodes = cy.nodes('[type = "keyword"]');
+
+    if (kwNodes.length === 0) {
+      layoutReadyRef.current = true;
+      if (animPulseRef.current) startPulse(cy);
+      return;
+    }
+
+    const kwRanked = kwNodes.toArray().map((n) => ({
+      node: n,
+      songCount: n.neighborhood('node[type = "song"]').length,
+    })).sort((a, b) => b.songCount - a.songCount);
+
+    const nKw = kwRanked.length;
+    const KW_R = Math.max(200, nKw * 48);
+
+    kwRanked.forEach(({ node }, i) => {
+      const angle = (i / nKw) * TWO_PI - Math.PI / 2;
+      node.position({ x: KW_R * Math.cos(angle), y: KW_R * Math.sin(angle) });
+    });
+
+    // Assign each song to its most-connected keyword
+    const songKw = new Map<string, string>();
+    cy.nodes('[type = "song"]').forEach((songNode) => {
+      let bestKw = '', bestCount = 0;
+      kwNodes.forEach((k) => {
+        const connected = k.neighborhood(`#${CSS.escape(songNode.id())}`).length;
+        if (connected > bestCount) { bestCount = connected; bestKw = k.id(); }
+      });
+      if (bestKw) songKw.set(songNode.id(), bestKw);
+    });
+
+    const kwGroups = new Map<string, NodeSingular[]>();
+    cy.nodes('[type = "song"]').forEach((n) => {
+      const kid = songKw.get(n.id());
+      if (!kid) return;
+      const arr = kwGroups.get(kid) ?? [];
+      arr.push(n);
+      kwGroups.set(kid, arr);
+    });
+
+    kwGroups.forEach((songs, kwId) => {
+      const kwNode = cy.$(`#${CSS.escape(kwId)}`);
+      if (!kwNode.length) return;
+      const { x: kx, y: ky } = kwNode.position();
+      const SONG_R = Math.max(60, (songs.length * 28) / TWO_PI);
+      songs.forEach((s, si) => {
+        const angle = (si / Math.max(1, songs.length)) * TWO_PI - Math.PI / 2;
+        s.position({ x: kx + SONG_R * Math.cos(angle), y: ky + SONG_R * Math.sin(angle) });
+      });
+    });
+
+    let orphanIdx = 0;
+    cy.nodes('[type = "song"]').forEach((n) => {
+      if (!songKw.has(n.id())) {
+        const angle = (orphanIdx * 137.5 * Math.PI) / 180;
+        n.position({ x: Math.cos(angle) * 50, y: Math.sin(angle) * 50 });
+        orphanIdx++;
+      }
+    });
+
+    cy.nodes().forEach((n) => { n.scratch('_orbitBase', { ...n.position() }); });
     cy.fit(undefined, 60);
     setTimeout(() => {
       if (!cy.destroyed()) {
@@ -577,7 +830,7 @@ export default function ExplorePage() {
       container: containerRef.current,
       elements,
       style: buildCyStyle(vStyle) as unknown as cytoscape.StylesheetStyle[],
-      layout: { name: 'cose', nodeRepulsion: () => 15000, edgeElasticity: () => 45, idealEdgeLength: () => 80, gravity: 0.8, animate: true, animationDuration: 700, fit: true, padding: 40 } as cytoscape.LayoutOptions,
+      layout: { name: 'cose', nodeRepulsion: () => 15000, edgeElasticity: () => 45, idealEdgeLength: () => 80, gravity: 0.8, animate: false, fit: true, padding: 40 } as cytoscape.LayoutOptions,
       minZoom: 0.1, maxZoom: 6,
     });
 
@@ -605,14 +858,20 @@ export default function ExplorePage() {
     });
 
     cy.one('layoutstop', () => {
-      if (!cy.destroyed()) {
-        updateFontSizes(cy, vStyleRef.current.labelWrapWidth);
-        if (preset === 'artist-universe') {
-          runClusterLayout(cy); // sets layoutReadyRef.current = true internally
-        } else {
-          layoutReadyRef.current = true;
-          if (animPulseRef.current) startPulse(cy);
-        }
+      if (cy.destroyed()) return;
+      updateFontSizes(cy, vStyleRef.current.labelWrapWidth);
+      // Each layout function sets layoutReadyRef.current = true and calls startPulse
+      if (preset === 'artist-universe') {
+        runClusterLayout(cy);
+      } else if (preset === 'theme-constellation') {
+        runThemeLayout(cy);
+      } else if (preset === 'emotional-similarity') {
+        runEmotionalLayout(cy);
+      } else if (preset === 'lyrical-dna') {
+        runLyricalLayout(cy);
+      } else {
+        layoutReadyRef.current = true;
+        if (animPulseRef.current) startPulse(cy);
       }
     });
 
@@ -801,7 +1060,14 @@ export default function ExplorePage() {
               <div className="text-xs font-semibold text-white/40 uppercase tracking-wider">Arrange</div>
               <button
                 className="w-full px-2 py-1.5 bg-indigo-700 hover:bg-indigo-600 text-xs text-white rounded transition-colors"
-                onClick={() => cyRef.current && runClusterLayout(cyRef.current)}
+                onClick={() => {
+                  const cy = cyRef.current;
+                  if (!cy) return;
+                  if (preset === 'theme-constellation') runThemeLayout(cy);
+                  else if (preset === 'emotional-similarity') runEmotionalLayout(cy);
+                  else if (preset === 'lyrical-dna') runLyricalLayout(cy);
+                  else runClusterLayout(cy);
+                }}
               >
                 Cluster (radial)
               </button>
@@ -822,6 +1088,17 @@ export default function ExplorePage() {
                 <input type="checkbox" checked={animatePulse} onChange={(e) => setAnimatePulse(e.target.checked)} className="accent-indigo-500" />
                 <span className={`text-xs ${animatePulse ? 'text-white/70' : 'text-white/30'}`}>Animate</span>
               </label>
+              {animatePulse && (
+                <div className="pl-5">
+                  <StyleSlider
+                    label="Orbit speed"
+                    value={orbitSpeed}
+                    min={0.001} max={0.016} step={0.001}
+                    onChange={setOrbitSpeed}
+                    format={(v) => v <= 0.002 ? 'Slow' : v >= 0.012 ? 'Fast' : `${Math.round(v / 0.004 * 100)}%`}
+                  />
+                </div>
+              )}
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={showTags} onChange={(e) => setShowTags(e.target.checked)} className="accent-cyan-500" />
                 <span className={`text-xs ${showTags ? 'text-white/70' : 'text-white/30'}`}>Show tags</span>
