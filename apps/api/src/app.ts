@@ -31,6 +31,7 @@ import { songNodesRouter } from './routes/songNodes.js';
 import { gameRouter } from './routes/game.js';
 import { triviaRouter } from './routes/trivia.js';
 import { wordHuntRouter } from './routes/wordHunt.js';
+import { spectrumStudioRouter } from './routes/spectrumStudio.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -108,6 +109,9 @@ export function createApp() {
 
   // Word Hunt game scores (auth required for POST)
   app.use('/api/word-hunt', wordHuntRouter);
+
+  // Spectrum Studio — visual data explorer (admin only)
+  app.use('/api/spectrum-studio', spectrumStudioRouter);
 
   // Trivia question generator (admin only)
   app.use('/api/trivia', triviaRouter);

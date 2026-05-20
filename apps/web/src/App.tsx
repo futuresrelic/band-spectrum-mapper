@@ -49,6 +49,7 @@ import ExplorePage from './pages/ExplorePage';
 import WordHuntPage from './pages/WordHuntPage';
 import LeaderboardPage from './pages/LeaderboardPage';
 import GamesPage from './pages/GamesPage';
+import SpectrumStudioPage from './pages/SpectrumStudioPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -94,9 +95,10 @@ export default function App() {
         <Route path="/share/albums/:albumId" element={<ShareAlbumPage />} />
         <Route path="/view" element={<ViewerIndexPage />} />
         <Route path="/view/:bandSlug" element={<ViewerBandPage />} />
-        <Route path="/explore"     element={<ExplorePage />} />
-        <Route path="/leaderboard" element={<LeaderboardPage />} />
-        <Route path="/games"       element={<GamesPage />} />
+        <Route path="/explore"          element={<ExplorePage />} />
+        <Route path="/leaderboard"     element={<LeaderboardPage />} />
+        <Route path="/games"           element={<GamesPage />} />
+        <Route path="/spectrum-studio" element={<SpectrumStudioPage />} />
 
         {/* ── USER: rating surface + game, any logged-in Google user ── */}
         <Route path="/my" element={<UserLayout />}>
