@@ -428,16 +428,19 @@ export interface KnowledgeImage {
 }
 
 export interface AdminKnowledgeEntry {
-  id: string;
-  title: string;
-  content: string;
-  scope: 'global' | 'band' | 'song';
-  scopeId: string | null;
-  tags: string[];
-  images: KnowledgeImage[];
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
+  id:          string;
+  title:       string;
+  content:     string;
+  scope:       'global' | 'band' | 'song';
+  scopeId:     string | null;
+  tags:        string[];
+  images:      KnowledgeImage[];
+  isActive:    boolean;
+  entryType:   'knowledge' | 'social_influence';
+  sourceLabel: string | null;  // where the community signal came from
+  sourceUrl:   string | null;  // optional link to original source
+  createdAt:   string;
+  updatedAt:   string;
 }
 
 export interface SongThemeScore {

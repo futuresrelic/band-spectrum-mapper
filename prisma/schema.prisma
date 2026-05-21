@@ -526,16 +526,21 @@ model SongThemeScore {
 // ---------------------------------------------------------------------------
 
 model AdminKnowledgeEntry {
-  id        String   @id @default(cuid())
-  title     String
-  content   String   // free-form text / markdown, injected into AI prompts
-  scope     String   @default("global") // "global" | "band" | "song"
-  scopeId   String?  // bandId or songId when scope != "global"
-  tags      Json     @default("[]")     // string[] — theme slugs or free labels
-  images    Json     @default("[]")     // KnowledgeImage[] — { url, caption, creditWho, creditPlatform }
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  title       String
+  content     String   // free-form text / markdown, injected into AI prompts
+  scope       String   @default("global") // "global" | "band" | "song"
+  scopeId     String?  // bandId or songId when scope != "global"
+  tags        Json     @default("[]")     // string[] — theme slugs or free labels
+  images      Json     @default("[]")     // KnowledgeImage[] — { url, caption, creditWho, creditPlatform }
+  isActive    Boolean  @default(true)
+  // Entry type — controls how this entry is framed in the AI context
+  entryType   String   @default("knowledge")  // "knowledge" | "social_influence"
+  // Social influence provenance — where the community signal came from
+  sourceLabel String?  // e.g. "Reddit r/ToolBand", "YouTube comments", "Facebook fan group"
+  sourceUrl   String?  // optional URL to original discussion
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@map("admin_knowledge_entries")
 }

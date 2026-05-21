@@ -95,18 +95,22 @@ adminRouter.get('/knowledge', async (_req, res, next) => {
 
 adminRouter.post('/knowledge', async (req, res, next) => {
   try {
-    const { title, content, scope, scopeId, tags, isActive } = req.body as {
+    const { title, content, scope, scopeId, tags, isActive, entryType, sourceLabel, sourceUrl } = req.body as {
       title: string; content: string; scope?: string;
       scopeId?: string | null; tags?: string[]; isActive?: boolean;
+      entryType?: string; sourceLabel?: string | null; sourceUrl?: string | null;
     };
     if (!title?.trim() || !content?.trim()) {
       res.status(400).json({ error: 'title and content are required' }); return;
     }
     res.status(201).json(await adminKnowledgeService.create({
       title, content, scope: scope ?? 'global',
-      ...(scopeId !== undefined && { scopeId }),
-      ...(tags    !== undefined && { tags }),
-      ...(isActive !== undefined && { isActive }),
+      ...(scopeId     !== undefined && { scopeId }),
+      ...(tags        !== undefined && { tags }),
+      ...(isActive    !== undefined && { isActive }),
+      ...(entryType   !== undefined && { entryType }),
+      ...(sourceLabel !== undefined && { sourceLabel }),
+      ...(sourceUrl   !== undefined && { sourceUrl }),
     }));
   } catch (e) { next(e); }
 });

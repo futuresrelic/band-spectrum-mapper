@@ -1,9 +1,11 @@
 import { api } from '../lib/api';
 import type { AdminKnowledgeEntry, KnowledgeImage } from '@band-spectrum-mapper/shared';
 
-type CreateInput = Pick<AdminKnowledgeEntry, 'title' | 'content' | 'scope' | 'tags' | 'isActive'> & {
-  scopeId?: string | null;
-  images?: KnowledgeImage[];
+type CreateInput = Pick<AdminKnowledgeEntry, 'title' | 'content' | 'scope' | 'tags' | 'isActive' | 'entryType'> & {
+  scopeId?:     string | null;
+  images?:      KnowledgeImage[];
+  sourceLabel?: string | null;
+  sourceUrl?:   string | null;
 };
 
 export const adminKnowledgeApi = {
