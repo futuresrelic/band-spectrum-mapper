@@ -192,6 +192,10 @@ function buildLayoutConfig(preset: GraphLayoutPreset) {
     case 'lyrical-dna':
       return { ...base, name: 'cose',
         nodeRepulsion: () => 10000, edgeElasticity: () => 80, idealEdgeLength: () => 70 };
+    case 'fibonacci-spiral':
+    case 'fractal-tree':
+      return { ...base, name: 'cose',
+        nodeRepulsion: () => 12000, edgeElasticity: () => 40, idealEdgeLength: () => 70, gravity: 0.5 };
     case 'artist-universe':
     case 'maynard-universe':
     default:
@@ -542,6 +546,10 @@ export default function SongNodesPage() {
         updateFontSizes(cy, vStyleRef.current.labelWrapWidth);
         if (graphData.preset === 'artist-universe' || graphData.preset === 'maynard-universe') {
           runClusterLayout(); // sets layoutReadyRef.current = true internally
+        } else if (graphData.preset === 'fibonacci-spiral') {
+          runFibonacciLayout();
+        } else if (graphData.preset === 'fractal-tree') {
+          runFractalLayout();
         } else {
           layoutReadyRef.current = true;
           if (animatePulseRef.current) startPulseAnimation(cy);
@@ -910,6 +918,104 @@ export default function SongNodesPage() {
     cy.nodes('[type = "artist"], [type = "album"]').forEach((n) => {
       n.scratch('_orbitBase', { ...n.position() });
     });
+    cy.fit(undefined, 60);
+    setTimeout(() => {
+      if (cyRef.current && !cyRef.current.destroyed()) {
+        layoutReadyRef.current = true;
+        updateFontSizes(cyRef.current, vStyleRef.current.labelWrapWidth);
+        if (animatePulseRef.current) startPulseAnimation(cyRef.current);
+      }
+    }, 80);
+  }
+
+  // Fibonacci spiral layout — golden angle phyllotaxis for all visible nodes
+  function runFibonacciLayout() {
+    const cy = cyRef.current; if (!cy) return;
+    const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+    const SCALE = 32;
+    const typeRank: Record<string, number> = { artist: 0, album: 1, song: 2, theme: 3, keyword: 4, tag: 5, emotion: 6 };
+    const ordered = cy.nodes().toArray().sort((a, b) => {
+      const ra = typeRank[a.data('type') as string] ?? 9;
+      const rb = typeRank[b.data('type') as string] ?? 9;
+      if (ra !== rb) return ra - rb;
+      return ((a.data('bandId') as string) ?? '').localeCompare((b.data('bandId') as string) ?? '');
+    });
+    ordered.forEach((node, i) => {
+      const r = SCALE * Math.sqrt(i + 1);
+      const theta = i * GOLDEN_ANGLE;
+      node.position({ x: r * Math.cos(theta), y: r * Math.sin(theta) });
+    });
+    cy.nodes().forEach((n) => { n.scratch('_orbitBase', { ...n.position() }); });
+    cy.fit(undefined, 60);
+    setTimeout(() => {
+      if (cyRef.current && !cyRef.current.destroyed()) {
+        layoutReadyRef.current = true;
+        updateFontSizes(cyRef.current, vStyleRef.current.labelWrapWidth);
+        if (animatePulseRef.current) startPulseAnimation(cyRef.current);
+      }
+    }, 80);
+  }
+
+  // Fractal tree layout — recursive golden-ratio branching, band → album → song
+  function runFractalLayout() {
+    const cy = cyRef.current; if (!cy) return;
+    const PHI = (1 + Math.sqrt(5)) / 2;
+    const TWO_PI = Math.PI * 2;
+    const TRUNK_LEN = 220, BRANCH_LEN = TRUNK_LEN / PHI, LEAF_LEN = BRANCH_LEN / PHI;
+
+    const artistAlbums = new Map<string, string[]>();
+    const albumSongs   = new Map<string, string[]>();
+    const artistDirect = new Map<string, string[]>();
+    cy.edges('[edgeType = "same_artist"]').forEach((edge) => {
+      const srcType = edge.source().data('type') as string;
+      const tgtId = edge.target().id(), srcId = edge.source().id();
+      if (srcType === 'album')     { const a = artistAlbums.get(tgtId) ?? []; a.push(srcId); artistAlbums.set(tgtId, a); }
+      else if (srcType === 'song') { const a = artistDirect.get(tgtId) ?? []; a.push(srcId); artistDirect.set(tgtId, a); }
+    });
+    cy.edges('[edgeType = "same_album"]').forEach((edge) => {
+      if ((edge.source().data('type') as string) !== 'song') return;
+      const a = albumSongs.get(edge.target().id()) ?? [];
+      a.push(edge.source().id()); albumSongs.set(edge.target().id(), a);
+    });
+
+    const artists = cy.nodes('[type = "artist"]').toArray();
+    const nArtists = artists.length;
+    artists.forEach((artist, bi) => {
+      const trunkAngle = nArtists > 1 ? (bi / nArtists) * TWO_PI - Math.PI / 2 : -Math.PI / 2;
+      const ax = nArtists > 1 ? TRUNK_LEN * 0.55 * Math.cos(trunkAngle) : 0;
+      const ay = nArtists > 1 ? TRUNK_LEN * 0.55 * Math.sin(trunkAngle) : 0;
+      artist.position({ x: ax, y: ay });
+
+      const albums = artistAlbums.get(artist.id()) ?? [];
+      albums.forEach((albumId, ai) => {
+        const n = albums.length;
+        const albumAngle = n > 1 ? trunkAngle + ((ai / (n - 1)) - 0.5) * (Math.PI / PHI) : trunkAngle;
+        const bx = ax + BRANCH_LEN * Math.cos(albumAngle);
+        const by = ay + BRANCH_LEN * Math.sin(albumAngle);
+        cy.getElementById(albumId).position({ x: bx, y: by });
+        const songs = albumSongs.get(albumId) ?? [];
+        songs.forEach((songId, si) => {
+          const ns = songs.length;
+          const songAngle = ns > 1 ? albumAngle + ((si / (ns - 1)) - 0.5) * (Math.PI / (PHI * PHI)) : albumAngle;
+          cy.getElementById(songId).position({ x: bx + LEAF_LEN * Math.cos(songAngle), y: by + LEAF_LEN * Math.sin(songAngle) });
+        });
+      });
+      const direct = artistDirect.get(artist.id()) ?? [];
+      direct.forEach((songId, si) => {
+        const nd = direct.length;
+        const songAngle = nd > 1 ? trunkAngle + Math.PI + ((si / (nd - 1)) - 0.5) * (Math.PI / (PHI * PHI)) : trunkAngle + Math.PI;
+        cy.getElementById(songId).position({ x: ax + BRANCH_LEN * Math.cos(songAngle), y: ay + BRANCH_LEN * Math.sin(songAngle) });
+      });
+    });
+
+    const peripheral = cy.nodes('[type = "theme"], [type = "tag"], [type = "keyword"]').toArray();
+    const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+    peripheral.forEach((node, i) => {
+      const r = 60 + 22 * Math.sqrt(i + 1), theta = i * GOLDEN_ANGLE;
+      node.position({ x: r * Math.cos(theta), y: r * Math.sin(theta) });
+    });
+
+    cy.nodes().forEach((n) => { n.scratch('_orbitBase', { ...n.position() }); });
     cy.fit(undefined, 60);
     setTimeout(() => {
       if (cyRef.current && !cyRef.current.destroyed()) {
@@ -1299,6 +1405,20 @@ export default function SongNodesPage() {
                   onClick={runFreeLayout}
                 >
                   Arrange free
+                </button>
+                <button
+                  className="col-span-2 px-2 py-1.5 bg-indigo-900 hover:bg-indigo-800 text-xs text-white rounded transition-colors"
+                  title="Golden angle phyllotaxis — all nodes in a sunflower spiral"
+                  onClick={runFibonacciLayout}
+                >
+                  Fibonacci spiral
+                </button>
+                <button
+                  className="col-span-2 px-2 py-1.5 bg-indigo-900 hover:bg-indigo-800 text-xs text-white rounded transition-colors"
+                  title="Recursive golden-ratio tree — band → album → song branches"
+                  onClick={runFractalLayout}
+                >
+                  Fractal tree
                 </button>
               </div>
 

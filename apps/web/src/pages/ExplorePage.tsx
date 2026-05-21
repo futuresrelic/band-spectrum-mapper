@@ -218,10 +218,12 @@ function NodeDetailPanel({ node, onClose }: { node: ReturnType<Core['$']> | null
 // ---------------------------------------------------------------------------
 
 const PUBLIC_PRESETS = [
-  { id: 'artist-universe',     label: 'Artist Universe',       desc: 'Songs, albums, and tags by artist' },
-  { id: 'theme-constellation', label: 'Theme Constellation',   desc: 'Songs grouped by shared AI themes' },
-  { id: 'emotional-similarity',label: 'Emotional Similarity',  desc: 'Songs linked by matching radar' },
-  { id: 'lyrical-dna',         label: 'Lyrical DNA',           desc: 'Songs bridged by shared keywords' },
+  { id: 'artist-universe',     label: 'Artist Universe',     desc: 'Songs, albums, and tags by artist' },
+  { id: 'theme-constellation', label: 'Theme Constellation', desc: 'Songs grouped by shared AI themes' },
+  { id: 'emotional-similarity',label: 'Emotional Similarity',desc: 'Songs linked by matching radar' },
+  { id: 'lyrical-dna',         label: 'Lyrical DNA',         desc: 'Songs bridged by shared keywords' },
+  { id: 'fibonacci-spiral',    label: 'Fibonacci Spiral',    desc: 'All nodes in golden-angle phyllotaxis' },
+  { id: 'fractal-tree',        label: 'Fractal Tree',        desc: 'Recursive golden-ratio branching' },
 ] as const;
 
 type PublicPreset = typeof PUBLIC_PRESETS[number]['id'];
@@ -815,6 +817,144 @@ export default function ExplorePage() {
     }, 80);
   }
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Fibonacci spiral layout — golden angle phyllotaxis for all visible nodes
+  // ──────────────────────────────────────────────────────────────────────────
+
+  function runFibonacciLayout(cy: Core) {
+    const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ≈ 2.399 rad (137.5°)
+    const SCALE = 32; // px per √index unit
+
+    // Sort: artists → albums → songs → themes → keywords/tags, then by band id for locality
+    const typeRank: Record<string, number> = {
+      artist: 0, album: 1, song: 2, theme: 3, keyword: 4, tag: 5, emotion: 6,
+    };
+    const ordered = cy.nodes().toArray().sort((a, b) => {
+      const ra = typeRank[a.data('type') as string] ?? 9;
+      const rb = typeRank[b.data('type') as string] ?? 9;
+      if (ra !== rb) return ra - rb;
+      return ((a.data('bandId') as string) ?? '').localeCompare((b.data('bandId') as string) ?? '');
+    });
+
+    ordered.forEach((node, i) => {
+      const r     = SCALE * Math.sqrt(i + 1);
+      const theta = i * GOLDEN_ANGLE;
+      node.position({ x: r * Math.cos(theta), y: r * Math.sin(theta) });
+    });
+
+    cy.nodes().forEach((n) => { n.scratch('_orbitBase', { ...n.position() }); });
+    cy.fit(undefined, 60);
+    setTimeout(() => {
+      if (!cy.destroyed()) {
+        layoutReadyRef.current = true;
+        updateFontSizes(cy, vStyleRef.current.labelWrapWidth);
+        if (animPulseRef.current) startPulse(cy);
+      }
+    }, 80);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Fractal tree layout — recursive golden-ratio branching, band → album → song
+  // Branch length decreases by 1/φ per level; spread angle decreases by 1/φ² per level
+  // ──────────────────────────────────────────────────────────────────────────
+
+  function runFractalLayout(cy: Core) {
+    const PHI        = (1 + Math.sqrt(5)) / 2;
+    const TWO_PI     = Math.PI * 2;
+    const TRUNK_LEN  = 220;
+    const BRANCH_LEN = TRUNK_LEN / PHI;  // ≈ 136
+    const LEAF_LEN   = BRANCH_LEN / PHI; // ≈ 84
+
+    // Build hierarchy maps from edge data
+    const artistAlbums = new Map<string, string[]>();
+    const albumSongs   = new Map<string, string[]>();
+    const artistDirect = new Map<string, string[]>();
+
+    cy.edges('[edgeType = "same_artist"]').forEach((edge) => {
+      const srcType = edge.source().data('type') as string;
+      const tgtId   = edge.target().id();
+      const srcId   = edge.source().id();
+      if (srcType === 'album')      { const a = artistAlbums.get(tgtId) ?? []; a.push(srcId); artistAlbums.set(tgtId, a); }
+      else if (srcType === 'song')  { const a = artistDirect.get(tgtId) ?? []; a.push(srcId); artistDirect.set(tgtId, a); }
+    });
+    cy.edges('[edgeType = "same_album"]').forEach((edge) => {
+      if ((edge.source().data('type') as string) !== 'song') return;
+      const tgtId = edge.target().id(), srcId = edge.source().id();
+      const a = albumSongs.get(tgtId) ?? []; a.push(srcId); albumSongs.set(tgtId, a);
+    });
+
+    const artists  = cy.nodes('[type = "artist"]').toArray();
+    const nArtists = artists.length;
+
+    artists.forEach((artist, bi) => {
+      // Trunk direction — each artist points radially outward
+      const trunkAngle = nArtists > 1 ? (bi / nArtists) * TWO_PI - Math.PI / 2 : -Math.PI / 2;
+      const ax = nArtists > 1 ? TRUNK_LEN * 0.55 * Math.cos(trunkAngle) : 0;
+      const ay = nArtists > 1 ? TRUNK_LEN * 0.55 * Math.sin(trunkAngle) : 0;
+      artist.position({ x: ax, y: ay });
+
+      const albums    = artistAlbums.get(artist.id()) ?? [];
+      const nAlbums   = albums.length;
+      const branchSpread = Math.PI / PHI; // ≈ 111° total spread
+
+      albums.forEach((albumId, ai) => {
+        const albumAngle = nAlbums > 1
+          ? trunkAngle + ((ai / (nAlbums - 1)) - 0.5) * branchSpread
+          : trunkAngle;
+        const bx = ax + BRANCH_LEN * Math.cos(albumAngle);
+        const by = ay + BRANCH_LEN * Math.sin(albumAngle);
+        cy.getElementById(albumId).position({ x: bx, y: by });
+
+        const songs    = albumSongs.get(albumId) ?? [];
+        const nSongs   = songs.length;
+        const leafSpread = Math.PI / (PHI * PHI); // ≈ 68° spread
+
+        songs.forEach((songId, si) => {
+          const songAngle = nSongs > 1
+            ? albumAngle + ((si / (nSongs - 1)) - 0.5) * leafSpread
+            : albumAngle;
+          cy.getElementById(songId).position({
+            x: bx + LEAF_LEN * Math.cos(songAngle),
+            y: by + LEAF_LEN * Math.sin(songAngle),
+          });
+        });
+      });
+
+      // Direct songs (no album) branch directly from artist
+      const direct   = artistDirect.get(artist.id()) ?? [];
+      const nDirect  = direct.length;
+      const directSpread = Math.PI / (PHI * PHI);
+      direct.forEach((songId, si) => {
+        const songAngle = nDirect > 1
+          ? trunkAngle + Math.PI + ((si / (nDirect - 1)) - 0.5) * directSpread
+          : trunkAngle + Math.PI;
+        cy.getElementById(songId).position({
+          x: ax + BRANCH_LEN * Math.cos(songAngle),
+          y: ay + BRANCH_LEN * Math.sin(songAngle),
+        });
+      });
+    });
+
+    // Themes and tags: place in a golden-angle spiral around the fractal periphery
+    const peripheral = cy.nodes('[type = "theme"], [type = "tag"], [type = "keyword"]').toArray();
+    const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+    peripheral.forEach((node, i) => {
+      const r     = 60 + 22 * Math.sqrt(i + 1);
+      const theta = i * GOLDEN_ANGLE;
+      node.position({ x: r * Math.cos(theta), y: r * Math.sin(theta) });
+    });
+
+    cy.nodes().forEach((n) => { n.scratch('_orbitBase', { ...n.position() }); });
+    cy.fit(undefined, 60);
+    setTimeout(() => {
+      if (!cy.destroyed()) {
+        layoutReadyRef.current = true;
+        updateFontSizes(cy, vStyleRef.current.labelWrapWidth);
+        if (animPulseRef.current) startPulse(cy);
+      }
+    }, 80);
+  }
+
   // ---------------------------------------------------------------------------
   // Mount / update Cytoscape
   // ---------------------------------------------------------------------------
@@ -869,6 +1009,10 @@ export default function ExplorePage() {
         runEmotionalLayout(cy);
       } else if (preset === 'lyrical-dna') {
         runLyricalLayout(cy);
+      } else if (preset === 'fibonacci-spiral') {
+        runFibonacciLayout(cy);
+      } else if (preset === 'fractal-tree') {
+        runFractalLayout(cy);
       } else {
         layoutReadyRef.current = true;
         if (animPulseRef.current) startPulse(cy);
@@ -1066,6 +1210,8 @@ export default function ExplorePage() {
                   if (preset === 'theme-constellation') runThemeLayout(cy);
                   else if (preset === 'emotional-similarity') runEmotionalLayout(cy);
                   else if (preset === 'lyrical-dna') runLyricalLayout(cy);
+                  else if (preset === 'fibonacci-spiral') runFibonacciLayout(cy);
+                  else if (preset === 'fractal-tree') runFractalLayout(cy);
                   else runClusterLayout(cy);
                 }}
               >

@@ -7,7 +7,8 @@ export type EdgeType =
 
 export type GraphLayoutPreset =
   | 'artist-universe' | 'album-cluster' | 'theme-constellation'
-  | 'maynard-universe' | 'emotional-similarity' | 'lyrical-dna';
+  | 'maynard-universe' | 'emotional-similarity' | 'lyrical-dna'
+  | 'fibonacci-spiral' | 'fractal-tree';
 
 export interface GraphNode {
   id: string;
@@ -53,6 +54,8 @@ export const LAYOUT_PRESETS: { id: GraphLayoutPreset; label: string; description
   { id: 'maynard-universe',     label: 'Maynard Universe',      description: 'TOOL · A Perfect Circle · Puscifer' },
   { id: 'emotional-similarity', label: 'Emotional Similarity',  description: 'Songs connected by matching radar profiles' },
   { id: 'lyrical-dna',          label: 'Lyrical DNA',           description: 'Songs bridged by shared lyric keywords' },
+  { id: 'fibonacci-spiral',    label: 'Fibonacci Spiral',      description: 'All nodes in a golden-angle phyllotaxis spiral' },
+  { id: 'fractal-tree',        label: 'Fractal Tree',          description: 'Band → album → song recursive golden-ratio branching' },
 ];
 
 export const songNodesApi = {
