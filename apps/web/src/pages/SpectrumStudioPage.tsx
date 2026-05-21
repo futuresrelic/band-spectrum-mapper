@@ -188,6 +188,24 @@ function buildBandColors(songs: SongData[]): Map<string, string> {
   return m;
 }
 
+/** Maps a 0–10 score to a perceptual heatmap: indigo → cyan → lime → amber → red */
+function scoreToGradient(v: number): string {
+  const t = Math.min(1, Math.max(0, v / 10));
+  const stops: [number, number, number][] = [
+    [ 79,  70, 229],  // 0.00 — indigo
+    [  6, 182, 212],  // 0.25 — cyan
+    [132, 204,  22],  // 0.55 — lime
+    [245, 158,  11],  // 0.75 — amber
+    [239,  68,  68],  // 1.00 — red
+  ];
+  const segs = stops.length - 1;
+  const seg  = Math.min(segs - 1, Math.floor(t * segs));
+  const lo   = stops[seg]!;
+  const hi   = stops[seg + 1]!;
+  const f    = t * segs - seg;
+  return `rgb(${Math.round(lo[0] + (hi[0] - lo[0]) * f)},${Math.round(lo[1] + (hi[1] - lo[1]) * f)},${Math.round(lo[2] + (hi[2] - lo[2]) * f)})`;
+}
+
 // ─── Shared viz props ─────────────────────────────────────────────────────────
 
 interface VizProps {
@@ -816,18 +834,17 @@ function BubbleViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ≈ 2.399 rad (137.5°)
 const FIB_SCALE = 14;
 
-function FibonacciViz({ songs, fields, style }: VizProps) {
+function FibonacciViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
   if (!songs.length) return <EmptyMsg msg="Select artists to begin" />;
   const cx = VW / 2, cy = VH / 2;
   const bcm = buildBandColors(songs);
 
-  const avgNorm = (s: SongData) =>
-    fields.length ? fields.reduce((sum, f) => sum + norm(s, f), 0) / fields.length : 5;
+  // Sort ascending by X so highest-scoring songs spiral outward (most prominent)
+  const sorted = [...songs].sort((a, b) => norm(a, fieldX) - norm(b, fieldX));
+  const shown  = sorted.slice(0, 300);
+  const maxR   = FIB_SCALE * Math.sqrt(shown.length);
 
-  const shown = songs.slice(0, 300);
-  const maxR  = FIB_SCALE * Math.sqrt(shown.length);
-
-  const fibRings = [1,2,3,5,8,13,21,34,55,89]
+  const fibRings = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89]
     .map((n) => FIB_SCALE * Math.sqrt(n))
     .filter((r) => r <= maxR);
 
@@ -835,45 +852,86 @@ function FibonacciViz({ songs, fields, style }: VizProps) {
     <g>
       <defs>
         <filter id="fibGlow" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="2" result="b" />
-          <feComposite in="SourceGraphic" in2="b" operator="over" />
+          <feGaussianBlur stdDeviation="2.5" result="b" />
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
         </filter>
+        <linearGradient id="fibLegGrad" x1="0" x2="1">
+          <stop offset="0%"   stopColor="#4f46e5" />
+          <stop offset="25%"  stopColor="#06b6d4" />
+          <stop offset="55%"  stopColor="#84cc16" />
+          <stop offset="75%"  stopColor="#f59e0b" />
+          <stop offset="100%" stopColor="#ef4444" />
+        </linearGradient>
       </defs>
 
       <g transform={`translate(${cx},${cy})`}>
+        {/* Fibonacci guide rings */}
         {style.showGrid && fibRings.map((r) => (
           <circle key={r} cx={0} cy={0} r={r}
             fill="none" stroke={style.gridColor} strokeOpacity={0.06} strokeWidth={0.5} />
         ))}
 
+        {/* Slowly-rotating phyllotaxis spiral */}
         <g>
           <animateTransform attributeName="transform" type="rotate"
-            from="0" to="360" dur="180s" repeatCount="indefinite" />
+            from="0" to="360" dur="300s" repeatCount="indefinite" />
           {shown.map((s, i) => {
-            const r     = FIB_SCALE * Math.sqrt(i + 1);
-            const theta = i * GOLDEN_ANGLE;
-            const x     = r * Math.cos(theta);
-            const y     = r * Math.sin(theta);
-            const a     = avgNorm(s);
-            const sz    = 3 + (a / 10) * 14;
-            const col   = bcm.get(s.bandId) ?? '#888';
+            const r      = FIB_SCALE * Math.sqrt(i + 1);
+            const theta  = i * GOLDEN_ANGLE;
+            const x      = r * Math.cos(theta);
+            const y      = r * Math.sin(theta);
+            const xVal   = norm(s, fieldX);
+            const yVal   = norm(s, fieldY);
+            const zVal   = norm(s, fieldZ);
+            const sz     = 2.5 + (xVal / 10) * 14;        // 2.5–16.5 px
+            const fillC  = scoreToGradient(yVal);
+            const op     = 0.35 + (zVal / 10) * 0.6;       // 0.35–0.95
+            const bandC  = bcm.get(s.bandId) ?? '#888';
+            const isLarge = sz >= 9;
             return (
               <g key={s.id}>
-                <circle cx={x} cy={y} r={sz * 1.8} fill={col} opacity={0.08} />
-                <circle cx={x} cy={y} r={sz} fill={col} opacity={0.82}
-                  filter={a > 7 ? 'url(#fibGlow)' : undefined} />
+                {/* Thin band-color halo ring shows band membership */}
+                <circle cx={x} cy={y} r={sz + 3}
+                  fill="none" stroke={bandC} strokeWidth={1.2} strokeOpacity={0.4} />
+                {/* Gradient-filled dot encodes fieldY */}
+                <circle cx={x} cy={y} r={sz} fill={fillC} opacity={op}
+                  filter={isLarge ? 'url(#fibGlow)' : undefined}>
+                  <title>{`${s.title}\n${fieldX.label}: ${xVal.toFixed(1)}\n${fieldY.label}: ${yVal.toFixed(1)}\n${fieldZ.label}: ${zVal.toFixed(1)}`}</title>
+                </circle>
+                {/* Song name on prominent dots */}
+                {style.showLabels && isLarge && (
+                  <text x={x} y={y + sz + 10} textAnchor="middle"
+                    fill={style.fg} opacity={0.65} fontSize={7.5} fontFamily="Inter, system-ui">
+                    {s.title.length > 11 ? `${s.title.slice(0, 10)}…` : s.title}
+                  </text>
+                )}
               </g>
             );
           })}
         </g>
 
-        <circle cx={0} cy={0} r={4} fill={style.fg} opacity={0.2} />
+        <circle cx={0} cy={0} r={3.5} fill={style.fg} opacity={0.15} />
       </g>
 
+      {/* Channel key */}
+      {style.showLegend && (
+        <g transform={`translate(12,${VH - 68})`}>
+          <rect x={-6} y={-8} width={220} height={62} rx={5} fill="#000" fillOpacity={0.55} />
+          {[`SIZE     — ${fieldX.label}`, `COLOR  — ${fieldY.label}`, `OPACITY — ${fieldZ.label}`, `RING     — band`].map((label, i) => (
+            <text key={i} x={0} y={i * 13 + 4}
+              fill={style.fg} fillOpacity={0.5} fontSize={9} fontFamily="Inter, system-ui">
+              {label}
+            </text>
+          ))}
+          {/* Colour bar for fieldY */}
+          <rect x={110} y={14} width={96} height={6} rx={3} fill="url(#fibLegGrad)" opacity={0.8} />
+        </g>
+      )}
+
       {style.showLabels && (
-        <text x={VW / 2} y={VH - 14} textAnchor="middle"
-          fill={style.fg} opacity={0.25} fontSize={10} fontFamily="Inter, system-ui">
-          φ = 1.618  ·  golden angle = 137.5°  ·  {songs.length} songs
+        <text x={VW / 2} y={VH - 10} textAnchor="middle"
+          fill={style.fg} opacity={0.2} fontSize={9} fontFamily="Inter, system-ui">
+          φ = 1.618 · golden angle 137.5° · {songs.length} songs
         </text>
       )}
     </g>
@@ -882,7 +940,7 @@ function FibonacciViz({ songs, fields, style }: VizProps) {
 
 // ─── 12 · Fractal Tree ────────────────────────────────────────────────────────
 
-function FractalViz({ songs, fields, style }: VizProps) {
+function FractalViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
   if (!songs.length) return <EmptyMsg msg="Select artists to begin" />;
 
   const PHI    = (1 + Math.sqrt(5)) / 2;
@@ -900,43 +958,41 @@ function FractalViz({ songs, fields, style }: VizProps) {
     if (!bandAlbums.has(s.bandId)) bandAlbums.set(s.bandId, []);
     const albs = bandAlbums.get(s.bandId)!;
     if (!albs.includes(albumKey)) albs.push(albumKey);
-    if (!albumSongs.has(`${s.bandId}::${albumKey}`)) albumSongs.set(`${s.bandId}::${albumKey}`, []);
-    albumSongs.get(`${s.bandId}::${albumKey}`)!.push(s);
+    const ak = `${s.bandId}::${albumKey}`;
+    if (!albumSongs.has(ak)) albumSongs.set(ak, []);
+    albumSongs.get(ak)!.push(s);
   });
 
   const bands  = Array.from(bandAlbums.keys());
   const nBands = bands.length;
-  const TRUNK_LEN = 180;
+  const TRUNK_LEN  = 180;
+  const BRANCH_LEN = TRUNK_LEN / PHI;
+  const LEAF_LEN   = BRANCH_LEN / PHI;
   const elements: React.ReactElement[] = [];
-
-  const avgNorm = (s: SongData) =>
-    fields.length ? fields.reduce((sum, f) => sum + norm(s, f), 0) / fields.length : 5;
 
   bands.forEach((bandId, bi) => {
     const trunkAngle = nBands > 1 ? (bi / nBands) * TWO_PI - Math.PI / 2 : -Math.PI / 2;
-    const bx  = nBands > 1 ? TRUNK_LEN * 0.6 * Math.cos(trunkAngle) : 0;
-    const by  = nBands > 1 ? TRUNK_LEN * 0.6 * Math.sin(trunkAngle) : 0;
-    const col = bcm.get(bandId) ?? '#888';
+    const bx      = nBands > 1 ? TRUNK_LEN * 0.6 * Math.cos(trunkAngle) : 0;
+    const by      = nBands > 1 ? TRUNK_LEN * 0.6 * Math.sin(trunkAngle) : 0;
+    const bandCol = bcm.get(bandId) ?? '#888';
 
     elements.push(
       <line key={`trunk-${bandId}`} x1={0} y1={0} x2={bx} y2={by}
-        stroke={col} strokeWidth={2.5} strokeOpacity={0.35} />
+        stroke={bandCol} strokeWidth={3} strokeOpacity={0.3} />
     );
     elements.push(
-      <circle key={`band-${bandId}`} cx={bx} cy={by} r={10} fill={col} opacity={0.9} />
+      <circle key={`band-${bandId}`} cx={bx} cy={by} r={12} fill={bandCol} opacity={0.9} />
     );
-    if (style.showLabels) {
-      elements.push(
-        <text key={`band-lbl-${bandId}`} x={bx} y={by - 14} textAnchor="middle"
-          fill={col} fontSize={10} fontWeight="700" fontFamily="Inter, system-ui">
-          {bandNames.get(bandId)}
-        </text>
-      );
-    }
+    // Band label always visible
+    elements.push(
+      <text key={`band-lbl-${bandId}`} x={bx} y={by - 17} textAnchor="middle"
+        fill={bandCol} fontSize={10} fontWeight="700" fontFamily="Inter, system-ui">
+        {bandNames.get(bandId)}
+      </text>
+    );
 
     const albums  = bandAlbums.get(bandId) ?? [];
     const nAlbums = albums.length;
-    const BRANCH_LEN = TRUNK_LEN / PHI;
 
     albums.forEach((albumKey, ai) => {
       const branchSpread = Math.PI / PHI;
@@ -947,25 +1003,32 @@ function FractalViz({ songs, fields, style }: VizProps) {
       const ax = bx + BRANCH_LEN * Math.cos(albumAngle);
       const ay = by + BRANCH_LEN * Math.sin(albumAngle);
 
+      const songList  = albumSongs.get(`${bandId}::${albumKey}`) ?? [];
+      const albumAvgX = songList.reduce((s, sg) => s + norm(sg, fieldX), 0) / Math.max(1, songList.length);
+      const albumAvgY = songList.reduce((s, sg) => s + norm(sg, fieldY), 0) / Math.max(1, songList.length);
+      const branchW   = 1 + (albumAvgX / 10) * 2.5;  // thicker branch = higher fieldX average
+      const albumFill = scoreToGradient(albumAvgY);
+
       elements.push(
         <line key={`branch-${bandId}-${ai}`} x1={bx} y1={by} x2={ax} y2={ay}
-          stroke={col} strokeWidth={1.5} strokeOpacity={0.28} strokeDasharray="4 3" />
+          stroke={bandCol} strokeWidth={branchW} strokeOpacity={0.3} strokeDasharray="4 3" />
       );
       elements.push(
-        <circle key={`alb-${bandId}-${ai}`} cx={ax} cy={ay} r={5} fill={col} opacity={0.6} />
+        <circle key={`alb-${bandId}-${ai}`} cx={ax} cy={ay} r={6}
+          fill={albumFill} opacity={0.85} stroke={bandCol} strokeWidth={1.5} strokeOpacity={0.5} />
       );
-      if (style.showLabels) {
+      {/* Album label — always show */}
+      const shortAlbum = albumKey === '__direct__' ? '' : (albumKey.length > 13 ? `${albumKey.slice(0, 12)}…` : albumKey);
+      if (shortAlbum) {
         elements.push(
-          <text key={`alb-lbl-${bandId}-${ai}`} x={ax} y={ay - 9} textAnchor="middle"
-            fill={style.fg} opacity={0.45} fontSize={8} fontFamily="Inter, system-ui">
-            {albumKey === '__direct__' ? '' : (albumKey.length > 14 ? albumKey.slice(0, 13) + '…' : albumKey)}
+          <text key={`alb-lbl-${bandId}-${ai}`} x={ax} y={ay - 11} textAnchor="middle"
+            fill={style.fg} opacity={0.5} fontSize={8} fontFamily="Inter, system-ui">
+            {shortAlbum}
           </text>
         );
       }
 
-      const songList = albumSongs.get(`${bandId}::${albumKey}`) ?? [];
-      const nSongs   = songList.length;
-      const LEAF_LEN = BRANCH_LEN / PHI;
+      const nSongs     = songList.length;
       const leafSpread = Math.PI / (PHI * PHI);
 
       songList.forEach((s, si) => {
@@ -973,36 +1036,76 @@ function FractalViz({ songs, fields, style }: VizProps) {
           ? albumAngle + ((si / (nSongs - 1)) - 0.5) * leafSpread
           : albumAngle;
 
-        const sx = ax + LEAF_LEN * Math.cos(songAngle);
-        const sy = ay + LEAF_LEN * Math.sin(songAngle);
-        const a  = avgNorm(s);
-        const sz = 2.5 + (a / 10) * 8;
+        const sx    = ax + LEAF_LEN * Math.cos(songAngle);
+        const sy    = ay + LEAF_LEN * Math.sin(songAngle);
+        const xVal  = norm(s, fieldX);
+        const yVal  = norm(s, fieldY);
+        const zVal  = norm(s, fieldZ);
+        const sz    = 2.5 + (xVal / 10) * 9;        // 2.5–11.5 px
+        const fillC = scoreToGradient(yVal);
+        const op    = 0.4 + (zVal / 10) * 0.55;     // 0.4–0.95
 
         elements.push(
           <line key={`leaf-${s.id}`} x1={ax} y1={ay} x2={sx} y2={sy}
-            stroke={col} strokeWidth={0.8} strokeOpacity={0.2} />
+            stroke={bandCol} strokeWidth={0.8} strokeOpacity={0.2} />
         );
         elements.push(
-          <circle key={`song-${s.id}`} cx={sx} cy={sy} r={sz} fill={col} opacity={0.75} />
+          <circle key={`song-${s.id}`} cx={sx} cy={sy} r={sz}
+            fill={fillC} opacity={op} stroke={bandCol} strokeWidth={1} strokeOpacity={0.4}>
+            <title>{`${s.title}\n${fieldX.label}: ${xVal.toFixed(1)}\n${fieldY.label}: ${yVal.toFixed(1)}\n${fieldZ.label}: ${zVal.toFixed(1)}`}</title>
+          </circle>
         );
+        {/* Song name for larger leaves */}
+        if (style.showLabels && sz >= 7) {
+          elements.push(
+            <text key={`song-lbl-${s.id}`} x={sx} y={sy + sz + 9} textAnchor="middle"
+              fill={style.fg} opacity={0.6} fontSize={7.5} fontFamily="Inter, system-ui">
+              {s.title.length > 10 ? `${s.title.slice(0, 9)}…` : s.title}
+            </text>
+          );
+        }
       });
     });
   });
 
   return (
     <g>
+      <defs>
+        <linearGradient id="fractalLegGrad" x1="0" x2="1">
+          <stop offset="0%"   stopColor="#4f46e5" />
+          <stop offset="25%"  stopColor="#06b6d4" />
+          <stop offset="55%"  stopColor="#84cc16" />
+          <stop offset="75%"  stopColor="#f59e0b" />
+          <stop offset="100%" stopColor="#ef4444" />
+        </linearGradient>
+      </defs>
+
       <g transform={`translate(${cx},${cy})`}>
         <g>
           <animateTransform attributeName="transform" type="rotate"
-            from="0" to="360" dur="240s" repeatCount="indefinite" />
+            from="0" to="360" dur="360s" repeatCount="indefinite" />
           {elements}
         </g>
       </g>
 
+      {/* Channel key */}
+      {style.showLegend && (
+        <g transform={`translate(12,${VH - 68})`}>
+          <rect x={-6} y={-8} width={220} height={62} rx={5} fill="#000" fillOpacity={0.55} />
+          {[`SIZE     — ${fieldX.label}`, `COLOR  — ${fieldY.label}`, `OPACITY — ${fieldZ.label}`, `BRANCH WIDTH — ${fieldX.label} avg`].map((label, i) => (
+            <text key={i} x={0} y={i * 13 + 4}
+              fill={style.fg} fillOpacity={0.5} fontSize={9} fontFamily="Inter, system-ui">
+              {label}
+            </text>
+          ))}
+          <rect x={130} y={14} width={76} height={6} rx={3} fill="url(#fractalLegGrad)" opacity={0.8} />
+        </g>
+      )}
+
       {style.showLabels && (
-        <text x={VW / 2} y={VH - 14} textAnchor="middle"
-          fill={style.fg} opacity={0.25} fontSize={10} fontFamily="Inter, system-ui">
-          Golden ratio branching  ·  φ = 1.618  ·  {songs.length} songs
+        <text x={VW / 2} y={VH - 10} textAnchor="middle"
+          fill={style.fg} opacity={0.2} fontSize={9} fontFamily="Inter, system-ui">
+          Golden ratio branching · φ = 1.618 · {songs.length} songs · {nBands} band{nBands !== 1 ? 's' : ''}
         </text>
       )}
     </g>
