@@ -2,11 +2,16 @@
  * GraphHuntPage — 3D lyrical word-hunt game.
  * Navigate a 3D force graph of songs and lyric keywords.
  * Start at a random song node, find the hidden target keyword — one hop at a time.
+ *
+ * Extra features:
+ *  - Proximity labels: node names fade in when the camera is within ~120 units
+ *  - Explore mode (setup phase): click any node to highlight its neighbourhood
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import ForceGraph3D from 'react-force-graph-3d';
+import SpriteText from 'three-spritetext';
 import { api } from '../lib/api';
 import SiteHeader from '../components/layout/SiteHeader';
 import type { GraphData } from '../api/songNodes';
@@ -82,6 +87,10 @@ function pickTarget(
   return { id: candidates[Math.floor(Math.random() * candidates.length)]! };
 }
 
+function linkEndId(end: string | HuntNode): string {
+  return typeof end === 'string' ? end : end.id;
+}
+
 // ── Visual helpers ────────────────────────────────────────────────────────────
 
 const BASE_COLOR: Record<string, string> = {
@@ -90,7 +99,16 @@ const BASE_COLOR: Record<string, string> = {
   theme: '#10b981', tag: '#06b6d4', emotion: '#ec4899',
 };
 
-function computeNodeColor(
+// Explore mode (setup phase, node selected)
+// Non-connected nodes are returned near-black to simulate dimming without needing per-node opacity
+function exploreNodeColor(nodeId: string, selectedId: string, adj: Map<string, Set<string>>): string {
+  if (nodeId === selectedId) return '#ffffff';
+  if (adj.get(selectedId)?.has(nodeId)) return '#22d3ee';
+  return '#0d1117'; // near-black — visually dims without opacity prop
+}
+
+// Game mode
+function gameNodeColor(
   nodeId: string,
   nodeType: string,
   currentId: string,
@@ -150,6 +168,11 @@ function fetchLyricalGraph(bandIds: string[]): Promise<GraphData> {
   return api.get(`/api/public/graph?${qs}`);
 }
 
+// ── Proximity label distance thresholds ──────────────────────────────────────
+
+const LABEL_SHOW_DIST = 120;   // start showing label below this camera distance
+const LABEL_FULL_DIST = 60;    // fully opaque below this distance
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 type Phase = 'setup' | 'playing' | 'won';
@@ -166,6 +189,8 @@ export default function GraphHuntPage() {
   const [simReady, setSimReady] = useState(false);
   const [huntNodes, setHuntNodes] = useState<HuntNode[]>([]);
   const [huntLinks, setHuntLinks] = useState<HuntLink[]>([]);
+  // Explore mode: which node is selected in setup phase
+  const [exploreNode, setExploreNode] = useState<HuntNode | null>(null);
 
   // Refs — read inside callbacks to avoid stale closures
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -175,7 +200,11 @@ export default function GraphHuntPage() {
   const targetRef = useRef('');
   const revealedRef = useRef(false);
   const phaseRef = useRef<Phase>('setup');
+  const exploreRef = useRef<HuntNode | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Map nodeId → SpriteText label for proximity updates (typed as any to access inherited Object3D fields)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const labelMapRef = useRef(new Map<string, any>());
 
   const { data: scopes } = useQuery({
     queryKey: ['explore-scopes'],
@@ -192,6 +221,7 @@ export default function GraphHuntPage() {
   useEffect(() => {
     if (!graphData) return;
     setSimReady(false);
+    labelMapRef.current.clear();
     const nodes: HuntNode[] = graphData.nodes.map((n) => ({
       id: n.id,
       label: n.label,
@@ -217,6 +247,46 @@ export default function GraphHuntPage() {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     };
   }, [phase]);
+
+  // rAF loop: proximity label opacity
+  useEffect(() => {
+    if (!huntNodes.length) return;
+    let rafId: number;
+
+    const tick = () => {
+      const camera = fgRef.current?.camera?.();
+      if (camera) {
+        const cx = camera.position.x;
+        const cy = camera.position.y;
+        const cz = camera.position.z;
+
+        for (const n of huntNodes) {
+          const sprite = labelMapRef.current.get(n.id);
+          if (!sprite || n.x == null) continue;
+          const dx = (n.x ?? 0) - cx;
+          const dy = (n.y ?? 0) - cy;
+          const dz = (n.z ?? 0) - cz;
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+          if (dist >= LABEL_SHOW_DIST) {
+            sprite.visible = false;
+          } else {
+            sprite.visible = true;
+            // Fade in as camera approaches
+            const t = 1 - (dist - LABEL_FULL_DIST) / (LABEL_SHOW_DIST - LABEL_FULL_DIST);
+            const opacity = Math.max(0, Math.min(1, t));
+            // SpriteText color is CSS string — embed alpha
+            const a = Math.round(opacity * 255).toString(16).padStart(2, '0');
+            sprite.color = `#e2e8f0${a}`;
+          }
+        }
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [huntNodes]);
 
   const flyTo = useCallback((node: HuntNode) => {
     if (!fgRef.current || node.x == null) return;
@@ -247,7 +317,10 @@ export default function GraphHuntPage() {
     const targetNode = huntNodes.find((n) => n.id === target.id);
     if (!targetNode) return;
 
-    // Update refs before state (callbacks read refs)
+    // Clear explore selection
+    exploreRef.current = null;
+    setExploreNode(null);
+
     currentRef.current = startNode.id;
     targetRef.current = target.id;
     revealedRef.current = false;
@@ -266,8 +339,23 @@ export default function GraphHuntPage() {
   }, [huntNodes, flyTo]);
 
   const handleNodeClick = useCallback((node: object) => {
-    if (phaseRef.current !== 'playing') return;
     const n = node as HuntNode;
+
+    // ── Explore mode (setup phase) ──
+    if (phaseRef.current === 'setup') {
+      if (exploreRef.current?.id === n.id) {
+        // Deselect
+        exploreRef.current = null;
+        setExploreNode(null);
+      } else {
+        exploreRef.current = n;
+        setExploreNode(n);
+      }
+      fgRef.current?.refresh();
+      return;
+    }
+
+    // ── Game mode ──
     const curId = currentRef.current;
     const tgtId = targetRef.current;
 
@@ -308,7 +396,9 @@ export default function GraphHuntPage() {
     currentRef.current = '';
     targetRef.current = '';
     revealedRef.current = false;
+    exploreRef.current = null;
     setPhase('setup');
+    setExploreNode(null);
     setTargetWord('');
     setMoves(0);
     setElapsedSec(0);
@@ -325,14 +415,67 @@ export default function GraphHuntPage() {
     resetGame();
   };
 
-  // nodeColor reads from refs — safe to use as stable callback + call refresh()
+  // ── nodeThreeObject: extend default sphere with a proximity SpriteText label ──
+  const nodeThreeObject = useCallback((node: object) => {
+    const n = node as HuntNode;
+    const sprite = new SpriteText(n.label);
+    sprite.color = '#e2e8f000'; // start transparent
+    sprite.textHeight = n.type === 'artist' ? 5 : n.type === 'keyword' ? 4 : 3.5;
+    sprite.fontWeight = '600';
+    sprite.backgroundColor = 'rgba(3,7,18,0.6)';
+    sprite.padding = 1.5;
+    sprite.borderRadius = 2;
+    // SpriteText extends THREE.Sprite (which has position + visible from Object3D)
+    // — cast to access inherited fields that the d.ts doesn't re-declare
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const s = sprite as any;
+    s.position.y = (computeNodeVal(n.type, n.id, '') * 0.7) + 6;
+    s.visible = false;
+    labelMapRef.current.set(n.id, sprite);
+    return sprite;
+  }, []);
+
+  // ── nodeColor: covers game mode, explore mode, and plain idle ──
   const nodeColor = useCallback((node: object) => {
     const n = node as HuntNode;
-    return computeNodeColor(
+    const sel = exploreRef.current;
+
+    // Explore mode
+    if (phaseRef.current === 'setup' && sel) {
+      return exploreNodeColor(n.id, sel.id, adjRef.current);
+    }
+
+    // Game mode
+    return gameNodeColor(
       n.id, n.type,
       currentRef.current, targetRef.current,
       adjRef.current, revealedRef.current,
     );
+  }, []);
+
+  // ── linkColor: highlight connected edges in explore mode ──
+  const linkColor = useCallback((link: object) => {
+    const l = link as HuntLink;
+    const sel = exploreRef.current;
+    if (phaseRef.current === 'setup' && sel) {
+      const src = linkEndId(l.source);
+      const tgt = linkEndId(l.target);
+      if (src === sel.id || tgt === sel.id) return '#22d3ee';
+      return 'rgba(30,35,50,0.15)';
+    }
+    return 'rgba(100,116,139,0.35)';
+  }, []);
+
+  // ── linkWidth: thicken connected edges in explore mode ──
+  const linkWidth = useCallback((link: object) => {
+    const l = link as HuntLink;
+    const sel = exploreRef.current;
+    if (phaseRef.current === 'setup' && sel) {
+      const src = linkEndId(l.source);
+      const tgt = linkEndId(l.target);
+      return (src === sel.id || tgt === sel.id) ? 2.5 : 0.15;
+    }
+    return 0.5;
   }, []);
 
   const nodeVal = useCallback((node: object) => {
@@ -340,8 +483,7 @@ export default function GraphHuntPage() {
     return computeNodeVal(n.type, n.id, currentRef.current);
   }, []);
 
-  // Pin all nodes in place once simulation stops — prevents ongoing drift/saccades
-  // while keeping camera orbit and click interaction fully functional
+  // Pin all nodes once physics stops — prevents drift without killing interactivity
   const onEngineStop = useCallback(() => {
     huntNodes.forEach((n) => {
       if (n.x != null) { n.fx = n.x; n.fy = n.y; n.fz = n.z; }
@@ -384,6 +526,12 @@ export default function GraphHuntPage() {
             )}
           </>
         )}
+
+        {phase === 'setup' && simReady && (
+          <span className="ml-auto text-xs text-gray-600 italic">
+            Click any node to explore its connections
+          </span>
+        )}
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -408,6 +556,13 @@ export default function GraphHuntPage() {
                 <div>• You can only move one edge at a time</div>
                 <div>• The closer you get, the hotter the hint</div>
                 <div>• −25 pts per move · −1 pt per second</div>
+              </div>
+
+              <div className="rounded-lg bg-gray-800/50 border border-gray-700/50 p-3 text-xs text-gray-500 space-y-1">
+                <div className="font-semibold text-gray-400">Before you start</div>
+                <div>• Zoom in close to any node to read its label</div>
+                <div>• Click a node to light up its connections</div>
+                <div>• Click it again to deselect</div>
               </div>
 
               <div>
@@ -467,6 +622,32 @@ export default function GraphHuntPage() {
                   : 'Start Hunt →'}
               </button>
 
+              {/* Explore selection panel */}
+              {exploreNode && (
+                <div className="rounded-lg bg-indigo-950/60 border border-indigo-700/50 p-3">
+                  <div className="text-xs font-semibold text-indigo-300 mb-1 truncate">
+                    {exploreNode.label}
+                  </div>
+                  <div className="text-[10px] text-indigo-400/70 uppercase tracking-wide mb-2">
+                    {exploreNode.type}
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    {adjRef.current.get(exploreNode.id)?.size ?? 0} connection
+                    {(adjRef.current.get(exploreNode.id)?.size ?? 0) === 1 ? '' : 's'}
+                  </div>
+                  <button
+                    onClick={() => {
+                      exploreRef.current = null;
+                      setExploreNode(null);
+                      fgRef.current?.refresh();
+                    }}
+                    className="mt-2 text-[10px] text-indigo-500 hover:text-indigo-300"
+                  >
+                    Clear selection ×
+                  </button>
+                </div>
+              )}
+
               {flash && <p className="text-xs text-yellow-400">{flash}</p>}
             </div>
           )}
@@ -474,7 +655,6 @@ export default function GraphHuntPage() {
           {/* Playing panel */}
           {phase === 'playing' && (
             <div className="p-4 flex flex-col gap-4">
-              {/* Target word */}
               <div className="rounded-xl bg-gray-800 border border-gray-700 p-4 text-center">
                 <div className="text-xs text-gray-400 mb-2">Find the lyric word</div>
                 {revealed ? (
@@ -491,11 +671,8 @@ export default function GraphHuntPage() {
                 </div>
               </div>
 
-              {/* Hot/cold indicator */}
               {hc && (
-                <div
-                  className={`rounded-lg border p-3 text-center ${hc.borderCls} ${hc.bgCls}`}
-                >
+                <div className={`rounded-lg border p-3 text-center ${hc.borderCls} ${hc.bgCls}`}>
                   <div className="text-3xl">{hc.emoji}</div>
                   <div className={`font-bold text-sm mt-1 ${hc.textCls}`}>{hc.label}</div>
                   <div className="text-xs text-gray-500 mt-0.5">
@@ -506,14 +683,12 @@ export default function GraphHuntPage() {
                 </div>
               )}
 
-              {/* Flash message */}
               {flash && (
                 <div className="rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-xs text-gray-300 leading-relaxed">
                   {flash}
                 </div>
               )}
 
-              {/* Legend */}
               <div className="text-xs space-y-1.5">
                 <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
                   Legend
@@ -536,7 +711,7 @@ export default function GraphHuntPage() {
               </div>
 
               <p className="text-xs text-gray-600 italic">
-                Drag to orbit · scroll to zoom · click cyan nodes to move
+                Zoom in close to read node labels
               </p>
 
               <button
@@ -612,14 +787,16 @@ export default function GraphHuntPage() {
               ref={fgRef}
               graphData={{ nodes: huntNodes as object[], links: huntLinks as object[] }}
               nodeId="id"
-              nodeLabel="label"
+              nodeLabel=""
               nodeColor={nodeColor}
               nodeVal={nodeVal}
               nodeOpacity={0.9}
               nodeResolution={8}
-              linkColor={() => 'rgba(100,116,139,0.35)'}
-              linkWidth={0.5}
-              linkOpacity={0.5}
+              nodeThreeObjectExtend
+              nodeThreeObject={nodeThreeObject}
+              linkColor={linkColor}
+              linkWidth={linkWidth}
+              linkOpacity={0.6}
               backgroundColor="#030712"
               showNavInfo={false}
               warmupTicks={100}

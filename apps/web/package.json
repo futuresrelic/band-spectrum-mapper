@@ -20,6 +20,7 @@
     "react-router-dom": "^6.24.0",
     "recharts": "^2.12.7",
     "three": "^0.184.0",
+    "three-spritetext": "^1.10.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
