@@ -839,6 +839,20 @@ function FibonacciViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
   const cx = VW / 2, cy = VH / 2;
   const bcm = buildBandColors(songs);
 
+  // RAF-driven rotation — dots rotate, labels stay horizontal
+  const [rotDeg, setRotDeg] = useState(0);
+  useEffect(() => {
+    let raf: number;
+    const t0 = performance.now();
+    function tick(t: number) {
+      setRotDeg(((t - t0) / 300_000) * 360 % 360);
+      raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  const rotRad = (rotDeg * Math.PI) / 180;
+
   // Sort ascending by X so highest-scoring songs spiral outward (most prominent)
   const sorted = [...songs].sort((a, b) => norm(a, fieldX) - norm(b, fieldX));
   const shown  = sorted.slice(0, 300);
@@ -871,10 +885,8 @@ function FibonacciViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
             fill="none" stroke={style.gridColor} strokeOpacity={0.06} strokeWidth={0.5} />
         ))}
 
-        {/* Slowly-rotating phyllotaxis spiral */}
-        <g>
-          <animateTransform attributeName="transform" type="rotate"
-            from="0" to="360" dur="300s" repeatCount="indefinite" />
+        {/* Rotating dots only — no animateTransform */}
+        <g transform={`rotate(${rotDeg})`}>
           {shown.map((s, i) => {
             const r      = FIB_SCALE * Math.sqrt(i + 1);
             const theta  = i * GOLDEN_ANGLE;
@@ -883,32 +895,45 @@ function FibonacciViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
             const xVal   = norm(s, fieldX);
             const yVal   = norm(s, fieldY);
             const zVal   = norm(s, fieldZ);
-            const sz     = 2.5 + (xVal / 10) * 14;        // 2.5–16.5 px
+            const sz     = (style.dotRadius * 0.5) + (xVal / 10) * (style.dotRadius * 2);
             const fillC  = scoreToGradient(yVal);
-            const op     = 0.35 + (zVal / 10) * 0.6;       // 0.35–0.95
+            const op     = 0.35 + (zVal / 10) * 0.6;
             const bandC  = bcm.get(s.bandId) ?? '#888';
             const isLarge = sz >= 9;
             return (
               <g key={s.id}>
-                {/* Thin band-color halo ring shows band membership */}
                 <circle cx={x} cy={y} r={sz + 3}
                   fill="none" stroke={bandC} strokeWidth={1.2} strokeOpacity={0.4} />
-                {/* Gradient-filled dot encodes fieldY */}
                 <circle cx={x} cy={y} r={sz} fill={fillC} opacity={op}
                   filter={isLarge ? 'url(#fibGlow)' : undefined}>
                   <title>{`${s.title}\n${fieldX.label}: ${xVal.toFixed(1)}\n${fieldY.label}: ${yVal.toFixed(1)}\n${fieldZ.label}: ${zVal.toFixed(1)}`}</title>
                 </circle>
-                {/* Song name on prominent dots */}
-                {style.showLabels && isLarge && (
-                  <text x={x} y={y + sz + 10} textAnchor="middle"
-                    fill={style.fg} opacity={0.65} fontSize={7.5} fontFamily="Inter, system-ui">
-                    {s.title.length > 11 ? `${s.title.slice(0, 10)}…` : s.title}
-                  </text>
-                )}
               </g>
             );
           })}
         </g>
+
+        {/* Sibling <g> for labels — no rotation, labels track dot positions via rotRad */}
+        {style.showLabels && (
+          <g>
+            {shown.map((s, i) => {
+              const r      = FIB_SCALE * Math.sqrt(i + 1);
+              const theta  = i * GOLDEN_ANGLE + rotRad;
+              const lx     = r * Math.cos(theta);
+              const ly     = r * Math.sin(theta);
+              const xVal   = norm(s, fieldX);
+              const sz     = (style.dotRadius * 0.5) + (xVal / 10) * (style.dotRadius * 2);
+              const isLarge = sz >= 9;
+              if (!isLarge) return null;
+              return (
+                <text key={s.id} x={lx} y={ly + sz + 10} textAnchor="middle"
+                  fill={style.fg} opacity={0.65} fontSize={7.5} fontFamily="Inter, system-ui">
+                  {s.title.length > 11 ? `${s.title.slice(0, 10)}…` : s.title}
+                </text>
+              );
+            })}
+          </g>
+        )}
 
         <circle cx={0} cy={0} r={3.5} fill={style.fg} opacity={0.15} />
       </g>
@@ -943,6 +968,25 @@ function FibonacciViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
 function FractalViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
   if (!songs.length) return <EmptyMsg msg="Select artists to begin" />;
 
+  // RAF-driven rotation — dots/branches rotate, labels stay horizontal
+  const [rotDeg, setRotDeg] = useState(0);
+  useEffect(() => {
+    let raf: number;
+    const t0 = performance.now();
+    function tick(t: number) {
+      setRotDeg(((t - t0) / 600_000) * 360 % 360);
+      raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  const rotRad = (rotDeg * Math.PI) / 180;
+
+  function rotatePoint(x: number, y: number): { x: number; y: number } {
+    const c = Math.cos(rotRad), s = Math.sin(rotRad);
+    return { x: c * x - s * y, y: s * x + c * y };
+  }
+
   const PHI    = (1 + Math.sqrt(5)) / 2;
   const TWO_PI = Math.PI * 2;
   const cx = VW / 2, cy = VH / 2;
@@ -970,26 +1014,35 @@ function FractalViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
   const LEAF_LEN   = BRANCH_LEN / PHI;
   const elements: React.ReactElement[] = [];
 
+  // Collect label positions to render separately (no rotation)
+  interface LabelEntry {
+    key: string; x: number; y: number; text: string;
+    fill: string; opacity: number; fontSize: number; fontWeight?: string;
+  }
+  const labelEntries: LabelEntry[] = [];
+
   bands.forEach((bandId, bi) => {
     const trunkAngle = nBands > 1 ? (bi / nBands) * TWO_PI - Math.PI / 2 : -Math.PI / 2;
-    const bx      = nBands > 1 ? TRUNK_LEN * 0.6 * Math.cos(trunkAngle) : 0;
-    const by      = nBands > 1 ? TRUNK_LEN * 0.6 * Math.sin(trunkAngle) : 0;
+    const bxRaw  = nBands > 1 ? TRUNK_LEN * 0.6 * Math.cos(trunkAngle) : 0;
+    const byRaw  = nBands > 1 ? TRUNK_LEN * 0.6 * Math.sin(trunkAngle) : 0;
     const bandCol = bcm.get(bandId) ?? '#888';
 
+    const bRot = rotatePoint(bxRaw, byRaw);
+
     elements.push(
-      <line key={`trunk-${bandId}`} x1={0} y1={0} x2={bx} y2={by}
+      <line key={`trunk-${bandId}`} x1={0} y1={0} x2={bRot.x} y2={bRot.y}
         stroke={bandCol} strokeWidth={3} strokeOpacity={0.3} />
     );
     elements.push(
-      <circle key={`band-${bandId}`} cx={bx} cy={by} r={12} fill={bandCol} opacity={0.9} />
+      <circle key={`band-${bandId}`} cx={bRot.x} cy={bRot.y} r={12} fill={bandCol} opacity={0.9} />
     );
-    // Band label always visible
-    elements.push(
-      <text key={`band-lbl-${bandId}`} x={bx} y={by - 17} textAnchor="middle"
-        fill={bandCol} fontSize={10} fontWeight="700" fontFamily="Inter, system-ui">
-        {bandNames.get(bandId)}
-      </text>
-    );
+    // Band label — rendered in sibling <g> (horizontal, tracks rotated position)
+    labelEntries.push({
+      key: `band-lbl-${bandId}`,
+      x: bRot.x, y: bRot.y - 17,
+      text: bandNames.get(bandId) ?? '',
+      fill: bandCol, opacity: 1, fontSize: 10, fontWeight: '700',
+    });
 
     const albums  = bandAlbums.get(bandId) ?? [];
     const nAlbums = albums.length;
@@ -1000,32 +1053,33 @@ function FractalViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
         ? trunkAngle + ((ai / (nAlbums - 1)) - 0.5) * branchSpread
         : trunkAngle;
 
-      const ax = bx + BRANCH_LEN * Math.cos(albumAngle);
-      const ay = by + BRANCH_LEN * Math.sin(albumAngle);
+      const axRaw = bxRaw + BRANCH_LEN * Math.cos(albumAngle);
+      const ayRaw = byRaw + BRANCH_LEN * Math.sin(albumAngle);
+      const aRot  = rotatePoint(axRaw, ayRaw);
 
       const songList  = albumSongs.get(`${bandId}::${albumKey}`) ?? [];
       const albumAvgX = songList.reduce((s, sg) => s + norm(sg, fieldX), 0) / Math.max(1, songList.length);
       const albumAvgY = songList.reduce((s, sg) => s + norm(sg, fieldY), 0) / Math.max(1, songList.length);
-      const branchW   = 1 + (albumAvgX / 10) * 2.5;  // thicker branch = higher fieldX average
+      const branchW   = style.lineWidth * (0.5 + (albumAvgX / 10) * 1.5); // thicker branch = higher fieldX avg
       const albumFill = scoreToGradient(albumAvgY);
 
       elements.push(
-        <line key={`branch-${bandId}-${ai}`} x1={bx} y1={by} x2={ax} y2={ay}
+        <line key={`branch-${bandId}-${ai}`} x1={bRot.x} y1={bRot.y} x2={aRot.x} y2={aRot.y}
           stroke={bandCol} strokeWidth={branchW} strokeOpacity={0.3} strokeDasharray="4 3" />
       );
       elements.push(
-        <circle key={`alb-${bandId}-${ai}`} cx={ax} cy={ay} r={6}
+        <circle key={`alb-${bandId}-${ai}`} cx={aRot.x} cy={aRot.y} r={6}
           fill={albumFill} opacity={0.85} stroke={bandCol} strokeWidth={1.5} strokeOpacity={0.5} />
       );
-      {/* Album label — always show */}
+      // Album label — collected for horizontal sibling render
       const shortAlbum = albumKey === '__direct__' ? '' : (albumKey.length > 13 ? `${albumKey.slice(0, 12)}…` : albumKey);
       if (shortAlbum) {
-        elements.push(
-          <text key={`alb-lbl-${bandId}-${ai}`} x={ax} y={ay - 11} textAnchor="middle"
-            fill={style.fg} opacity={0.5} fontSize={8} fontFamily="Inter, system-ui">
-            {shortAlbum}
-          </text>
-        );
+        labelEntries.push({
+          key: `alb-lbl-${bandId}-${ai}`,
+          x: aRot.x, y: aRot.y - 11,
+          text: shortAlbum,
+          fill: style.fg, opacity: 0.5, fontSize: 8,
+        });
       }
 
       const nSongs     = songList.length;
@@ -1036,8 +1090,9 @@ function FractalViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
           ? albumAngle + ((si / (nSongs - 1)) - 0.5) * leafSpread
           : albumAngle;
 
-        const sx    = ax + LEAF_LEN * Math.cos(songAngle);
-        const sy    = ay + LEAF_LEN * Math.sin(songAngle);
+        const sxRaw = axRaw + LEAF_LEN * Math.cos(songAngle);
+        const syRaw = ayRaw + LEAF_LEN * Math.sin(songAngle);
+        const sRot  = rotatePoint(sxRaw, syRaw);
         const xVal  = norm(s, fieldX);
         const yVal  = norm(s, fieldY);
         const zVal  = norm(s, fieldZ);
@@ -1046,23 +1101,23 @@ function FractalViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
         const op    = 0.4 + (zVal / 10) * 0.55;     // 0.4–0.95
 
         elements.push(
-          <line key={`leaf-${s.id}`} x1={ax} y1={ay} x2={sx} y2={sy}
+          <line key={`leaf-${s.id}`} x1={aRot.x} y1={aRot.y} x2={sRot.x} y2={sRot.y}
             stroke={bandCol} strokeWidth={0.8} strokeOpacity={0.2} />
         );
         elements.push(
-          <circle key={`song-${s.id}`} cx={sx} cy={sy} r={sz}
+          <circle key={`song-${s.id}`} cx={sRot.x} cy={sRot.y} r={sz}
             fill={fillC} opacity={op} stroke={bandCol} strokeWidth={1} strokeOpacity={0.4}>
             <title>{`${s.title}\n${fieldX.label}: ${xVal.toFixed(1)}\n${fieldY.label}: ${yVal.toFixed(1)}\n${fieldZ.label}: ${zVal.toFixed(1)}`}</title>
           </circle>
         );
-        {/* Song name for larger leaves */}
+        // Song name for larger leaves — collected for horizontal sibling render
         if (style.showLabels && sz >= 7) {
-          elements.push(
-            <text key={`song-lbl-${s.id}`} x={sx} y={sy + sz + 9} textAnchor="middle"
-              fill={style.fg} opacity={0.6} fontSize={7.5} fontFamily="Inter, system-ui">
-              {s.title.length > 10 ? `${s.title.slice(0, 9)}…` : s.title}
-            </text>
-          );
+          labelEntries.push({
+            key: `song-lbl-${s.id}`,
+            x: sRot.x, y: sRot.y + sz + 9,
+            text: s.title.length > 10 ? `${s.title.slice(0, 9)}…` : s.title,
+            fill: style.fg, opacity: 0.6, fontSize: 7.5,
+          });
         }
       });
     });
@@ -1081,11 +1136,21 @@ function FractalViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
       </defs>
 
       <g transform={`translate(${cx},${cy})`}>
-        <g>
-          <animateTransform attributeName="transform" type="rotate"
-            from="0" to="360" dur="360s" repeatCount="indefinite" />
-          {elements}
-        </g>
+        {/* Rotating geometry — no animateTransform, rotation via RAF state */}
+        <g>{elements}</g>
+
+        {/* Sibling <g> for labels — no rotation, horizontal text */}
+        {style.showLabels && (
+          <g>
+            {labelEntries.map((lbl) => (
+              <text key={lbl.key} x={lbl.x} y={lbl.y} textAnchor="middle"
+                fill={lbl.fill} opacity={lbl.opacity} fontSize={lbl.fontSize}
+                fontWeight={lbl.fontWeight} fontFamily="Inter, system-ui">
+                {lbl.text}
+              </text>
+            ))}
+          </g>
+        )}
       </g>
 
       {/* Channel key */}
@@ -1272,6 +1337,193 @@ function AxisMapper({
   );
 }
 
+// ─── Visual Patch Bay ────────────────────────────────────────────────────────
+
+const PATCH_CHANNELS: Record<string, Array<{ id: 'x' | 'y' | 'z'; label: string; hint: string }>> = {
+  fibonacci: [
+    { id: 'x', label: 'SIZE',    hint: 'dot radius' },
+    { id: 'y', label: 'COLOR',   hint: 'heatmap fill' },
+    { id: 'z', label: 'OPACITY', hint: 'transparency' },
+  ],
+  fractal: [
+    { id: 'x', label: 'SIZE',    hint: 'leaf radius' },
+    { id: 'y', label: 'COLOR',   hint: 'heatmap fill' },
+    { id: 'z', label: 'OPACITY', hint: 'transparency' },
+  ],
+  scatter: [
+    { id: 'x', label: 'X-AXIS', hint: 'horizontal' },
+    { id: 'y', label: 'Y-AXIS', hint: 'vertical' },
+  ],
+  vectorscope: [
+    { id: 'x', label: 'X-AXIS', hint: 'horizontal' },
+    { id: 'y', label: 'Y-AXIS', hint: 'vertical' },
+  ],
+  bubble: [
+    { id: 'x', label: 'X-AXIS',  hint: 'horizontal' },
+    { id: 'y', label: 'Y-AXIS',  hint: 'vertical' },
+    { id: 'z', label: 'RADIUS',  hint: 'bubble size' },
+  ],
+  oscilloscope: [
+    { id: 'x', label: 'X-AXIS', hint: 'horizontal' },
+    { id: 'y', label: 'Y-AXIS', hint: 'vertical' },
+  ],
+};
+
+function PatchBay({
+  vizType, fieldX, fieldY, fieldZ, setFieldX, setFieldY, setFieldZ,
+}: {
+  vizType: string;
+  fieldX: StudioField; fieldY: StudioField; fieldZ: StudioField;
+  setFieldX: (f: StudioField) => void;
+  setFieldY: (f: StudioField) => void;
+  setFieldZ: (f: StudioField) => void;
+}) {
+  const channels = PATCH_CHANNELS[vizType] ?? [];
+  if (!channels.length) return null;
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const jackRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const [selected, setSelected] = useState<string | null>(null);
+  const [cables, setCables] = useState<Array<{ from: { x: number; y: number }; to: { x: number; y: number }; color: string }>>([]);
+
+  const patches: Record<string, string> = { x: fieldX.id, y: fieldY.id, z: fieldZ.id };
+
+  function setField(destId: 'x' | 'y' | 'z', f: StudioField) {
+    if (destId === 'x') setFieldX(f);
+    else if (destId === 'y') setFieldY(f);
+    else setFieldZ(f);
+  }
+
+  function recomputeCables() {
+    const container = containerRef.current;
+    if (!container) return;
+    const cr = container.getBoundingClientRect();
+    const result: Array<{ from: { x: number; y: number }; to: { x: number; y: number }; color: string }> = [];
+    for (const ch of channels) {
+      const srcId = patches[ch.id];
+      if (!srcId) continue;
+      const srcEl = jackRefs.current.get(`src-${srcId}`);
+      const dstEl = jackRefs.current.get(`dst-${ch.id}`);
+      if (!srcEl || !dstEl) continue;
+      const sr = srcEl.getBoundingClientRect();
+      const dr = dstEl.getBoundingClientRect();
+      const color = FIELD_CATALOG.find(f => f.id === srcId)?.color ?? '#888';
+      result.push({
+        from: { x: sr.right - cr.left, y: sr.top + sr.height / 2 - cr.top },
+        to:   { x: dr.left - cr.left,  y: dr.top + dr.height / 2 - cr.top },
+        color,
+      });
+    }
+    setCables(result);
+  }
+
+  useEffect(() => {
+    const t = setTimeout(recomputeCables, 30);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fieldX.id, fieldY.id, fieldZ.id, vizType]);
+
+  function handleSrcClick(fieldId: string) {
+    setSelected(prev => prev === fieldId ? null : fieldId);
+  }
+
+  function handleDstClick(ch: { id: 'x' | 'y' | 'z' }) {
+    if (!selected) return;
+    const f = FIELD_CATALOG.find(ff => ff.id === selected);
+    if (f) { setField(ch.id, f); setSelected(null); }
+  }
+
+  return (
+    <section className="px-3 py-2 border-t border-white/8">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] font-mono tracking-widest text-white/30 uppercase">Patch Bay</span>
+        {selected ? (
+          <span className="text-[10px] text-indigo-300 animate-pulse">→ pick a channel</span>
+        ) : (
+          <span className="text-[10px] text-white/15">tap field then channel</span>
+        )}
+      </div>
+
+      <div ref={containerRef} className="relative">
+        {/* SVG cable overlay */}
+        <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 10 }}>
+          {cables.map((c, i) => {
+            const mx = (c.from.x + c.to.x) / 2;
+            const sag = Math.min(40, Math.abs(c.to.y - c.from.y) * 0.4 + 8);
+            return (
+              <path key={i}
+                d={`M${c.from.x},${c.from.y} C${mx},${c.from.y + sag} ${mx},${c.to.y + sag} ${c.to.x},${c.to.y}`}
+                fill="none" stroke={c.color} strokeWidth={2.5} strokeLinecap="round" opacity={0.85} />
+            );
+          })}
+        </svg>
+
+        <div className="flex gap-2 items-start">
+          {/* Sources: all fields, scrollable */}
+          <div className="flex-1 min-w-0 space-y-0.5 max-h-52 overflow-y-auto pr-1"
+            onScroll={recomputeCables}>
+            {FIELD_CATALOG.map((f) => {
+              const isPatched = Object.values(patches).includes(f.id);
+              const isSel = selected === f.id;
+              return (
+                <div key={f.id} className="flex items-center justify-between gap-1 min-w-0">
+                  <span
+                    className={`text-[10px] truncate flex items-center gap-1.5 min-w-0 ${isSel ? 'text-white' : isPatched ? '' : 'text-white/40'}`}
+                    style={isPatched && !isSel ? { color: f.color } : undefined}>
+                    <span className="w-2 h-2 rounded-full shrink-0 inline-block"
+                      style={{ background: f.color, opacity: isPatched || isSel ? 1 : 0.35 }} />
+                    {f.label}
+                  </span>
+                  <button
+                    ref={(el) => { if (el) jackRefs.current.set(`src-${f.id}`, el); }}
+                    onClick={() => handleSrcClick(f.id)}
+                    className={[
+                      'w-3.5 h-3.5 rounded-full border-2 shrink-0 transition-all',
+                      isSel    ? 'scale-125 border-white bg-white' :
+                      isPatched ? 'border-white/60 bg-white/25' :
+                                  'border-white/20 hover:border-white/50',
+                    ].join(' ')}
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Destinations */}
+          <div className="flex flex-col gap-3 shrink-0 py-1" style={{ minWidth: 88 }}>
+            {channels.map((ch) => {
+              const pf = FIELD_CATALOG.find(f => f.id === patches[ch.id]);
+              return (
+                <div key={ch.id} className="flex items-center gap-1.5">
+                  <button
+                    ref={(el) => { if (el) jackRefs.current.set(`dst-${ch.id}`, el as HTMLButtonElement); }}
+                    onClick={() => handleDstClick(ch)}
+                    className={[
+                      'w-3.5 h-3.5 rounded-full border-2 shrink-0 transition-all',
+                      selected ? 'border-indigo-400 bg-indigo-400/30 animate-pulse scale-110' :
+                      pf       ? 'border-white/60' : 'border-white/20',
+                    ].join(' ')}
+                    style={pf && !selected ? { borderColor: pf.color } : undefined}
+                  />
+                  <div>
+                    <div className="text-[9px] font-mono text-white/30 leading-none uppercase">{ch.label}</div>
+                    {pf ? (
+                      <div className="text-[9px] leading-none mt-0.5 font-medium"
+                        style={{ color: pf.color }}>{pf.short}</div>
+                    ) : (
+                      <div className="text-[9px] leading-none mt-0.5 text-white/15">{ch.hint}</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function SpectrumStudioPage() {
@@ -1290,7 +1542,36 @@ export default function SpectrumStudioPage() {
   const [showStylePanel, setShowStylePanel] = useState(true);
   const [exportMsg,      setExportMsg]      = useState('');
 
+  // Viewport state for zoom/pan
+  const [vb, setVb] = useState({ x: 0, y: 0, zoom: 1 });
+  const vbRef = useRef({ x: 0, y: 0, zoom: 1 });
+  vbRef.current = vb;
+  const svgDragRef = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
+
   useEffect(() => { localStorage.setItem(STYLE_KEY, JSON.stringify(style)); }, [style]);
+
+  // Non-passive wheel handler for zoom-toward-cursor
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const { x, y, zoom } = vbRef.current;
+      const rect = el.getBoundingClientRect();
+      const mx = x + (e.clientX - rect.left) / rect.width  * (VW / zoom);
+      const my = y + (e.clientY - rect.top)  / rect.height * (VH / zoom);
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      const newZoom = Math.min(10, Math.max(0.15, zoom * factor));
+      const newW = VW / newZoom, newH = VH / newZoom;
+      setVb({
+        x: mx - (e.clientX - rect.left) / rect.width  * newW,
+        y: my - (e.clientY - rect.top)  / rect.height * newH,
+        zoom: newZoom,
+      });
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps — uses vbRef
 
   if (!authLoading && (!user || !user.isAdmin)) return <Navigate to="/landing" replace />;
 
@@ -1329,7 +1610,7 @@ export default function SpectrumStudioPage() {
     [activeFieldIds],
   );
 
-  const needsXY = ['oscilloscope', 'vectorscope', 'scatter', 'bubble'].includes(vizType);
+  const needsXY = ['oscilloscope', 'vectorscope', 'scatter', 'bubble', 'fibonacci', 'fractal'].includes(vizType);
   const needsZ  = vizType === 'bubble';
 
   const vizProps: VizProps = {
@@ -1567,12 +1848,12 @@ export default function SpectrumStudioPage() {
               onSelectGroup={toggleFieldGroup}
             />
 
-            {/* Axis patch — only for 2D/3D chart types */}
+            {/* Visual patch bay — maps data fields to visual channels */}
             {needsXY && (
-              <AxisMapper
+              <PatchBay
+                vizType={vizType}
                 fieldX={fieldX} fieldY={fieldY} fieldZ={fieldZ}
                 setFieldX={setFieldX} setFieldY={setFieldY} setFieldZ={setFieldZ}
-                needsZ={needsZ}
               />
             )}
 
