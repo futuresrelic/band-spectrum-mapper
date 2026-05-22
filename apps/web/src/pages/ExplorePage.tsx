@@ -1309,7 +1309,7 @@ export default function ExplorePage() {
     });
 
     return () => { cy.destroy(); cyRef.current = null; };
-  }, [graphData]);
+  }, [graphData, preset]);
 
   // Animate toggle — guard with layoutReadyRef so we don't fire during initial COSE
   useEffect(() => {
