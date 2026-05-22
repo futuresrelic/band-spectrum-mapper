@@ -1475,6 +1475,8 @@ function PatchBay({
 export default function SpectrumStudioPage() {
   const { user, isLoading: authLoading } = useAuth();
   const svgRef = useRef<SVGSVGElement>(null);
+  // Track when the SVG actually mounts (it's conditionally rendered)
+  const [svgMounted, setSvgMounted] = useState(false);
 
   const [vizType,        setVizType]        = useState<VizType>('radar');
   const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
@@ -1496,7 +1498,8 @@ export default function SpectrumStudioPage() {
 
   useEffect(() => { localStorage.setItem(STYLE_KEY, JSON.stringify(style)); }, [style]);
 
-  // Non-passive wheel handler for zoom-toward-cursor
+  // Non-passive wheel handler for zoom-toward-cursor.
+  // Depends on svgMounted so it re-runs when the SVG is conditionally rendered.
   useEffect(() => {
     const el = svgRef.current;
     if (!el) return;
@@ -1517,7 +1520,7 @@ export default function SpectrumStudioPage() {
     };
     el.addEventListener('wheel', handler, { passive: false });
     return () => el.removeEventListener('wheel', handler);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps — uses vbRef
+  }, [svgMounted]); // re-runs when SVG mounts — vbRef used instead of vb to avoid stale closure
 
   if (!authLoading && (!user || !user.isAdmin)) return <Navigate to="/landing" replace />;
 
@@ -1827,7 +1830,10 @@ export default function SpectrumStudioPage() {
           ) : (
             <>
               <svg
-                ref={svgRef}
+                ref={(el) => {
+                  (svgRef as React.MutableRefObject<SVGSVGElement | null>).current = el;
+                  setSvgMounted(!!el);
+                }}
                 viewBox={`${vb.x} ${vb.y} ${VW / vb.zoom} ${VH / vb.zoom}`}
                 className="w-full h-full"
                 style={{ maxWidth: VW, maxHeight: VH, cursor: svgDragRef.current ? 'grabbing' : 'grab' }}
