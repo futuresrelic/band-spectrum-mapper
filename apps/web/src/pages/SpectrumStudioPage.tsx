@@ -1283,60 +1283,6 @@ function FieldBrowser({
   );
 }
 
-// ─── Axis Mapper — "patch bay" for 2D/3D chart axes ──────────────────────────
-
-function AxisMapper({
-  fieldX, fieldY, fieldZ,
-  setFieldX, setFieldY, setFieldZ,
-  needsZ,
-}: {
-  fieldX: StudioField; fieldY: StudioField; fieldZ: StudioField;
-  setFieldX: (f: StudioField) => void;
-  setFieldY: (f: StudioField) => void;
-  setFieldZ: (f: StudioField) => void;
-  needsZ: boolean;
-}) {
-  const slots: Array<{ label: string; field: StudioField; set: (f: StudioField) => void }> = [
-    { label: 'X axis', field: fieldX, set: setFieldX },
-    { label: 'Y axis', field: fieldY, set: setFieldY },
-    ...(needsZ ? [{ label: 'Size',   field: fieldZ, set: setFieldZ }] : []),
-  ];
-
-  return (
-    <section>
-      <div className="text-[10px] font-bold uppercase tracking-widest text-white/35 mb-2">
-        Axis Patch
-      </div>
-      <div className="space-y-2">
-        {slots.map(({ label, field, set }) => (
-          <div key={label}>
-            <div className="flex items-center gap-1.5 mb-0.5">
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: field.color }} />
-              <span className="text-[10px] text-white/40 font-medium">{label}</span>
-            </div>
-            <select
-              value={field.id}
-              onChange={(e) => {
-                const f = FIELD_MAP.get(e.target.value);
-                if (f) set(f);
-              }}
-              className="w-full bg-white/8 border border-white/10 rounded px-2 py-1.5 text-white text-[11px] cursor-pointer"
-            >
-              {FIELD_GROUPS.map((group) => (
-                <optgroup key={group} label={group}>
-                  {FIELD_CATALOG.filter((f) => f.group === group).map((f) => (
-                    <option key={f.id} value={f.id}>{f.label}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 // ─── Visual Patch Bay ────────────────────────────────────────────────────────
 
 const PATCH_CHANNELS: Record<string, Array<{ id: 'x' | 'y' | 'z'; label: string; hint: string }>> = {
@@ -1611,7 +1557,6 @@ export default function SpectrumStudioPage() {
   );
 
   const needsXY = ['oscilloscope', 'vectorscope', 'scatter', 'bubble', 'fibonacci', 'fractal'].includes(vizType);
-  const needsZ  = vizType === 'bubble';
 
   const vizProps: VizProps = {
     songs: filteredSongs, fields: activeFields, style, fieldX, fieldY, fieldZ,
@@ -1861,7 +1806,7 @@ export default function SpectrumStudioPage() {
         </aside>
 
         {/* ── Chart canvas ───────────────────────────────────────── */}
-        <main className="flex-1 flex items-center justify-center p-5 min-w-0 overflow-hidden"
+        <main className="relative flex-1 flex items-center justify-center p-5 min-w-0 overflow-hidden"
           style={{ background: style.bg }}>
           {!selectedBandIds.length ? (
             <div className="text-center text-white/25 select-none">
@@ -1880,47 +1825,77 @@ export default function SpectrumStudioPage() {
               <p className="text-sm">No songs selected — use the Songs panel to pick some</p>
             </div>
           ) : (
-            <svg
-              ref={svgRef}
-              viewBox={`0 0 ${VW} ${VH}`}
-              className="w-full h-full"
-              style={{ maxWidth: VW, maxHeight: VH }}
-              xmlns="http://www.w3.org/2000/svg"
-              fontFamily="Inter, system-ui, sans-serif"
-            >
-              <rect width={VW} height={VH} fill={style.bg} rx={6} />
+            <>
+              <svg
+                ref={svgRef}
+                viewBox={`${vb.x} ${vb.y} ${VW / vb.zoom} ${VH / vb.zoom}`}
+                className="w-full h-full"
+                style={{ maxWidth: VW, maxHeight: VH, cursor: svgDragRef.current ? 'grabbing' : 'grab' }}
+                xmlns="http://www.w3.org/2000/svg"
+                fontFamily="Inter, system-ui, sans-serif"
+                onMouseDown={(e) => {
+                  if ((e.target as Element).tagName === 'circle' || (e.target as Element).tagName === 'text') return;
+                  svgDragRef.current = { sx: e.clientX, sy: e.clientY, ox: vb.x, oy: vb.y };
+                }}
+                onMouseMove={(e) => {
+                  if (!svgDragRef.current) return;
+                  const rect = svgRef.current!.getBoundingClientRect();
+                  setVb(v => ({
+                    ...v,
+                    x: svgDragRef.current!.ox - (e.clientX - svgDragRef.current!.sx) * (VW / v.zoom) / rect.width,
+                    y: svgDragRef.current!.oy - (e.clientY - svgDragRef.current!.sy) * (VH / v.zoom) / rect.height,
+                  }));
+                }}
+                onMouseUp={() => { svgDragRef.current = null; }}
+                onMouseLeave={() => { svgDragRef.current = null; }}
+                onDoubleClick={() => setVb({ x: 0, y: 0, zoom: 1 })}
+              >
+                <rect width={VW} height={VH} fill={style.bg} rx={6} />
 
-              {style.showTitle && (
-                <text x={VW / 2} y={26} textAnchor="middle"
-                  fill={style.fg} fontSize={15} fontWeight="700"
-                  fontFamily="Inter, system-ui, sans-serif" opacity={0.8}>
-                  {style.titleText}
+                {style.showTitle && (
+                  <text x={VW / 2} y={26} textAnchor="middle"
+                    fill={style.fg} fontSize={15} fontWeight="700"
+                    fontFamily="Inter, system-ui, sans-serif" opacity={0.8}>
+                    {style.titleText}
+                  </text>
+                )}
+
+                {renderViz()}
+
+                {/* Legend strip */}
+                {showLegendInSvg && (
+                  <g transform={`translate(${(VW - Math.min(activeFields.length, 8) * 90) / 2},${VH - 18})`}>
+                    {activeFields.slice(0, 8).map((f, i) => (
+                      <g key={f.id} transform={`translate(${i * 90},0)`}>
+                        <rect x={0} y={-6} width={10} height={10} rx={2} fill={f.color} />
+                        <text x={14} y={4} fill={style.fg} opacity={0.55}
+                          fontSize={10} fontFamily="Inter, system-ui">
+                          {f.short}
+                        </text>
+                      </g>
+                    ))}
+                  </g>
+                )}
+
+                {/* Watermark */}
+                <text x={VW - 7} y={VH - 5} textAnchor="end"
+                  fill={style.fg} opacity={0.12} fontSize={8} fontFamily="Inter, system-ui">
+                  Band Spectrum Mapper
                 </text>
+              </svg>
+
+              {/* Zoom indicator */}
+              {vb.zoom !== 1 && (
+                <div className="absolute top-2 right-2 flex items-center gap-2 text-[10px] text-white/40 select-none">
+                  <span>{vb.zoom.toFixed(1)}×</span>
+                  <button onClick={() => setVb({ x: 0, y: 0, zoom: 1 })}
+                    className="hover:text-white/70 underline">reset</button>
+                </div>
               )}
-
-              {renderViz()}
-
-              {/* Legend strip */}
-              {showLegendInSvg && (
-                <g transform={`translate(${(VW - Math.min(activeFields.length, 8) * 90) / 2},${VH - 18})`}>
-                  {activeFields.slice(0, 8).map((f, i) => (
-                    <g key={f.id} transform={`translate(${i * 90},0)`}>
-                      <rect x={0} y={-6} width={10} height={10} rx={2} fill={f.color} />
-                      <text x={14} y={4} fill={style.fg} opacity={0.55}
-                        fontSize={10} fontFamily="Inter, system-ui">
-                        {f.short}
-                      </text>
-                    </g>
-                  ))}
-                </g>
-              )}
-
-              {/* Watermark */}
-              <text x={VW - 7} y={VH - 5} textAnchor="end"
-                fill={style.fg} opacity={0.12} fontSize={8} fontFamily="Inter, system-ui">
-                Band Spectrum Mapper
-              </text>
-            </svg>
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[9px] text-white/15 select-none pointer-events-none">
+                scroll to zoom · drag to pan · dbl-click to reset
+              </div>
+            </>
           )}
         </main>
 
