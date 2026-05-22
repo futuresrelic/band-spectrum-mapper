@@ -26,12 +26,12 @@ const NODE_COLORS: Record<NodeType, string> = {
 };
 
 const EDGE_COLORS: Record<string, string> = {
-  same_artist:   '#f59e0b44',
-  same_album:    '#8b5cf644',
-  shared_tag:    '#06b6d444',
-  similar_radar: '#ec489944',
-  conceptual:    '#10b98144',
-  shared_word:   '#64748b44',
+  same_artist:   'rgba(245, 158, 11, 0.27)',
+  same_album:    'rgba(139, 92, 246, 0.27)',
+  shared_tag:    'rgba(6, 182, 212, 0.27)',
+  similar_radar: 'rgba(236, 72, 153, 0.27)',
+  conceptual:    'rgba(16, 185, 129, 0.27)',
+  shared_word:   'rgba(100, 116, 139, 0.27)',
 };
 
 function getBaseFont(type: string): number {
@@ -222,8 +222,8 @@ const PUBLIC_PRESETS = [
   { id: 'theme-constellation', backendPreset: 'theme-constellation',  label: 'Theme Constellation', desc: 'Songs grouped by shared AI themes' },
   { id: 'emotional-similarity',backendPreset: 'emotional-similarity', label: 'Emotional Similarity',desc: 'Songs linked by matching radar' },
   { id: 'lyrical-dna',         backendPreset: 'lyrical-dna',          label: 'Lyrical DNA',         desc: 'Songs bridged by shared keywords' },
-  { id: 'fibonacci-spiral',    backendPreset: 'fibonacci-spiral',     label: 'Fibonacci Spiral',    desc: 'All nodes in golden-angle phyllotaxis' },
-  { id: 'fractal-tree',        backendPreset: 'fractal-tree',         label: 'Fractal Tree',        desc: 'Recursive golden-ratio branching' },
+  { id: 'fibonacci-spiral',    backendPreset: 'artist-universe',      label: 'Fibonacci Spiral',    desc: 'All nodes in golden-angle phyllotaxis' },
+  { id: 'fractal-tree',        backendPreset: 'artist-universe',      label: 'Fractal Tree',        desc: 'Recursive golden-ratio branching' },
   { id: 'spectrum-compass',    backendPreset: 'emotional-similarity', label: 'Spectrum Compass',    desc: 'Songs pulled toward their dominant axis — find the emotional center of any song' },
   { id: 'tag-galaxy',          backendPreset: 'artist-universe',      label: 'Tag Galaxy',          desc: 'Tags as gravity wells — follow genres to discover hidden clusters' },
   { id: 'keyword-spiral',      backendPreset: 'lyrical-dna',          label: 'Keyword Spiral',      desc: 'Keywords in a golden spiral — trace lyrical DNA as it fans outward' },
