@@ -168,10 +168,14 @@ function fetchLyricalGraph(bandIds: string[]): Promise<GraphData> {
   return api.get(`/api/public/graph?${qs}`);
 }
 
-// ── Proximity label distance thresholds ──────────────────────────────────────
+// ── Proximity label defaults ──────────────────────────────────────────────────
 
-const LABEL_SHOW_DIST = 120;   // start showing label below this camera distance
-const LABEL_FULL_DIST = 60;    // fully opaque below this distance
+const DEFAULT_LABEL_SHOW = 120;
+const DEFAULT_LABEL_FULL = 55;
+
+// nodeRelSize is the library default (4). Sphere radius = nodeRelSize * cbrt(nodeVal).
+const NODE_REL_SIZE = 4;
+function sphereRadius(nodeVal: number) { return NODE_REL_SIZE * Math.cbrt(nodeVal); }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -191,6 +195,12 @@ export default function GraphHuntPage() {
   const [huntLinks, setHuntLinks] = useState<HuntLink[]>([]);
   // Explore mode: which node is selected in setup phase
   const [exploreNode, setExploreNode] = useState<HuntNode | null>(null);
+  // Graph controls panel
+  const [showControls, setShowControls] = useState(false);
+  const [labelShowDist, setLabelShowDist] = useState(DEFAULT_LABEL_SHOW);
+  const [labelFullDist, setLabelFullDist] = useState(DEFAULT_LABEL_FULL);
+  const [nodeScale, setNodeScale] = useState(1);
+  const [linkOpacityVal, setLinkOpacityVal] = useState(0.6);
 
   // Refs — read inside callbacks to avoid stale closures
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -205,6 +215,11 @@ export default function GraphHuntPage() {
   // Map nodeId → SpriteText label for proximity updates (typed as any to access inherited Object3D fields)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const labelMapRef = useRef(new Map<string, any>());
+  // Mirror controls state in refs so the rAF loop always reads current values
+  const labelShowDistRef = useRef(DEFAULT_LABEL_SHOW);
+  const labelFullDistRef = useRef(DEFAULT_LABEL_FULL);
+  // Track whether the initial zoomToFit has been done so re-fires don't snap the camera
+  const didFitRef = useRef(false);
 
   const { data: scopes } = useQuery({
     queryKey: ['explore-scopes'],
@@ -217,10 +232,15 @@ export default function GraphHuntPage() {
     enabled: selectedBandIds.length > 0,
   });
 
+  // Keep control refs in sync with slider state (rAF loop reads refs)
+  useEffect(() => { labelShowDistRef.current = labelShowDist; }, [labelShowDist]);
+  useEffect(() => { labelFullDistRef.current = labelFullDist; }, [labelFullDist]);
+
   // Build hunt graph whenever API data changes
   useEffect(() => {
     if (!graphData) return;
     setSimReady(false);
+    didFitRef.current = false;
     labelMapRef.current.clear();
     const nodes: HuntNode[] = graphData.nodes.map((n) => ({
       id: n.id,
@@ -260,6 +280,9 @@ export default function GraphHuntPage() {
         const cy = camera.position.y;
         const cz = camera.position.z;
 
+        const showDist = labelShowDistRef.current;
+        const fullDist = labelFullDistRef.current;
+
         for (const n of huntNodes) {
           const sprite = labelMapRef.current.get(n.id);
           if (!sprite || n.x == null) continue;
@@ -268,14 +291,13 @@ export default function GraphHuntPage() {
           const dz = (n.z ?? 0) - cz;
           const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-          if (dist >= LABEL_SHOW_DIST) {
+          if (dist >= showDist) {
             sprite.visible = false;
           } else {
             sprite.visible = true;
-            // Fade in as camera approaches
-            const t = 1 - (dist - LABEL_FULL_DIST) / (LABEL_SHOW_DIST - LABEL_FULL_DIST);
+            const range = Math.max(1, showDist - fullDist);
+            const t = 1 - (dist - fullDist) / range;
             const opacity = Math.max(0, Math.min(1, t));
-            // SpriteText color is CSS string — embed alpha
             const a = Math.round(opacity * 255).toString(16).padStart(2, '0');
             sprite.color = `#e2e8f0${a}`;
           }
@@ -429,7 +451,11 @@ export default function GraphHuntPage() {
     // — cast to access inherited fields that the d.ts doesn't re-declare
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const s = sprite as any;
-    s.position.y = (computeNodeVal(n.type, n.id, '') * 0.7) + 6;
+    // Place label above the sphere: sphere radius + half text height + small gap
+    const val = computeNodeVal(n.type, n.id, '');
+    const r = sphereRadius(val);
+    const textH = sprite.textHeight;
+    s.position.y = r + textH * 0.6 + 3;
     s.visible = false;
     labelMapRef.current.set(n.id, sprite);
     return sprite;
@@ -488,8 +514,12 @@ export default function GraphHuntPage() {
     huntNodes.forEach((n) => {
       if (n.x != null) { n.fx = n.x; n.fy = n.y; n.fz = n.z; }
     });
+    // Only do the initial fit once per graph load — never snap the camera after the user has zoomed
+    if (!didFitRef.current) {
+      didFitRef.current = true;
+      fgRef.current?.zoomToFit(800, 80);
+    }
     setSimReady(true);
-    fgRef.current?.zoomToFit(600, 60);
   }, [huntNodes]);
 
   const score = Math.max(0, 1000 - moves * 25 - elapsedSec);
@@ -790,13 +820,14 @@ export default function GraphHuntPage() {
               nodeLabel=""
               nodeColor={nodeColor}
               nodeVal={nodeVal}
+              nodeRelSize={4 * nodeScale}
               nodeOpacity={0.9}
               nodeResolution={8}
               nodeThreeObjectExtend
               nodeThreeObject={nodeThreeObject}
               linkColor={linkColor}
               linkWidth={linkWidth}
-              linkOpacity={0.6}
+              linkOpacity={linkOpacityVal}
               backgroundColor="#030712"
               showNavInfo={false}
               warmupTicks={100}
@@ -805,6 +836,104 @@ export default function GraphHuntPage() {
               onNodeClick={handleNodeClick}
               onEngineStop={onEngineStop}
             />
+          )}
+
+          {/* ── Controls panel ── */}
+          {huntNodes.length > 0 && (
+            <div className="absolute bottom-4 right-4 z-10">
+              <button
+                onClick={() => setShowControls((v) => !v)}
+                className="flex items-center gap-1.5 bg-gray-900/90 hover:bg-gray-800 border border-gray-700 text-gray-400 hover:text-white text-xs px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors"
+              >
+                ⚙ {showControls ? 'Hide controls' : 'Graph controls'}
+              </button>
+
+              {showControls && (
+                <div className="mt-2 bg-gray-900/95 border border-gray-700 rounded-xl p-4 backdrop-blur-sm w-64 space-y-4">
+                  <div className="text-xs font-semibold text-gray-300">Graph controls</div>
+
+                  {/* Label appear distance */}
+                  <div>
+                    <div className="flex justify-between text-xs text-gray-400 mb-1">
+                      <span>Labels appear at</span>
+                      <span className="font-mono text-white">{labelShowDist}</span>
+                    </div>
+                    <input
+                      type="range" min={40} max={400} step={10}
+                      value={labelShowDist}
+                      onChange={(e) => setLabelShowDist(Number(e.target.value))}
+                      className="w-full accent-indigo-500"
+                    />
+                    <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+                      <span>closer</span><span>farther</span>
+                    </div>
+                  </div>
+
+                  {/* Label full opacity distance */}
+                  <div>
+                    <div className="flex justify-between text-xs text-gray-400 mb-1">
+                      <span>Labels fully visible at</span>
+                      <span className="font-mono text-white">{labelFullDist}</span>
+                    </div>
+                    <input
+                      type="range" min={10} max={200} step={5}
+                      value={labelFullDist}
+                      onChange={(e) => setLabelFullDist(Number(e.target.value))}
+                      className="w-full accent-indigo-500"
+                    />
+                    <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+                      <span>closer</span><span>farther</span>
+                    </div>
+                  </div>
+
+                  {/* Node size */}
+                  <div>
+                    <div className="flex justify-between text-xs text-gray-400 mb-1">
+                      <span>Node size</span>
+                      <span className="font-mono text-white">{nodeScale.toFixed(1)}×</span>
+                    </div>
+                    <input
+                      type="range" min={0.4} max={2.5} step={0.1}
+                      value={nodeScale}
+                      onChange={(e) => setNodeScale(Number(e.target.value))}
+                      className="w-full accent-indigo-500"
+                    />
+                    <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+                      <span>smaller</span><span>larger</span>
+                    </div>
+                  </div>
+
+                  {/* Link opacity */}
+                  <div>
+                    <div className="flex justify-between text-xs text-gray-400 mb-1">
+                      <span>Link opacity</span>
+                      <span className="font-mono text-white">{Math.round(linkOpacityVal * 100)}%</span>
+                    </div>
+                    <input
+                      type="range" min={0} max={1} step={0.05}
+                      value={linkOpacityVal}
+                      onChange={(e) => setLinkOpacityVal(Number(e.target.value))}
+                      className="w-full accent-indigo-500"
+                    />
+                    <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+                      <span>hidden</span><span>solid</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setLabelShowDist(DEFAULT_LABEL_SHOW);
+                      setLabelFullDist(DEFAULT_LABEL_FULL);
+                      setNodeScale(1);
+                      setLinkOpacityVal(0.6);
+                    }}
+                    className="w-full text-[11px] text-gray-600 hover:text-gray-400 transition-colors text-center pt-1"
+                  >
+                    Reset to defaults
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
