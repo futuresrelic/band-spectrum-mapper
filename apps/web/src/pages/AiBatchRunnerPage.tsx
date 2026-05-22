@@ -2,10 +2,11 @@ import { useState, useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { bandsApi } from '../api/bands';
 import { analysisApi } from '../api/analysis';
+import { api } from '../lib/api';
 import PageHeader from '../components/layout/PageHeader';
 import type { Song } from '@band-spectrum-mapper/shared';
 
-type JobType = 'analysis' | 'spectrum' | 'research' | 'genre' | 'tags';
+type JobType = 'analysis' | 'spectrum' | 'research' | 'genre' | 'tags' | 'metadata';
 
 const JOB_LABELS: Record<JobType, string> = {
   analysis: 'AI Lyric Analysis',
@@ -13,6 +14,7 @@ const JOB_LABELS: Record<JobType, string> = {
   research: 'Song Research',
   genre: 'Genre Accessibility',
   tags: 'Thematic Tags',
+  metadata: 'Track Duration',
 };
 
 const JOB_DESCRIPTIONS: Record<JobType, string> = {
@@ -21,7 +23,14 @@ const JOB_DESCRIPTIONS: Record<JobType, string> = {
   research: 'Music style summary and background context',
   genre: 'How much each genre audience would enjoy it (Metal, Rock, Pop, Hip-Hop, Electronic, Folk/Indie)',
   tags: 'Generate thematic tags (mood, theme, style, context) — powers the Song Cloud',
+  metadata: 'Fetch track length from MusicBrainz (rate-limited, ~1 req/sec)',
 };
+
+interface ScanResult {
+  total: number;
+  has: Record<JobType, number>;
+  missing: Record<JobType, number>;
+}
 
 type RowStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped';
 
@@ -53,6 +62,10 @@ async function runJob(songId: string, job: JobType, force: boolean): Promise<voi
     await analysisApi.generateAiTags(songId);
     return;
   }
+  if (job === 'metadata') {
+    await api.post<void>(`/api/admin/songs/${songId}/fetch-metadata`, {});
+    return;
+  }
 }
 
 // Returns true if all selected jobs for this row are already completed/skipped
@@ -71,6 +84,8 @@ export default function AiBatchRunnerPage() {
   const [errorCount, setErrorCount] = useState(0);
   const [filterBandIds, setFilterBandIds] = useState<Set<string>>(new Set());
   const [showBandFilter, setShowBandFilter] = useState(false);
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [scanning, setScanning] = useState(false);
   const abortRef = useRef(false);
 
   const { data: bands, isLoading: bandsLoading } = useQuery({
@@ -104,10 +119,10 @@ export default function AiBatchRunnerPage() {
       const songs = await bandsApi.listSongs(band.id);
       for (const song of songs) {
         const statuses: Record<JobType, RowStatus> = {
-          analysis: 'pending', spectrum: 'pending', research: 'pending', genre: 'pending', tags: 'pending',
+          analysis: 'pending', spectrum: 'pending', research: 'pending', genre: 'pending', tags: 'pending', metadata: 'pending',
         };
         const errors: Record<JobType, string> = {
-          analysis: '', spectrum: '', research: '', genre: '', tags: '',
+          analysis: '', spectrum: '', research: '', genre: '', tags: '', metadata: '',
         };
         all.push({ song, bandName: band.name, statuses, errors });
       }
@@ -117,6 +132,17 @@ export default function AiBatchRunnerPage() {
     setDoneCount(0);
     setErrorCount(0);
   }, [bands, filterBandIds]);
+
+  const runScan = useCallback(async () => {
+    setScanning(true);
+    try {
+      const bandParam = filterBandIds.size > 0 ? `?bandIds=${[...filterBandIds].join(',')}` : '';
+      const result = await api.get<ScanResult>(`/api/admin/ai-batch/scan${bandParam}`);
+      setScanResult(result);
+    } catch { /* ignore */ } finally {
+      setScanning(false);
+    }
+  }, [filterBandIds]);
 
   const start = useCallback(async (continueFromCheckpoint = false) => {
     if (rows.length === 0) { await loadAllSongs(); return; }
@@ -243,6 +269,53 @@ export default function AiBatchRunnerPage() {
         title="AI Batch Runner"
         subtitle="Run AI generation for all songs in sequence — analysis, spectrum scoring, research, genre"
       />
+
+      {/* Data scan panel */}
+      <div className="card mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="label">Data Coverage Scan</p>
+            <p className="text-xs text-surface-500 mt-0.5">Check which songs are missing AI data before running.</p>
+          </div>
+          <button
+            className="btn-secondary text-sm"
+            onClick={() => void runScan()}
+            disabled={scanning || running}
+          >
+            {scanning ? 'Scanning…' : 'Scan now'}
+          </button>
+        </div>
+
+        {scanResult && (
+          <div>
+            <p className="text-xs text-surface-500 mb-2">
+              {scanResult.total} songs total
+              {filterBandIds.size > 0 && ` (${filterBandIds.size} band${filterBandIds.size !== 1 ? 's' : ''} filtered)`}
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {(Object.entries(JOB_LABELS) as [JobType, string][]).map(([job, label]) => {
+                const has     = scanResult.has[job] ?? 0;
+                const missing = scanResult.missing[job] ?? 0;
+                const pct     = scanResult.total > 0 ? Math.round((has / scanResult.total) * 100) : 0;
+                return (
+                  <div key={job} className="bg-surface-50 border border-surface-200 rounded p-2">
+                    <p className="text-[10px] font-medium text-surface-600 truncate">{label}</p>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <span className={`text-sm font-bold ${missing > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                        {missing > 0 ? `${missing} missing` : 'complete'}
+                      </span>
+                    </div>
+                    <div className="h-1 bg-surface-200 rounded-full mt-1.5 overflow-hidden">
+                      <div className="h-full bg-green-500 transition-all" style={{ width: `${pct}%` }} />
+                    </div>
+                    <p className="text-[10px] text-surface-400 mt-0.5">{has}/{scanResult.total} have data</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Config */}
       <div className="card mb-6 space-y-5">

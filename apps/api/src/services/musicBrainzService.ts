@@ -280,3 +280,23 @@ export async function batchGetTracksByRelease(
   }
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// Search for a recording's duration by song title + artist name.
+// Returns duration in seconds, or null if not found.
+// ---------------------------------------------------------------------------
+
+export async function searchRecordingDuration(songTitle: string, artistName: string): Promise<number | null> {
+  try {
+    const q = encodeURIComponent(`recording:"${songTitle.trim()}" AND artist:"${artistName.trim()}"`);
+    const raw = await mbFetch(`/recording?query=${q}&limit=5&fmt=json`) as {
+      recordings?: { title: string; length?: number | null }[];
+    };
+    for (const rec of raw.recordings ?? []) {
+      if (rec.length && rec.length > 0) return Math.round(rec.length / 1000);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

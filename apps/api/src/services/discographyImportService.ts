@@ -14,6 +14,7 @@ interface TrackInput {
   track_number?: unknown;
   song_title?: unknown;
   song_slug?: unknown;
+  duration_seconds?: unknown;
   Aggression?: unknown; aggression?: unknown;
   Complexity?: unknown; complexity?: unknown;
   Atmosphere?: unknown; atmosphere?: unknown;
@@ -179,6 +180,9 @@ export const discographyImportService = {
 
         const songTitle = String(track.song_title ?? '').trim();
         const trackNum = track.track_number != null ? Math.round(Number(track.track_number)) : null;
+        const durationSecRaw = Number(track.duration_seconds);
+        const durationSec = track.duration_seconds != null && !isNaN(durationSecRaw) && durationSecRaw > 0
+          ? Math.round(durationSecRaw) : null;
         const proposedSlug = String(track.song_slug ?? slugify(songTitle)).trim() || slugify(songTitle);
         if (!songTitle) continue;
 
@@ -211,6 +215,10 @@ export const discographyImportService = {
               create: { songId: existingSong.id, bandId, ...newScores },
               update: newScores,
             });
+          }
+
+          if (!dryRun && durationSec !== null && existingSong.durationSeconds === null) {
+            await prisma.song.update({ where: { id: existingSong.id }, data: { durationSeconds: durationSec } });
           }
 
           rows.push({
@@ -251,6 +259,7 @@ export const discographyImportService = {
                 title: songTitle,
                 slug: finalSlug,
                 ...(trackNum != null ? { trackNumber: trackNum } : {}),
+                ...(durationSec !== null ? { durationSeconds: durationSec } : {}),
               },
             });
             await prisma.songAxisScore.create({

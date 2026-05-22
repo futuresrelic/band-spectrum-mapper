@@ -37,13 +37,13 @@ const FIELD_CATALOG: StudioField[] = [
   { id: 'psychedelic', label: 'Psychedelic',   short: 'Psych',    group: 'Spectrum', color: '#22C55E', min: 0, max: 10 },
   { id: 'concept',     label: 'Concept',       short: 'Conc',     group: 'Spectrum', color: '#F97316', min: 0, max: 10 },
 
-  // ── AI Genre Accessibility (0–10)
-  { id: 'genre_metal',      label: 'Metal (AI)',      short: 'Metal',  group: 'AI Genres', color: '#64748B', min: 0, max: 10 },
-  { id: 'genre_rock',       label: 'Rock (AI)',       short: 'Rock',   group: 'AI Genres', color: '#FB923C', min: 0, max: 10 },
-  { id: 'genre_pop',        label: 'Pop (AI)',        short: 'Pop',    group: 'AI Genres', color: '#F472B6', min: 0, max: 10 },
-  { id: 'genre_hiphop',     label: 'Hip-hop (AI)',    short: 'HipHop', group: 'AI Genres', color: '#818CF8', min: 0, max: 10 },
-  { id: 'genre_electronic', label: 'Electronic (AI)', short: 'Elec',   group: 'AI Genres', color: '#22D3EE', min: 0, max: 10 },
-  { id: 'genre_folk',       label: 'Folk/Indie (AI)', short: 'Folk',   group: 'AI Genres', color: '#A3E635', min: 0, max: 10 },
+  // ── Genre Accessibility (0–10, AI-scored)
+  { id: 'genre_metal',      label: 'Metal',      short: 'Metal',  group: 'Genres', color: '#64748B', min: 0, max: 10 },
+  { id: 'genre_rock',       label: 'Rock',       short: 'Rock',   group: 'Genres', color: '#FB923C', min: 0, max: 10 },
+  { id: 'genre_pop',        label: 'Pop',        short: 'Pop',    group: 'Genres', color: '#F472B6', min: 0, max: 10 },
+  { id: 'genre_hiphop',     label: 'Hip-hop',    short: 'HipHop', group: 'Genres', color: '#818CF8', min: 0, max: 10 },
+  { id: 'genre_electronic', label: 'Electronic', short: 'Elec',   group: 'Genres', color: '#22D3EE', min: 0, max: 10 },
+  { id: 'genre_folk',       label: 'Folk/Indie', short: 'Folk',   group: 'Genres', color: '#A3E635', min: 0, max: 10 },
 
   // ── Philosophical Themes (0–10, scaled from AI score 0–1)
   { id: 'theme_perception',    label: 'Perception',     short: 'Percep',  group: 'Themes', color: '#34c8e8', min: 0, max: 10 },
@@ -72,7 +72,15 @@ const FIELD_CATALOG: StudioField[] = [
 const FIELD_MAP = new Map<string, StudioField>(FIELD_CATALOG.map((f) => [f.id, f]));
 
 // Field groups for the browser UI (order matters)
-const FIELD_GROUPS = ['Spectrum', 'AI Genres', 'Themes', 'Metadata'];
+const FIELD_GROUPS = ['Spectrum', 'Genres', 'Themes', 'Metadata'];
+
+// Dataset presets — which field groups to show
+const DATASET_GROUPS: Record<string, string[]> = {
+  All:      ['Spectrum', 'Genres', 'Themes', 'Metadata'],
+  Core:     ['Spectrum'],
+  AI:       ['Genres', 'Themes'],
+  Metadata: ['Metadata'],
+};
 
 // Default active fields = all Spectrum fields
 const DEFAULT_ACTIVE = FIELD_CATALOG.filter((f) => f.group === 'Spectrum').map((f) => f.id);
@@ -215,6 +223,15 @@ interface VizProps {
   fieldX:  StudioField;
   fieldY:  StudioField;
   fieldZ:  StudioField;
+  vb:      { x: number; y: number; zoom: number };
+  svgRef?: React.MutableRefObject<SVGSVGElement | null>;
+}
+
+/** Euclidean distance between two songs in normalised field space (0–10). */
+function fieldDist(a: SongData, b: SongData, fields: StudioField[]): number {
+  if (!fields.length) return 0;
+  const sum = fields.reduce((acc, f) => { const d = norm(a, f) - norm(b, f); return acc + d * d; }, 0);
+  return Math.sqrt(sum / fields.length);
 }
 
 function EmptyMsg({ msg }: { msg: string }) {
@@ -834,33 +851,75 @@ function BubbleViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ≈ 2.399 rad (137.5°)
 const FIB_SCALE = 14;
 
-function FibonacciViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
-  if (!songs.length) return <EmptyMsg msg="Select artists to begin" />;
+function FibonacciViz({ songs, style, fieldX, fieldY, fieldZ, vb, svgRef }: VizProps) {
   const cx = VW / 2, cy = VH / 2;
-  const bcm = buildBandColors(songs);
 
-  // RAF-driven rotation — dots rotate, labels stay horizontal
-  const [rotDeg, setRotDeg] = useState(0);
+  // ── Hooks ─────────────────────────────────────────────────────────────────
+  const [rotDeg, setRotDeg]         = useState(0);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [overrides, setOverrides]   = useState<Map<string, { x: number; y: number }>>(new Map());
+  const rotPausedRef = useRef(false);
+  const dragRef      = useRef<{
+    id: string; startClient: { x: number; y: number };
+    startPos: { x: number; y: number }; hasMoved: boolean;
+  } | null>(null);
+
   useEffect(() => {
     let raf: number;
     const t0 = performance.now();
     function tick(t: number) {
-      setRotDeg(((t - t0) / 300_000) * 360 % 360);
+      if (!rotPausedRef.current) setRotDeg(((t - t0) / 300_000) * 360 % 360);
       raf = requestAnimationFrame(tick);
     }
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, []);
-  const rotRad = (rotDeg * Math.PI) / 180;
 
-  // Sort ascending by X so highest-scoring songs spiral outward (most prominent)
+  useEffect(() => { rotPausedRef.current = !!selectedId; }, [selectedId]);
+
+  if (!songs.length) return <EmptyMsg msg="Select artists to begin" />;
+
+  const rotRad = (rotDeg * Math.PI) / 180;
+  const bcm    = buildBandColors(songs);
   const sorted = [...songs].sort((a, b) => norm(a, fieldX) - norm(b, fieldX));
   const shown  = sorted.slice(0, 300);
   const maxR   = FIB_SCALE * Math.sqrt(shown.length);
 
+  // Screen → local SVG component coords (after translate(cx,cy))
+  function clientToLocal(clientX: number, clientY: number): { x: number; y: number } {
+    const svgEl = svgRef?.current;
+    if (!svgEl) return { x: 0, y: 0 };
+    const rect = svgEl.getBoundingClientRect();
+    const svgX = vb.x + (clientX - rect.left) * (VW / vb.zoom) / rect.width;
+    const svgY = vb.y + (clientY - rect.top)  * (VH / vb.zoom) / rect.height;
+    return { x: svgX - cx, y: svgY - cy };
+  }
+
+  // Compute drawn position for node i (override > fibonacci + rotation)
+  function getPos(s: SongData, i: number): { x: number; y: number } {
+    const ov = overrides.get(s.id);
+    if (ov) return ov;
+    const r = FIB_SCALE * Math.sqrt(i + 1);
+    const theta = i * GOLDEN_ANGLE + rotRad;
+    return { x: r * Math.cos(theta), y: r * Math.sin(theta) };
+  }
+
+  const selectedSong = selectedId ? (shown.find(s => s.id === selectedId) ?? null) : null;
+  const similarIds   = new Set<string>();
+  if (selectedSong) {
+    shown
+      .filter(s => s.id !== selectedId)
+      .map(s => ({ s, d: fieldDist(selectedSong, s, [fieldX, fieldY, fieldZ]) }))
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 5)
+      .forEach(({ s }) => similarIds.add(s.id));
+  }
+
   const fibRings = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89]
-    .map((n) => FIB_SCALE * Math.sqrt(n))
-    .filter((r) => r <= maxR);
+    .map(n => FIB_SCALE * Math.sqrt(n)).filter(r => r <= maxR);
+
+  const selIdx = selectedId ? shown.findIndex(s => s.id === selectedId) : -1;
+  const selPos = selIdx >= 0 ? getPos(shown[selIdx]!, selIdx) : null;
 
   return (
     <g>
@@ -879,64 +938,129 @@ function FibonacciViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
       </defs>
 
       <g transform={`translate(${cx},${cy})`}>
-        {/* Fibonacci guide rings */}
-        {style.showGrid && fibRings.map((r) => (
+        {style.showGrid && fibRings.map(r => (
           <circle key={r} cx={0} cy={0} r={r}
             fill="none" stroke={style.gridColor} strokeOpacity={0.06} strokeWidth={0.5} />
         ))}
 
-        {/* Rotating dots only — no animateTransform */}
-        <g transform={`rotate(${rotDeg})`}>
-          {shown.map((s, i) => {
-            const r      = FIB_SCALE * Math.sqrt(i + 1);
-            const theta  = i * GOLDEN_ANGLE;
-            const x      = r * Math.cos(theta);
-            const y      = r * Math.sin(theta);
-            const xVal   = norm(s, fieldX);
-            const yVal   = norm(s, fieldY);
-            const zVal   = norm(s, fieldZ);
-            const sz     = (style.dotRadius * 0.5) + (xVal / 10) * (style.dotRadius * 2);
-            const fillC  = scoreToGradient(yVal);
-            const op     = 0.35 + (zVal / 10) * 0.6;
-            const bandC  = bcm.get(s.bandId) ?? '#888';
-            const isLarge = sz >= 9;
-            return (
-              <g key={s.id}>
-                <circle cx={x} cy={y} r={sz + 3}
-                  fill="none" stroke={bandC} strokeWidth={1.2} strokeOpacity={0.4} />
-                <circle cx={x} cy={y} r={sz} fill={fillC} opacity={op}
-                  filter={isLarge ? 'url(#fibGlow)' : undefined}>
-                  <title>{`${s.title}\n${fieldX.label}: ${xVal.toFixed(1)}\n${fieldY.label}: ${yVal.toFixed(1)}\n${fieldZ.label}: ${zVal.toFixed(1)}`}</title>
-                </circle>
-              </g>
-            );
-          })}
-        </g>
+        {/* Similarity connection lines (behind dots) */}
+        {selPos && shown.map((s, i) => {
+          if (!similarIds.has(s.id)) return null;
+          const p = getPos(s, i);
+          return (
+            <line key={`sim-${s.id}`}
+              x1={selPos.x} y1={selPos.y} x2={p.x} y2={p.y}
+              stroke="#a5b4fc" strokeWidth={1.5} strokeOpacity={0.45} strokeDasharray="5 3" />
+          );
+        })}
 
-        {/* Sibling <g> for labels — no rotation, labels track dot positions via rotRad */}
-        {style.showLabels && (
-          <g>
-            {shown.map((s, i) => {
-              const r      = FIB_SCALE * Math.sqrt(i + 1);
-              const theta  = i * GOLDEN_ANGLE + rotRad;
-              const lx     = r * Math.cos(theta);
-              const ly     = r * Math.sin(theta);
-              const xVal   = norm(s, fieldX);
-              const sz     = (style.dotRadius * 0.5) + (xVal / 10) * (style.dotRadius * 2);
-              const isLarge = sz >= 9;
-              if (!isLarge) return null;
-              return (
-                <text key={s.id} x={lx} y={ly + sz + 10} textAnchor="middle"
-                  fill={style.fg} opacity={0.65} fontSize={7.5} fontFamily="Inter, system-ui">
-                  {s.title.length > 11 ? `${s.title.slice(0, 10)}…` : s.title}
-                </text>
-              );
-            })}
-          </g>
-        )}
+        {/* Dots — individually positioned, interactive */}
+        {shown.map((s, i) => {
+          const pos   = getPos(s, i);
+          const xVal  = norm(s, fieldX);
+          const yVal  = norm(s, fieldY);
+          const zVal  = norm(s, fieldZ);
+          const sz    = (style.dotRadius * 0.5) + (xVal / 10) * (style.dotRadius * 2);
+          const fillC = scoreToGradient(yVal);
+          const op    = 0.35 + (zVal / 10) * 0.6;
+          const bandC = bcm.get(s.bandId) ?? '#888';
+          const isSel = s.id === selectedId;
+          const isSim = similarIds.has(s.id);
+          return (
+            <g key={s.id}>
+              <circle cx={pos.x} cy={pos.y} r={sz + 3 + (isSel ? 3 : 0)}
+                fill="none"
+                stroke={isSel || isSim ? '#a5b4fc' : bandC}
+                strokeWidth={isSel ? 2 : 1.2}
+                strokeOpacity={isSel ? 1 : isSim ? 0.65 : 0.4} />
+              <circle cx={pos.x} cy={pos.y} r={sz} fill={fillC}
+                opacity={op} filter={sz >= 9 ? 'url(#fibGlow)' : undefined} />
+              {/* Transparent hit area — handles click & drag, blocks SVG pan */}
+              <circle
+                cx={pos.x} cy={pos.y} r={Math.max(10, sz + 5)}
+                fill="transparent" style={{ cursor: 'pointer' }}
+                onMouseDown={e => e.stopPropagation()}
+                onPointerDown={e => {
+                  e.stopPropagation();
+                  (e.currentTarget as SVGCircleElement).setPointerCapture(e.pointerId);
+                  dragRef.current = {
+                    id: s.id, startClient: { x: e.clientX, y: e.clientY },
+                    startPos: { ...pos }, hasMoved: false,
+                  };
+                }}
+                onPointerMove={e => {
+                  if (!dragRef.current || dragRef.current.id !== s.id) return;
+                  if (Math.hypot(e.clientX - dragRef.current.startClient.x,
+                                 e.clientY - dragRef.current.startClient.y) > 3) {
+                    dragRef.current.hasMoved = true;
+                    setOverrides(prev => {
+                      const m = new Map(prev);
+                      m.set(s.id, clientToLocal(e.clientX, e.clientY));
+                      return m;
+                    });
+                  }
+                }}
+                onPointerUp={e => {
+                  if (!dragRef.current || dragRef.current.id !== s.id) return;
+                  if (!dragRef.current.hasMoved) setSelectedId(p => p === s.id ? null : s.id);
+                  (e.currentTarget as SVGCircleElement).releasePointerCapture(e.pointerId);
+                  dragRef.current = null;
+                }}
+              >
+                <title>{`${s.title}\n${fieldX.label}: ${xVal.toFixed(1)}\n${fieldY.label}: ${yVal.toFixed(1)}\n${fieldZ.label}: ${zVal.toFixed(1)}`}</title>
+              </circle>
+            </g>
+          );
+        })}
+
+        {/* Labels — horizontal, track dot positions */}
+        {style.showLabels && shown.map((s, i) => {
+          const pos  = getPos(s, i);
+          const xVal = norm(s, fieldX);
+          const sz   = (style.dotRadius * 0.5) + (xVal / 10) * (style.dotRadius * 2);
+          const isSel = s.id === selectedId;
+          const isSim = similarIds.has(s.id);
+          if (!isSel && !isSim && sz < 9) return null;
+          return (
+            <text key={`lbl-${s.id}`} x={pos.x} y={pos.y + sz + 10} textAnchor="middle"
+              fill={isSel ? '#a5b4fc' : style.fg}
+              opacity={isSel ? 1 : isSim ? 0.8 : 0.65}
+              fontSize={isSel ? 9 : 7.5} fontWeight={isSel ? '700' : undefined}
+              fontFamily="Inter, system-ui" style={{ pointerEvents: 'none' }}>
+              {s.title.length > 11 ? `${s.title.slice(0, 10)}…` : s.title}
+            </text>
+          );
+        })}
 
         <circle cx={0} cy={0} r={3.5} fill={style.fg} opacity={0.15} />
       </g>
+
+      {/* Selected node info panel */}
+      {selectedSong && selPos && (() => {
+        const px = Math.min(VW - 150, Math.max(4, cx + selPos.x + 14));
+        const py = Math.min(VH - 78, Math.max(4, cy + selPos.y - 44));
+        return (
+          <g>
+            <rect x={px} y={py} width={144} height={74} rx={5}
+              fill="#1e1b4b" fillOpacity={0.92} stroke="#4f46e5" strokeWidth={1} />
+            <text x={px + 8} y={py + 14} fill="#a5b4fc" fontSize={9} fontWeight="700" fontFamily="Inter, system-ui">
+              {selectedSong.title.length > 17 ? `${selectedSong.title.slice(0, 16)}…` : selectedSong.title}
+            </text>
+            <text x={px + 8} y={py + 26} fill={style.fg} fillOpacity={0.45} fontSize={7.5} fontFamily="Inter, system-ui">
+              {selectedSong.bandName}
+            </text>
+            {[fieldX, fieldY, fieldZ].map((f, i) => (
+              <text key={f.id} x={px + 8} y={py + 39 + i * 12}
+                fill={style.fg} fillOpacity={0.7} fontSize={8.5} fontFamily="Inter, system-ui">
+                {f.short}: {norm(selectedSong, f).toFixed(1)}
+              </text>
+            ))}
+            <text x={px + 136} y={py + 12} textAnchor="end"
+              fill="#6b7280" fontSize={12} fontFamily="Inter, system-ui"
+              style={{ cursor: 'pointer' }} onClick={() => setSelectedId(null)}>×</text>
+          </g>
+        );
+      })()}
 
       {/* Channel key */}
       {style.showLegend && (
@@ -944,11 +1068,8 @@ function FibonacciViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
           <rect x={-6} y={-8} width={220} height={62} rx={5} fill="#000" fillOpacity={0.55} />
           {[`SIZE     — ${fieldX.label}`, `COLOR  — ${fieldY.label}`, `OPACITY — ${fieldZ.label}`, `RING     — band`].map((label, i) => (
             <text key={i} x={0} y={i * 13 + 4}
-              fill={style.fg} fillOpacity={0.5} fontSize={9} fontFamily="Inter, system-ui">
-              {label}
-            </text>
+              fill={style.fg} fillOpacity={0.5} fontSize={9} fontFamily="Inter, system-ui">{label}</text>
           ))}
-          {/* Colour bar for fieldY */}
           <rect x={110} y={14} width={96} height={6} rx={3} fill="url(#fibLegGrad)" opacity={0.8} />
         </g>
       )}
@@ -957,6 +1078,7 @@ function FibonacciViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
         <text x={VW / 2} y={VH - 10} textAnchor="middle"
           fill={style.fg} opacity={0.2} fontSize={9} fontFamily="Inter, system-ui">
           φ = 1.618 · golden angle 137.5° · {songs.length} songs
+          {selectedId ? ' · drag to reposition · click again to deselect' : ' · click node to inspect · drag to reposition'}
         </text>
       )}
     </g>
@@ -965,21 +1087,36 @@ function FibonacciViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
 
 // ─── 12 · Fractal Tree ────────────────────────────────────────────────────────
 
-function FractalViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
-  if (!songs.length) return <EmptyMsg msg="Select artists to begin" />;
+function FractalViz({ songs, style, fieldX, fieldY, fieldZ, vb, svgRef }: VizProps) {
+  // ── Hooks ─────────────────────────────────────────────────────────────────
+  const [rotDeg, setRotDeg]         = useState(0);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [nodePos, setNodePos]       = useState<Map<string, { x: number; y: number }>>(new Map());
+  const rotPausedRef   = useRef(false);
+  const renderPosRef   = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const bandSubtreeRef = useRef<Map<string, string[]>>(new Map());
+  const dragRef        = useRef<{
+    keys: string[];
+    startClient: { x: number; y: number };
+    startPositions: Map<string, { x: number; y: number }>;
+    hasMoved: boolean;
+  } | null>(null);
 
-  // RAF-driven rotation — dots/branches rotate, labels stay horizontal
-  const [rotDeg, setRotDeg] = useState(0);
   useEffect(() => {
     let raf: number;
     const t0 = performance.now();
     function tick(t: number) {
-      setRotDeg(((t - t0) / 600_000) * 360 % 360);
+      if (!rotPausedRef.current) setRotDeg(((t - t0) / 600_000) * 360 % 360);
       raf = requestAnimationFrame(tick);
     }
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, []);
+
+  useEffect(() => { rotPausedRef.current = !!selectedId; }, [selectedId]);
+
+  if (!songs.length) return <EmptyMsg msg="Select artists to begin" />;
+
   const rotRad = (rotDeg * Math.PI) / 180;
 
   function rotatePoint(x: number, y: number): { x: number; y: number } {
@@ -987,16 +1124,67 @@ function FractalViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
     return { x: c * x - s * y, y: s * x + c * y };
   }
 
+  // Compute SVG-space delta for current pointer event
+  function clientDelta(e: React.PointerEvent<SVGCircleElement>): { dx: number; dy: number } {
+    const svgEl = svgRef?.current;
+    if (!svgEl || !dragRef.current) return { dx: 0, dy: 0 };
+    const rect  = svgEl.getBoundingClientRect();
+    const scale = (VW / vb.zoom) / rect.width;
+    return {
+      dx: (e.clientX - dragRef.current.startClient.x) * scale,
+      dy: (e.clientY - dragRef.current.startClient.y) * scale,
+    };
+  }
+
+  function startNodeDrag(e: React.PointerEvent<SVGCircleElement>, keys: string[]) {
+    e.stopPropagation();
+    (e.currentTarget as SVGCircleElement).setPointerCapture(e.pointerId);
+    const sp = new Map<string, { x: number; y: number }>();
+    for (const k of keys) {
+      sp.set(k, nodePos.get(k) ?? renderPosRef.current.get(k) ?? { x: 0, y: 0 });
+    }
+    dragRef.current = { keys, startClient: { x: e.clientX, y: e.clientY }, startPositions: sp, hasMoved: false };
+  }
+
+  function moveNodeDrag(e: React.PointerEvent<SVGCircleElement>) {
+    if (!dragRef.current) return;
+    const { dx, dy } = clientDelta(e);
+    if (Math.hypot(dx, dy) > 2) {
+      dragRef.current.hasMoved = true;
+      setNodePos(prev => {
+        const m = new Map(prev);
+        for (const [k, sp] of dragRef.current!.startPositions) {
+          m.set(k, { x: sp.x + dx, y: sp.y + dy });
+        }
+        return m;
+      });
+    }
+  }
+
+  function endNodeDrag(e: React.PointerEvent<SVGCircleElement>, primaryKey: string) {
+    if (!dragRef.current) return;
+    if (!dragRef.current.hasMoved) setSelectedId(p => p === primaryKey ? null : primaryKey);
+    (e.currentTarget as SVGCircleElement).releasePointerCapture(e.pointerId);
+    dragRef.current = null;
+  }
+
+  // Record rendered position and return override if present
+  function rp(key: string, computed: { x: number; y: number }): { x: number; y: number } {
+    const pos = nodePos.get(key) ?? computed;
+    renderPosRef.current.set(key, pos);
+    return pos;
+  }
+
   const PHI    = (1 + Math.sqrt(5)) / 2;
   const TWO_PI = Math.PI * 2;
   const cx = VW / 2, cy = VH / 2;
   const bcm = buildBandColors(songs);
 
-  const bandAlbums  = new Map<string, string[]>();
-  const albumSongs  = new Map<string, SongData[]>();
-  const bandNames   = new Map<string, string>();
+  const bandAlbums = new Map<string, string[]>();
+  const albumSongs = new Map<string, SongData[]>();
+  const bandNames  = new Map<string, string>();
 
-  songs.forEach((s) => {
+  songs.forEach(s => {
     const albumKey = s.albumTitle ?? '__direct__';
     bandNames.set(s.bandId, s.bandName);
     if (!bandAlbums.has(s.bandId)) bandAlbums.set(s.bandId, []);
@@ -1012,55 +1200,81 @@ function FractalViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
   const TRUNK_LEN  = 180;
   const BRANCH_LEN = TRUNK_LEN / PHI;
   const LEAF_LEN   = BRANCH_LEN / PHI;
-  const elements: React.ReactElement[] = [];
+  const elements: React.ReactElement[]  = [];
+  const simLines: React.ReactElement[]  = [];
 
-  // Collect label positions to render separately (no rotation)
   interface LabelEntry {
     key: string; x: number; y: number; text: string;
     fill: string; opacity: number; fontSize: number; fontWeight?: string;
   }
   const labelEntries: LabelEntry[] = [];
 
-  bands.forEach((bandId, bi) => {
-    const trunkAngle = nBands > 1 ? (bi / nBands) * TWO_PI - Math.PI / 2 : -Math.PI / 2;
-    const bxRaw  = nBands > 1 ? TRUNK_LEN * 0.6 * Math.cos(trunkAngle) : 0;
-    const byRaw  = nBands > 1 ? TRUNK_LEN * 0.6 * Math.sin(trunkAngle) : 0;
-    const bandCol = bcm.get(bandId) ?? '#888';
+  const selectedSong = selectedId?.startsWith('s:')
+    ? (songs.find(s => `s:${s.id}` === selectedId) ?? null) : null;
+  const similarSongIds = new Set<string>();
+  if (selectedSong) {
+    songs.filter(s => s.id !== selectedSong.id)
+      .map(s => ({ s, d: fieldDist(selectedSong, s, [fieldX, fieldY, fieldZ]) }))
+      .sort((a, b) => a.d - b.d).slice(0, 5).forEach(({ s }) => similarSongIds.add(s.id));
+  }
 
-    const bRot = rotatePoint(bxRaw, byRaw);
+  const newSubtree = new Map<string, string[]>();
+
+  bands.forEach((bandId, bi) => {
+    const trunkAngle  = nBands > 1 ? (bi / nBands) * TWO_PI - Math.PI / 2 : -Math.PI / 2;
+    const bxRaw       = nBands > 1 ? TRUNK_LEN * 0.6 * Math.cos(trunkAngle) : 0;
+    const byRaw       = nBands > 1 ? TRUNK_LEN * 0.6 * Math.sin(trunkAngle) : 0;
+    const bandCol     = bcm.get(bandId) ?? '#888';
+    const bandKey     = `b:${bandId}`;
+    const computedBRot = rotatePoint(bxRaw, byRaw);
+    const bRot        = rp(bandKey, computedBRot);
+    const bandDelta   = { dx: bRot.x - computedBRot.x, dy: bRot.y - computedBRot.y };
+    const isBandSel   = selectedId === bandKey;
 
     elements.push(
       <line key={`trunk-${bandId}`} x1={0} y1={0} x2={bRot.x} y2={bRot.y}
         stroke={bandCol} strokeWidth={3} strokeOpacity={0.3} />
     );
     elements.push(
-      <circle key={`band-${bandId}`} cx={bRot.x} cy={bRot.y} r={12} fill={bandCol} opacity={0.9} />
+      <g key={`band-${bandId}`}>
+        <circle cx={bRot.x} cy={bRot.y} r={12} fill={bandCol}
+          opacity={isBandSel ? 1 : 0.9}
+          stroke={isBandSel ? '#a5b4fc' : 'none'} strokeWidth={isBandSel ? 2.5 : 0} />
+        <circle cx={bRot.x} cy={bRot.y} r={18}
+          fill="transparent" style={{ cursor: 'pointer' }}
+          onMouseDown={ev => ev.stopPropagation()}
+          onPointerDown={ev => { startNodeDrag(ev, [bandKey, ...(bandSubtreeRef.current.get(bandId) ?? [])]); }}
+          onPointerMove={moveNodeDrag}
+          onPointerUp={ev => { endNodeDrag(ev, bandKey); }} />
+      </g>
     );
-    // Band label — rendered in sibling <g> (horizontal, tracks rotated position)
-    labelEntries.push({
-      key: `band-lbl-${bandId}`,
-      x: bRot.x, y: bRot.y - 17,
-      text: bandNames.get(bandId) ?? '',
-      fill: bandCol, opacity: 1, fontSize: 10, fontWeight: '700',
-    });
+    labelEntries.push({ key: `bl-${bandId}`, x: bRot.x, y: bRot.y - 17,
+      text: bandNames.get(bandId) ?? '', fill: isBandSel ? '#a5b4fc' : bandCol,
+      opacity: 1, fontSize: 10, fontWeight: '700' });
 
-    const albums  = bandAlbums.get(bandId) ?? [];
-    const nAlbums = albums.length;
+    const albums     = bandAlbums.get(bandId) ?? [];
+    const nAlbums    = albums.length;
+    const subtreeKeys: string[] = [];
 
     albums.forEach((albumKey, ai) => {
       const branchSpread = Math.PI / PHI;
       const albumAngle   = nAlbums > 1
         ? trunkAngle + ((ai / (nAlbums - 1)) - 0.5) * branchSpread
         : trunkAngle;
-
       const axRaw = bxRaw + BRANCH_LEN * Math.cos(albumAngle);
       const ayRaw = byRaw + BRANCH_LEN * Math.sin(albumAngle);
-      const aRot  = rotatePoint(axRaw, ayRaw);
+
+      const albumKey2     = `a:${bandId}:${ai}`;
+      const computedARot  = rotatePoint(axRaw, ayRaw);
+      const defaultARot   = { x: computedARot.x + bandDelta.dx, y: computedARot.y + bandDelta.dy };
+      const aRot          = rp(albumKey2, defaultARot);
+      subtreeKeys.push(albumKey2);
+      const isAlbumSel    = selectedId === albumKey2;
 
       const songList  = albumSongs.get(`${bandId}::${albumKey}`) ?? [];
       const albumAvgX = songList.reduce((s, sg) => s + norm(sg, fieldX), 0) / Math.max(1, songList.length);
       const albumAvgY = songList.reduce((s, sg) => s + norm(sg, fieldY), 0) / Math.max(1, songList.length);
-      const branchW   = style.lineWidth * (0.5 + (albumAvgX / 10) * 1.5); // thicker branch = higher fieldX avg
+      const branchW   = style.lineWidth * (0.5 + (albumAvgX / 10) * 1.5);
       const albumFill = scoreToGradient(albumAvgY);
 
       elements.push(
@@ -1068,60 +1282,149 @@ function FractalViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
           stroke={bandCol} strokeWidth={branchW} strokeOpacity={0.3} strokeDasharray="4 3" />
       );
       elements.push(
-        <circle key={`alb-${bandId}-${ai}`} cx={aRot.x} cy={aRot.y} r={6}
-          fill={albumFill} opacity={0.85} stroke={bandCol} strokeWidth={1.5} strokeOpacity={0.5} />
+        <g key={`alb-${bandId}-${ai}`}>
+          <circle cx={aRot.x} cy={aRot.y} r={6} fill={albumFill}
+            opacity={isAlbumSel ? 1 : 0.85}
+            stroke={isAlbumSel ? '#a5b4fc' : bandCol}
+            strokeWidth={isAlbumSel ? 2 : 1.5} strokeOpacity={isAlbumSel ? 1 : 0.5} />
+          <circle cx={aRot.x} cy={aRot.y} r={12}
+            fill="transparent" style={{ cursor: 'pointer' }}
+            onMouseDown={ev => ev.stopPropagation()}
+            onPointerDown={ev => { startNodeDrag(ev, [albumKey2]); }}
+            onPointerMove={moveNodeDrag}
+            onPointerUp={ev => { endNodeDrag(ev, albumKey2); }} />
+        </g>
       );
-      // Album label — collected for horizontal sibling render
       const shortAlbum = albumKey === '__direct__' ? '' : (albumKey.length > 13 ? `${albumKey.slice(0, 12)}…` : albumKey);
       if (shortAlbum) {
-        labelEntries.push({
-          key: `alb-lbl-${bandId}-${ai}`,
-          x: aRot.x, y: aRot.y - 11,
-          text: shortAlbum,
-          fill: style.fg, opacity: 0.5, fontSize: 8,
-        });
+        labelEntries.push({ key: `al-${bandId}-${ai}`, x: aRot.x, y: aRot.y - 11,
+          text: shortAlbum, fill: style.fg, opacity: 0.5, fontSize: 8 });
       }
 
       const nSongs     = songList.length;
       const leafSpread = Math.PI / (PHI * PHI);
 
       songList.forEach((s, si) => {
-        const songAngle = nSongs > 1
+        const songAngle   = nSongs > 1
           ? albumAngle + ((si / (nSongs - 1)) - 0.5) * leafSpread
           : albumAngle;
-
         const sxRaw = axRaw + LEAF_LEN * Math.cos(songAngle);
         const syRaw = ayRaw + LEAF_LEN * Math.sin(songAngle);
-        const sRot  = rotatePoint(sxRaw, syRaw);
-        const xVal  = norm(s, fieldX);
-        const yVal  = norm(s, fieldY);
-        const zVal  = norm(s, fieldZ);
-        const sz    = 2.5 + (xVal / 10) * 9;        // 2.5–11.5 px
-        const fillC = scoreToGradient(yVal);
-        const op    = 0.4 + (zVal / 10) * 0.55;     // 0.4–0.95
+
+        const songKey       = `s:${s.id}`;
+        const computedSRot  = rotatePoint(sxRaw, syRaw);
+        const defaultSRot   = { x: computedSRot.x + bandDelta.dx, y: computedSRot.y + bandDelta.dy };
+        const sRot          = rp(songKey, defaultSRot);
+        subtreeKeys.push(songKey);
+        const xVal   = norm(s, fieldX);
+        const yVal   = norm(s, fieldY);
+        const zVal   = norm(s, fieldZ);
+        const sz     = 2.5 + (xVal / 10) * 9;
+        const fillC  = scoreToGradient(yVal);
+        const op     = 0.4 + (zVal / 10) * 0.55;
+        const isSongSel = selectedId === songKey;
+        const isSim     = similarSongIds.has(s.id);
 
         elements.push(
           <line key={`leaf-${s.id}`} x1={aRot.x} y1={aRot.y} x2={sRot.x} y2={sRot.y}
-            stroke={bandCol} strokeWidth={0.8} strokeOpacity={0.2} />
+            stroke={isSim ? '#a5b4fc' : bandCol}
+            strokeWidth={isSim ? 1.5 : 0.8} strokeOpacity={isSim ? 0.6 : 0.2} />
         );
         elements.push(
-          <circle key={`song-${s.id}`} cx={sRot.x} cy={sRot.y} r={sz}
-            fill={fillC} opacity={op} stroke={bandCol} strokeWidth={1} strokeOpacity={0.4}>
-            <title>{`${s.title}\n${fieldX.label}: ${xVal.toFixed(1)}\n${fieldY.label}: ${yVal.toFixed(1)}\n${fieldZ.label}: ${zVal.toFixed(1)}`}</title>
-          </circle>
+          <g key={`song-${s.id}`}>
+            <circle cx={sRot.x} cy={sRot.y} r={sz + (isSongSel ? 3 : 0)} fill={fillC} opacity={op}
+              stroke={isSongSel || isSim ? '#a5b4fc' : bandCol}
+              strokeWidth={isSongSel ? 2 : 1} strokeOpacity={isSongSel ? 1 : isSim ? 0.65 : 0.4} />
+            <circle cx={sRot.x} cy={sRot.y} r={Math.max(8, sz + 4)}
+              fill="transparent" style={{ cursor: 'pointer' }}
+              onMouseDown={ev => ev.stopPropagation()}
+              onPointerDown={ev => { startNodeDrag(ev, [songKey]); }}
+              onPointerMove={moveNodeDrag}
+              onPointerUp={ev => { endNodeDrag(ev, songKey); }}>
+              <title>{`${s.title}\n${fieldX.label}: ${xVal.toFixed(1)}\n${fieldY.label}: ${yVal.toFixed(1)}\n${fieldZ.label}: ${zVal.toFixed(1)}`}</title>
+            </circle>
+          </g>
         );
-        // Song name for larger leaves — collected for horizontal sibling render
         if (style.showLabels && sz >= 7) {
-          labelEntries.push({
-            key: `song-lbl-${s.id}`,
-            x: sRot.x, y: sRot.y + sz + 9,
+          labelEntries.push({ key: `sl-${s.id}`, x: sRot.x, y: sRot.y + sz + 9,
             text: s.title.length > 10 ? `${s.title.slice(0, 9)}…` : s.title,
-            fill: style.fg, opacity: 0.6, fontSize: 7.5,
-          });
+            fill: isSongSel ? '#a5b4fc' : style.fg, opacity: isSongSel ? 1 : isSim ? 0.8 : 0.6, fontSize: 7.5 });
         }
       });
     });
+
+    newSubtree.set(bandId, subtreeKeys);
   });
+
+  bandSubtreeRef.current = newSubtree;
+
+  // Build similarity lines after all positions are recorded
+  if (selectedSong) {
+    const selSongPos = nodePos.get(`s:${selectedSong.id}`) ?? renderPosRef.current.get(`s:${selectedSong.id}`);
+    if (selSongPos) {
+      for (const simId of similarSongIds) {
+        const simPos = nodePos.get(`s:${simId}`) ?? renderPosRef.current.get(`s:${simId}`);
+        if (simPos) {
+          simLines.push(
+            <line key={`simline-${simId}`}
+              x1={selSongPos.x} y1={selSongPos.y} x2={simPos.x} y2={simPos.y}
+              stroke="#a5b4fc" strokeWidth={1.5} strokeOpacity={0.45} strokeDasharray="5 3" />
+          );
+        }
+      }
+    }
+  }
+
+  // Selected node info panel
+  let infoPanel: React.ReactElement | null = null;
+  if (selectedId) {
+    const selNodePos = nodePos.get(selectedId) ?? renderPosRef.current.get(selectedId);
+    if (selNodePos) {
+      const px = Math.min(VW - 152, Math.max(4, cx + selNodePos.x + 14));
+      const py = Math.min(VH - 80, Math.max(4, cy + selNodePos.y - 44));
+      let titleText = '', subText = '';
+      const vals: [string, number][] = [];
+
+      if (selectedId.startsWith('b:')) {
+        const bId = selectedId.slice(2);
+        titleText = bandNames.get(bId) ?? '';
+        subText   = `${bandAlbums.get(bId)?.length ?? 0} albums · drag moves whole group`;
+      } else if (selectedId.startsWith('a:')) {
+        const parts = selectedId.split(':');
+        const bId  = parts[1] ?? '';
+        const ai   = parseInt(parts[2] ?? '0', 10);
+        titleText  = (bandAlbums.get(bId)?.[ai] ?? '').replace('__direct__', 'Direct songs');
+        subText    = bandNames.get(bId) ?? '';
+      } else if (selectedId.startsWith('s:') && selectedSong) {
+        titleText  = selectedSong.title.length > 17 ? `${selectedSong.title.slice(0, 16)}…` : selectedSong.title;
+        subText    = selectedSong.bandName;
+        vals.push([fieldX.short, norm(selectedSong, fieldX)],
+                  [fieldY.short, norm(selectedSong, fieldY)],
+                  [fieldZ.short, norm(selectedSong, fieldZ)]);
+      }
+
+      infoPanel = (
+        <g>
+          <rect x={px} y={py} width={148} height={vals.length ? 74 : 46} rx={5}
+            fill="#1e1b4b" fillOpacity={0.92} stroke="#4f46e5" strokeWidth={1} />
+          <text x={px + 8} y={py + 14} fill="#a5b4fc" fontSize={9} fontWeight="700" fontFamily="Inter, system-ui">
+            {titleText}
+          </text>
+          <text x={px + 8} y={py + 26} fill={style.fg} fillOpacity={0.45} fontSize={7.5} fontFamily="Inter, system-ui">
+            {subText}
+          </text>
+          {vals.map(([label, val], i) => (
+            <text key={label} x={px + 8} y={py + 39 + i * 12}
+              fill={style.fg} fillOpacity={0.7} fontSize={8.5} fontFamily="Inter, system-ui">
+              {label}: {val.toFixed(1)}
+            </text>
+          ))}
+          <text x={px + 140} y={py + 12} textAnchor="end" fill="#6b7280" fontSize={12}
+            fontFamily="Inter, system-ui" style={{ cursor: 'pointer' }} onClick={() => setSelectedId(null)}>×</text>
+        </g>
+      );
+    }
+  }
 
   return (
     <g>
@@ -1136,16 +1439,18 @@ function FractalViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
       </defs>
 
       <g transform={`translate(${cx},${cy})`}>
-        {/* Rotating geometry — no animateTransform, rotation via RAF state */}
+        {/* Similarity lines (behind everything) */}
+        <g>{simLines}</g>
+        {/* Tree geometry */}
         <g>{elements}</g>
-
-        {/* Sibling <g> for labels — no rotation, horizontal text */}
+        {/* Horizontal labels — not in rotating group */}
         {style.showLabels && (
           <g>
-            {labelEntries.map((lbl) => (
+            {labelEntries.map(lbl => (
               <text key={lbl.key} x={lbl.x} y={lbl.y} textAnchor="middle"
                 fill={lbl.fill} opacity={lbl.opacity} fontSize={lbl.fontSize}
-                fontWeight={lbl.fontWeight} fontFamily="Inter, system-ui">
+                fontWeight={lbl.fontWeight} fontFamily="Inter, system-ui"
+                style={{ pointerEvents: 'none' }}>
                 {lbl.text}
               </text>
             ))}
@@ -1153,15 +1458,14 @@ function FractalViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
         )}
       </g>
 
-      {/* Channel key */}
+      {infoPanel}
+
       {style.showLegend && (
         <g transform={`translate(12,${VH - 68})`}>
           <rect x={-6} y={-8} width={220} height={62} rx={5} fill="#000" fillOpacity={0.55} />
           {[`SIZE     — ${fieldX.label}`, `COLOR  — ${fieldY.label}`, `OPACITY — ${fieldZ.label}`, `BRANCH WIDTH — ${fieldX.label} avg`].map((label, i) => (
             <text key={i} x={0} y={i * 13 + 4}
-              fill={style.fg} fillOpacity={0.5} fontSize={9} fontFamily="Inter, system-ui">
-              {label}
-            </text>
+              fill={style.fg} fillOpacity={0.5} fontSize={9} fontFamily="Inter, system-ui">{label}</text>
           ))}
           <rect x={130} y={14} width={76} height={6} rx={3} fill="url(#fractalLegGrad)" opacity={0.8} />
         </g>
@@ -1171,6 +1475,7 @@ function FractalViz({ songs, style, fieldX, fieldY, fieldZ }: VizProps) {
         <text x={VW / 2} y={VH - 10} textAnchor="middle"
           fill={style.fg} opacity={0.2} fontSize={9} fontFamily="Inter, system-ui">
           Golden ratio branching · φ = 1.618 · {songs.length} songs · {nBands} band{nBands !== 1 ? 's' : ''}
+          {selectedId ? ' · drag to reposition · band drag moves whole group' : ' · click to inspect · drag band node to move group'}
         </text>
       )}
     </g>
@@ -1209,11 +1514,12 @@ function SliderRow({ label, value, min, max, step, format, onChange }: {
 // ─── Field Browser (left sidebar section) ────────────────────────────────────
 
 function FieldBrowser({
-  activeFieldIds, onToggle, onSelectGroup,
+  activeFieldIds, onToggle, onSelectGroup, onSetDataset,
 }: {
   activeFieldIds: string[];
   onToggle: (id: string) => void;
   onSelectGroup: (group: string) => void;
+  onSetDataset: (fieldIds: string[]) => void;
 }) {
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set(['Spectrum']));
 
@@ -1224,11 +1530,30 @@ function FieldBrowser({
       return next;
     });
 
+  function activateDataset(key: string) {
+    const groups = DATASET_GROUPS[key] ?? FIELD_GROUPS;
+    const ids = FIELD_CATALOG.filter(f => groups.includes(f.group)).map(f => f.id);
+    onSetDataset(ids);
+    // Auto-open groups in this dataset
+    setOpenGroups(new Set(groups));
+  }
+
   return (
     <section>
       <div className="flex items-center justify-between mb-1">
         <span className="text-[10px] font-bold uppercase tracking-widest text-white/35">Fields</span>
         <span className="text-white/20 text-[10px]">{activeFieldIds.length} active</span>
+      </div>
+
+      {/* Dataset quick-select */}
+      <div className="flex gap-1 mb-2 flex-wrap">
+        {Object.keys(DATASET_GROUPS).map(key => (
+          <button key={key}
+            onClick={() => activateDataset(key)}
+            className="px-1.5 py-0.5 rounded text-[9px] font-mono uppercase tracking-wide bg-white/8 hover:bg-indigo-600/50 text-white/45 hover:text-white transition-colors">
+            {key}
+          </button>
+        ))}
       </div>
 
       {FIELD_GROUPS.map((group) => {
@@ -1562,7 +1887,7 @@ export default function SpectrumStudioPage() {
   const needsXY = ['oscilloscope', 'vectorscope', 'scatter', 'bubble', 'fibonacci', 'fractal'].includes(vizType);
 
   const vizProps: VizProps = {
-    songs: filteredSongs, fields: activeFields, style, fieldX, fieldY, fieldZ,
+    songs: filteredSongs, fields: activeFields, style, fieldX, fieldY, fieldZ, vb, svgRef,
   };
 
   function renderViz() {
@@ -1794,6 +2119,7 @@ export default function SpectrumStudioPage() {
               activeFieldIds={activeFieldIds}
               onToggle={toggleField}
               onSelectGroup={toggleFieldGroup}
+              onSetDataset={setActiveFieldIds}
             />
 
             {/* Visual patch bay — maps data fields to visual channels */}

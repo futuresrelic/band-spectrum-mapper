@@ -510,6 +510,63 @@ adminRouter.get('/missing-artwork', async (_req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// AI batch scan — count songs missing each job type
+// GET /api/admin/ai-batch/scan?bandIds=id1,id2
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/ai-batch/scan', async (req, res, next) => {
+  try {
+    const bandIdsParam = req.query['bandIds'];
+    const bandIds = typeof bandIdsParam === 'string' && bandIdsParam
+      ? bandIdsParam.split(',').filter(Boolean)
+      : [];
+    const where = bandIds.length > 0 ? { bandId: { in: bandIds } } : {};
+
+    const [total, hasAnalysis, hasSpectrum, hasResearch, hasGenre, hasTags, hasMeta] = await Promise.all([
+      prisma.song.count({ where }),
+      prisma.song.count({ where: { ...where, aiAnalysis:      { isNot: null } } }),
+      prisma.song.count({ where: { ...where, aiSpectrum:      { isNot: null } } }),
+      prisma.song.count({ where: { ...where, research:        { isNot: null } } }),
+      prisma.song.count({ where: { ...where, aiGenreSpectrum: { isNot: null } } }),
+      prisma.song.count({ where: { ...where, songTags:        { some: {}    } } }),
+      prisma.song.count({ where: { ...where, durationSeconds: { not: null   } } }),
+    ]);
+
+    res.json({
+      total,
+      has:     { analysis: hasAnalysis, spectrum: hasSpectrum, research: hasResearch, genre: hasGenre, tags: hasTags, metadata: hasMeta },
+      missing: { analysis: total - hasAnalysis, spectrum: total - hasSpectrum, research: total - hasResearch, genre: total - hasGenre, tags: total - hasTags, metadata: total - hasMeta },
+    });
+  } catch (e) { next(e); }
+});
+
+// POST /api/admin/songs/:songId/fetch-metadata
+// Fetches track duration from MusicBrainz and saves it to the song record.
+adminRouter.post('/songs/:songId/fetch-metadata', async (req, res, next) => {
+  try {
+    const song = await prisma.song.findUnique({
+      where: { id: req.params['songId']! },
+      include: { band: { select: { name: true } } },
+    });
+    if (!song) { res.status(404).json({ error: 'Song not found' }); return; }
+
+    if (song.durationSeconds !== null) {
+      res.json({ ok: true, durationSeconds: song.durationSeconds, source: 'cached' });
+      return;
+    }
+
+    const { searchRecordingDuration } = await import('../services/musicBrainzService.js');
+    const durationSeconds = await searchRecordingDuration(song.title, song.band.name);
+
+    if (durationSeconds !== null) {
+      await prisma.song.update({ where: { id: song.id }, data: { durationSeconds } });
+    }
+
+    res.json({ ok: true, durationSeconds, source: 'musicbrainz' });
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
 // Background lyrics batch job — fetches lyrics for all songs missing them,
 // queues results for admin approval before saving. One job at a time.
 // ---------------------------------------------------------------------------
