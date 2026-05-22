@@ -4,6 +4,34 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Explore — three new exploration modes (2026-05-22)
+
+### Added
+
+- **Spectrum Compass** (`spectrum-compass`) — reuses the Emotional Similarity graph data. Each
+  song is placed at the weighted centroid of its connected axis/emotion anchors. Songs with a
+  clear dominant axis cluster tightly near that anchor; songs that span multiple axes drift
+  toward the center. The 6 anchors form a regular polygon so the layout reads like a compass
+  rose. Artists/albums orbit the outer ring.
+
+- **Tag Galaxy** (`tag-galaxy`) — reuses the Artist Universe graph data. Tags are placed in an
+  expanding golden-angle spiral (most-populated tags nearest the center). Songs orbit their
+  most-connected tag hub. Artists and albums appear in a wide outer ring. Switching the tag
+  visibility sliders while in this mode reveals how genre clusters form and overlap.
+
+- **Keyword Spiral** (`keyword-spiral`) — reuses the Lyrical DNA graph data. Keywords spiral
+  outward in golden-angle phyllotaxis (most-used keywords nearest center). Songs fan behind
+  their keyword in a 160° arc that faces away from center, so you can visually follow the
+  spiral arm of any word. The "Arrange" re-layout button re-seeds the spiral on demand.
+
+### Changed
+
+- `PUBLIC_PRESETS` array now carries a `backendPreset` field so multiple frontend view modes
+  can share the same backend API response (and the same TanStack Query cache entry). No extra
+  network requests are made when switching between modes that share a backend preset.
+
+---
+
 ## Interactive Spectrum Studio nodes, MusicBrainz duration, AI Batch scan (2026-05-22)
 
 ### Added

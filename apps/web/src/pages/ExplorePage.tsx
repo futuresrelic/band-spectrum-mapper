@@ -168,8 +168,8 @@ function buildElements(nodes: GraphNode[], edges: GraphEdge[]) {
 
 interface Scopes { bands: { id: string; name: string }[]; albums: { id: string; title: string; year: number | null; band: { id: string; name: string } }[] }
 
-function fetchPublicGraph(params: { preset: string; bandIds: string[]; }): Promise<GraphData> {
-  const qs = new URLSearchParams({ preset: params.preset });
+function fetchPublicGraph(params: { backendPreset: string; bandIds: string[]; }): Promise<GraphData> {
+  const qs = new URLSearchParams({ preset: params.backendPreset });
   if (params.bandIds.length) qs.set('bandIds', params.bandIds.join(','));
   return api.get(`/api/public/graph?${qs}`);
 }
@@ -218,12 +218,15 @@ function NodeDetailPanel({ node, onClose }: { node: ReturnType<Core['$']> | null
 // ---------------------------------------------------------------------------
 
 const PUBLIC_PRESETS = [
-  { id: 'artist-universe',     label: 'Artist Universe',     desc: 'Songs, albums, and tags by artist' },
-  { id: 'theme-constellation', label: 'Theme Constellation', desc: 'Songs grouped by shared AI themes' },
-  { id: 'emotional-similarity',label: 'Emotional Similarity',desc: 'Songs linked by matching radar' },
-  { id: 'lyrical-dna',         label: 'Lyrical DNA',         desc: 'Songs bridged by shared keywords' },
-  { id: 'fibonacci-spiral',    label: 'Fibonacci Spiral',    desc: 'All nodes in golden-angle phyllotaxis' },
-  { id: 'fractal-tree',        label: 'Fractal Tree',        desc: 'Recursive golden-ratio branching' },
+  { id: 'artist-universe',     backendPreset: 'artist-universe',      label: 'Artist Universe',     desc: 'Songs, albums, and tags by artist' },
+  { id: 'theme-constellation', backendPreset: 'theme-constellation',  label: 'Theme Constellation', desc: 'Songs grouped by shared AI themes' },
+  { id: 'emotional-similarity',backendPreset: 'emotional-similarity', label: 'Emotional Similarity',desc: 'Songs linked by matching radar' },
+  { id: 'lyrical-dna',         backendPreset: 'lyrical-dna',          label: 'Lyrical DNA',         desc: 'Songs bridged by shared keywords' },
+  { id: 'fibonacci-spiral',    backendPreset: 'fibonacci-spiral',     label: 'Fibonacci Spiral',    desc: 'All nodes in golden-angle phyllotaxis' },
+  { id: 'fractal-tree',        backendPreset: 'fractal-tree',         label: 'Fractal Tree',        desc: 'Recursive golden-ratio branching' },
+  { id: 'spectrum-compass',    backendPreset: 'emotional-similarity', label: 'Spectrum Compass',    desc: 'Songs pulled toward their dominant axis — find the emotional center of any song' },
+  { id: 'tag-galaxy',          backendPreset: 'artist-universe',      label: 'Tag Galaxy',          desc: 'Tags as gravity wells — follow genres to discover hidden clusters' },
+  { id: 'keyword-spiral',      backendPreset: 'lyrical-dna',          label: 'Keyword Spiral',      desc: 'Keywords in a golden spiral — trace lyrical DNA as it fans outward' },
 ] as const;
 
 type PublicPreset = typeof PUBLIC_PRESETS[number]['id'];
@@ -293,9 +296,11 @@ export default function ExplorePage() {
 
   const canQuery = selectedBandIds.length > 0;
 
+  const backendPreset = (PUBLIC_PRESETS.find((p) => p.id === preset) ?? PUBLIC_PRESETS[0]).backendPreset;
+
   const { data: graphData, isFetching, error } = useQuery({
-    queryKey: ['explore-graph', preset, selectedBandIds.join(',')],
-    queryFn: () => fetchPublicGraph({ preset, bandIds: selectedBandIds }),
+    queryKey: ['explore-graph', backendPreset, selectedBandIds.join(',')],
+    queryFn: () => fetchPublicGraph({ backendPreset, bandIds: selectedBandIds }),
     enabled: canQuery,
   });
 
@@ -955,6 +960,247 @@ export default function ExplorePage() {
     }, 80);
   }
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Spectrum Compass — songs pulled toward dominant emotion/axis anchors
+  // Uses emotional-similarity data. Each song's position is the weighted
+  // centroid of its connected emotion anchors (by edge weight).
+  // ──────────────────────────────────────────────────────────────────────────
+
+  function runSpectrumCompassLayout(cy: Core) {
+    const TWO_PI = Math.PI * 2;
+    const emotionNodes = cy.nodes('[type = "emotion"]');
+    const nEmotions = emotionNodes.length;
+
+    if (nEmotions === 0) { runEmotionalLayout(cy); return; }
+
+    const ANCHOR_R = 340;
+    emotionNodes.forEach((n, i) => {
+      const angle = (i / nEmotions) * TWO_PI - Math.PI / 2;
+      n.position({ x: ANCHOR_R * Math.cos(angle), y: ANCHOR_R * Math.sin(angle) });
+    });
+
+    // Songs: weighted centroid across all connected emotion anchors
+    cy.nodes('[type = "song"]').forEach((songNode, si) => {
+      let totalW = 0, wX = 0, wY = 0;
+      songNode.connectedEdges('[edgeType = "similar_radar"]').targets('[type = "emotion"]').forEach((em) => {
+        const edge = songNode.edgesTo(em);
+        const w = Math.max(0.1, ((edge.length > 0 ? edge[0]!.data('edgeWeight') : 0) as number) || 0.5);
+        const p = em.position();
+        wX += p.x * w; wY += p.y * w; totalW += w;
+      });
+      if (totalW > 0) {
+        // Spiral jitter avoids overlap while keeping songs near their centroid
+        const jAngle = si * 2.399;
+        const jR = 5 + (si % 10) * 3.5;
+        songNode.position({ x: wX / totalW + Math.cos(jAngle) * jR, y: wY / totalW + Math.sin(jAngle) * jR });
+      } else {
+        const angle = si * 2.399;
+        songNode.position({ x: Math.cos(angle) * 40, y: Math.sin(angle) * 40 });
+      }
+    });
+
+    // Artists/albums in a wide outer ring beyond the compass
+    const artists = cy.nodes('[type = "artist"]');
+    artists.forEach((n, i) => {
+      const angle = (i / Math.max(1, artists.length)) * TWO_PI;
+      n.position({ x: (ANCHOR_R + 130) * Math.cos(angle), y: (ANCHOR_R + 130) * Math.sin(angle) });
+    });
+    const albums = cy.nodes('[type = "album"]');
+    albums.forEach((n, i) => {
+      const angle = (i / Math.max(1, albums.length)) * TWO_PI + 0.4;
+      n.position({ x: (ANCHOR_R + 75) * Math.cos(angle), y: (ANCHOR_R + 75) * Math.sin(angle) });
+    });
+
+    cy.nodes().forEach((n) => { n.scratch('_orbitBase', { ...n.position() }); });
+    cy.fit(undefined, 60);
+    setTimeout(() => {
+      if (!cy.destroyed()) {
+        layoutReadyRef.current = true;
+        updateFontSizes(cy, vStyleRef.current.labelWrapWidth);
+        if (animPulseRef.current) startPulse(cy);
+      }
+    }, 80);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Tag Galaxy — tags as expanding golden-angle spiral gravity wells
+  // Uses artist-universe data. Songs orbit their largest tag hub.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  function runTagGalaxyLayout(cy: Core) {
+    const TWO_PI = Math.PI * 2;
+    const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+    const tagNodes = cy.nodes('[type = "tag"]');
+
+    if (tagNodes.length === 0) { runClusterLayout(cy); return; }
+
+    // Sort tags by how many songs they connect; most popular at center
+    const tagsRanked = tagNodes.toArray().map((n) => ({
+      node: n,
+      songCount: n.neighborhood('node[type = "song"]').length,
+    })).sort((a, b) => b.songCount - a.songCount);
+
+    const TAG_BASE_R = 140;
+    tagsRanked.forEach(({ node }, i) => {
+      const r = TAG_BASE_R + 62 * Math.sqrt(i + 0.5);
+      const theta = i * GOLDEN_ANGLE;
+      node.position({ x: r * Math.cos(theta), y: r * Math.sin(theta) });
+    });
+
+    // Assign each song to its largest-hub tag
+    const songTag = new Map<string, string>();
+    cy.nodes('[type = "song"]').forEach((songNode) => {
+      let bestTag = '', bestHubSize = 0;
+      songNode.neighborhood('[type = "tag"]').forEach((t) => {
+        const hubSize = t.neighborhood('[type = "song"]').length;
+        if (hubSize > bestHubSize) { bestHubSize = hubSize; bestTag = t.id(); }
+      });
+      if (bestTag) songTag.set(songNode.id(), bestTag);
+    });
+
+    // Ring songs around their tag hub
+    const tagGroups = new Map<string, NodeSingular[]>();
+    cy.nodes('[type = "song"]').forEach((n) => {
+      const tid = songTag.get(n.id()); if (!tid) return;
+      const arr = tagGroups.get(tid) ?? []; arr.push(n); tagGroups.set(tid, arr);
+    });
+    tagGroups.forEach((songs, tagId) => {
+      const tagNode = cy.$(`#${CSS.escape(tagId)}`);
+      if (!tagNode.length) return;
+      const { x: tx, y: ty } = tagNode.position();
+      const SONG_R = Math.max(55, (songs.length * 30) / TWO_PI);
+      songs.forEach((s, si) => {
+        const angle = (si / Math.max(1, songs.length)) * TWO_PI - Math.PI / 2;
+        s.position({ x: tx + SONG_R * Math.cos(angle), y: ty + SONG_R * Math.sin(angle) });
+      });
+    });
+
+    // Artists and albums in a wide outer ring
+    const OUTER_R = 700;
+    const artists = cy.nodes('[type = "artist"]');
+    artists.forEach((n, i) => {
+      const angle = (i / Math.max(1, artists.length)) * TWO_PI - Math.PI / 2;
+      n.position({ x: OUTER_R * Math.cos(angle), y: OUTER_R * Math.sin(angle) });
+    });
+    const albums = cy.nodes('[type = "album"]');
+    albums.forEach((n, i) => {
+      const angle = (i / Math.max(1, albums.length)) * TWO_PI + 0.3;
+      n.position({ x: (OUTER_R - 80) * Math.cos(angle), y: (OUTER_R - 80) * Math.sin(angle) });
+    });
+    cy.nodes('[type = "theme"]').forEach((n, i) => {
+      const r = 22 + 11 * Math.sqrt(i + 1);
+      n.position({ x: r * Math.cos(i * GOLDEN_ANGLE), y: r * Math.sin(i * GOLDEN_ANGLE) });
+    });
+
+    let orphanIdx = 0;
+    cy.nodes('[type = "song"]').forEach((n) => {
+      if (!songTag.has(n.id())) {
+        n.position({ x: Math.cos(orphanIdx * GOLDEN_ANGLE) * 35, y: Math.sin(orphanIdx * GOLDEN_ANGLE) * 35 });
+        orphanIdx++;
+      }
+    });
+
+    cy.nodes().forEach((n) => { n.scratch('_orbitBase', { ...n.position() }); });
+    cy.fit(undefined, 60);
+    setTimeout(() => {
+      if (!cy.destroyed()) {
+        layoutReadyRef.current = true;
+        updateFontSizes(cy, vStyleRef.current.labelWrapWidth);
+        if (animPulseRef.current) startPulse(cy);
+      }
+    }, 80);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Keyword Spiral — keywords in a golden-angle spiral, songs fan behind them
+  // Uses lyrical-dna data. Songs fan outward from their keyword in a 160° arc
+  // that faces away from the center — following words as they spiral out.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  function runKeywordSpiralLayout(cy: Core) {
+    const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+    const kwNodes = cy.nodes('[type = "keyword"]');
+
+    if (kwNodes.length === 0) { runLyricalLayout(cy); return; }
+
+    const kwRanked = kwNodes.toArray().map((n) => ({
+      node: n,
+      songCount: n.neighborhood('node[type = "song"]').length,
+    })).sort((a, b) => b.songCount - a.songCount);
+
+    // Keywords spiral outward — most popular keyword sits nearest center
+    const KW_BASE_R = 80;
+    kwRanked.forEach(({ node }, i) => {
+      const r = KW_BASE_R + 52 * Math.sqrt(i + 1);
+      const theta = i * GOLDEN_ANGLE;
+      node.position({ x: r * Math.cos(theta), y: r * Math.sin(theta) });
+    });
+
+    // Each song connects to its most-populated keyword hub
+    const songKw = new Map<string, string>();
+    cy.nodes('[type = "song"]').forEach((songNode) => {
+      let bestKw = '', bestCount = 0;
+      songNode.neighborhood('[type = "keyword"]').forEach((k) => {
+        const cnt = k.neighborhood('[type = "song"]').length;
+        if (cnt > bestCount) { bestCount = cnt; bestKw = k.id(); }
+      });
+      if (bestKw) songKw.set(songNode.id(), bestKw);
+    });
+
+    const kwGroups = new Map<string, NodeSingular[]>();
+    cy.nodes('[type = "song"]').forEach((n) => {
+      const kid = songKw.get(n.id()); if (!kid) return;
+      const arr = kwGroups.get(kid) ?? []; arr.push(n); kwGroups.set(kid, arr);
+    });
+
+    // Songs fan in a 160° arc pointing AWAY from center (following the spiral)
+    kwGroups.forEach((songs, kwId) => {
+      const kwNode = cy.$(`#${CSS.escape(kwId)}`);
+      if (!kwNode.length) return;
+      const { x: kx, y: ky } = kwNode.position();
+      const kLen = Math.sqrt(kx * kx + ky * ky) || 1;
+      const kAngle = Math.atan2(ky / kLen, kx / kLen);
+      const SONG_R = Math.max(48, (songs.length * 28) / (Math.PI * 1.6));
+      const SPREAD = Math.PI * 0.9;
+      songs.forEach((s, si) => {
+        const t = songs.length === 1 ? 0 : (si / (songs.length - 1)) - 0.5;
+        const angle = kAngle + t * SPREAD;
+        s.position({ x: kx + SONG_R * Math.cos(angle), y: ky + SONG_R * Math.sin(angle) });
+      });
+    });
+
+    // Artists/albums pushed into the outer periphery beyond the spiral
+    const maxR = KW_BASE_R + 52 * Math.sqrt(kwRanked.length + 1) + 140;
+    const artists = cy.nodes('[type = "artist"]');
+    artists.forEach((n, i) => {
+      const r = maxR + 30 * Math.sqrt(i + 1);
+      n.position({ x: r * Math.cos(i * GOLDEN_ANGLE + Math.PI), y: r * Math.sin(i * GOLDEN_ANGLE + Math.PI) });
+    });
+    const albums = cy.nodes('[type = "album"]');
+    albums.forEach((n, i) => {
+      const r = maxR - 30 + 22 * Math.sqrt(i + 1);
+      n.position({ x: r * Math.cos(i * GOLDEN_ANGLE + 1.2), y: r * Math.sin(i * GOLDEN_ANGLE + 1.2) });
+    });
+
+    let orphanIdx = 0;
+    cy.nodes('[type = "song"]').forEach((n) => {
+      if (!songKw.has(n.id())) {
+        n.position({ x: Math.cos(orphanIdx * GOLDEN_ANGLE) * 40, y: Math.sin(orphanIdx * GOLDEN_ANGLE) * 40 });
+        orphanIdx++;
+      }
+    });
+
+    cy.nodes().forEach((n) => { n.scratch('_orbitBase', { ...n.position() }); });
+    cy.fit(undefined, 60);
+    setTimeout(() => {
+      if (!cy.destroyed()) {
+        layoutReadyRef.current = true;
+        updateFontSizes(cy, vStyleRef.current.labelWrapWidth);
+        if (animPulseRef.current) startPulse(cy);
+      }
+    }, 80);
+  }
+
   // ---------------------------------------------------------------------------
   // Mount / update Cytoscape
   // ---------------------------------------------------------------------------
@@ -1013,6 +1259,12 @@ export default function ExplorePage() {
         runFibonacciLayout(cy);
       } else if (preset === 'fractal-tree') {
         runFractalLayout(cy);
+      } else if (preset === 'spectrum-compass') {
+        runSpectrumCompassLayout(cy);
+      } else if (preset === 'tag-galaxy') {
+        runTagGalaxyLayout(cy);
+      } else if (preset === 'keyword-spiral') {
+        runKeywordSpiralLayout(cy);
       } else {
         layoutReadyRef.current = true;
         if (animPulseRef.current) startPulse(cy);
@@ -1212,6 +1464,9 @@ export default function ExplorePage() {
                   else if (preset === 'lyrical-dna') runLyricalLayout(cy);
                   else if (preset === 'fibonacci-spiral') runFibonacciLayout(cy);
                   else if (preset === 'fractal-tree') runFractalLayout(cy);
+                  else if (preset === 'spectrum-compass') runSpectrumCompassLayout(cy);
+                  else if (preset === 'tag-galaxy') runTagGalaxyLayout(cy);
+                  else if (preset === 'keyword-spiral') runKeywordSpiralLayout(cy);
                   else runClusterLayout(cy);
                 }}
               >
