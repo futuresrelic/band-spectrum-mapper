@@ -340,10 +340,15 @@ export default function GraphHuntPage() {
     return computeNodeVal(n.type, n.id, currentRef.current);
   }, []);
 
+  // Pin all nodes in place once simulation stops — prevents ongoing drift/saccades
+  // while keeping camera orbit and click interaction fully functional
   const onEngineStop = useCallback(() => {
+    huntNodes.forEach((n) => {
+      if (n.x != null) { n.fx = n.x; n.fy = n.y; n.fz = n.z; }
+    });
     setSimReady(true);
     fgRef.current?.zoomToFit(600, 60);
-  }, []);
+  }, [huntNodes]);
 
   const score = Math.max(0, 1000 - moves * 25 - elapsedSec);
   const hc = distance < Infinity ? getHotCold(distance) : null;
@@ -617,7 +622,9 @@ export default function GraphHuntPage() {
               linkOpacity={0.5}
               backgroundColor="#030712"
               showNavInfo={false}
-              warmupTicks={80}
+              warmupTicks={100}
+              cooldownTicks={150}
+              d3VelocityDecay={0.5}
               onNodeClick={handleNodeClick}
               onEngineStop={onEngineStop}
             />
