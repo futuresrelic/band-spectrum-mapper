@@ -113,7 +113,7 @@ function buildCyStyle(vs: VisualStyle = DEFAULT_VS) {
         'text-valign': 'bottom', 'text-halign': 'center', 'text-margin-y': '4px',
         'text-outline-color': '#060d1a', 'text-outline-width': '2px',
         'width': 'data(size)', 'height': 'data(size)',
-        'border-width': '1.5px', 'border-color': '#ffffff22', 'min-zoomed-font-size': 4,
+        'border-width': '1.5px', 'border-color': 'rgba(255,255,255,0.13)', 'min-zoomed-font-size': 4,
       },
     },
     { selector: 'node[type = "song"]',    style: { 'width': vs.sizeSong, 'height': vs.sizeSong } },
@@ -126,7 +126,7 @@ function buildCyStyle(vs: VisualStyle = DEFAULT_VS) {
     // Selected: white ring + white label, node keeps its own colour
     { selector: 'node:selected', style: { 'border-width': '3px', 'border-color': '#fff', 'text-opacity': 1, 'color': '#ffffff', 'text-outline-width': '2.5px' } },
     // Hover: label and outline snap to full visibility
-    { selector: 'node.label-hover', style: { 'text-opacity': 1, 'color': '#ffffff', 'text-outline-width': '2.5px', 'border-width': '2.5px', 'border-color': '#ffffff44' } },
+    { selector: 'node.label-hover', style: { 'text-opacity': 1, 'color': '#ffffff', 'text-outline-width': '2.5px', 'border-width': '2.5px', 'border-color': 'rgba(255,255,255,0.27)' } },
     { selector: 'edge', style: { 'width': vs.edgeWidth, 'line-color': 'data(edgeColor)', 'curve-style': 'bezier', 'opacity': vs.edgeOpacity } },
     { selector: 'edge[edgeWeight > 0.8]', style: { 'width': vs.edgeWidth * 2 } },
     { selector: 'edge.edge-hover', style: { 'opacity': 1, 'width': vs.edgeWidth * 1.8 } },
@@ -155,7 +155,7 @@ function buildElements(nodes: GraphNode[], edges: GraphEdge[]) {
       data: {
         id: e.id, source: e.source, target: e.target,
         edgeType: e.type,
-        edgeColor: EDGE_COLORS[e.type] ?? '#ffffff22',
+        edgeColor: EDGE_COLORS[e.type] ?? 'rgba(255,255,255,0.13)',
         edgeWeight: e.weight,
       },
     })),
