@@ -4,6 +4,57 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Interactive Spectrum Studio nodes, MusicBrainz duration, AI Batch scan (2026-05-22)
+
+### Added
+
+- **Spectrum Studio — interactive Fibonacci nodes**: click any song dot to select it (rotation
+  pauses, info panel appears with field values, top-5 similarity lines are drawn to the most
+  similar songs). Click again or press × to deselect and resume rotation. Drag any dot to
+  reposition it; releasing without moving counts as a click.
+
+- **Spectrum Studio — interactive Fractal nodes**: same click/select/drag mechanism on song,
+  album, and band nodes. Dragging a band node moves the entire group (all its albums and songs
+  shift together). Dragging a song or album node moves only that node.
+
+- **Spectrum Studio — Dataset quick-select**: four buttons (All / Core / AI / Metadata) in
+  the Fields panel instantly activate the corresponding field groups, replacing the current
+  selection. Renamed field group "AI Genres" → "Genres" and removed "(AI)" suffix from all
+  genre field labels.
+
+- **Spectrum Studio — fieldDist()**: Euclidean distance function in normalised (0–10) field
+  space, used to find the top-5 most similar songs to a selected node.
+
+- **AI Batch Runner — Data Coverage Scan**: new scan panel at the top of the page. Click
+  "Scan now" to call `GET /api/admin/ai-batch/scan` (respects the current band filter) and
+  show a grid of job-type cards with missing counts and fill-level bars. Helps identify which
+  AI jobs still need to be run without loading all songs first.
+
+- **AI Batch Runner — Track Duration job**: new "metadata" job type that calls
+  `POST /api/admin/songs/:songId/fetch-metadata` to look up track length from MusicBrainz.
+  Skips songs that already have `durationSeconds` populated.
+
+- **Backend — `GET /api/admin/ai-batch/scan`**: returns `total` songs and per-job `has` /
+  `missing` counts for analysis, spectrum, research, genre, tags, and metadata (duration).
+  Accepts optional `?bandIds=` filter.
+
+- **Backend — `POST /api/admin/songs/:songId/fetch-metadata`**: fetches duration via
+  MusicBrainz `searchRecordingDuration()`, saves `durationSeconds` on the Song record.
+
+- **MusicBrainz service — `searchRecordingDuration()`**: queries the `/recording` endpoint
+  with title + artist, returns the first match's duration in seconds or null.
+
+- **Discography import — duration support**: the `duration_seconds` field is now read from
+  import payloads. Written to `durationSeconds` on new songs; existing songs get backfilled
+  if their `durationSeconds` is still null.
+
+### Changed
+
+- Spectrum Studio `VizProps` interface now includes `svgRef` (passed to Fibonacci/Fractal
+  so drag handlers can convert client coordinates to SVG viewBox space).
+
+---
+
 ## Leaderboard Page + Landing Page Overhaul (2026-05-17)
 
 ### Added

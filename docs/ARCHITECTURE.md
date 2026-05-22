@@ -186,6 +186,67 @@ Errors: HTTP 4xx/5xx + `{ error: string; details?: unknown }`
 
 ---
 
+## Spectrum Studio — Visualisation Architecture
+
+`SpectrumStudioPage.tsx` renders an SVG canvas with 12 chart types. All chart components
+receive a shared `VizProps` interface:
+
+```typescript
+interface VizProps {
+  songs: SongData[];    // filtered song list with all field values
+  fields: StudioField[]; // active fields for multi-axis charts
+  style: StudioStyle;   // canvas colours, sizes, toggles
+  fieldX/Y/Z: StudioField; // patch-bay channel assignments
+  vb: { x, y, zoom };  // current viewBox pan/zoom state
+  svgRef?: MutableRefObject<SVGSVGElement | null>; // for coord conversion in drag handlers
+}
+```
+
+### FIELD_CATALOG (31 fields, 4 groups)
+
+| Group | Fields | Notes |
+|-------|--------|-------|
+| Spectrum | aggression, complexity, atmosphere, emotion, psychedelic, concept | Manual / AI-scored 0–10 |
+| Genres | genre_metal, genre_rock, genre_pop, genre_hiphop, genre_electronic, genre_folk | AI genre accessibility 0–10 |
+| Themes | theme_perception … theme_apocalypse (16 fields) | AI philosophical themes 0–10 |
+| Metadata | durationSeconds, trackNumber, releaseYear | Raw values, normalised for charts |
+
+### Interactive Fibonacci / Fractal views
+
+Both FibonacciViz and FractalViz support:
+- **Click**: selects a node, pauses rotation, shows an info panel with field values, and draws
+  similarity lines (dashed indigo) to the top-5 most similar songs using `fieldDist()`.
+- **Drag**: moves the node. Uses pointer capture on a transparent hit-area circle so events
+  continue even when the cursor leaves the element. Coordinates convert via
+  `vb` + SVG `getBoundingClientRect()`.
+- **Band drag (FractalViz)**: dragging a band node moves the entire subtree (all albums + songs
+  for that band) by storing pre-computed start positions in `dragRef` and applying a uniform
+  delta to all of them on each `pointermove`.
+
+### MusicBrainz integration
+
+`musicBrainzService.ts` provides a rate-limited (1 req/sec) client for:
+- `searchArtists()` — artist search
+- `getArtistAlbums()` — release groups
+- `getReleaseGroupTracks()` / `batchGetReleaseGroupTracks()` — track listings
+- `batchGetReleaseOptions()` / `batchGetTracksByRelease()` — release picker
+- `searchRecordingDuration()` — duration lookup via `/recording` endpoint
+
+### AI Batch Runner data model
+
+The scan endpoint `GET /api/admin/ai-batch/scan` counts songs with/without each job type:
+
+| Job | Table checked |
+|-----|--------------|
+| analysis | SongAiAnalysis (aiAnalysis relation) |
+| spectrum | SongAiSpectrum (aiSpectrum relation) |
+| research | SongResearch (research relation) |
+| genre | SongAiGenreSpectrum (aiGenreSpectrum relation) |
+| tags | SongTag (songTags relation, some{}) |
+| metadata | Song.durationSeconds (not null) |
+
+---
+
 ## Deployment Architecture (Railway)
 
 ```
