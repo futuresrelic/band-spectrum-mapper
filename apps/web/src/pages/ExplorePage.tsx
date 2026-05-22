@@ -9,6 +9,7 @@ import type { Core, NodeSingular, EventObject } from 'cytoscape';
 import { api } from '../lib/api';
 import type { GraphData, GraphNode, GraphEdge, NodeType } from '../api/songNodes';
 import SiteHeader from '../components/layout/SiteHeader';
+import ThreeDGraphView from '../components/ThreeDGraphView';
 import { AXIS_LABELS } from '@band-spectrum-mapper/shared';
 
 // ---------------------------------------------------------------------------
@@ -284,6 +285,7 @@ export default function ExplorePage() {
   const [showStylePanel, setShowStylePanel]     = useState(false);
   const [showAllLabels, setShowAllLabels]       = useState(false);
   const [orbitSpeed, setOrbitSpeed]             = useState(0.004);
+  const [viewMode, setViewMode]                 = useState<'2d' | '3d'>('2d');
   const vStyleRef        = useRef<VisualStyle>(vStyle);
   const showAllLabelsRef = useRef(false);
   const selectedNodeIdRef = useRef<string | null>(null);
@@ -291,6 +293,12 @@ export default function ExplorePage() {
 
   useEffect(() => { animPulseRef.current = animatePulse; }, [animatePulse]);
   useEffect(() => { orbitSpeedRef.current = orbitSpeed; }, [orbitSpeed]);
+  useEffect(() => {
+    if (viewMode === '2d') {
+      // Give the DOM a tick to show the container before resizing
+      setTimeout(() => cyRef.current?.resize(), 50);
+    }
+  }, [viewMode]);
 
   const { data: scopes } = useQuery({ queryKey: ['explore-scopes'], queryFn: fetchPublicScopes });
 
@@ -1656,7 +1664,21 @@ export default function ExplorePage() {
           {graphLabel && (
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-white/60">{graphLabel}</h2>
-              {graphData && <span className="text-xs text-white/30">{graphData.nodes.length} nodes · {graphData.edges.length} edges</span>}
+              <div className="flex items-center gap-3">
+                {graphData && <span className="text-xs text-white/30">{graphData.nodes.length} nodes · {graphData.edges.length} edges</span>}
+                {graphData && graphData.nodes.length > 0 && (
+                  <div className="flex rounded-lg overflow-hidden border border-white/10 text-xs">
+                    <button
+                      onClick={() => setViewMode('2d')}
+                      className={`px-3 py-1 transition-colors ${viewMode === '2d' ? 'bg-indigo-700 text-white' : 'bg-transparent text-white/40 hover:text-white/70'}`}
+                    >2D</button>
+                    <button
+                      onClick={() => setViewMode('3d')}
+                      className={`px-3 py-1 transition-colors ${viewMode === '3d' ? 'bg-indigo-700 text-white' : 'bg-transparent text-white/40 hover:text-white/70'}`}
+                    >3D</button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -1679,16 +1701,27 @@ export default function ExplorePage() {
 
           {error && <div className="text-red-400 text-sm p-4">{String(error)}</div>}
 
+          {/* 3D view — rendered when mode is 3d and data is ready */}
+          {!isFetching && viewMode === '3d' && graphData && graphData.nodes.length > 0 && (
+            <ThreeDGraphView nodes={graphData.nodes} edges={graphData.edges} height={680} />
+          )}
+
+          {/* 2D Cytoscape canvas — kept in DOM (display:none) to preserve layout state */}
           <div
             ref={containerRef}
             className={`rounded-xl overflow-hidden border border-white/10 transition-opacity duration-300
-              ${isFetching ? 'opacity-0 pointer-events-none h-0' : 'opacity-100'}`}
-            style={{ width: '100%', height: '680px', background: '#060d1a' }}
+              ${isFetching || viewMode === '3d' ? 'opacity-0 pointer-events-none h-0' : 'opacity-100'}`}
+            style={{ width: '100%', height: viewMode === '3d' ? '0' : '680px', background: '#060d1a' }}
           />
 
-          {!isFetching && graphData && graphData.nodes.length > 0 && (
+          {!isFetching && graphData && graphData.nodes.length > 0 && viewMode === '2d' && (
             <p className="mt-3 text-xs text-white/30 text-center">
               Click a node to highlight connections · hover to focus label · scroll to zoom · drag to pan
+            </p>
+          )}
+          {!isFetching && graphData && graphData.nodes.length > 0 && viewMode === '3d' && (
+            <p className="mt-3 text-xs text-white/30 text-center">
+              WASD · arrows — fly &nbsp;·&nbsp; Q/E — up/down &nbsp;·&nbsp; drag — orbit &nbsp;·&nbsp; click — inspect node
             </p>
           )}
         </main>

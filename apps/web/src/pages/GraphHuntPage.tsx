@@ -36,6 +36,27 @@ interface HuntLink {
 
 interface Band { id: string; name: string }
 
+// ── WASD flight helpers (inline math, no 'three' import needed) ───────────────
+
+function applyQuat(
+  vx: number, vy: number, vz: number,
+  qx: number, qy: number, qz: number, qw: number,
+): [number, number, number] {
+  const tx = 2 * (qy * vz - qz * vy);
+  const ty = 2 * (qz * vx - qx * vz);
+  const tz = 2 * (qx * vy - qy * vx);
+  return [
+    vx + qw * tx + qy * tz - qz * ty,
+    vy + qw * ty + qz * tx - qx * tz,
+    vz + qw * tz + qx * ty - qy * tx,
+  ];
+}
+
+function normalise(x: number, y: number, z: number): [number, number, number] {
+  const len = Math.sqrt(x * x + y * y + z * z) || 1;
+  return [x / len, y / len, z / len];
+}
+
 // ── BFS helpers ───────────────────────────────────────────────────────────────
 
 function buildAdj(links: HuntLink[]): Map<string, Set<string>> {
@@ -197,6 +218,7 @@ export default function GraphHuntPage() {
   const [exploreNode, setExploreNode] = useState<HuntNode | null>(null);
   // Graph controls panel
   const [showControls, setShowControls] = useState(false);
+  const [showLabels, setShowLabels] = useState(true);
   const [labelShowDist, setLabelShowDist] = useState(DEFAULT_LABEL_SHOW);
   const [labelFullDist, setLabelFullDist] = useState(DEFAULT_LABEL_FULL);
   const [nodeScale, setNodeScale] = useState(1);
@@ -218,6 +240,7 @@ export default function GraphHuntPage() {
   // Mirror controls state in refs so the rAF loop always reads current values
   const labelShowDistRef = useRef(DEFAULT_LABEL_SHOW);
   const labelFullDistRef = useRef(DEFAULT_LABEL_FULL);
+  const showLabelsRef    = useRef(true);
   // Track whether the initial zoomToFit has been done so re-fires don't snap the camera
   const didFitRef = useRef(false);
 
@@ -235,6 +258,7 @@ export default function GraphHuntPage() {
   // Keep control refs in sync with slider state (rAF loop reads refs)
   useEffect(() => { labelShowDistRef.current = labelShowDist; }, [labelShowDist]);
   useEffect(() => { labelFullDistRef.current = labelFullDist; }, [labelFullDist]);
+  useEffect(() => { showLabelsRef.current = showLabels; }, [showLabels]);
 
   // Build hunt graph whenever API data changes
   useEffect(() => {
@@ -268,38 +292,72 @@ export default function GraphHuntPage() {
     };
   }, [phase]);
 
-  // rAF loop: proximity label opacity
+  // rAF loop: WASD flight + proximity label opacity
   useEffect(() => {
     if (!huntNodes.length) return;
+    const keys = new Set<string>();
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      keys.add(e.key.toLowerCase());
+    };
+    const onKeyUp = (e: KeyboardEvent) => keys.delete(e.key.toLowerCase());
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+
     let rafId: number;
 
     const tick = () => {
-      const camera = fgRef.current?.camera?.();
-      if (camera) {
-        const cx = camera.position.x;
-        const cy = camera.position.y;
-        const cz = camera.position.z;
+      const fg = fgRef.current;
+      if (fg) {
+        const camera = fg.camera?.();
+        const controls = fg.controls?.();
 
-        const showDist = labelShowDistRef.current;
-        const fullDist = labelFullDistRef.current;
+        // ── WASD flight ──
+        if (keys.size && camera && controls) {
+          const p = camera.position;
+          const q = camera.quaternion;
+          const speed = Math.max(3, Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z) * 0.015);
+          const [fx, fy, fz] = normalise(...applyQuat(0, 0, -1, q.x, q.y, q.z, q.w));
+          const [rx, ry, rz] = normalise(...applyQuat(1, 0,  0, q.x, q.y, q.z, q.w));
+          let dx = 0, dy = 0, dz = 0;
+          if (keys.has('w') || keys.has('arrowup'))    { dx += fx * speed; dy += fy * speed; dz += fz * speed; }
+          if (keys.has('s') || keys.has('arrowdown'))  { dx -= fx * speed; dy -= fy * speed; dz -= fz * speed; }
+          if (keys.has('a') || keys.has('arrowleft'))  { dx -= rx * speed; dy -= ry * speed; dz -= rz * speed; }
+          if (keys.has('d') || keys.has('arrowright')) { dx += rx * speed; dy += ry * speed; dz += rz * speed; }
+          if (keys.has('q')) dy += speed * 0.6;
+          if (keys.has('e')) dy -= speed * 0.6;
+          p.x += dx; p.y += dy; p.z += dz;
+          if (controls.target) { controls.target.x += dx; controls.target.y += dy; controls.target.z += dz; }
+        }
 
-        for (const n of huntNodes) {
-          const sprite = labelMapRef.current.get(n.id);
-          if (!sprite || n.x == null) continue;
-          const dx = (n.x ?? 0) - cx;
-          const dy = (n.y ?? 0) - cy;
-          const dz = (n.z ?? 0) - cz;
-          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        // ── Proximity labels ──
+        if (camera) {
+          const cx = camera.position.x;
+          const cy = camera.position.y;
+          const cz = camera.position.z;
+          const showDist = labelShowDistRef.current;
+          const fullDist = labelFullDistRef.current;
+          const labelsOn = showLabelsRef.current;
 
-          if (dist >= showDist) {
-            sprite.visible = false;
-          } else {
-            sprite.visible = true;
-            const range = Math.max(1, showDist - fullDist);
-            const t = 1 - (dist - fullDist) / range;
-            const opacity = Math.max(0, Math.min(1, t));
-            const a = Math.round(opacity * 255).toString(16).padStart(2, '0');
-            sprite.color = `#e2e8f0${a}`;
+          for (const n of huntNodes) {
+            const sprite = labelMapRef.current.get(n.id);
+            if (!sprite) continue;
+            if (!labelsOn || n.x == null) { sprite.visible = false; continue; }
+            const dx = (n.x ?? 0) - cx;
+            const dy = (n.y ?? 0) - cy;
+            const dz = (n.z ?? 0) - cz;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (dist >= showDist) {
+              sprite.visible = false;
+            } else {
+              sprite.visible = true;
+              const range = Math.max(1, showDist - fullDist);
+              const t = 1 - (dist - fullDist) / range;
+              const opacity = Math.max(0, Math.min(1, t));
+              const a = Math.round(opacity * 255).toString(16).padStart(2, '0');
+              sprite.color = `#e2e8f0${a}`;
+            }
           }
         }
       }
@@ -307,7 +365,11 @@ export default function GraphHuntPage() {
     };
 
     rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
   }, [huntNodes]);
 
   const flyTo = useCallback((node: HuntNode) => {
@@ -838,6 +900,14 @@ export default function GraphHuntPage() {
             />
           )}
 
+          {/* WASD hint */}
+          {simReady && (
+            <div className="absolute bottom-4 left-4 z-10 text-[10px] text-gray-700 pointer-events-none space-y-0.5">
+              <div>WASD · ↑↓←→ — fly &nbsp;·&nbsp; Q/E — up/down</div>
+              <div>drag — orbit &nbsp;·&nbsp; scroll — zoom</div>
+            </div>
+          )}
+
           {/* ── Controls panel ── */}
           {huntNodes.length > 0 && (
             <div className="absolute bottom-4 right-4 z-10">
@@ -851,6 +921,21 @@ export default function GraphHuntPage() {
               {showControls && (
                 <div className="mt-2 bg-gray-900/95 border border-gray-700 rounded-xl p-4 backdrop-blur-sm w-64 space-y-4">
                   <div className="text-xs font-semibold text-gray-300">Graph controls</div>
+
+                  {/* Labels toggle */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-400">Node labels</span>
+                    <button
+                      onClick={() => setShowLabels((v) => !v)}
+                      className={`text-xs px-3 py-1 rounded-lg border transition-colors ${
+                        showLabels
+                          ? 'bg-indigo-900/60 border-indigo-700/50 text-indigo-300'
+                          : 'bg-gray-800 border-gray-700 text-gray-500'
+                      }`}
+                    >
+                      {showLabels ? 'Visible' : 'Hidden'}
+                    </button>
+                  </div>
 
                   {/* Label appear distance */}
                   <div>
@@ -922,6 +1007,7 @@ export default function GraphHuntPage() {
 
                   <button
                     onClick={() => {
+                      setShowLabels(true);
                       setLabelShowDist(DEFAULT_LABEL_SHOW);
                       setLabelFullDist(DEFAULT_LABEL_FULL);
                       setNodeScale(1);

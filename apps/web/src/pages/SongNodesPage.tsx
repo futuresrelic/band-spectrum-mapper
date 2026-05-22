@@ -12,6 +12,7 @@ import {
 } from '../api/songNodes';
 import { AXIS_LABELS } from '@band-spectrum-mapper/shared';
 import SocialChatPanel from '../components/social/SocialChatPanel';
+import ThreeDGraphView from '../components/ThreeDGraphView';
 
 // ---------------------------------------------------------------------------
 // Color maps
@@ -466,6 +467,7 @@ export default function SongNodesPage() {
   });
   const [showStylePanel, setShowStylePanel] = useState(false);
   const [showAllLabels, setShowAllLabels] = useState(false);
+  const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const vStyleRef         = useRef<VisualStyle>(vStyle);
   const showAllLabelsRef  = useRef(false);
   const selectedNodeIdRef = useRef<string | null>(null);
@@ -668,6 +670,11 @@ export default function SongNodesPage() {
 
   // Keep the ref in sync so animation callbacks always see current value
   useEffect(() => { animatePulseRef.current = animatePulse; }, [animatePulse]);
+  useEffect(() => {
+    if (viewMode === '2d') {
+      setTimeout(() => cyRef.current?.resize(), 50);
+    }
+  }, [viewMode]);
 
   // Start/stop animation — guard with layoutReadyRef so we don't fire during COSE
   useEffect(() => {
@@ -1622,11 +1629,25 @@ export default function SongNodesPage() {
           {graphLabel && (
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-surface-300">{graphLabel}</h2>
-              {graphData && (
-                <span className="text-xs text-surface-500">
-                  {graphData.nodes.length} nodes · {graphData.edges.length} edges
-                </span>
-              )}
+              <div className="flex items-center gap-3">
+                {graphData && (
+                  <span className="text-xs text-surface-500">
+                    {graphData.nodes.length} nodes · {graphData.edges.length} edges
+                  </span>
+                )}
+                {graphData && graphData.nodes.length > 0 && (
+                  <div className="flex rounded-lg overflow-hidden border border-surface-700 text-xs">
+                    <button
+                      onClick={() => setViewMode('2d')}
+                      className={`px-3 py-1 transition-colors ${viewMode === '2d' ? 'bg-indigo-700 text-white' : 'bg-transparent text-surface-400 hover:text-white'}`}
+                    >2D</button>
+                    <button
+                      onClick={() => setViewMode('3d')}
+                      className={`px-3 py-1 transition-colors ${viewMode === '3d' ? 'bg-indigo-700 text-white' : 'bg-transparent text-surface-400 hover:text-white'}`}
+                    >3D</button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -1659,16 +1680,27 @@ export default function SongNodesPage() {
             </div>
           )}
 
+          {/* 3D view */}
+          {!isFetching && viewMode === '3d' && graphData && graphData.nodes.length > 0 && (
+            <ThreeDGraphView nodes={graphData.nodes} edges={graphData.edges} height={680} />
+          )}
+
+          {/* 2D Cytoscape canvas — kept in DOM (display:none) to preserve layout */}
           <div
             ref={containerRef}
             className={`rounded-xl overflow-hidden border border-surface-800 transition-opacity duration-300
-              ${isFetching ? 'opacity-0 pointer-events-none h-0' : 'opacity-100'}`}
-            style={{ width: '100%', height: '680px', background: '#060d1a' }}
+              ${isFetching || viewMode === '3d' ? 'opacity-0 pointer-events-none h-0' : 'opacity-100'}`}
+            style={{ width: '100%', height: viewMode === '3d' ? '0' : '680px', background: '#060d1a' }}
           />
 
-          {!isFetching && graphData && graphData.nodes.length > 0 && (
+          {!isFetching && graphData && graphData.nodes.length > 0 && viewMode === '2d' && (
             <p className="mt-3 text-xs text-surface-600 text-center">
               Click to highlight connections · double-click to lock position · scroll to zoom · drag to pan
+            </p>
+          )}
+          {!isFetching && graphData && graphData.nodes.length > 0 && viewMode === '3d' && (
+            <p className="mt-3 text-xs text-surface-600 text-center">
+              WASD · arrows — fly &nbsp;·&nbsp; Q/E — up/down &nbsp;·&nbsp; drag — orbit &nbsp;·&nbsp; click — inspect node
             </p>
           )}
         </main>

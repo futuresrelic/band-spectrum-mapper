@@ -4,6 +4,43 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## 3D graph — WASD flight, 3D mode in Explore & Song Nodes, arrange modes (2026-05-22)
+
+### Added
+
+- **WASD / arrow-key flight** in all three 3D graph views (Graph Hunt, Explore 3D, Song Nodes 3D).
+  - W/S or ↑/↓ — fly forward/backward along camera look direction.
+  - A/D or ←/→ — strafe left/right.
+  - Q/E — ascend/descend.
+  - Both `camera.position` and `controls.target` translate together so the orbit stays intact.
+  - Speed is adaptive: `max(3, distance_from_origin × 0.015)` — faster when zoomed out.
+  - Hint overlay shown bottom-left when graph is ready.
+
+- **3D toggle in Explore** (`/explore`) and **Song Nodes** (`/song-nodes`).
+  - 2D / 3D pill toggle appears in the graph header once data is loaded.
+  - Switching to 3D renders `ThreeDGraphView` (shared component) with the same dataset.
+  - The Cytoscape 2D canvas is hidden (not destroyed) so switching back to 2D preserves layout.
+  - `cy.resize()` is called after the DOM restores the container.
+
+- **`ThreeDGraphView` shared component** (`apps/web/src/components/ThreeDGraphView.tsx`).
+  - Reusable 3D force-directed graph viewer accepting `GraphNode[]` + `GraphEdge[]` props.
+  - All features: WASD flight, proximity labels with fade-in, click-to-inspect (highlights node + neighbours), controls panel, arrange modes.
+
+- **5 arrange modes** in ThreeDGraphView (Arrange button, smooth 1.4 s animated transitions):
+  - **⚛ Natural** — releases pins and reheats the d3 physics simulation.
+  - **🎯 Radial** — concentric cylinders by node type (artist → album → song → keyword → others).
+  - **🌐 Sphere** — Fibonacci sphere distribution, radius scales with node count.
+  - **🌌 Galaxy** — golden-angle spiral disk, most-connected nodes at centre.
+  - **🪐 Solar System** — artists as stars in a ring; albums orbit their artist; songs orbit their album; keywords/tags in outer belt.
+
+- **Labels toggle** in Graph Controls panel across all 3D views — hide all node labels instantly to look around freely.
+
+### Technical
+
+- Inline quaternion math (`applyQuat` / `normalise`) replaces direct `three` import — avoids the missing `.d.ts` issue with three v0.184.0.
+
+---
+
 ## 3D Graph Hunt game (2026-05-22)
 
 ### Added
