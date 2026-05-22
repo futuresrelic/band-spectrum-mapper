@@ -4,6 +4,28 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## 3D Graph Hunt game (2026-05-22)
+
+### Added
+
+- **3D Graph Hunt** (`/graph-hunt`) — public game page (no auth required), accessible from `/games`.
+  - Loads the lyrical-dna graph for selected bands via `/api/public/graph?preset=lyrical-dna`.
+  - 3D force-directed graph powered by `react-force-graph-3d` (Three.js). Drag to orbit, scroll
+    to zoom, the physics simulation runs until the graph stabilises.
+  - The player starts at a random **song node** (yellow sphere). The hidden target is a
+    **keyword node** reachable in 3–8 hops via BFS through the lyrical network.
+  - Movement is one hop at a time — only adjacent (cyan) nodes are clickable.
+  - **Hot/cold feedback** after every move: BURNING 🔥 (1 hop) → HOT ♨️ (2) → WARM ☀️ (3) →
+    TEPID 🌡️ (4) → COOL 💨 (5) → COLD ❄️ (6+). The target is revealed (green glow) when the
+    player comes within 2 hops.
+  - Score: `max(0, 1000 − moves×25 − secondsElapsed)`. Displayed at game end.
+  - Camera flies smoothly to each new node on every move.
+  - **Play Again** restarts with a new random start/target pair without reloading the graph.
+  - `react-force-graph-3d` and `three` added to `apps/web` dependencies.
+- **Games page** — added 3D Graph Hunt card alongside Album Art Quiz and Word Hunt.
+
+---
+
 ## Explore — three new exploration modes (2026-05-22)
 
 ### Added

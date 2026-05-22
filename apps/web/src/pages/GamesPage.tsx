@@ -29,6 +29,19 @@ const GAMES = [
     btnColor: 'bg-emerald-700 hover:bg-emerald-600',
     accentText: 'text-emerald-400',
   },
+  {
+    id: 'graphhunt',
+    icon: '🌐',
+    title: '3D Graph Hunt',
+    subtitle: 'Navigate the lyrical universe',
+    desc: 'You\'re dropped into a 3D network of songs and keywords. Starting from a random song, navigate node by node to find the hidden target word — guided only by hot/cold hints.',
+    rules: ['Move one node at a time through the graph', '−25 pts per hop · −1 pt per second', 'Target revealed when you\'re within 2 hops'],
+    href: '/graph-hunt',
+    cta: 'Enter the Graph',
+    color: 'border-indigo-500/40 hover:border-indigo-400/70',
+    btnColor: 'bg-indigo-700 hover:bg-indigo-600',
+    accentText: 'text-indigo-400',
+  },
 ];
 
 export default function GamesPage() {

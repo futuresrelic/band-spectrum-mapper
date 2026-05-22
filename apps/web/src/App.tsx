@@ -49,6 +49,7 @@ import ExplorePage from './pages/ExplorePage';
 import WordHuntPage from './pages/WordHuntPage';
 import LeaderboardPage from './pages/LeaderboardPage';
 import GamesPage from './pages/GamesPage';
+import GraphHuntPage from './pages/GraphHuntPage';
 import SpectrumStudioPage from './pages/SpectrumStudioPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
@@ -98,6 +99,7 @@ export default function App() {
         <Route path="/explore"          element={<ExplorePage />} />
         <Route path="/leaderboard"     element={<LeaderboardPage />} />
         <Route path="/games"           element={<GamesPage />} />
+        <Route path="/graph-hunt"      element={<GraphHuntPage />} />
         <Route path="/spectrum-studio" element={<SpectrumStudioPage />} />
 
         {/* ── USER: rating surface + game, any logged-in Google user ── */}
