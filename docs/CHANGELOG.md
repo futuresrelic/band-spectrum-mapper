@@ -4,9 +4,11 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
-## Cinema Mode — AI Director, new themes, label controls, camera polish (2026-05-23)
+## Cinema Mode — AI genre nodes, AI Director, new themes, label controls, camera polish (2026-05-23)
 
 ### Added
+
+- **AI Genre Spectrum nodes** — songs that have been scored by the AI genre analyser now appear in the Cinema / Song Nodes graph as orange `🎼 Genre` nodes (Metal, Rock, Pop, Hip-Hop, Electronic, Folk). Each genre node is linked to every song that scores ≥ 0.1 on that axis. The node size reflects relative weight; the type-toggle appears in the legend so genres can be shown/hidden independently.
 
 - **AI Director** (`🤖 AI` button in Cinema toolbar):
   - Natural-language sandbox: type what you want to see ("psychedelic cosmic trip", "organic tree, earthy tones", "emotional landscape mandala") and GPT-4o-mini picks the arrangement, theme, orbit speed, node visibility, and camera preset.
