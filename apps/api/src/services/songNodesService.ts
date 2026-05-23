@@ -17,14 +17,15 @@ import { prisma } from '../lib/prisma.js';
 // Types
 // ---------------------------------------------------------------------------
 
-export type NodeType = 'song' | 'album' | 'artist' | 'theme' | 'tag' | 'keyword' | 'emotion';
+export type NodeType = 'song' | 'album' | 'artist' | 'theme' | 'tag' | 'keyword' | 'emotion' | 'genre';
 export type EdgeType =
   | 'same_artist'
   | 'same_album'
   | 'shared_tag'
   | 'similar_radar'
   | 'conceptual'
-  | 'shared_word';
+  | 'shared_word'
+  | 'genre_link';
 
 export type GraphLayoutPreset =
   | 'artist-universe'
@@ -78,6 +79,7 @@ const NODE_COLORS: Record<NodeType, string> = {
   tag:      '#06b6d4',
   keyword:  '#64748b',
   emotion:  '#ec4899',
+  genre:    '#f97316',
 };
 
 function cosineSim(a: number[], b: number[]): number {
@@ -144,6 +146,7 @@ async function fetchSongs(filter: {
       score: true,
       songTags: { include: { tag: true } },
       aiAnalysis: { select: { themes: true } },
+      aiGenreSpectrum: true,
       lyrics: { where: { isPrimary: true }, select: { text: true }, take: 1 },
     },
     take: limit,
@@ -265,6 +268,46 @@ async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
       const pruned = edges.filter((e) => !(e.type === 'conceptual' && e.target === `theme:${key}`));
       edges.length = 0;
       edges.push(...pruned);
+    }
+  }
+
+  // Genre nodes from AI genre spectrum (metal/rock/pop/hiphop/electronic/folk scores)
+  const GENRE_KEYS = ['metal', 'rock', 'pop', 'hiphop', 'electronic', 'folk'] as const;
+  const GENRE_LABELS: Record<typeof GENRE_KEYS[number], string> = {
+    metal: 'Metal', rock: 'Rock', pop: 'Pop',
+    hiphop: 'Hip-Hop', electronic: 'Electronic', folk: 'Folk',
+  };
+  const genreConnections = new Map<string, number>(); // genreKey → song count
+
+  for (const s of songs) {
+    const gs = s.aiGenreSpectrum;
+    if (!gs) continue;
+    const rawVals = GENRE_KEYS.map(k => gs[k]);
+    const maxVal  = Math.max(...rawVals);
+    if (maxVal === 0) continue;
+    const scale = maxVal > 1 ? 100 : 1; // normalise 0-100 → 0-1
+
+    for (const k of GENRE_KEYS) {
+      const score = gs[k] / scale;
+      if (score < 0.1) continue;
+      genreConnections.set(k, (genreConnections.get(k) ?? 0) + 1);
+      edges.push({
+        id: `e${edgeIdx++}`, source: `song:${s.id}`,
+        target: `genre:${k}`, type: 'genre_link',
+        weight: Math.round(score * 10) / 10,
+      });
+    }
+  }
+
+  for (const k of GENRE_KEYS) {
+    const count = genreConnections.get(k) ?? 0;
+    if (count > 0) {
+      nodes.push({ id: `genre:${k}`, type: 'genre', label: GENRE_LABELS[k],
+        data: { color: NODE_COLORS.genre, count } });
+    } else {
+      // Prune any stray genre edges if no songs qualified
+      const pruned = edges.filter(e => e.target !== `genre:${k}`);
+      edges.length = 0; edges.push(...pruned);
     }
   }
 

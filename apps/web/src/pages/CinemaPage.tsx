@@ -36,16 +36,19 @@ const TYPE_COLOR: Record<string, string> = {
   song: '#6366f1', keyword: '#374151',
   album: '#8b5cf6', artist: '#f59e0b',
   theme: '#10b981', tag: '#06b6d4', emotion: '#ec4899',
+  genre: '#f97316',
 };
 const TYPE_LABELS: Record<string, string> = {
   artist: '🎸 Artist', album: '💿 Album', song: '🎵 Song',
   keyword: '🔑 Keyword', theme: '🌿 Theme', tag: '🏷 Tag', emotion: '💜 Emotion',
+  genre: '🎼 Genre',
 };
 const TYPE_ICONS: Record<string, string> = {
   artist: '🎸', album: '💿', song: '🎵',
   keyword: '🔑', theme: '🌿', tag: '🏷', emotion: '💜',
+  genre: '🎼',
 };
-const ALL_TYPES = ['artist', 'album', 'song', 'keyword', 'theme', 'tag', 'emotion'];
+const ALL_TYPES = ['artist', 'album', 'song', 'keyword', 'theme', 'tag', 'emotion', 'genre'];
 
 const HIGHLIGHT_COLOR = '#ffffff';
 
