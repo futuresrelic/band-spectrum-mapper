@@ -4,6 +4,55 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Cinema Mode — orbit camera, tour script, lyrics universe, mobile fix (2026-05-23)
+
+### Added
+
+- **Orbit-approach camera** (new `apps/web/src/cinema/orbitCamera.ts`):
+  - `initOrbitState()` — computes fly-in start from the current camera bearing, ensuring the approach always comes from the right direction.
+  - `updateOrbitCamera()` — two-phase: lerp fly-in (1800 ms eased) then continuous orbit.  Returns `'flying' | 'orbiting' | 'done'` so callers know when to advance.
+  - Scenes 4 (Solar System Tour) and 5 (Node Flythrough) now orbit each visited node instead of one-shot TWEEN fly-tos.  Camera always keeps the target in view.
+
+- **CinemaControls** (live camera control panel):
+  - New `CinemaControls` interface + `DEFAULT_CINEMA_CONTROLS` in `types.ts`.
+  - Exposes: **orbitSpeed** (angular velocity multiplier), **approachDist** (orbit radius), **elevationOffset** (camera Y above target), **speedMultiplier** (global scene timer speed).
+  - Live ⚙ panel with range sliders — changes take effect in the rAF loop immediately, no re-mount needed.
+  - All scene `tick()` functions accept `controls` as a 6th parameter and multiply orbit angles by `controls.orbitSpeed`.
+
+- **Tour / Script Writer** (`apps/web/src/cinema/TourPlanner.tsx`):
+  - New `TourStep` type: `{ nodeId, nodeLabel, nodeType, dwellMs }`.
+  - `TourPlanner` component: searchable/filterable node picker, step list, per-step dwell selector (4s–20s presets), Play/Stop/Clear.
+  - Cinema page has a **Scenes / Tour** toggle.  In Tour mode the rAF loop drives the orbit camera through each authored step in order.
+  - Tour stops automatically after the last step.
+
+- **Lyrics Universe** (`/cinema/lyrics`):
+  - Albums arranged in a ring (radius 600), songs in sub-rings (radius 180), lyric lines stacked in a gentle upward spiral above each song node.
+  - `ForceGraph3D` with `warmupTicks=0` / `cooldownTicks=0` — physics disabled, all nodes pinned.  SpriteText renders every lyric line as floating 3D text (Georgia serif, per-song header in purple, album header in gold).
+  - **Auto fly-through** mode: camera orbits each album cluster for 12 s then advances; orbit speed controlled by slider.
+  - Social Mode, cursor auto-hide, fullscreen — same pattern as main Cinema Mode.
+  - New API endpoint `GET /api/public/lyrics-universe?bandIds=` — returns up to 8 albums × 12 songs with primary lyrics (no auth required).
+  - New nav link **Lyrics Universe** added to admin sidebar.
+  - Route `/cinema/lyrics` added to App.tsx.
+
+- **Mobile sidebar scroll fix**:
+  - Added `overflow-hidden` to the `<nav>` container and `overflow-y-auto` to the `<ul>` in `Nav.tsx`.
+  - The admin sidebar now scrolls independently on mobile without requiring landscape orientation.
+
+### New files
+- `apps/web/src/cinema/orbitCamera.ts` — orbit-approach camera helpers
+- `apps/web/src/cinema/TourPlanner.tsx` — tour script builder component
+- `apps/web/src/pages/LyricsUniversePage.tsx` — Lyrics Universe page
+
+### Modified files
+- `apps/web/src/cinema/types.ts` — `CinemaControls`, `TourStep`, updated `tick` signature
+- `apps/web/src/cinema/sceneDefinitions.ts` — scenes 4+5 orbit-rewrite; all ticks accept controls
+- `apps/web/src/pages/CinemaPage.tsx` — controls panel, tour mode, tour state management
+- `apps/web/src/components/layout/Nav.tsx` — mobile scroll fix + Lyrics Universe link
+- `apps/web/src/App.tsx` — `/cinema/lyrics` route
+- `apps/api/src/routes/public.ts` — `/api/public/lyrics-universe` endpoint
+
+---
+
 ## Cinema Mode — cinematic autoplay showcase engine (2026-05-23)
 
 ### Added
