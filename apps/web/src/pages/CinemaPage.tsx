@@ -123,12 +123,33 @@ export default function CinemaPage() {
   useEffect(() => { hiddenTypesRef.current = hiddenTypes; }, [hiddenTypes]);
 
   // ── Lyrics overlay ───────────────────────────────────────────────────────────
-  const [showLyrics, setShowLyrics]   = useState(true);
-  const showLyricsRef                 = useRef(true);
+  const [showLyrics, setShowLyrics]         = useState(true);
+  const showLyricsRef                       = useRef(true);
   useEffect(() => { showLyricsRef.current = showLyrics; }, [showLyrics]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const lyricsSpritesRef              = useRef<any[]>([]);
-  const lyricsDataCacheRef            = useRef<Record<string, string[]> | null>(null);
+  const lyricsSpritesRef                    = useRef<any[]>([]);
+  const lyricsDataCacheRef                  = useRef<Record<string, string[]> | null>(null);
+
+  // Lyrics visibility distance (same family as label show distances)
+  const [lyricsShowDist, setLyricsShowDist] = useState(200);
+  const lyricsShowDistRef                   = useRef(200);
+  useEffect(() => { lyricsShowDistRef.current = lyricsShowDist; }, [lyricsShowDist]);
+
+  // Lyrics scroll-window mode
+  const [lyricsScrollMode, setLyricsScrollMode]   = useState(false);
+  const [lyricsWindowSize, setLyricsWindowSize]   = useState(4);
+  const [lyricsScrollSpeed, setLyricsScrollSpeed] = useState(3);
+  const lyricsScrollModeRef  = useRef(false);
+  const lyricsWindowSizeRef  = useRef(4);
+  const lyricsScrollSpeedRef = useRef(3);
+  useEffect(() => { lyricsScrollModeRef.current  = lyricsScrollMode;  }, [lyricsScrollMode]);
+  useEffect(() => { lyricsWindowSizeRef.current  = lyricsWindowSize;  }, [lyricsWindowSize]);
+  useEffect(() => { lyricsScrollSpeedRef.current = lyricsScrollSpeed; }, [lyricsScrollSpeed]);
+
+  // Per-song scroll state (populated when sprites are created)
+  const lyricsScrollOffsetRef = useRef<Map<string, number>>(new Map());
+  const lyricsTotalLinesRef   = useRef<Map<string, number>>(new Map());
+  const lyricsScrollLastRef   = useRef(0);
 
   // ── Tour mode ─────────────────────────────────────────────────────────────────
   const [tourMode, setTourMode]               = useState(false);
@@ -432,6 +453,33 @@ export default function CinemaPage() {
               sprite.color = `#e2e8f0${a}`;
             }
           }
+
+          // Lyrics sprite: distance culling + scroll-window auto-advance
+          if (lyricsSpritesRef.current.length > 0) {
+            const lyricDistSq = lyricsShowDistRef.current ** 2;
+            const scrollMode  = lyricsScrollModeRef.current;
+            const winSize     = lyricsWindowSizeRef.current;
+            const now         = performance.now();
+            if (scrollMode && now - lyricsScrollLastRef.current > lyricsScrollSpeedRef.current * 1000) {
+              lyricsScrollLastRef.current = now;
+              lyricsTotalLinesRef.current.forEach((total, songId) => {
+                const cur = lyricsScrollOffsetRef.current.get(songId) ?? 0;
+                lyricsScrollOffsetRef.current.set(songId, (cur + 1) % Math.max(1, total));
+              });
+            }
+            for (const sp of lyricsSpritesRef.current) {
+              const pos = sp.position;
+              if (!pos) { sp.visible = false; continue; }
+              const ldx = pos.x - cx, ldy = pos.y - cy, ldz = pos.z - cz;
+              if (ldx * ldx + ldy * ldy + ldz * ldz > lyricDistSq) { sp.visible = false; continue; }
+              if (scrollMode) {
+                const offset = lyricsScrollOffsetRef.current.get(sp._songId as string) ?? 0;
+                sp.visible = (sp._lineIdx as number) >= offset && (sp._lineIdx as number) < offset + winSize;
+              } else {
+                sp.visible = true;
+              }
+            }
+          }
         }
       }
       rafId = requestAnimationFrame(tick);
@@ -492,6 +540,7 @@ export default function CinemaPage() {
         for (const [nodeId, lines] of Object.entries(lyricMap)) {
           const node = simNodes.find(n => n.id === nodeId);
           if (!node || node.x == null) continue;
+          let visIdx = 0;
           lines.forEach((line, li) => {
             if (!line.trim()) return;
             const sp = new SpriteText(line.slice(0, 60));
@@ -506,9 +555,13 @@ export default function CinemaPage() {
               (node.y ?? 0) + 14 + li * 7,
               (node.z ?? 0) + Math.cos(angle) * 18,
             );
+            (sp as any)._songId  = nodeId;
+            (sp as any)._lineIdx = visIdx++;
             threeScene.add(sp as any);
             newSprites.push(sp as any);
           });
+          lyricsTotalLinesRef.current.set(nodeId, visIdx);
+          lyricsScrollOffsetRef.current.set(nodeId, 0);
         }
         lyricsSpritesRef.current = newSprites;
       } catch (_e) {
@@ -676,6 +729,9 @@ export default function CinemaPage() {
       scene?.remove(s);
     }
     lyricsSpritesRef.current = [];
+    lyricsScrollOffsetRef.current.clear();
+    lyricsTotalLinesRef.current.clear();
+    lyricsScrollLastRef.current = 0;
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────────
@@ -950,6 +1006,15 @@ export default function CinemaPage() {
                       className="w-full accent-indigo-500" />
                   </label>
                 ))}
+                <label className="block space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-400">
+                    <span>Lyrics</span>
+                    <span>{lyricsShowDist}</span>
+                  </div>
+                  <input type="range" min={50} max={600} step={10} value={lyricsShowDist}
+                    onChange={e => setLyricsShowDist(Number(e.target.value))}
+                    className="w-full accent-indigo-500" />
+                </label>
               </div>
 
               {/* Node type visibility */}
@@ -998,6 +1063,45 @@ export default function CinemaPage() {
                   <span className={showLyrics ? '' : 'line-through'}>Lyric text overlay</span>
                   <span className="ml-auto text-[10px] text-gray-700">{showLyrics ? '✓' : 'hidden'}</span>
                 </button>
+
+                {showLyrics && (
+                  <>
+                    {/* Scroll mode toggle */}
+                    <button
+                      onClick={() => setLyricsScrollMode(v => !v)}
+                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                        lyricsScrollMode ? 'text-indigo-300 bg-indigo-900/30' : 'text-gray-500 hover:text-gray-300'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${lyricsScrollMode ? 'bg-indigo-400' : 'bg-gray-700'}`} />
+                      <span>Scroll mode</span>
+                      <span className="ml-auto text-[10px] text-gray-600">{lyricsScrollMode ? 'on' : 'off'}</span>
+                    </button>
+
+                    {lyricsScrollMode && (
+                      <>
+                        <label className="block space-y-1">
+                          <div className="flex justify-between text-[10px] text-gray-400">
+                            <span>Lines visible</span>
+                            <span>{lyricsWindowSize}</span>
+                          </div>
+                          <input type="range" min={1} max={8} step={1} value={lyricsWindowSize}
+                            onChange={e => setLyricsWindowSize(Number(e.target.value))}
+                            className="w-full accent-indigo-500" />
+                        </label>
+                        <label className="block space-y-1">
+                          <div className="flex justify-between text-[10px] text-gray-400">
+                            <span>Advance every</span>
+                            <span>{lyricsScrollSpeed}s</span>
+                          </div>
+                          <input type="range" min={0.5} max={8} step={0.5} value={lyricsScrollSpeed}
+                            onChange={e => setLyricsScrollSpeed(Number(e.target.value))}
+                            className="w-full accent-indigo-500" />
+                        </label>
+                      </>
+                    )}
+                  </>
+                )}
               </div>
 
               {/* Visual theme */}
