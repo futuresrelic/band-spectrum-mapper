@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import OpenAI from 'openai';
 import { prisma } from '../lib/prisma.js';
 import { userRatingService } from '../services/userRatingService.js';
 import { buildGraph, listScopeOptions, type GraphLayoutPreset } from '../services/songNodesService.js';
@@ -408,5 +409,70 @@ publicRouter.get('/lyrics-universe', async (req, res, next) => {
     }));
 
     res.json({ albums: result });
+  } catch (e) { next(e); }
+});
+
+// ── AI Director ────────────────────────────────────────────────────────────────
+// POST /api/public/cinema-ai
+// Interprets a natural-language prompt and returns Cinema scene settings.
+publicRouter.post('/cinema-ai', async (req, res, next): Promise<void> => {
+  try {
+    const { prompt } = req.body as { prompt?: string };
+    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+      res.status(400).json({ ok: false, error: 'prompt required' }); return;
+    }
+
+    const apiKey = process.env['OPENAI_API_KEY'];
+    if (!apiKey) {
+      res.status(503).json({ ok: false, error: 'AI not configured' }); return;
+    }
+
+    const openai = new OpenAI({ apiKey });
+
+    const system = `You are the AI Director for Band Spectrum Mapper, a music visualization tool.
+Your job: interpret the user's creative vision and return ONLY a JSON object (no markdown, no explanation) choosing the best visualization settings.
+
+Available arrangeMode values: "natural", "radial", "sphere", "galaxy", "solar-system", "helix", "emotional-spectrum", "genre-web", "fibonacci-torus", "fractal-tree", "mandala", "wave", "lissajous", "crystal", "fibonacci-spiral"
+Available themeId values: "default", "sepia", "negative", "sketch", "solarized", "posterized", "comic", "depth", "neon", "outlines", "bokeh", "halftone", "dali", "escher"
+Available cameraPreset values: "top", "side", "isometric", "dramatic", "close"
+Available node types to hide: "artist", "album", "song", "keyword", "theme", "tag", "emotion"
+
+Guidance:
+- Psychedelic/cosmic/trippy → lissajous or fibonacci-torus, neon or bokeh
+- Organic/earthy/nature → fractal-tree or fibonacci-spiral, sepia or dali
+- Structured/mathematical/precise → mandala or crystal, solarized or sketch or escher
+- Emotional/feeling/soul → emotional-spectrum or mandala, default or bokeh
+- Solar/planetary/universe → solar-system, default or neon
+- Genre/music taxonomy → genre-web, solarized or default
+- Dark/mysterious → galaxy or sphere, depth or outlines
+- Bright/comic/energetic → radial or wave, comic or posterized
+
+Return exactly this JSON structure:
+{
+  "arrangeMode": "<one of the values above>",
+  "themeId": "<one of the values above>",
+  "orbitSpeed": <number 0.3–3.0>,
+  "hiddenTypes": [],
+  "description": "<1–2 sentence poetic description of what you created>",
+  "cameraPreset": "<one of the values above>"
+}`;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user',   content: prompt.slice(0, 500) },
+      ],
+      response_format: { type: 'json_object' },
+      max_tokens: 280,
+      temperature: 0.85,
+    });
+
+    let settings: Record<string, unknown> = {};
+    try {
+      settings = JSON.parse(completion.choices[0]?.message.content ?? '{}');
+    } catch { /* leave empty */ }
+
+    res.json({ ok: true, settings });
   } catch (e) { next(e); }
 });

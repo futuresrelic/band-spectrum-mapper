@@ -63,6 +63,16 @@ function sphereR(val: number) { return BASE_NODE_REL * Math.cbrt(val); }
 const TRANSITION_MS      = 700;
 const DEFAULT_LABEL_DISTANCES = { artist: 650, album: 420, song: 280, other: 180 };
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function blendHex(from: string, to: string, t: number): string {
+  if (!from.startsWith('#') || from.length < 7) return t > 0.5 ? to : from;
+  const r0 = parseInt(from.slice(1,3),16), g0 = parseInt(from.slice(3,5),16), b0 = parseInt(from.slice(5,7),16);
+  const r1 = parseInt(to.slice(1,3),16),   g1 = parseInt(to.slice(3,5),16),   b1 = parseInt(to.slice(5,7),16);
+  const r  = Math.round(r0+(r1-r0)*t), g = Math.round(g0+(g1-g0)*t), b = Math.round(b0+(b1-b0)*t);
+  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+}
+
 // ── Pause-mode orbit pivot ────────────────────────────────────────────────────
 
 interface OrbitAnim {
@@ -151,6 +161,26 @@ export default function CinemaPage() {
   const lyricsTotalLinesRef   = useRef<Map<string, number>>(new Map());
   const lyricsScrollLastRef   = useRef(0);
 
+  // Label styling
+  const [labelShowBg, setLabelShowBg]           = useState(true);
+  const [labelBgOpacity, setLabelBgOpacity]     = useState(0.7);
+  const [labelTextColor, setLabelTextColor]     = useState('#e2e8f0');
+  const [labelAlwaysOnTop, setLabelAlwaysOnTop] = useState(false);
+  const labelShowBgRef      = useRef(true);
+  const labelBgOpacityRef   = useRef(0.7);
+  const labelTextColorRef   = useRef('#e2e8f0');
+  const labelAlwaysOnTopRef = useRef(false);
+
+  // Selection dim strength (0 = keep theme colour, 1 = fully dark)
+  const [selectionDim, setSelectionDim] = useState(1.0);
+  const selectionDimRef = useRef(1.0);
+
+  // AI Director
+  const [showAiDirector, setShowAiDirector]   = useState(false);
+  const [aiPromptInput, setAiPromptInput]     = useState('');
+  const [isAiThinking, setIsAiThinking]       = useState(false);
+  const [aiLastResult, setAiLastResult]       = useState<string | null>(null);
+
   // ── Tour mode ─────────────────────────────────────────────────────────────────
   const [tourMode, setTourMode]               = useState(false);
   const [showTourPlanner, setShowTourPlanner] = useState(false);
@@ -211,6 +241,15 @@ export default function CinemaPage() {
   useEffect(() => { simNodesRef.current   = simNodes;        }, [simNodes]);
   useEffect(() => { tourModeRef.current   = tourMode;        }, [tourMode]);
 
+  useEffect(() => { labelShowBgRef.current      = labelShowBg;      }, [labelShowBg]);
+  useEffect(() => { labelBgOpacityRef.current   = labelBgOpacity;   }, [labelBgOpacity]);
+  useEffect(() => { labelTextColorRef.current   = labelTextColor;   }, [labelTextColor]);
+  useEffect(() => { labelAlwaysOnTopRef.current = labelAlwaysOnTop; }, [labelAlwaysOnTop]);
+  useEffect(() => {
+    selectionDimRef.current = selectionDim;
+    if (selectedNodeRef.current) fgRef.current?.refresh();
+  }, [selectionDim]);
+
   // ── Derived: tour node IDs + visible graph data ───────────────────────────────
 
   const tourNodeIds = useMemo(() => new Set(tourSteps.map(s => s.nodeId)), [tourSteps]);
@@ -265,12 +304,13 @@ export default function CinemaPage() {
     const nodes = simNodesRef.current;
     const adj   = adjRef.current;
 
+    const visNodes = nodes.filter(n => !hiddenTypesRef.current.has(n.type));
     if (scene.arrangeMode === 'natural') {
-      nodes.forEach(n => { n.fx = undefined; n.fy = undefined; n.fz = undefined; });
+      visNodes.forEach(n => { n.fx = undefined; n.fy = undefined; n.fz = undefined; });
       didFitRef.current = false;
       fg.d3ReheatSimulation?.();
     } else {
-      animateArrange(nodes, computeArrangeTargets(nodes, scene.arrangeMode, adj), fg);
+      animateArrange(visNodes, computeArrangeTargets(visNodes, scene.arrangeMode, adj), fg);
     }
 
     sceneStateRef.current = scene.enter(fg, nodes, adj);
@@ -450,7 +490,12 @@ export default function CinemaPage() {
               const range   = Math.max(1, showDist - fullDist);
               const opacity = Math.max(0, Math.min(1, 1 - (dist - fullDist) / range));
               const a = Math.round(opacity * 255).toString(16).padStart(2, '0');
-              sprite.color = `#e2e8f0${a}`;
+              sprite.color = `${labelTextColorRef.current}${a}`;
+              (sprite as any).backgroundColor = labelShowBgRef.current
+                ? `rgba(3,7,18,${(labelBgOpacityRef.current * opacity).toFixed(2)})`
+                : false;
+              const mat = (sprite as any).material;
+              if (mat) mat.depthTest = !labelAlwaysOnTopRef.current;
             }
           }
 
@@ -625,7 +670,8 @@ export default function CinemaPage() {
     if (sel && !isPlayingRef.current) {
       if (n.id === sel.id) return '#ffffff';
       if (adjRef.current.get(sel.id)?.has(n.id)) return '#22d3ee';
-      return '#0d1117';
+      const themeColor = currentTheme.nodeColors[n.type] ?? '#4b5563';
+      return blendHex(themeColor, '#0d1117', selectionDimRef.current);
     }
     return currentTheme.nodeColors[n.type] ?? '#4b5563';
   }, [tourMode, tourHighlightedId, currentTheme]);
@@ -702,19 +748,75 @@ export default function CinemaPage() {
     setSimReady(true);
   }, [simNodes]);
 
-  const reArrange = useCallback(() => {
+  const reArrange = useCallback((overrideMode?: string) => {
     const scene = CINEMA_SCENES[currentIdxRef.current];
-    if (!scene || !fgRef.current) return;
-    const nodes = simNodesRef.current;
-    const adj   = adjRef.current;
-    if (scene.arrangeMode === 'natural') {
-      nodes.forEach(n => { n.fx = undefined; n.fy = undefined; n.fz = undefined; });
+    if (!fgRef.current) return;
+    const mode     = (overrideMode ?? scene?.arrangeMode) as import('../cinema/graphArrange').ArrangeMode | undefined;
+    if (!mode) return;
+    const visNodes = simNodesRef.current.filter(n => !hiddenTypesRef.current.has(n.type));
+    const adj      = adjRef.current;
+    if (mode === 'natural') {
+      visNodes.forEach(n => { n.fx = undefined; n.fy = undefined; n.fz = undefined; });
       didFitRef.current = false;
       fgRef.current.d3ReheatSimulation?.();
     } else {
-      animateArrange(nodes, computeArrangeTargets(nodes, scene.arrangeMode, adj), fgRef.current);
+      animateArrange(visNodes, computeArrangeTargets(visNodes, mode, adj), fgRef.current);
     }
   }, []);
+
+  const applyAiSettings = useCallback(async () => {
+    const prompt = aiPromptInput.trim();
+    if (!prompt || isAiThinking) return;
+    setIsAiThinking(true);
+    setAiLastResult(null);
+    try {
+      const qs = selectedBandIds.length ? `?bandIds=${selectedBandIds.join(',')}` : '';
+      const result: {
+        ok: boolean;
+        settings: {
+          arrangeMode?: string;
+          themeId?: string;
+          orbitSpeed?: number;
+          hiddenTypes?: string[];
+          description?: string;
+          cameraPreset?: string;
+        };
+      } = await api.post(`/api/public/cinema-ai${qs}`, { prompt });
+
+      if (!result.ok || !result.settings) throw new Error('No settings');
+      const s = result.settings;
+
+      if (s.themeId)    setSelectedThemeId(s.themeId);
+      if (s.hiddenTypes) setHiddenTypes(new Set(s.hiddenTypes));
+      if (s.orbitSpeed != null) setCinemaControls(prev => ({ ...prev, orbitSpeed: s.orbitSpeed! }));
+      if (s.arrangeMode) {
+        // Small delay so theme renders first
+        setTimeout(() => reArrange(s.arrangeMode), 120);
+      }
+      if (s.cameraPreset && fgRef.current) {
+        const camera = fgRef.current.camera?.();
+        const ctrl   = fgRef.current.controls?.();
+        if (camera && ctrl) {
+          const presets: Record<string, [number,number,number]> = {
+            top:       [0, 700, 30],
+            side:      [650, 80, 0],
+            isometric: [380, 380, 380],
+            dramatic:  [60, 80, 480],
+            close:     [120, 60, 200],
+          };
+          const pos = presets[s.cameraPreset] ?? presets['isometric']!;
+          camera.position.set(pos[0], pos[1], pos[2]);
+          ctrl.target.set(0, 0, 0);
+          camera.lookAt(0, 0, 0);
+        }
+      }
+      setAiLastResult(s.description ?? 'Done.');
+    } catch {
+      setAiLastResult('Could not connect to AI. Check your OPENAI_API_KEY.');
+    } finally {
+      setIsAiThinking(false);
+    }
+  }, [aiPromptInput, isAiThinking, selectedBandIds, reArrange]);
 
   const onNodeClick = useCallback((node: object) => {
     const n = node as CinemaNode;
@@ -888,7 +990,7 @@ export default function CinemaPage() {
           {/* Top-right */}
           <div className="absolute top-4 right-4 z-30 flex gap-2">
             <button
-              onClick={reArrange}
+              onClick={() => reArrange()}
               disabled={!simReady}
               title={`Re-apply ${currentScene?.name ?? ''} arrangement`}
               className="text-xs bg-gray-900/80 border border-gray-700 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
@@ -896,13 +998,22 @@ export default function CinemaPage() {
               ✦ Arrange
             </button>
             <button
-              onClick={() => { setShowBandPicker(v => !v); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); }}
+              onClick={() => { setShowAiDirector(v => !v); setShowBandPicker(false); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); }}
+              title="AI Director — describe the view you want"
+              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                showAiDirector ? 'bg-purple-900/60 border-purple-700 text-purple-300' : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+              }`}
+            >
+              🤖 AI
+            </button>
+            <button
+              onClick={() => { setShowBandPicker(v => !v); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); }}
               className="text-xs bg-gray-900/80 border border-gray-700 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors"
             >
               Bands{selectedBandIds.length > 0 ? ` (${selectedBandIds.length})` : ''}
             </button>
             <button
-              onClick={() => { setShowControls(v => !v); setShowBandPicker(false); setShowPlaylist(false); setShowTourPlanner(false); }}
+              onClick={() => { setShowControls(v => !v); setShowBandPicker(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); }}
               title="Camera controls & node visibility"
               className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
                 showControls || hiddenTypes.size > 0
@@ -920,6 +1031,41 @@ export default function CinemaPage() {
               🎬
             </button>
           </div>
+
+          {/* AI Director panel */}
+          {showAiDirector && (
+            <div className="absolute top-12 right-4 z-40 bg-gray-900/97 border border-purple-800/60 rounded-xl p-4 backdrop-blur-sm w-72 shadow-2xl space-y-3">
+              <div className="text-[10px] font-semibold text-purple-400 uppercase tracking-wide">🤖 AI Director</div>
+              <div className="text-[11px] text-gray-400 leading-relaxed">
+                Describe the view you want. The AI will choose an arrangement, theme, and camera to match.
+              </div>
+              <textarea
+                value={aiPromptInput}
+                onChange={e => setAiPromptInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void applyAiSettings(); } }}
+                placeholder={'e.g. "psychedelic cosmic trip with neon colours" or "organic tree of my music, earthy tones" or "show me the emotional landscape, top-down mandala"'}
+                rows={3}
+                className="w-full bg-gray-800/80 border border-gray-700 rounded-lg text-[11px] text-gray-200 placeholder-gray-600 px-3 py-2 resize-none focus:outline-none focus:border-purple-600"
+              />
+              <button
+                onClick={() => void applyAiSettings()}
+                disabled={isAiThinking || !aiPromptInput.trim()}
+                className={`w-full text-xs py-2 rounded-lg font-medium transition-colors ${
+                  isAiThinking || !aiPromptInput.trim()
+                    ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
+                    : 'bg-purple-700 hover:bg-purple-600 text-white'
+                }`}
+              >
+                {isAiThinking ? '✦ Thinking…' : '✦ Direct the scene'}
+              </button>
+              {aiLastResult && (
+                <div className="text-[11px] text-purple-300/80 italic leading-relaxed border-t border-gray-800 pt-2">
+                  {aiLastResult}
+                </div>
+              )}
+              <div className="text-[10px] text-gray-700">⌘ Enter to submit</div>
+            </div>
+          )}
 
           {/* Band picker */}
           {showBandPicker && scopes && (
@@ -1124,6 +1270,60 @@ export default function CinemaPage() {
                     )}
                   </>
                 )}
+              </div>
+
+              {/* Label styling */}
+              <div className="border-t border-gray-800 pt-3 space-y-2">
+                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Label Style</div>
+                <button
+                  onClick={() => setLabelShowBg(v => !v)}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                    labelShowBg ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-700 hover:text-gray-500'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${labelShowBg ? 'bg-indigo-500' : 'bg-gray-700'}`} />
+                  <span className={labelShowBg ? '' : 'line-through'}>Label backgrounds</span>
+                  <span className="ml-auto text-[10px] text-gray-700">{labelShowBg ? 'on' : 'off'}</span>
+                </button>
+                {labelShowBg && (
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Bg opacity</span><span>{Math.round(labelBgOpacity * 100)}%</span>
+                    </div>
+                    <input type="range" min={0} max={1} step={0.05} value={labelBgOpacity}
+                      onChange={e => setLabelBgOpacity(Number(e.target.value))}
+                      className="w-full accent-indigo-500" />
+                  </label>
+                )}
+                <button
+                  onClick={() => setLabelAlwaysOnTop(v => !v)}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                    labelAlwaysOnTop ? 'text-cyan-300 bg-cyan-900/20' : 'text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${labelAlwaysOnTop ? 'bg-cyan-400' : 'bg-gray-700'}`} />
+                  <span>Show through nodes</span>
+                  <span className="ml-auto text-[10px] text-gray-600">{labelAlwaysOnTop ? 'on' : 'off'}</span>
+                </button>
+                <div className="flex items-center gap-2 px-1">
+                  <span className="text-[10px] text-gray-400 flex-1">Text colour</span>
+                  <input type="color" value={labelTextColor}
+                    onChange={e => setLabelTextColor(e.target.value)}
+                    className="w-8 h-5 rounded cursor-pointer border-0 bg-transparent" />
+                </div>
+              </div>
+
+              {/* Selection dim */}
+              <div className="border-t border-gray-800 pt-3">
+                <label className="block space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-400">
+                    <span>Selection dim</span><span>{Math.round(selectionDim * 100)}%</span>
+                  </div>
+                  <input type="range" min={0} max={1} step={0.05} value={selectionDim}
+                    onChange={e => setSelectionDim(Number(e.target.value))}
+                    className="w-full accent-indigo-500" />
+                  <div className="text-[10px] text-gray-600">0 = colours · 1 = fully dark</div>
+                </label>
               </div>
 
               {/* Visual theme */}

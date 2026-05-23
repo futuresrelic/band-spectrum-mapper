@@ -4,6 +4,49 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Cinema Mode — AI Director, new themes, label controls, camera polish (2026-05-23)
+
+### Added
+
+- **AI Director** (`🤖 AI` button in Cinema toolbar):
+  - Natural-language sandbox: type what you want to see ("psychedelic cosmic trip", "organic tree, earthy tones", "emotional landscape mandala") and GPT-4o-mini picks the arrangement, theme, orbit speed, node visibility, and camera preset.
+  - Backend endpoint `POST /api/public/cinema-ai` returns structured JSON settings.
+  - Results applied live: theme changes, re-arrange animates, camera repositions to preset.
+  - Graceful degradation if `OPENAI_API_KEY` is absent (503 with clear message).
+
+- **New Cinema themes** (now 16 total):
+  - `🕰️ Dalí Dream` — warm amber/rust sepia palette with hue-rotated saturation boost, surrealist feeling.
+  - `♾️ Escher` — high-contrast grayscale on off-white, heavy black links, impossible-geometry feel.
+
+- **New Cinema scene** (now 16 total):
+  - `🌻 Fibonacci Spiral` — golden-angle sunflower disk; camera descends from top-down overhead to sweeping side view over 24 s.
+
+- **Label styling controls** (in ⚙ panel → Label Style):
+  - Toggle label backgrounds on/off.
+  - Background opacity slider (0–100%).
+  - "Show through nodes" toggle — sets `material.depthTest = false` on SpriteText so labels always render in front of geometry.
+  - Text colour picker.
+
+- **Selection dim slider** — 0% keeps full theme colours for dimmed nodes, 100% is fully dark. Intermediate values blend via hex interpolation.
+
+### Fixed
+
+- **Arrangement respects hidden node types** — `reArrange` and `activateScene` now filter to visible nodes only before computing targets. Hiding tags/themes no longer leaves ghost positions; sphere view works with just songs/albums/artists.
+- **`reArrange` button accepts an override mode** — AI Director can trigger a re-arrange with any mode without switching the active scene.
+
+### Improved
+
+- **Camera polish** for all 6 new scenes:
+  - Fibonacci Torus: enters at 35° elevation showing the full donut; tilt oscillates between face-on and edge-on.
+  - Fractal Tree: enters near root level, eased rise from roots to canopy over 22 s.
+  - Mandala: pure top-down entry; breathes between overhead and 40° oblique.
+  - Wave Rider: low-angle entry skimming the wave surface.
+  - Lissajous Trip: off-axis entry showing 3D depth; two independent rotation speeds.
+  - Crystal Cave: true isometric entry (equal projection from all 3 axes); descends into lattice over 15 s.
+  - Fibonacci Spiral: starts directly overhead for the sunflower reveal.
+
+---
+
 ## Cinema Mode — orbit camera, tour script, lyrics universe, mobile fix (2026-05-23)
 
 ### Added

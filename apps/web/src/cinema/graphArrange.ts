@@ -4,7 +4,7 @@
  * without duplicating ~200 lines of pure math.
  */
 
-export type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system' | 'helix' | 'emotional-spectrum' | 'genre-web' | 'fibonacci-torus' | 'fractal-tree' | 'mandala' | 'wave' | 'lissajous' | 'crystal';
+export type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system' | 'helix' | 'emotional-spectrum' | 'genre-web' | 'fibonacci-torus' | 'fractal-tree' | 'mandala' | 'wave' | 'lissajous' | 'crystal' | 'fibonacci-spiral';
 
 /** Minimal shape required for layout computation. */
 export interface ArrangeNode {
@@ -483,6 +483,17 @@ export function computeArrangeTargets<N extends ArrangeNode>(
       const y = layer * SPACING * 0.87 - (totalLayers * SPACING * 0.87) / 2;
       const z = (row - LAYERS / 2) * SPACING * 0.87;
       out.set(n.id, { x, y, z });
+    });
+
+  } else if (mode === 'fibonacci-spiral') {
+    const sortOrder: Record<string, number> = { artist: 0, album: 1, song: 2 };
+    const sorted = [...nodes].sort((a, b) => (sortOrder[a.type] ?? 3) - (sortOrder[b.type] ?? 3));
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+    sorted.forEach((n, i) => {
+      const r   = Math.sqrt(i) * 22;
+      const phi = i * goldenAngle;
+      const y   = Math.sin(i * 0.15) * 30 + (sortOrder[n.type] ?? 3) * 15 - 20;
+      out.set(n.id, { x: r * Math.cos(phi), y, z: r * Math.sin(phi) });
     });
   }
 

@@ -334,7 +334,12 @@ export const CINEMA_SCENES: CinemaScene[] = [
     durationMs: 38_000,
     arrangeMode: 'fibonacci-torus',
     enter(fg) {
-      setTimeout(() => fg?.zoomToFit?.(1400, 60), 1900);
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      // Torus R=220 r=60. Enter at 35° elevation showing the full donut shape.
+      if (camera) { camera.position.x = 290; camera.position.y = 205; camera.position.z = 310; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      if (camera) camera.lookAt(0, 0, 0);
       return {};
     },
     tick(fg, _n, _a, elapsedMs, _s, controls) {
@@ -342,10 +347,11 @@ export const CINEMA_SCENES: CinemaScene[] = [
       const ctrl   = getCtrl(fg);
       if (!camera || !ctrl) return;
       const angle = elapsedMs * 0.00005 * controls.orbitSpeed;
-      const tilt  = Math.sin(elapsedMs * 0.00003) * 0.5;
-      const dist  = 460;
+      // Tilt oscillates: alternately face-on (flat disk) and edge-on (ring silhouette)
+      const tilt  = Math.sin(elapsedMs * 0.000025) * 0.65;
+      const dist  = 455;
       camera.position.x = Math.sin(angle) * dist * Math.cos(tilt);
-      camera.position.y = dist * Math.sin(tilt) + Math.sin(elapsedMs * 0.00007) * 80;
+      camera.position.y = dist * Math.sin(tilt) + Math.sin(elapsedMs * 0.00007) * 55;
       camera.position.z = Math.cos(angle) * dist * Math.cos(tilt);
       ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
       camera.lookAt(0, 0, 0);
@@ -363,20 +369,24 @@ export const CINEMA_SCENES: CinemaScene[] = [
     enter(fg) {
       const camera = getCamera(fg);
       const ctrl   = getCtrl(fg);
-      if (camera) { camera.position.x = 600; camera.position.y = -100; camera.position.z = 0; }
-      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      // Enter near root level, looking up the trunk from one side
+      if (camera) { camera.position.x = 480; camera.position.y = -165; camera.position.z = 220; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = -80; ctrl.target.z = 0; }
+      if (camera) camera.lookAt(0, -80, 0);
       return {};
     },
     tick(fg, _n, _a, elapsedMs, _s, controls) {
       const camera = getCamera(fg);
       const ctrl   = getCtrl(fg);
       if (!camera || !ctrl) return;
-      const t      = Math.min(1, elapsedMs / 20_000);
-      const targetY = -200 + t * 400;
-      const angle  = elapsedMs * 0.00005 * controls.orbitSpeed;
-      const dist   = 520 - t * 180;
+      // Ease in-out rise from roots (y=-200) through canopy (y=110) over 22s
+      const t      = Math.min(1, elapsedMs / 22_000);
+      const eased  = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const targetY = -180 + eased * 340;
+      const angle  = elapsedMs * 0.00006 * controls.orbitSpeed;
+      const dist   = 520 - eased * 155;
       camera.position.x = Math.sin(angle) * dist;
-      camera.position.y = targetY + 80;
+      camera.position.y = targetY + 60;
       camera.position.z = Math.cos(angle) * dist;
       ctrl.target.x = 0; ctrl.target.y = targetY; ctrl.target.z = 0;
       camera.lookAt(0, targetY, 0);
@@ -387,27 +397,31 @@ export const CINEMA_SCENES: CinemaScene[] = [
   {
     id: 'mandala',
     name: 'Mandala',
-    description: 'Sacred geometry — concentric rings of artists, albums, and songs in perfect symmetry',
+    description: 'Sacred geometry — concentric rippled rings of artists, albums, and songs',
     emoji: '🪷',
     durationMs: 32_000,
     arrangeMode: 'mandala',
     enter(fg) {
       const camera = getCamera(fg);
       const ctrl   = getCtrl(fg);
-      if (camera) { camera.position.x = 0; camera.position.y = 700; camera.position.z = 60; }
+      // Pure top-down: the full mandala pattern reveals itself immediately
+      if (camera) { camera.position.x = 0; camera.position.y = 760; camera.position.z = 20; }
       if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      if (camera) camera.lookAt(0, 0, 0);
       return {};
     },
     tick(fg, _n, _a, elapsedMs, _s, controls) {
       const camera = getCamera(fg);
       const ctrl   = getCtrl(fg);
       if (!camera || !ctrl) return;
-      const angle = elapsedMs * 0.00006 * controls.orbitSpeed;
-      const pulse = Math.sin(elapsedMs * 0.00008) * 100;
-      const dist  = 580 + pulse;
-      camera.position.x = Math.sin(angle) * dist * 0.3;
-      camera.position.y = dist - 100;
-      camera.position.z = Math.cos(angle) * dist * 0.3;
+      const angle   = elapsedMs * 0.00006 * controls.orbitSpeed;
+      // Breathe between full overhead and a 40° oblique swoop
+      const breathe = Math.sin(elapsedMs * 0.00007) * 130;
+      const dist    = 650 + breathe;
+      const tilt    = 0.05 + Math.sin(elapsedMs * 0.000032) * 0.36;
+      camera.position.x = Math.sin(angle) * dist * tilt;
+      camera.position.y = dist * (1 - tilt * 0.38);
+      camera.position.z = Math.cos(angle) * dist * tilt;
       ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
       camera.lookAt(0, 0, 0);
     },
@@ -424,22 +438,25 @@ export const CINEMA_SCENES: CinemaScene[] = [
     enter(fg) {
       const camera = getCamera(fg);
       const ctrl   = getCtrl(fg);
-      if (camera) { camera.position.x = 0; camera.position.y = 200; camera.position.z = 500; }
+      // Low-angle view skimming across the wave surface from one end
+      if (camera) { camera.position.x = 0; camera.position.y = 170; camera.position.z = 620; }
       if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      if (camera) camera.lookAt(0, 0, 0);
       return {};
     },
     tick(fg, _n, _a, elapsedMs, _s, controls) {
       const camera = getCamera(fg);
       const ctrl   = getCtrl(fg);
       if (!camera || !ctrl) return;
-      const angle = elapsedMs * 0.00006 * controls.orbitSpeed;
-      const dist  = 420;
-      const wave  = Math.sin(elapsedMs * 0.0001) * 60;
+      const angle = elapsedMs * 0.00005 * controls.orbitSpeed;
+      // Camera rides its own sine wave, staying low and dramatic
+      const wave  = Math.sin(elapsedMs * 0.00009) * 68;
+      const dist  = 475;
       camera.position.x = Math.sin(angle) * dist;
-      camera.position.y = 120 + wave;
+      camera.position.y = 115 + wave;
       camera.position.z = Math.cos(angle) * dist;
-      ctrl.target.x = 0; ctrl.target.y = wave * 0.3; ctrl.target.z = 0;
-      camera.lookAt(0, wave * 0.3, 0);
+      ctrl.target.x = 0; ctrl.target.y = wave * 0.25; ctrl.target.z = 0;
+      camera.lookAt(0, wave * 0.25, 0);
     },
   },
 
@@ -447,26 +464,29 @@ export const CINEMA_SCENES: CinemaScene[] = [
   {
     id: 'lissajous',
     name: 'Lissajous Trip',
-    description: 'A psychedelic journey through interlocking curves — pure mathematics meets rock and roll',
+    description: 'A psychedelic 3:5:7 Lissajous knot — pure mathematics meets rock and roll',
     emoji: '🔯',
     durationMs: 35_000,
     arrangeMode: 'lissajous',
     enter(fg) {
       const camera = getCamera(fg);
       const ctrl   = getCtrl(fg);
-      if (camera) { camera.position.x = 0; camera.position.y = 0; camera.position.z = 600; }
+      // Off-axis angle that immediately shows the 3D depth of the knot
+      if (camera) { camera.position.x = 360; camera.position.y = 180; camera.position.z = 420; }
       if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      if (camera) camera.lookAt(0, 0, 0);
       return {};
     },
     tick(fg, _n, _a, elapsedMs, _s, controls) {
       const camera = getCamera(fg);
       const ctrl   = getCtrl(fg);
       if (!camera || !ctrl) return;
-      const a1 = elapsedMs * 0.00007 * controls.orbitSpeed;
-      const a2 = elapsedMs * 0.00004 * controls.orbitSpeed;
-      const dist = 520;
+      // Two independent rotation speeds reveal the knot's complex topology
+      const a1   = elapsedMs * 0.000068 * controls.orbitSpeed;
+      const a2   = elapsedMs * 0.000037 * controls.orbitSpeed;
+      const dist = 535;
       camera.position.x = Math.sin(a1) * dist;
-      camera.position.y = Math.sin(a2) * 200;
+      camera.position.y = Math.sin(a2) * 225;
       camera.position.z = Math.cos(a1) * dist;
       ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
       camera.lookAt(0, 0, 0);
@@ -477,30 +497,69 @@ export const CINEMA_SCENES: CinemaScene[] = [
   {
     id: 'crystal',
     name: 'Crystal Cave',
-    description: 'Descend into a hexagonal crystal lattice — pure isometric geometry, pure sound',
+    description: 'Descend into a hexagonal crystal lattice — isometric geometry, pure sound',
     emoji: '💎',
     durationMs: 35_000,
     arrangeMode: 'crystal',
     enter(fg) {
       const camera = getCamera(fg);
       const ctrl   = getCtrl(fg);
-      if (camera) { camera.position.x = 0; camera.position.y = 600; camera.position.z = 400; }
+      // True isometric entry: equal projection from all three axes
+      if (camera) { camera.position.x = 285; camera.position.y = 425; camera.position.z = 325; }
       if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      if (camera) camera.lookAt(0, 0, 0);
       return {};
     },
     tick(fg, _n, _a, elapsedMs, _s, controls) {
       const camera = getCamera(fg);
       const ctrl   = getCtrl(fg);
       if (!camera || !ctrl) return;
+      // Phase 1 (0–15s): descend from isometric overhead into the lattice
+      // Phase 2 (15s+): orbit at close range inside the crystal
       const t     = Math.min(1, elapsedMs / 15_000);
-      const angle = elapsedMs * 0.00006 * controls.orbitSpeed;
-      const dist  = 600 - t * 350;
-      const yPos  = 600 - t * 580;
+      const angle = elapsedMs * 0.000058 * controls.orbitSpeed;
+      const dist  = 620 - t * 385;
+      const yPos  = 425 - t * 405;
       camera.position.x = Math.sin(angle) * dist;
       camera.position.y = yPos;
       camera.position.z = Math.cos(angle) * dist;
-      ctrl.target.x = 0; ctrl.target.y = yPos * 0.2; ctrl.target.z = 0;
-      camera.lookAt(0, yPos * 0.2, 0);
+      ctrl.target.x = 0; ctrl.target.y = yPos * 0.14; ctrl.target.z = 0;
+      camera.lookAt(0, yPos * 0.14, 0);
+    },
+  },
+
+  // ── 16. Fibonacci Spiral ──────────────────────────────────────────────────────
+  {
+    id: 'fibonacci-spiral',
+    name: 'Fibonacci Spiral',
+    description: 'The golden ratio of sound — every node in its natural fibonacci place',
+    emoji: '🌻',
+    durationMs: 36_000,
+    arrangeMode: 'fibonacci-spiral',
+    enter(fg) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      // Start directly overhead: the sunflower pattern is most beautiful from above
+      if (camera) { camera.position.x = 0; camera.position.y = 720; camera.position.z = 50; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      if (camera) camera.lookAt(0, 0, 0);
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      const t     = Math.min(1, elapsedMs / 24_000);
+      const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const angle = elapsedMs * 0.000042 * controls.orbitSpeed;
+      // Descend from top-down to a sweeping side view, revealing the 3D depth
+      const dist  = 680 - eased * 355;
+      const yPos  = 720 - eased * 610;
+      camera.position.x = Math.sin(angle) * dist;
+      camera.position.y = yPos;
+      camera.position.z = Math.cos(angle) * dist;
+      ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
     },
   },
 ];

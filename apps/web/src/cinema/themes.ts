@@ -110,6 +110,26 @@ export const CINEMA_THEMES: CinemaTheme[] = [
     linkColor: 'rgba(100,116,139,0.28)', linkWidthMultiplier: 1, nodeOpacity: 0.93, nodeValMultiplier: 1,
     dotOverlay: true,
   },
+  {
+    id: 'dali',       name: 'Dalí Dream',  emoji: '🕰️',
+    backgroundColor: '#0c0502',
+    cssFilter: 'sepia(0.55) hue-rotate(-18deg) saturate(1.8) contrast(1.1)',
+    nodeColors: {
+      song: '#d97706', keyword: '#92400e', album: '#b45309', artist: '#fbbf24',
+      theme: '#7c2d12', tag: '#ea580c', emotion: '#dc2626',
+    },
+    linkColor: 'rgba(180,83,9,0.28)', linkWidthMultiplier: 1.2, nodeOpacity: 0.94, nodeValMultiplier: 1.1,
+  },
+  {
+    id: 'escher',     name: 'Escher',      emoji: '♾️',
+    backgroundColor: '#e8e8e0',
+    cssFilter: 'grayscale(1) contrast(2.8) brightness(0.62)',
+    nodeColors: {
+      song: '#0a0a0a', keyword: '#606060', album: '#1a1a1a', artist: '#000000',
+      theme: '#383838', tag: '#505050', emotion: '#101010',
+    },
+    linkColor: 'rgba(0,0,0,0.55)', linkWidthMultiplier: 3, nodeOpacity: 0.99, nodeValMultiplier: 0.8,
+  },
 ];
 
 export const DEFAULT_THEME_ID = 'default';
