@@ -191,8 +191,8 @@ function fetchLyricalGraph(bandIds: string[]): Promise<GraphData> {
 
 // ── Proximity label defaults ──────────────────────────────────────────────────
 
-const DEFAULT_LABEL_SHOW = 120;
-const DEFAULT_LABEL_FULL = 55;
+const DEFAULT_LABEL_SHOW = 400;
+const DEFAULT_LABEL_FULL = 150;
 
 // nodeRelSize is the library default (4). Sphere radius = nodeRelSize * cbrt(nodeVal).
 const NODE_REL_SIZE = 4;
@@ -241,8 +241,13 @@ export default function GraphHuntPage() {
   const labelShowDistRef = useRef(DEFAULT_LABEL_SHOW);
   const labelFullDistRef = useRef(DEFAULT_LABEL_FULL);
   const showLabelsRef    = useRef(true);
-  // Track whether the initial zoomToFit has been done so re-fires don't snap the camera
-  const didFitRef = useRef(false);
+  const didFitRef        = useRef(false);
+  const graphDivRef      = useRef<HTMLDivElement>(null);
+  const orbitAnimRef     = useRef<{
+    sx: number; sy: number; sz: number;
+    tx: number; ty: number; tz: number;
+    t0: number; dur: number;
+  } | null>(null);
 
   const { data: scopes } = useQuery({
     queryKey: ['explore-scopes'],
@@ -313,6 +318,17 @@ export default function GraphHuntPage() {
         const camera = fg.camera?.();
         const controls = fg.controls?.();
 
+        // ── Orbit target animation ──
+        const oa = orbitAnimRef.current;
+        if (oa && controls) {
+          const raw = Math.min(1, (performance.now() - oa.t0) / oa.dur);
+          const et = raw < 0.5 ? 2 * raw * raw : 1 - Math.pow(-2 * raw + 2, 2) / 2;
+          controls.target.x = oa.sx + (oa.tx - oa.sx) * et;
+          controls.target.y = oa.sy + (oa.ty - oa.sy) * et;
+          controls.target.z = oa.sz + (oa.tz - oa.sz) * et;
+          if (raw >= 1) orbitAnimRef.current = null;
+        }
+
         // ── WASD flight ──
         if (keys.size && camera && controls) {
           const p = camera.position;
@@ -372,13 +388,63 @@ export default function GraphHuntPage() {
     };
   }, [huntNodes]);
 
+  // Zoom-to-cursor wheel handler
+  useEffect(() => {
+    if (!huntNodes.length) return;
+    const div = graphDivRef.current;
+    if (!div) return;
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const fg = fgRef.current;
+      if (!fg) return;
+      const camera = fg.camera?.();
+      const controls = fg.controls?.();
+      if (!camera || !controls) return;
+
+      const rect = div.getBoundingClientRect();
+      const ndcX = ((e.clientX - rect.left) / rect.width)  *  2 - 1;
+      const ndcY = -((e.clientY - rect.top)  / rect.height) *  2 + 1;
+
+      const q = camera.quaternion;
+      const tanFov = Math.tan(((camera.fov ?? 75) * Math.PI / 180) / 2);
+      const aspect = rect.width / rect.height;
+      const len = Math.sqrt((ndcX * tanFov * aspect) ** 2 + (ndcY * tanFov) ** 2 + 1);
+      const [wx, wy, wz] = normalise(
+        ...applyQuat(ndcX * tanFov * aspect / len, ndcY * tanFov / len, -1 / len, q.x, q.y, q.z, q.w),
+      );
+
+      const p = camera.position;
+      const t = controls.target;
+      const dist = Math.sqrt((t.x - p.x) ** 2 + (t.y - p.y) ** 2 + (t.z - p.z) ** 2);
+      const sign = e.deltaY > 0 ? 1 : -1;
+      const step = Math.max(2, dist * 0.1);
+      p.x += wx * sign * step; p.y += wy * sign * step; p.z += wz * sign * step;
+      t.x += wx * sign * step * 0.35; t.y += wy * sign * step * 0.35; t.z += wz * sign * step * 0.35;
+    };
+
+    div.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => div.removeEventListener('wheel', onWheel, { capture: true });
+  }, [huntNodes]);
+
   const flyTo = useCallback((node: HuntNode) => {
     if (!fgRef.current || node.x == null) return;
+    const nx = node.x ?? 0, ny = node.y ?? 0, nz = node.z ?? 0;
     fgRef.current.cameraPosition(
-      { x: (node.x ?? 0) + 60, y: (node.y ?? 0) + 30, z: (node.z ?? 0) + 60 },
-      { x: node.x ?? 0, y: node.y ?? 0, z: node.z ?? 0 },
+      { x: nx + 60, y: ny + 30, z: nz + 60 },
+      { x: nx, y: ny, z: nz },
       800,
     );
+    // Pivot orbit centre to the node we flew to
+    const controls = fgRef.current.controls?.();
+    if (controls) {
+      orbitAnimRef.current = {
+        sx: controls.target.x, sy: controls.target.y, sz: controls.target.z,
+        tx: nx, ty: ny, tz: nz,
+        t0: performance.now(), dur: 800,
+      };
+    }
   }, []);
 
   const startGame = useCallback(() => {
@@ -427,13 +493,25 @@ export default function GraphHuntPage() {
 
     // ── Explore mode (setup phase) ──
     if (phaseRef.current === 'setup') {
-      if (exploreRef.current?.id === n.id) {
-        // Deselect
+      // Ignore clicks on dimmed nodes while something is selected
+      const sel = exploreRef.current;
+      if (sel && sel.id !== n.id && !adjRef.current.get(sel.id)?.has(n.id)) return;
+
+      if (sel?.id === n.id) {
         exploreRef.current = null;
         setExploreNode(null);
       } else {
         exploreRef.current = n;
         setExploreNode(n);
+        // Pivot orbit centre to the clicked node
+        const controls = fgRef.current?.controls?.();
+        if (controls && n.x != null) {
+          orbitAnimRef.current = {
+            sx: controls.target.x, sy: controls.target.y, sz: controls.target.z,
+            tx: n.x ?? 0, ty: n.y ?? 0, tz: n.z ?? 0,
+            t0: performance.now(), dur: 600,
+          };
+        }
       }
       fgRef.current?.refresh();
       return;
@@ -858,7 +936,7 @@ export default function GraphHuntPage() {
         </div>
 
         {/* ── 3D Graph ── */}
-        <div className="flex-1 relative bg-[#030712]">
+        <div ref={graphDivRef} className="flex-1 relative bg-[#030712]">
           {!selectedBandIds.length && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center px-10">
               <div className="text-6xl opacity-20">🌐</div>
@@ -944,7 +1022,7 @@ export default function GraphHuntPage() {
                       <span className="font-mono text-white">{labelShowDist}</span>
                     </div>
                     <input
-                      type="range" min={40} max={400} step={10}
+                      type="range" min={40} max={2000} step={20}
                       value={labelShowDist}
                       onChange={(e) => setLabelShowDist(Number(e.target.value))}
                       className="w-full accent-indigo-500"
@@ -961,7 +1039,7 @@ export default function GraphHuntPage() {
                       <span className="font-mono text-white">{labelFullDist}</span>
                     </div>
                     <input
-                      type="range" min={10} max={200} step={5}
+                      type="range" min={10} max={800} step={10}
                       value={labelFullDist}
                       onChange={(e) => setLabelFullDist(Number(e.target.value))}
                       className="w-full accent-indigo-500"

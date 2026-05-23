@@ -966,9 +966,9 @@ export default function SongNodesPage() {
   // Fractal tree layout — recursive golden-ratio branching, band → album → song
   function runFractalLayout() {
     const cy = cyRef.current; if (!cy) return;
-    const PHI = (1 + Math.sqrt(5)) / 2;
-    const TWO_PI = Math.PI * 2;
-    const TRUNK_LEN = 220, BRANCH_LEN = TRUNK_LEN / PHI, LEAF_LEN = BRANCH_LEN / PHI;
+    const PHI      = (1 + Math.sqrt(5)) / 2;
+    const TWO_PI   = Math.PI * 2;
+    const NODE_GAP = 32; // min px between adjacent song centres
 
     const artistAlbums = new Map<string, string[]>();
     const albumSongs   = new Map<string, string[]>();
@@ -987,30 +987,46 @@ export default function SongNodesPage() {
 
     const artists = cy.nodes('[type = "artist"]').toArray();
     const nArtists = artists.length;
+
+    // Adaptive lengths so songs never overlap regardless of album size
+    const maxSongs   = Math.max(1, ...Array.from(albumSongs.values()).map(s => s.length));
+    const maxAlbums  = Math.max(1, ...artists.map(a => (artistAlbums.get(a.id()) ?? []).length));
+    const LEAF_LEN   = Math.max(84,  NODE_GAP * maxSongs * 0.42);
+    const BRANCH_LEN = Math.max(136, LEAF_LEN * PHI * 0.7 + NODE_GAP * maxAlbums * 0.3);
+    const TRUNK_LEN  = Math.max(220, BRANCH_LEN * PHI * 0.6);
+
     artists.forEach((artist, bi) => {
       const trunkAngle = nArtists > 1 ? (bi / nArtists) * TWO_PI - Math.PI / 2 : -Math.PI / 2;
       const ax = nArtists > 1 ? TRUNK_LEN * 0.55 * Math.cos(trunkAngle) : 0;
       const ay = nArtists > 1 ? TRUNK_LEN * 0.55 * Math.sin(trunkAngle) : 0;
       artist.position({ x: ax, y: ay });
 
-      const albums = artistAlbums.get(artist.id()) ?? [];
+      const albums  = artistAlbums.get(artist.id()) ?? [];
+      const nAlbums = albums.length;
+      const branchSpread = Math.min(Math.PI * 1.1, Math.max(Math.PI / PHI, (nAlbums - 1) * NODE_GAP / BRANCH_LEN));
+
       albums.forEach((albumId, ai) => {
-        const n = albums.length;
-        const albumAngle = n > 1 ? trunkAngle + ((ai / (n - 1)) - 0.5) * (Math.PI / PHI) : trunkAngle;
+        const albumAngle = nAlbums > 1 ? trunkAngle + ((ai / (nAlbums - 1)) - 0.5) * branchSpread : trunkAngle;
         const bx = ax + BRANCH_LEN * Math.cos(albumAngle);
         const by = ay + BRANCH_LEN * Math.sin(albumAngle);
         cy.getElementById(albumId).position({ x: bx, y: by });
-        const songs = albumSongs.get(albumId) ?? [];
+
+        const songs  = albumSongs.get(albumId) ?? [];
+        const nSongs = songs.length;
+        const minSpread  = nSongs > 1 ? (nSongs - 1) * NODE_GAP / LEAF_LEN : 0;
+        const leafSpread = Math.min(Math.PI * 0.9, Math.max(Math.PI / (PHI * PHI), minSpread));
         songs.forEach((songId, si) => {
-          const ns = songs.length;
-          const songAngle = ns > 1 ? albumAngle + ((si / (ns - 1)) - 0.5) * (Math.PI / (PHI * PHI)) : albumAngle;
+          const songAngle = nSongs > 1 ? albumAngle + ((si / (nSongs - 1)) - 0.5) * leafSpread : albumAngle;
           cy.getElementById(songId).position({ x: bx + LEAF_LEN * Math.cos(songAngle), y: by + LEAF_LEN * Math.sin(songAngle) });
         });
       });
-      const direct = artistDirect.get(artist.id()) ?? [];
+
+      const direct  = artistDirect.get(artist.id()) ?? [];
+      const nDirect = direct.length;
+      const minDirect  = nDirect > 1 ? (nDirect - 1) * NODE_GAP / BRANCH_LEN : 0;
+      const directSpread = Math.min(Math.PI * 0.9, Math.max(Math.PI / (PHI * PHI), minDirect));
       direct.forEach((songId, si) => {
-        const nd = direct.length;
-        const songAngle = nd > 1 ? trunkAngle + Math.PI + ((si / (nd - 1)) - 0.5) * (Math.PI / (PHI * PHI)) : trunkAngle + Math.PI;
+        const songAngle = nDirect > 1 ? trunkAngle + Math.PI + ((si / (nDirect - 1)) - 0.5) * directSpread : trunkAngle + Math.PI;
         cy.getElementById(songId).position({ x: ax + BRANCH_LEN * Math.cos(songAngle), y: ay + BRANCH_LEN * Math.sin(songAngle) });
       });
     });

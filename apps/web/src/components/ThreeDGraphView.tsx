@@ -259,8 +259,8 @@ export interface ThreeDGraphViewProps {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-const DEFAULT_LABEL_SHOW = 120;
-const DEFAULT_LABEL_FULL = 55;
+const DEFAULT_LABEL_SHOW = 400;
+const DEFAULT_LABEL_FULL = 150;
 
 export default function ThreeDGraphView({ nodes: rawNodes, edges: rawEdges, height = 680 }: ThreeDGraphViewProps) {
   const [simReady, setSimReady] = useState(false);
@@ -275,15 +275,21 @@ export default function ThreeDGraphView({ nodes: rawNodes, edges: rawEdges, heig
   const [linkOpacityVal, setLinkOpacityVal] = useState(0.5);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fgRef       = useRef<any>(null);
-  const adjRef      = useRef(new Map<string, Set<string>>());
-  const selectedRef = useRef<SimNode | null>(null);
-  const didFitRef   = useRef(false);
+  const fgRef           = useRef<any>(null);
+  const containerDivRef = useRef<HTMLDivElement>(null);
+  const adjRef          = useRef(new Map<string, Set<string>>());
+  const selectedRef     = useRef<SimNode | null>(null);
+  const didFitRef       = useRef(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const labelMapRef     = useRef(new Map<string, any>());
   const labelShowRef    = useRef(DEFAULT_LABEL_SHOW);
   const labelFullRef    = useRef(DEFAULT_LABEL_FULL);
   const showLabelsRef   = useRef(true);
+  const orbitAnimRef    = useRef<{
+    sx: number; sy: number; sz: number;
+    tx: number; ty: number; tz: number;
+    t0: number; dur: number;
+  } | null>(null);
 
   const [simNodes, setSimNodes] = useState<SimNode[]>([]);
   const [simLinks, setSimLinks] = useState<SimLink[]>([]);
@@ -333,6 +339,17 @@ export default function ThreeDGraphView({ nodes: rawNodes, edges: rawEdges, heig
       if (fg) {
         const camera = fg.camera?.();
         const controls = fg.controls?.();
+
+        // ── Orbit target animation (smooth pivot-to-node) ──
+        const oa = orbitAnimRef.current;
+        if (oa && controls) {
+          const raw = Math.min(1, (performance.now() - oa.t0) / oa.dur);
+          const et = easeInOutQuad(raw);
+          controls.target.x = oa.sx + (oa.tx - oa.sx) * et;
+          controls.target.y = oa.sy + (oa.ty - oa.sy) * et;
+          controls.target.z = oa.sz + (oa.tz - oa.sz) * et;
+          if (raw >= 1) orbitAnimRef.current = null;
+        }
 
         // ── WASD flight ──
         if (keys.size && camera && controls) {
@@ -393,16 +410,79 @@ export default function ThreeDGraphView({ nodes: rawNodes, edges: rawEdges, heig
     };
   }, [simNodes]);
 
+  // Zoom-to-cursor: intercept wheel in capture phase before THREE.TrackballControls
+  useEffect(() => {
+    if (!simNodes.length) return;
+    const div = containerDivRef.current;
+    if (!div) return;
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const fg = fgRef.current;
+      if (!fg) return;
+      const camera = fg.camera?.();
+      const controls = fg.controls?.();
+      if (!camera || !controls) return;
+
+      const rect = div.getBoundingClientRect();
+      const ndcX = ((e.clientX - rect.left) / rect.width)  *  2 - 1;
+      const ndcY = -((e.clientY - rect.top)  / rect.height) *  2 + 1;
+
+      // Build world-space ray direction from camera through mouse
+      const q = camera.quaternion;
+      const fovRad = ((camera.fov ?? 75) * Math.PI) / 180;
+      const tanFov = Math.tan(fovRad / 2);
+      const aspect = rect.width / rect.height;
+      const [wx, wy, wz] = normalize(
+        ...applyQuat(ndcX * tanFov * aspect, ndcY * tanFov, -1, q.x, q.y, q.z, q.w),
+      );
+
+      const p = camera.position;
+      const t = controls.target;
+      const dist = Math.sqrt((t.x - p.x) ** 2 + (t.y - p.y) ** 2 + (t.z - p.z) ** 2);
+      const sign = e.deltaY > 0 ? 1 : -1; // +1 = zoom out
+      const step = Math.max(2, dist * 0.1);
+
+      // Move camera along cursor ray
+      p.x += wx * sign * step;
+      p.y += wy * sign * step;
+      p.z += wz * sign * step;
+      // Partially drift orbit target toward zoom point (C4D feel)
+      t.x += wx * sign * step * 0.35;
+      t.y += wy * sign * step * 0.35;
+      t.z += wz * sign * step * 0.35;
+    };
+
+    div.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => div.removeEventListener('wheel', onWheel, { capture: true });
+  }, [simNodes]);
+
   // ── Stable callbacks (read refs, never stale) ─────────────────────────────
 
   const handleNodeClick = useCallback((node: object) => {
     const n = node as SimNode;
-    if (selectedRef.current?.id === n.id) {
+    const sel = selectedRef.current;
+
+    // While a node is selected, ignore clicks on dimmed (non-connected) nodes
+    if (sel && sel.id !== n.id && !adjRef.current.get(sel.id)?.has(n.id)) return;
+
+    if (sel?.id === n.id) {
       selectedRef.current = null;
       setSelectedNode(null);
     } else {
       selectedRef.current = n;
       setSelectedNode(n);
+      // Smoothly pivot orbit center to the selected node
+      const controls = fgRef.current?.controls?.();
+      if (controls && n.x != null) {
+        const ct = controls.target;
+        orbitAnimRef.current = {
+          sx: ct.x, sy: ct.y, sz: ct.z,
+          tx: n.x ?? 0, ty: n.y ?? 0, tz: n.z ?? 0,
+          t0: performance.now(), dur: 600,
+        };
+      }
     }
     fgRef.current?.refresh();
   }, []);
@@ -487,7 +567,7 @@ export default function ThreeDGraphView({ nodes: rawNodes, edges: rawEdges, heig
   const connCount = selectedNode ? (adjRef.current.get(selectedNode.id)?.size ?? 0) : 0;
 
   return (
-    <div className="relative bg-[#030712] rounded-xl overflow-hidden" style={{ height }}>
+    <div ref={containerDivRef} className="relative bg-[#030712] rounded-xl overflow-hidden" style={{ height }}>
       {/* Loading overlay */}
       {!simReady && (
         <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
@@ -514,7 +594,7 @@ export default function ThreeDGraphView({ nodes: rawNodes, edges: rawEdges, heig
       {simReady && (
         <div className="absolute bottom-3 left-3 z-10 text-[10px] text-gray-700 pointer-events-none space-y-0.5">
           <div>WASD · ↑↓←→ — fly &nbsp;·&nbsp; Q/E — up/down</div>
-          <div>drag — orbit &nbsp;·&nbsp; scroll — zoom &nbsp;·&nbsp; click — inspect</div>
+          <div>drag — orbit &nbsp;·&nbsp; scroll — zoom to cursor &nbsp;·&nbsp; click — inspect</div>
         </div>
       )}
 
@@ -572,7 +652,7 @@ export default function ThreeDGraphView({ nodes: rawNodes, edges: rawEdges, heig
                       <span>Appear at distance</span>
                       <span className="font-mono text-white">{labelShowDist}</span>
                     </div>
-                    <input type="range" min={40} max={400} step={10} value={labelShowDist}
+                    <input type="range" min={40} max={2000} step={20} value={labelShowDist}
                       onChange={e => setLabelShowDist(Number(e.target.value))}
                       className="w-full accent-indigo-500" />
                     <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
@@ -584,7 +664,7 @@ export default function ThreeDGraphView({ nodes: rawNodes, edges: rawEdges, heig
                       <span>Full opacity at</span>
                       <span className="font-mono text-white">{labelFullDist}</span>
                     </div>
-                    <input type="range" min={10} max={200} step={5} value={labelFullDist}
+                    <input type="range" min={10} max={800} step={10} value={labelFullDist}
                       onChange={e => setLabelFullDist(Number(e.target.value))}
                       className="w-full accent-indigo-500" />
                     <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
@@ -629,7 +709,32 @@ export default function ThreeDGraphView({ nodes: rawNodes, edges: rawEdges, heig
             </div>
           )}
 
-          {/* Buttons row */}
+          {/* Sphere center/fit buttons */}
+          <div className="flex gap-2">
+            {currentArrange === 'sphere' && (
+              <button
+                onClick={() => {
+                  // Place camera at the sphere centre, looking outward
+                  const fg = fgRef.current;
+                  if (!fg) return;
+                  const controls = fg.controls?.();
+                  fg.cameraPosition({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 200 }, 700);
+                  if (controls) { orbitAnimRef.current = { sx: controls.target.x, sy: controls.target.y, sz: controls.target.z, tx: 0, ty: 0, tz: 200, t0: performance.now(), dur: 700 }; }
+                }}
+                className="bg-gray-900/90 hover:bg-gray-800 border border-gray-700 text-gray-400 hover:text-white text-xs px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors"
+              >
+                ⊙ Inside
+              </button>
+            )}
+            <button
+              onClick={() => { didFitRef.current = false; fgRef.current?.zoomToFit(600, 60); }}
+              className="bg-gray-900/90 hover:bg-gray-800 border border-gray-700 text-gray-400 hover:text-white text-xs px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors"
+            >
+              ⌖ Fit
+            </button>
+          </div>
+
+          {/* Arrange / Controls buttons */}
           <div className="flex gap-2">
             <button
               onClick={() => { setShowArrange(v => !v); setShowControls(false); }}

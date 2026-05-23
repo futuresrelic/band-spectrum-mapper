@@ -874,9 +874,7 @@ export default function ExplorePage() {
   function runFractalLayout(cy: Core) {
     const PHI        = (1 + Math.sqrt(5)) / 2;
     const TWO_PI     = Math.PI * 2;
-    const TRUNK_LEN  = 220;
-    const BRANCH_LEN = TRUNK_LEN / PHI;  // ≈ 136
-    const LEAF_LEN   = BRANCH_LEN / PHI; // ≈ 84
+    const NODE_GAP   = 32; // minimum px between adjacent song centres
 
     // Build hierarchy maps from edge data
     const artistAlbums = new Map<string, string[]>();
@@ -899,16 +897,24 @@ export default function ExplorePage() {
     const artists  = cy.nodes('[type = "artist"]').toArray();
     const nArtists = artists.length;
 
+    // Adaptive scale: albums with many songs need more room — compute per-artist max
+    const maxSongsPerAlbum = Math.max(1, ...Array.from(albumSongs.values()).map(s => s.length));
+    const maxAlbums        = Math.max(1, ...artists.map(a => (artistAlbums.get(a.id()) ?? []).length));
+    // Base lengths grow with song/album counts so nothing overlaps
+    const LEAF_LEN   = Math.max(84,  NODE_GAP * maxSongsPerAlbum * 0.42);
+    const BRANCH_LEN = Math.max(136, LEAF_LEN * PHI * 0.7 + NODE_GAP * maxAlbums * 0.3);
+    const TRUNK_LEN  = Math.max(220, BRANCH_LEN * PHI * 0.6);
+
     artists.forEach((artist, bi) => {
-      // Trunk direction — each artist points radially outward
       const trunkAngle = nArtists > 1 ? (bi / nArtists) * TWO_PI - Math.PI / 2 : -Math.PI / 2;
       const ax = nArtists > 1 ? TRUNK_LEN * 0.55 * Math.cos(trunkAngle) : 0;
       const ay = nArtists > 1 ? TRUNK_LEN * 0.55 * Math.sin(trunkAngle) : 0;
       artist.position({ x: ax, y: ay });
 
-      const albums    = artistAlbums.get(artist.id()) ?? [];
-      const nAlbums   = albums.length;
-      const branchSpread = Math.PI / PHI; // ≈ 111° total spread
+      const albums   = artistAlbums.get(artist.id()) ?? [];
+      const nAlbums  = albums.length;
+      // Spread albums wider when there are many of them
+      const branchSpread = Math.min(Math.PI * 1.1, Math.max(Math.PI / PHI, (nAlbums - 1) * NODE_GAP / BRANCH_LEN));
 
       albums.forEach((albumId, ai) => {
         const albumAngle = nAlbums > 1
@@ -918,9 +924,11 @@ export default function ExplorePage() {
         const by = ay + BRANCH_LEN * Math.sin(albumAngle);
         cy.getElementById(albumId).position({ x: bx, y: by });
 
-        const songs    = albumSongs.get(albumId) ?? [];
-        const nSongs   = songs.length;
-        const leafSpread = Math.PI / (PHI * PHI); // ≈ 68° spread
+        const songs  = albumSongs.get(albumId) ?? [];
+        const nSongs = songs.length;
+        // Adaptive: ensure arc-length between songs ≥ NODE_GAP
+        const minSpread  = nSongs > 1 ? (nSongs - 1) * NODE_GAP / LEAF_LEN : 0;
+        const leafSpread = Math.min(Math.PI * 0.9, Math.max(Math.PI / (PHI * PHI), minSpread));
 
         songs.forEach((songId, si) => {
           const songAngle = nSongs > 1
@@ -934,9 +942,10 @@ export default function ExplorePage() {
       });
 
       // Direct songs (no album) branch directly from artist
-      const direct   = artistDirect.get(artist.id()) ?? [];
-      const nDirect  = direct.length;
-      const directSpread = Math.PI / (PHI * PHI);
+      const direct  = artistDirect.get(artist.id()) ?? [];
+      const nDirect = direct.length;
+      const minDirectSpread = nDirect > 1 ? (nDirect - 1) * NODE_GAP / BRANCH_LEN : 0;
+      const directSpread    = Math.min(Math.PI * 0.9, Math.max(Math.PI / (PHI * PHI), minDirectSpread));
       direct.forEach((songId, si) => {
         const songAngle = nDirect > 1
           ? trunkAngle + Math.PI + ((si / (nDirect - 1)) - 0.5) * directSpread
@@ -1478,7 +1487,7 @@ export default function ExplorePage() {
                   else runClusterLayout(cy);
                 }}
               >
-                Cluster (radial)
+                {PUBLIC_PRESETS.find(p => p.id === preset)?.label ?? 'Arrange'}
               </button>
               <button
                 className="w-full px-2 py-1.5 bg-white/10 hover:bg-white/20 text-xs text-white rounded transition-colors"
