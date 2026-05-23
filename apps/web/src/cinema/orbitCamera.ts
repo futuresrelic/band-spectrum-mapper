@@ -3,8 +3,11 @@
  * Orbit-approach camera helpers for Cinema Mode.
  *
  * Pattern: fly in from current position to the orbit start point (1800ms eased),
- * then continuously orbit the target node.  Starting angle is derived from the
- * current camera bearing so the approach always comes from the right direction.
+ * then either orbit continuously or breathe gently in place.
+ *
+ * CRITICAL: camera.lookAt() is called every frame so the target stays centred.
+ * (TrackballControls.enabled = false during playback, so Three.js does NOT
+ * automatically make the camera face controls.target — we must do it manually.)
  */
 
 import { easeInOutQuad } from './graphArrange';
@@ -23,15 +26,16 @@ export interface OrbitCameraState {
   flyStartCamZ: number;
   /** bearing angle (radians) at fly-in start — orbit continues from here */
   flyStartOrbitAngle: number;
-  /** scene-elapsed-ms when orbit phase started (-1 = not yet) */
+  /** scene-elapsed-ms when dwell phase started (-1 = not yet) */
   dwellStart: number;
-  /** how long to orbit before returning 'done' (0 = infinite) */
+  /** how long to orbit/breathe after arriving (ms); 0 = infinite */
   dwellMs: number;
 }
 
 /**
- * Build a new OrbitCameraState aimed at (targetX,targetY,targetZ).
- * Call this once per node visit.
+ * Build a new OrbitCameraState aimed at (targetX, targetY, targetZ).
+ * Call this once per node visit; the orbit angle is derived from the
+ * current camera bearing so the approach always comes from the right direction.
  */
 export function initOrbitState(
   targetX: number,
@@ -43,7 +47,6 @@ export function initOrbitState(
   elapsedMs: number,
   dwellMs: number,
 ): OrbitCameraState {
-  // Approach from the current camera bearing so there's no jarring jump
   const startAngle = Math.atan2(camX - targetX, camZ - targetZ);
   return {
     targetX, targetY, targetZ,
@@ -58,12 +61,12 @@ export function initOrbitState(
 }
 
 /**
- * Drive the camera each rAF frame for a fly-in → orbit sequence.
+ * Drive the camera each rAF frame for a fly-in → orbit/breathe sequence.
  *
  * Returns:
- *  'flying'   — lerping toward the orbit start position
- *  'orbiting' — continuously circling the target
- *  'done'     — dwellMs elapsed; caller should advance to the next target
+ *  'flying'   — lerping toward the approach position (FLY_DURATION_MS)
+ *  'orbiting' — in the dwell phase (orbit or breathe)
+ *  'done'     — dwellMs elapsed; caller should advance to next target
  */
 export function updateOrbitCamera(
   fg: any,
@@ -83,29 +86,45 @@ export function updateOrbitCamera(
   const flyRaw     = Math.min(1, flyElapsed / FLY_DURATION_MS);
   const flyT       = easeInOutQuad(flyRaw);
 
-  // Where the fly-in is heading
-  const orbitStartX = targetX + Math.sin(flyStartOrbitAngle) * dist;
-  const orbitStartY = targetY + elevation;
-  const orbitStartZ = targetZ + Math.cos(flyStartOrbitAngle) * dist;
+  // Approach destination: orbit start (or breathe anchor) position
+  const approachX = targetX + Math.sin(flyStartOrbitAngle) * dist;
+  const approachY = targetY + elevation;
+  const approachZ = targetZ + Math.cos(flyStartOrbitAngle) * dist;
 
-  // Always point at target
+  // TrackballControls pivot point — used when controls re-enable
   ctrl.target.x = targetX;
   ctrl.target.y = targetY;
   ctrl.target.z = targetZ;
 
   if (flyRaw < 1) {
-    camera.position.x = state.flyStartCamX + (orbitStartX - state.flyStartCamX) * flyT;
-    camera.position.y = state.flyStartCamY + (orbitStartY - state.flyStartCamY) * flyT;
-    camera.position.z = state.flyStartCamZ + (orbitStartZ - state.flyStartCamZ) * flyT;
+    // ── Fly-in phase: lerp camera to approach position ──────────────────────
+    camera.position.x = state.flyStartCamX + (approachX - state.flyStartCamX) * flyT;
+    camera.position.y = state.flyStartCamY + (approachY - state.flyStartCamY) * flyT;
+    camera.position.z = state.flyStartCamZ + (approachZ - state.flyStartCamZ) * flyT;
+    // Face the target throughout the fly-in
+    camera.lookAt(targetX, targetY, targetZ);
     return 'flying';
   }
 
-  // Orbit phase
-  const orbitElapsed = flyElapsed - FLY_DURATION_MS;
-  const angle = flyStartOrbitAngle + orbitElapsed * 0.001 * controls.orbitSpeed;
-  camera.position.x = targetX + Math.sin(angle) * dist;
-  camera.position.y = targetY + elevation + Math.sin(orbitElapsed * 0.0003) * 18;
-  camera.position.z = targetZ + Math.cos(angle) * dist;
+  // ── Dwell phase: orbit or breathe ─────────────────────────────────────────
+  const dwellElapsed = flyElapsed - FLY_DURATION_MS;
+  const speed        = controls.orbitSpeed;
+
+  if (controls.orbitMode === 'breathe') {
+    // Gentle oscillation — camera stays near the approach position
+    camera.position.x = approachX + Math.sin(dwellElapsed * 0.0008 * speed) * 10;
+    camera.position.y = approachY + Math.sin(dwellElapsed * 0.0005 * speed) * 6;
+    camera.position.z = approachZ + Math.cos(dwellElapsed * 0.0007 * speed) * 10;
+  } else {
+    // Circular orbit around the target
+    const angle = flyStartOrbitAngle + dwellElapsed * 0.001 * speed;
+    camera.position.x = targetX + Math.sin(angle) * dist;
+    camera.position.y = targetY + elevation + Math.sin(dwellElapsed * 0.0003) * 18;
+    camera.position.z = targetZ + Math.cos(angle) * dist;
+  }
+
+  // Always face the target — this is the critical fix that keeps the target centred
+  camera.lookAt(targetX, targetY, targetZ);
 
   if (state.dwellStart < 0) state.dwellStart = elapsedMs;
   if (state.dwellMs > 0 && elapsedMs - state.dwellStart >= state.dwellMs) return 'done';

@@ -2,11 +2,13 @@
 /**
  * Cinema Mode scene definitions.
  *
- * Scenes 1–3, 6–8: classic orbital/drift camera with controls.orbitSpeed applied.
- * Scenes 4–5: orbit-approach pattern — camera flies to each node and orbits it.
+ * CRITICAL: every tick() must call camera.lookAt() after setting camera.position.
+ * TrackballControls is disabled during playback (controls.enabled = false), which
+ * means Three.js does NOT automatically orient the camera toward controls.target.
+ * Without the explicit lookAt(), the camera moves but keeps staring in whatever
+ * direction it happened to be pointing — the orbit looks broken.
  *
- * TrackballControls is disabled during playback (see CinemaPage), so these functions
- * have full camera authority every frame.
+ * Scenes 4–5 delegate to updateOrbitCamera() which calls lookAt() internally.
  */
 
 import type { CinemaNode, CinemaScene } from './types';
@@ -48,6 +50,7 @@ export const CINEMA_SCENES: CinemaScene[] = [
       camera.position.y = 100 + Math.sin(elapsedMs * 0.00014) * 35;
       camera.position.z = Math.cos(angle) * dist;
       ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
     },
   },
 
@@ -78,6 +81,7 @@ export const CINEMA_SCENES: CinemaScene[] = [
       camera.position.y = y;
       camera.position.z = Math.cos(angle) * r;
       ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
     },
   },
 
@@ -110,6 +114,7 @@ export const CINEMA_SCENES: CinemaScene[] = [
       ctrl.target.x = Math.sin(a) * R;
       ctrl.target.y = Math.sin(elapsedMs * 0.00006) * R;
       ctrl.target.z = Math.cos(a) * R;
+      camera.lookAt(ctrl.target.x, ctrl.target.y, ctrl.target.z);
     },
   },
 
@@ -131,7 +136,6 @@ export const CINEMA_SCENES: CinemaScene[] = [
       const camera = getCamera(fg);
       if (!camera) return;
 
-      // If no orbit state yet, or previous orbit done → pick next node
       if (!s.orbitState) {
         const node = s.candidates[s.currentIdx % Math.max(1, s.candidates.length)];
         if (!node || node.x == null) return;
@@ -176,7 +180,6 @@ export const CINEMA_SCENES: CinemaScene[] = [
       if (!camera) return;
 
       if (!s.orbitState) {
-        // Walk graph: prefer neighbors of last visited node
         const pool = s.currentNodeId
           ? nodes.filter(n => adj.get(s.currentNodeId!)?.has(n.id))
           : s.candidates;
@@ -223,6 +226,7 @@ export const CINEMA_SCENES: CinemaScene[] = [
       camera.position.y = 220 - Math.sin(elapsedMs * 0.00009) * 70;
       camera.position.z = Math.cos(angle) * dist;
       ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
     },
   },
 
@@ -252,6 +256,7 @@ export const CINEMA_SCENES: CinemaScene[] = [
       camera.position.y = 120 - t * 70;
       camera.position.z = z;
       ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
     },
   },
 
@@ -280,6 +285,7 @@ export const CINEMA_SCENES: CinemaScene[] = [
       camera.position.y = 420 - Math.sin(elapsedMs * 0.00006) * 120;
       camera.position.z = Math.cos(angle) * dist;
       ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
     },
   },
 ];

@@ -3,13 +3,13 @@
  * CinemaPage — cinematic autoplay showcase for the Band Spectrum Mapper.
  *
  * Features:
- *  - 8 named scenes with continuous camera motion
- *  - Orbit-to-node camera pattern for scenes 4 & 5
+ *  - 8 named scenes with continuous camera motion (all scenes now call camera.lookAt)
+ *  - Orbit-to-node camera with fly-in + orbit/breathe for scenes 4 & 5
  *  - Smooth fade-to-black transitions
- *  - Play / Pause / Prev / Next controls
- *  - Scene progress bar + scene selector
- *  - Camera controls panel (orbit speed, approach dist, elevation, speed)
- *  - Tour/Script mode: author a custom node-by-node orbit sequence
+ *  - Play / Pause / Prev / Next + scene selector
+ *  - Camera controls panel: orbit speed, approach dist, elevation, speed, orbit mode
+ *  - Tour/Script mode: author a node-by-node camera sequence
+ *    → active node lights up bright white; camera travels to it, chills, moves on
  *  - Social Mode: fullscreen, watermark, cursor auto-hide
  *  - Band filter
  */
@@ -36,6 +36,8 @@ const TYPE_COLOR: Record<string, string> = {
   theme: '#10b981', tag: '#06b6d4', emotion: '#ec4899',
 };
 
+const HIGHLIGHT_COLOR = '#ffffff'; // bright white when a tour step is active
+
 const BASE_NODE_REL = 4;
 function nodeValFor(type: string): number {
   switch (type) {
@@ -47,7 +49,7 @@ function nodeValFor(type: string): number {
 }
 function sphereR(val: number) { return BASE_NODE_REL * Math.cbrt(val); }
 
-const TRANSITION_MS   = 700;
+const TRANSITION_MS      = 700;
 const DEFAULT_LABEL_SHOW = 450;
 const DEFAULT_LABEL_FULL = 160;
 
@@ -80,19 +82,19 @@ export default function CinemaPage() {
   const [simLinks, setSimLinks]               = useState<CinemaLink[]>([]);
 
   // ── Cinema state ─────────────────────────────────────────────────────────────
-  const [currentSceneIdx, setCurrentSceneIdx] = useState(0);
-  const [isPlaying, setIsPlaying]             = useState(false);
+  const [currentSceneIdx, setCurrentSceneIdx]     = useState(0);
+  const [isPlaying, setIsPlaying]                 = useState(false);
   const [transitionOpacity, setTransitionOpacity] = useState(0);
-  const [sceneProgress, setSceneProgress]     = useState(0);
-  const [socialMode, setSocialMode]           = useState(false);
-  const [showPlaylist, setShowPlaylist]       = useState(false);
-  const [showBandPicker, setShowBandPicker]   = useState(false);
-  const [showWatermark, setShowWatermark]     = useState(true);
-  const [simReady, setSimReady]               = useState(false);
+  const [sceneProgress, setSceneProgress]         = useState(0);
+  const [socialMode, setSocialMode]               = useState(false);
+  const [showPlaylist, setShowPlaylist]           = useState(false);
+  const [showBandPicker, setShowBandPicker]       = useState(false);
+  const [showWatermark, setShowWatermark]         = useState(true);
+  const [simReady, setSimReady]                   = useState(false);
 
   // ── Controls panel ────────────────────────────────────────────────────────────
-  const [showControls, setShowControls]       = useState(false);
-  const [cinemaControls, setCinemaControls]   = useState<CinemaControls>(DEFAULT_CINEMA_CONTROLS);
+  const [showControls, setShowControls]     = useState(false);
+  const [cinemaControls, setCinemaControls] = useState<CinemaControls>(DEFAULT_CINEMA_CONTROLS);
   const cinemaControlsRef = useRef<CinemaControls>(DEFAULT_CINEMA_CONTROLS);
   useEffect(() => { cinemaControlsRef.current = cinemaControls; }, [cinemaControls]);
 
@@ -101,10 +103,15 @@ export default function CinemaPage() {
   const [showTourPlanner, setShowTourPlanner] = useState(false);
   const [tourSteps, setTourSteps]             = useState<TourStep[]>([]);
   const [tourStepIdx, setTourStepIdx]         = useState(0);
-  const tourStepsRef    = useRef<TourStep[]>([]);
-  const tourStepIdxRef  = useRef(0);
-  const tourOrbitRef    = useRef<OrbitCameraState | null>(null);
-  useEffect(() => { tourStepsRef.current = tourSteps; }, [tourSteps]);
+
+  // Highlighted node: the currently-active tour step's node lights up white
+  const [tourHighlightedId, setTourHighlightedId] = useState<string | null>(null);
+  const tourHighlightedIdRef = useRef<string | null>(null);
+
+  const tourStepsRef   = useRef<TourStep[]>([]);
+  const tourStepIdxRef = useRef(0);
+  const tourOrbitRef   = useRef<OrbitCameraState | null>(null);
+  useEffect(() => { tourStepsRef.current   = tourSteps;   }, [tourSteps]);
   useEffect(() => { tourStepIdxRef.current = tourStepIdx; }, [tourStepIdx]);
 
   // ── Refs ─────────────────────────────────────────────────────────────────────
@@ -127,10 +134,27 @@ export default function CinemaPage() {
   const [cursorHidden, setCursorHidden] = useState(false);
 
   // Sync refs ↔ state
-  useEffect(() => { isPlayingRef.current  = isPlaying; },  [isPlaying]);
-  useEffect(() => { currentIdxRef.current = currentSceneIdx; }, [currentSceneIdx]);
-  useEffect(() => { simNodesRef.current   = simNodes; },  [simNodes]);
-  useEffect(() => { tourModeRef.current   = tourMode; },  [tourMode]);
+  useEffect(() => { isPlayingRef.current  = isPlaying;         }, [isPlaying]);
+  useEffect(() => { currentIdxRef.current = currentSceneIdx;   }, [currentSceneIdx]);
+  useEffect(() => { simNodesRef.current   = simNodes;          }, [simNodes]);
+  useEffect(() => { tourModeRef.current   = tourMode;          }, [tourMode]);
+
+  // Clear highlight when leaving tour mode
+  useEffect(() => {
+    if (!tourMode) {
+      tourHighlightedIdRef.current = null;
+      setTourHighlightedId(null);
+    }
+  }, [tourMode]);
+
+  // ── Highlight helper (deduped setState) ──────────────────────────────────────
+
+  const applyHighlightRef = useRef((id: string | null) => {
+    if (id !== tourHighlightedIdRef.current) {
+      tourHighlightedIdRef.current = id;
+      setTourHighlightedId(id);
+    }
+  });
 
   // ── Queries ───────────────────────────────────────────────────────────────────
 
@@ -224,14 +248,17 @@ export default function CinemaPage() {
     const steps = tourStepsRef.current;
     if (!steps.length) return;
     setTourStepIdx(0);
-    tourStepIdxRef.current = 0;
-    tourOrbitRef.current = null;
+    tourStepIdxRef.current  = 0;
+    tourOrbitRef.current    = null;
+    // Highlight the first step immediately so the user sees where we're headed
+    applyHighlightRef.current(steps[0]?.nodeId ?? null);
     setIsPlaying(true);
   }, []);
 
   const stopTour = useCallback(() => {
     setIsPlaying(false);
     tourOrbitRef.current = null;
+    applyHighlightRef.current(null);
   }, []);
 
   // ── Scene timer (scene mode only) ─────────────────────────────────────────────
@@ -270,7 +297,7 @@ export default function CinemaPage() {
           const controls = cinemaControlsRef.current;
 
           if (tourModeRef.current) {
-            // ── Tour mode: orbit each step's node in sequence ──
+            // ── Tour mode ──
             const steps   = tourStepsRef.current;
             const stepIdx = tourStepIdxRef.current;
             const step    = steps[stepIdx];
@@ -278,14 +305,15 @@ export default function CinemaPage() {
             if (step) {
               const node = simNodesRef.current.find(n => n.id === step.nodeId);
               if (node && node.x != null) {
-                // Init orbit state on first frame of this step
                 if (!tourOrbitRef.current) {
+                  // First frame of a new step — init orbit and highlight the node
+                  const dwellMs = Math.round(step.dwellMs / controls.speedMultiplier);
                   tourOrbitRef.current = initOrbitState(
                     node.x, node.y ?? 0, node.z ?? 0,
                     camera.position.x, camera.position.y, camera.position.z,
-                    elapsed,
-                    Math.round(step.dwellMs / controls.speedMultiplier),
+                    elapsed, dwellMs,
                   );
+                  applyHighlightRef.current(step.nodeId);
                 }
                 const result = updateOrbitCamera(fg, tourOrbitRef.current, elapsed, controls);
                 if (result === 'done') {
@@ -294,10 +322,13 @@ export default function CinemaPage() {
                     // Tour finished
                     setIsPlaying(false);
                     tourOrbitRef.current = null;
+                    applyHighlightRef.current(null);
                   } else {
                     setTourStepIdx(nextIdx);
                     tourStepIdxRef.current = nextIdx;
-                    tourOrbitRef.current = null;
+                    tourOrbitRef.current   = null;
+                    // Pre-highlight the NEXT node as camera begins traveling toward it
+                    applyHighlightRef.current(steps[nextIdx]?.nodeId ?? null);
                   }
                 }
               }
@@ -309,7 +340,7 @@ export default function CinemaPage() {
           }
         }
 
-        // Pause-mode orbit pivot animation
+        // Pause-mode orbit pivot animation (click a node while paused)
         const oa = orbitAnimRef.current;
         if (oa && ctrl && !isPlayingRef.current) {
           const raw = Math.min(1, (performance.now() - oa.t0) / oa.dur);
@@ -380,9 +411,7 @@ export default function CinemaPage() {
   }, [socialMode]);
 
   useEffect(() => {
-    const onFsChange = () => {
-      if (!document.fullscreenElement) setSocialMode(false);
-    };
+    const onFsChange = () => { if (!document.fullscreenElement) setSocialMode(false); };
     document.addEventListener('fullscreenchange', onFsChange);
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
@@ -415,11 +444,19 @@ export default function CinemaPage() {
 
   // ── ForceGraph3D callbacks ────────────────────────────────────────────────────
 
+  // nodeColor and nodeVal depend on tourHighlightedId so ForceGraph3D re-evaluates
+  // colors when the highlighted node changes during a tour.
   const nodeColor = useCallback((node: object) => {
-    return TYPE_COLOR[(node as CinemaNode).type] ?? '#4b5563';
-  }, []);
+    const n = node as CinemaNode;
+    if (tourMode && n.id === tourHighlightedId) return HIGHLIGHT_COLOR;
+    return TYPE_COLOR[n.type] ?? '#4b5563';
+  }, [tourMode, tourHighlightedId]);
 
-  const nodeVal = useCallback((node: object) => nodeValFor((node as CinemaNode).type), []);
+  const nodeVal = useCallback((node: object) => {
+    const n = node as CinemaNode;
+    if (tourMode && n.id === tourHighlightedId) return 12; // ~2× normal max size
+    return nodeValFor(n.type);
+  }, [tourMode, tourHighlightedId]);
 
   const nodeThreeObject = useCallback((node: object) => {
     const n      = node as CinemaNode;
@@ -530,7 +567,7 @@ export default function CinemaPage() {
             </Link>
           </div>
 
-          {/* Top-center: scene name (scene mode only) */}
+          {/* Top-center: scene name (scene mode) */}
           {isPlaying && !tourMode && currentScene && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 text-center pointer-events-none">
               <div className="text-xl">{currentScene.emoji}</div>
@@ -540,18 +577,25 @@ export default function CinemaPage() {
           )}
 
           {/* Top-center: tour step label */}
-          {isPlaying && tourMode && tourSteps[tourStepIdx] && (
+          {tourMode && tourSteps[tourStepIdx] && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 text-center pointer-events-none">
               <div className="text-xs text-gray-500 uppercase tracking-wider">Tour</div>
               <div className="text-sm font-semibold text-white/80 mt-0.5">{tourSteps[tourStepIdx]?.nodeLabel}</div>
-              <div className="text-xs text-gray-600 mt-0.5">{tourStepIdx + 1} / {tourSteps.length}</div>
+              <div className="text-xs text-gray-600 mt-0.5">
+                {tourStepIdx + 1} / {tourSteps.length}
+                {isPlaying && tourOrbitRef.current && (
+                  <span className="ml-2">
+                    {tourOrbitRef.current.dwellStart < 0 ? '✈ flying…' : '◉ orbiting'}
+                  </span>
+                )}
+              </div>
             </div>
           )}
 
           {/* Top-right: buttons */}
           <div className="absolute top-4 right-4 z-30 flex gap-2">
             <button
-              onClick={() => { setShowBandPicker(v => !v); setShowPlaylist(false); setShowControls(false); setShowTourPlanner(false); }}
+              onClick={() => { setShowBandPicker(v => !v); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); }}
               className="text-xs bg-gray-900/80 border border-gray-700 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors"
             >
               Bands{selectedBandIds.length > 0 ? ` (${selectedBandIds.length})` : ''}
@@ -583,23 +627,18 @@ export default function CinemaPage() {
               <button
                 onClick={() => setSelectedBandIds([])}
                 className={`w-full text-left text-xs px-2 py-1.5 rounded-lg mb-1 transition-colors ${
-                  selectedBandIds.length === 0
-                    ? 'bg-indigo-900/60 text-indigo-300'
-                    : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                  selectedBandIds.length === 0 ? 'bg-indigo-900/60 text-indigo-300' : 'text-gray-400 hover:text-white hover:bg-gray-800'
                 }`}
               >
                 All bands
               </button>
               {scopes.bands.map(b => (
-                <button
-                  key={b.id}
+                <button key={b.id}
                   onClick={() => setSelectedBandIds(prev =>
                     prev.includes(b.id) ? prev.filter(id => id !== b.id) : [...prev, b.id]
                   )}
                   className={`w-full text-left text-xs px-2 py-1.5 rounded-lg transition-colors ${
-                    selectedBandIds.includes(b.id)
-                      ? 'bg-indigo-900/60 text-indigo-300'
-                      : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                    selectedBandIds.includes(b.id) ? 'bg-indigo-900/60 text-indigo-300' : 'text-gray-400 hover:text-white hover:bg-gray-800'
                   }`}
                 >
                   {b.name}
@@ -610,13 +649,36 @@ export default function CinemaPage() {
 
           {/* ── Controls panel ── */}
           {showControls && (
-            <div className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-4 backdrop-blur-sm w-64 shadow-2xl space-y-3">
+            <div className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-4 backdrop-blur-sm w-64 shadow-2xl space-y-4">
               <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Camera Controls</div>
 
-              {/* Orbit speed */}
+              {/* Camera motion mode */}
+              <div className="space-y-1.5">
+                <div className="text-[10px] text-gray-400">Camera motion</div>
+                <div className="flex bg-gray-800/60 rounded-lg p-0.5">
+                  <button
+                    onClick={() => updateControl('orbitMode', 'orbit')}
+                    className={`flex-1 text-[10px] py-1.5 rounded transition-colors ${
+                      cinemaControls.orbitMode === 'orbit' ? 'bg-gray-600 text-white' : 'text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    🔄 Orbit
+                  </button>
+                  <button
+                    onClick={() => updateControl('orbitMode', 'breathe')}
+                    className={`flex-1 text-[10px] py-1.5 rounded transition-colors ${
+                      cinemaControls.orbitMode === 'breathe' ? 'bg-gray-600 text-white' : 'text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    🌬 Breathe
+                  </button>
+                </div>
+              </div>
+
+              {/* Orbit/breathe speed */}
               <label className="block space-y-1">
                 <div className="flex justify-between text-[10px] text-gray-400">
-                  <span>Orbit speed</span>
+                  <span>{cinemaControls.orbitMode === 'breathe' ? 'Breathe rate' : 'Orbit speed'}</span>
                   <span>{cinemaControls.orbitSpeed.toFixed(1)}×</span>
                 </div>
                 <input type="range" min="0.1" max="5" step="0.1"
@@ -652,7 +714,7 @@ export default function CinemaPage() {
                 />
               </label>
 
-              {/* Speed multiplier */}
+              {/* Playback speed */}
               <label className="block space-y-1">
                 <div className="flex justify-between text-[10px] text-gray-400">
                   <span>Playback speed</span>
@@ -679,15 +741,17 @@ export default function CinemaPage() {
       {/* ══ PLAYBACK CONTROLS ════════════════════════════════════════════════════ */}
       {!socialMode && (
         <div className="absolute bottom-0 left-0 right-0 z-30">
-          {/* Progress bar */}
-          <div className="mx-auto px-4 pb-0 pt-2 max-w-2xl">
-            <div className="h-0.5 bg-gray-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-indigo-500/60 rounded-full transition-all duration-100"
-                style={{ width: `${sceneProgress * 100}%` }}
-              />
+          {/* Progress bar (scene mode only) */}
+          {!tourMode && (
+            <div className="mx-auto px-4 pb-0 pt-2 max-w-2xl">
+              <div className="h-0.5 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-indigo-500/60 rounded-full transition-all duration-100"
+                  style={{ width: `${sceneProgress * 100}%` }}
+                />
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Controls row */}
           <div className="flex items-center justify-between px-4 py-3 gap-3 bg-gradient-to-t from-gray-950/90 to-transparent backdrop-blur-sm">
@@ -696,13 +760,13 @@ export default function CinemaPage() {
               {/* Mode toggle */}
               <div className="flex bg-gray-800/60 rounded-lg p-0.5 text-[10px]">
                 <button
-                  onClick={() => setTourMode(false)}
+                  onClick={() => { setTourMode(false); }}
                   className={`px-2 py-1 rounded transition-colors ${!tourMode ? 'bg-gray-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
                 >
                   Scenes
                 </button>
                 <button
-                  onClick={() => setTourMode(true)}
+                  onClick={() => { setTourMode(true); }}
                   className={`px-2 py-1 rounded transition-colors ${tourMode ? 'bg-gray-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
                 >
                   Tour
@@ -735,19 +799,14 @@ export default function CinemaPage() {
             {/* Center: transport */}
             <div className="flex items-center gap-3">
               {!tourMode && (
-                <button onClick={retreatScene} className="text-gray-500 hover:text-white transition-colors text-lg" title="Previous scene (J / ←)">
+                <button onClick={retreatScene} className="text-gray-500 hover:text-white transition-colors text-lg" title="Previous (J / ←)">
                   ⏮
                 </button>
               )}
               <button
                 onClick={() => {
-                  if (isPlaying) {
-                    if (tourMode) stopTour();
-                    else setIsPlaying(false);
-                  } else {
-                    if (tourMode) startTour();
-                    else startPlayback();
-                  }
+                  if (isPlaying) { if (tourMode) stopTour(); else setIsPlaying(false); }
+                  else           { if (tourMode) startTour(); else startPlayback(); }
                 }}
                 disabled={!simReady || (tourMode && tourSteps.length === 0)}
                 className={`w-10 h-10 rounded-full flex items-center justify-center text-lg transition-colors ${
@@ -760,7 +819,7 @@ export default function CinemaPage() {
                 {isPlaying ? '⏸' : '▶'}
               </button>
               {!tourMode && (
-                <button onClick={advanceScene} className="text-gray-500 hover:text-white transition-colors text-lg" title="Next scene (L / →)">
+                <button onClick={advanceScene} className="text-gray-500 hover:text-white transition-colors text-lg" title="Next (L / →)">
                   ⏭
                 </button>
               )}
@@ -806,7 +865,8 @@ export default function CinemaPage() {
 
       {/* ── Tour planner popup ── */}
       {showTourPlanner && !socialMode && tourMode && (
-        <div className="absolute bottom-20 left-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-3 backdrop-blur-sm w-72 shadow-2xl"
+        <div
+          className="absolute bottom-20 left-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-3 backdrop-blur-sm w-72 shadow-2xl"
           style={{ maxHeight: 'calc(100dvh - 140px)' }}
         >
           <TourPlanner
@@ -819,7 +879,7 @@ export default function CinemaPage() {
             onDwellChange={(id, ms) => setTourSteps(prev => prev.map(s => s.id === id ? { ...s, dwellMs: ms } : s))}
             onPlay={startTour}
             onStop={stopTour}
-            onClear={() => { setTourSteps([]); setIsPlaying(false); }}
+            onClear={() => { setTourSteps([]); stopTour(); }}
           />
         </div>
       )}
@@ -831,7 +891,7 @@ export default function CinemaPage() {
             <div className="absolute bottom-6 right-6 z-30 pointer-events-none">
               <div className="text-xs text-white/20 text-right">
                 <div className="font-semibold tracking-wide">Band Spectrum Mapper</div>
-                {currentScene && !tourMode && <div className="text-[10px] mt-0.5">{currentScene.emoji} {currentScene.name}</div>}
+                {!tourMode && currentScene && <div className="text-[10px] mt-0.5">{currentScene.emoji} {currentScene.name}</div>}
                 {tourMode && tourSteps[tourStepIdx] && (
                   <div className="text-[10px] mt-0.5">Tour · {tourSteps[tourStepIdx]?.nodeLabel}</div>
                 )}
@@ -864,7 +924,6 @@ export default function CinemaPage() {
         </>
       )}
 
-      {/* Safe-zone guide */}
       {socialMode && (
         <div
           className="absolute inset-0 pointer-events-none z-20"

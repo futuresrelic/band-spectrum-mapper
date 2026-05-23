@@ -22,14 +22,19 @@ export interface CinemaLink {
 
 /** Camera and playback controls exposed to every scene's tick() function. */
 export interface CinemaControls {
-  /** Orbit angular speed multiplier. 1 = normal (~one rotation per ~6s). */
+  /** Orbit angular speed (and breathe frequency) multiplier. 1 = normal. */
   orbitSpeed: number;
-  /** Radial distance from target node during orbit. */
+  /** Radial distance from target node during orbit / breathe. */
   approachDist: number;
-  /** Camera Y elevation above the target node during orbit. */
+  /** Camera Y elevation above the target node. */
   elevationOffset: number;
   /** Global scene-timer speed multiplier (affects dwell timings). */
   speedMultiplier: number;
+  /**
+   * 'orbit' — camera circles the target continuously.
+   * 'breathe' — camera stays near the target with gentle oscillation.
+   */
+  orbitMode: 'orbit' | 'breathe';
 }
 
 export const DEFAULT_CINEMA_CONTROLS: CinemaControls = {
@@ -37,6 +42,7 @@ export const DEFAULT_CINEMA_CONTROLS: CinemaControls = {
   approachDist: 120,
   elevationOffset: 55,
   speedMultiplier: 1,
+  orbitMode: 'orbit',
 };
 
 /**
@@ -72,6 +78,6 @@ export interface TourStep {
   nodeId: string;
   nodeLabel: string;
   nodeType: string;
-  /** How long to orbit before advancing (ms). */
+  /** How long to orbit/breathe after arriving (ms) — travel time is separate. */
   dwellMs: number;
 }

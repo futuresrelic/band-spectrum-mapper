@@ -34,6 +34,7 @@ const TYPE_ICONS: Record<string, string> = {
 };
 
 const TYPE_ORDER = ['artist', 'album', 'song', 'keyword', 'theme', 'tag', 'emotion'];
+/** Dwell = time spent orbiting/breathing after arrival (travel is ~1.8s extra) */
 const DWELL_PRESETS = [4000, 6000, 10000, 15000, 20000];
 
 function dwellLabel(ms: number): string {
@@ -123,10 +124,11 @@ export default function TourPlanner({
               <span className="shrink-0 text-[10px] text-gray-600 w-4">{idx + 1}</span>
               <span className="shrink-0">{TYPE_ICONS[step.nodeType] ?? '•'}</span>
               <span className="flex-1 truncate text-gray-300">{step.nodeLabel}</span>
-              {/* Dwell selector */}
+              {/* Dwell time selector (time at node, after ~1.8s travel) */}
               <select
                 value={step.dwellMs}
                 onChange={e => onDwellChange(step.id, Number(e.target.value))}
+                title="Time spent at this node after arriving (~1.8s travel + this)"
                 className="text-[10px] bg-gray-700/60 border border-gray-600 text-gray-300 rounded px-1 py-0.5 shrink-0"
               >
                 {DWELL_PRESETS.map(ms => (
