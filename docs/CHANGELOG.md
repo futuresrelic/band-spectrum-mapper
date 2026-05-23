@@ -53,6 +53,38 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Cinema Mode Phase 2 — smooth transitions, link highlighting, type visibility (2026-05-23)
+
+### Fixed / Improved
+
+- **Smooth camera transitions between tour stops** (`orbitCamera.ts`, `sceneDefinitions.ts`, `CinemaPage.tsx`):
+  - `OrbitCameraState` now carries `prevLookAtX/Y/Z` — the look-at target of the previous stop.
+  - During the 1800 ms fly-in phase, `camera.lookAt()` is lerped from the old target to the new one using the same `easeInOutQuad` factor as the position lerp — no more orientation snap.
+  - `tourPrevTargetRef` in `CinemaPage` stores the departing node's position and passes it to the next `initOrbitState()` call, chaining smoothly across the whole tour.
+
+- **Tour step link highlighting** (`CinemaPage.tsx`):
+  - `tourNodeIds` useMemo builds a Set of all authored tour-step node IDs.
+  - `linkColor` returns bright white (`rgba(255,255,255,0.75)`) for the currently-visited node's edges, indigo (`rgba(165,180,252,0.55)`) for any edge connecting two tour nodes, and the default grey otherwise — lets the viewer trace the tour route at a glance.
+  - `linkWidth` mirrors the same three tiers (2 / 1 / 0.4).
+
+- **Node type visibility toggles** (`CinemaPage.tsx`):
+  - `hiddenTypes: Set<string>` state; toggled via type pills in the ⚙ controls panel with a colour dot per type.
+  - `visibleGraphData` useMemo filters both nodes and links when any types are hidden.
+  - `warmupTicks={simReady ? 0 : 80}` prevents the physics simulation from re-running on every toggle.
+  - **Show all** shortcut resets to the full graph instantly.
+
+- **TourPlanner node list scroll** (`TourPlanner.tsx`):
+  - Changed node list container from `flex-1 overflow-y-auto min-h-0` to explicit `style={{ minHeight: '80px', maxHeight: '260px' }}` — the list now scrolls reliably regardless of parent flex context.
+  - Browsable node limit raised from 60 → 120.
+
+### Modified files
+- `apps/web/src/cinema/orbitCamera.ts` — prevLookAt lerp in fly-in phase
+- `apps/web/src/cinema/sceneDefinitions.ts` — prevTarget tracking for scenes 4 & 5
+- `apps/web/src/cinema/TourPlanner.tsx` — explicit maxHeight scroll fix, node limit 120
+- `apps/web/src/pages/CinemaPage.tsx` — link highlighting, type toggles, smooth tour chaining
+
+---
+
 ## Cinema Mode — cinematic autoplay showcase engine (2026-05-23)
 
 ### Added
