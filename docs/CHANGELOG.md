@@ -10,6 +10,12 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 - **AI Genre Spectrum nodes** — songs that have been scored by the AI genre analyser now appear in the Cinema / Song Nodes graph as orange `🎼 Genre` nodes (Metal, Rock, Pop, Hip-Hop, Electronic, Folk). Each genre node is linked to every song that scores ≥ 0.1 on that axis. The node size reflects relative weight; the type-toggle appears in the legend so genres can be shown/hidden independently.
 
+- **Genre data source selector** (in ⚙ settings panel → Genre data source):
+  - `🔀 Auto (community → AI)` — default; uses the community average rating for each perspective when any ratings exist, falls back to AI score per-perspective when no community data is available.
+  - `👥 Community` — uses only the aggregated `SongGenreRating` data from all users.
+  - `🤖 AI` — uses only the `SongAiGenreSpectrum` AI-generated scores (previous behaviour).
+  - Switching source automatically reloads the graph data.
+
 - **AI Director** (`🤖 AI` button in Cinema toolbar):
   - Natural-language sandbox: type what you want to see ("psychedelic cosmic trip", "organic tree, earthy tones", "emotional landscape mandala") and GPT-4o-mini picks the arrangement, theme, orbit speed, node visibility, and camera preset.
   - Backend endpoint `POST /api/public/cinema-ai` returns structured JSON settings.
