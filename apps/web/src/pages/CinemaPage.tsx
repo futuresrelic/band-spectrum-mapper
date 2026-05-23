@@ -702,6 +702,20 @@ export default function CinemaPage() {
     setSimReady(true);
   }, [simNodes]);
 
+  const reArrange = useCallback(() => {
+    const scene = CINEMA_SCENES[currentIdxRef.current];
+    if (!scene || !fgRef.current) return;
+    const nodes = simNodesRef.current;
+    const adj   = adjRef.current;
+    if (scene.arrangeMode === 'natural') {
+      nodes.forEach(n => { n.fx = undefined; n.fy = undefined; n.fz = undefined; });
+      didFitRef.current = false;
+      fgRef.current.d3ReheatSimulation?.();
+    } else {
+      animateArrange(nodes, computeArrangeTargets(nodes, scene.arrangeMode, adj), fgRef.current);
+    }
+  }, []);
+
   const onNodeClick = useCallback((node: object) => {
     const n = node as CinemaNode;
     const sel = selectedNodeRef.current;
@@ -873,6 +887,14 @@ export default function CinemaPage() {
 
           {/* Top-right */}
           <div className="absolute top-4 right-4 z-30 flex gap-2">
+            <button
+              onClick={reArrange}
+              disabled={!simReady}
+              title={`Re-apply ${currentScene?.name ?? ''} arrangement`}
+              className="text-xs bg-gray-900/80 border border-gray-700 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              ✦ Arrange
+            </button>
             <button
               onClick={() => { setShowBandPicker(v => !v); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); }}
               className="text-xs bg-gray-900/80 border border-gray-700 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors"
