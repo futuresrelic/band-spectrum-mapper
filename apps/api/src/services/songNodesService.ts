@@ -35,6 +35,10 @@ export type GraphLayoutPreset =
   | 'emotional-similarity'
   | 'lyrical-dna';
 
+/** Which genre score set to use when building genre nodes.
+ *  priority = community if available, AI as fallback (recommended default) */
+export type GenreSource = 'ai' | 'community' | 'priority';
+
 export interface GraphNode {
   id: string;
   type: NodeType;
@@ -158,7 +162,7 @@ async function fetchSongs(filter: {
 // Layout: artist-universe
 // ---------------------------------------------------------------------------
 
-async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
+async function buildArtistUniverse(bandIds: string[], genreSource: GenreSource = 'priority'): Promise<GraphData> {
   const songs = await fetchSongs({ bandIds, limit: 300 });
 
   if (!songs.length) {
@@ -271,25 +275,61 @@ async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
     }
   }
 
-  // Genre nodes from AI genre spectrum (metal/rock/pop/hiphop/electronic/folk scores)
+  // Genre nodes — supports ai, community, and priority (community → AI fallback) sources
   const GENRE_KEYS = ['metal', 'rock', 'pop', 'hiphop', 'electronic', 'folk'] as const;
   const GENRE_LABELS: Record<typeof GENRE_KEYS[number], string> = {
     metal: 'Metal', rock: 'Rock', pop: 'Pop',
     hiphop: 'Hip-Hop', electronic: 'Electronic', folk: 'Folk',
   };
+
+  // Fetch community averages if needed
+  type CommunityMap = Map<string, Map<string, number>>; // songId → genreKey → avg score (1-10)
+  let communityMap: CommunityMap = new Map();
+  if (genreSource === 'community' || genreSource === 'priority') {
+    const songIds = songs.map(s => s.id);
+    const rows = await prisma.songGenreRating.groupBy({
+      by: ['songId', 'perspective'],
+      where: { songId: { in: songIds } },
+      _avg: { score: true },
+    });
+    for (const row of rows) {
+      if (!communityMap.has(row.songId)) communityMap.set(row.songId, new Map());
+      communityMap.get(row.songId)!.set(row.perspective, row._avg.score ?? 0);
+    }
+  }
+
   const genreConnections = new Map<string, number>(); // genreKey → song count
 
   for (const s of songs) {
-    const gs = s.aiGenreSpectrum;
-    if (!gs) continue;
-    const rawVals = GENRE_KEYS.map(k => gs[k]);
-    const maxVal  = Math.max(...rawVals);
-    if (maxVal === 0) continue;
-    const scale = maxVal > 1 ? 100 : 1; // normalise 0-100 → 0-1
-
     for (const k of GENRE_KEYS) {
-      const score = gs[k] / scale;
-      if (score < 0.1) continue;
+      let score: number | null = null;
+
+      if (genreSource === 'community') {
+        const avg = communityMap.get(s.id)?.get(k);
+        if (avg != null && avg > 0) score = avg / 10; // community is 1-10 → 0-1
+      } else if (genreSource === 'ai') {
+        const gs = s.aiGenreSpectrum;
+        if (gs) {
+          const rawVals = GENRE_KEYS.map(kk => gs[kk]);
+          const maxVal  = Math.max(...rawVals);
+          score = gs[k] / (maxVal > 10 ? 100 : maxVal > 1 ? 10 : 1);
+        }
+      } else {
+        // priority: community first, AI as fallback per-perspective
+        const avg = communityMap.get(s.id)?.get(k);
+        if (avg != null && avg > 0) {
+          score = avg / 10;
+        } else {
+          const gs = s.aiGenreSpectrum;
+          if (gs) {
+            const rawVals = GENRE_KEYS.map(kk => gs[kk]);
+            const maxVal  = Math.max(...rawVals);
+            score = gs[k] / (maxVal > 10 ? 100 : maxVal > 1 ? 10 : 1);
+          }
+        }
+      }
+
+      if (score == null || score < 0.1) continue;
       genreConnections.set(k, (genreConnections.get(k) ?? 0) + 1);
       edges.push({
         id: `e${edgeIdx++}`, source: `song:${s.id}`,
@@ -605,13 +645,13 @@ async function buildLyricalDna(bandIds: string[]): Promise<GraphData> {
 
 export async function buildGraph(
   preset: GraphLayoutPreset,
-  params: { bandIds?: string[]; albumId?: string },
+  params: { bandIds?: string[]; albumId?: string; genreSource?: GenreSource },
 ): Promise<GraphData> {
-  const { bandIds = [], albumId } = params;
+  const { bandIds = [], albumId, genreSource = 'priority' } = params;
 
   switch (preset) {
     case 'artist-universe':
-      return buildArtistUniverse(bandIds);
+      return buildArtistUniverse(bandIds, genreSource);
 
     case 'album-cluster':
       if (!albumId) throw Object.assign(new Error('albumId required for album-cluster'), { statusCode: 400 });

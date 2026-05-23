@@ -86,8 +86,15 @@ interface OrbitAnim {
 
 // ── API ───────────────────────────────────────────────────────────────────────
 
-function fetchCinemaGraph(bandIds: string[]): Promise<GraphData> {
-  const qs = new URLSearchParams({ preset: 'artist-universe' });
+type GenreSource = 'ai' | 'community' | 'priority';
+const GENRE_SOURCE_LABELS: Record<GenreSource, string> = {
+  priority:  '🔀 Auto (community → AI)',
+  community: '👥 Community',
+  ai:        '🤖 AI',
+};
+
+function fetchCinemaGraph(bandIds: string[], genreSource: GenreSource = 'priority'): Promise<GraphData> {
+  const qs = new URLSearchParams({ preset: 'artist-universe', genreSource });
   if (bandIds.length) qs.set('bandIds', bandIds.join(','));
   return api.get(`/api/public/graph?${qs}`);
 }
@@ -177,6 +184,9 @@ export default function CinemaPage() {
   // Selection dim strength (0 = keep theme colour, 1 = fully dark)
   const [selectionDim, setSelectionDim] = useState(1.0);
   const selectionDimRef = useRef(1.0);
+
+  // Genre source selector
+  const [genreSource, setGenreSource] = useState<GenreSource>('priority');
 
   // AI Director
   const [showAiDirector, setShowAiDirector]   = useState(false);
@@ -277,8 +287,8 @@ export default function CinemaPage() {
   const { data: scopes } = useQuery({ queryKey: ['cinema-scopes'], queryFn: fetchScopes });
 
   const { data: graphData, isFetching } = useQuery({
-    queryKey: ['cinema-graph', selectedBandIds.join(',')],
-    queryFn: () => fetchCinemaGraph(selectedBandIds),
+    queryKey: ['cinema-graph', selectedBandIds.join(','), genreSource],
+    queryFn: () => fetchCinemaGraph(selectedBandIds, genreSource),
   });
 
   useEffect(() => {
@@ -1219,6 +1229,27 @@ export default function CinemaPage() {
                       </button>
                     );
                   })}
+                </div>
+              </div>
+
+              {/* Genre data source */}
+              <div className="border-t border-gray-800 pt-3 space-y-2">
+                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Genre data source</div>
+                <div className="space-y-1">
+                  {(['priority', 'community', 'ai'] as GenreSource[]).map(src => (
+                    <button key={src} onClick={() => setGenreSource(src)}
+                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                        genreSource === src ? 'bg-gray-800 text-gray-200' : 'text-gray-500 hover:text-gray-300'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${genreSource === src ? 'bg-orange-500' : 'bg-gray-700'}`} />
+                      <span>{GENRE_SOURCE_LABELS[src]}</span>
+                      {genreSource === src && <span className="ml-auto text-[10px] text-orange-500">active</span>}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-[10px] text-gray-600 leading-snug px-1">
+                  Changing source reloads the graph.
                 </div>
               </div>
 

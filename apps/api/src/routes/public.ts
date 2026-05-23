@@ -2,7 +2,7 @@ import { Router } from 'express';
 import OpenAI from 'openai';
 import { prisma } from '../lib/prisma.js';
 import { userRatingService } from '../services/userRatingService.js';
-import { buildGraph, listScopeOptions, type GraphLayoutPreset } from '../services/songNodesService.js';
+import { buildGraph, listScopeOptions, type GraphLayoutPreset, type GenreSource } from '../services/songNodesService.js';
 
 // Read-only public endpoints — no write access, no auth required.
 // Safe to share. Returns only what viewers need to see.
@@ -199,11 +199,15 @@ publicRouter.get('/graph', async (req, res, next): Promise<void> => {
       res.status(400).json({ error: `preset must be one of: ${PUBLIC_PRESETS.join(', ')}` });
       return;
     }
-    const bandIdsRaw = (req.query['bandIds'] as string) ?? '';
-    const albumId    = (req.query['albumId']  as string) ?? '';
-    const bandIds    = bandIdsRaw ? bandIdsRaw.split(',').filter(Boolean) : [];
+    const bandIdsRaw   = (req.query['bandIds']     as string) ?? '';
+    const albumId      = (req.query['albumId']      as string) ?? '';
+    const genreRaw     = (req.query['genreSource']  as string) ?? 'priority';
+    const bandIds      = bandIdsRaw ? bandIdsRaw.split(',').filter(Boolean) : [];
+    const VALID_GENRE_SOURCES = new Set<string>(['ai', 'community', 'priority']);
+    const genreSource: GenreSource = VALID_GENRE_SOURCES.has(genreRaw) ? (genreRaw as GenreSource) : 'priority';
     const data = await buildGraph(preset, {
       bandIds,
+      genreSource,
       ...(albumId ? { albumId } : {}),
     });
     res.json(data);
