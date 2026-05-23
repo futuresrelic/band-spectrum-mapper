@@ -4,7 +4,7 @@
  * without duplicating ~200 lines of pure math.
  */
 
-export type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system' | 'helix' | 'emotional-spectrum' | 'genre-web';
+export type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system' | 'helix' | 'emotional-spectrum' | 'genre-web' | 'fibonacci-torus' | 'fractal-tree' | 'mandala' | 'wave' | 'lissajous' | 'crystal';
 
 /** Minimal shape required for layout computation. */
 export interface ArrangeNode {
@@ -332,6 +332,158 @@ export function computeArrangeTargets<N extends ArrangeNode>(
       const phi = (i / Math.max(1, keywords.length)) * 2 * Math.PI;
       out.set(n.id, { x: 420 * Math.cos(phi), y: Math.sin(i * 0.618) * 40, z: 420 * Math.sin(phi) });
     });
+
+  } else if (mode === 'fibonacci-torus') {
+    const songs   = nodes.filter(n => n.type === 'song');
+    const artists = nodes.filter(n => n.type === 'artist');
+    const albums  = nodes.filter(n => n.type === 'album');
+    const others  = nodes.filter(n => !['song', 'artist', 'album'].includes(n.type));
+    const GA = Math.PI * (3 - Math.sqrt(5));
+    const R = 220; const rMinor = 60;
+
+    songs.forEach((n, i) => {
+      const phi   = i * GA;
+      const theta = i * GA * 1.618;
+      out.set(n.id, {
+        x: (R + rMinor * Math.cos(theta)) * Math.cos(phi),
+        y: rMinor * Math.sin(theta),
+        z: (R + rMinor * Math.cos(theta)) * Math.sin(phi),
+      });
+    });
+    artists.forEach((n, i) => {
+      const phi = (i / Math.max(1, artists.length)) * 2 * Math.PI;
+      out.set(n.id, { x: 60 * Math.cos(phi), y: 0, z: 60 * Math.sin(phi) });
+    });
+    const albumR = R + rMinor + 40;
+    albums.forEach((n, i) => {
+      const phi = (i / Math.max(1, albums.length)) * 2 * Math.PI;
+      out.set(n.id, { x: albumR * Math.cos(phi), y: 0, z: albumR * Math.sin(phi) });
+    });
+    others.forEach((n, i) => {
+      const phi = i * GA;
+      out.set(n.id, { x: R * 1.5 * Math.cos(phi), y: 120 + Math.sin(i * 1.618) * 40, z: R * 1.5 * Math.sin(phi) });
+    });
+
+  } else if (mode === 'fractal-tree') {
+    const artists = nodes.filter(n => n.type === 'artist');
+    const albums  = nodes.filter(n => n.type === 'album');
+    const songs   = nodes.filter(n => n.type === 'song');
+    const others  = nodes.filter(n => !['artist', 'album', 'song'].includes(n.type));
+    const artistPos = new Map<string, { x: number; y: number; z: number }>();
+    const albumPos  = new Map<string, { x: number; y: number; z: number }>();
+
+    artists.forEach((a, i) => {
+      const phi = (i / Math.max(1, artists.length)) * 2 * Math.PI;
+      const pos = artists.length <= 4
+        ? { x: (i - (artists.length - 1) / 2) * 200, y: -200, z: 0 }
+        : { x: 260 * Math.cos(phi), y: -200, z: 260 * Math.sin(phi) };
+      artistPos.set(a.id, pos);
+      out.set(a.id, pos);
+    });
+
+    albums.forEach((alb) => {
+      const pa = artists.find(a => adj.get(a.id)?.has(alb.id) || adj.get(alb.id)?.has(a.id));
+      const siblings = albums.filter(b => {
+        const p = artists.find(a => adj.get(a.id)?.has(b.id) || adj.get(b.id)?.has(a.id));
+        return p?.id === pa?.id;
+      });
+      const idx  = siblings.indexOf(alb);
+      const base = pa ? (artistPos.get(pa.id) ?? { x: 0, y: -200, z: 0 }) : { x: 0, y: -200, z: 0 };
+      const phi  = (idx / Math.max(1, siblings.length)) * 2 * Math.PI;
+      const pos  = { x: base.x + 80 * Math.cos(phi), y: base.y + 180, z: base.z + 80 * Math.sin(phi) };
+      albumPos.set(alb.id, pos);
+      out.set(alb.id, pos);
+    });
+
+    songs.forEach((song) => {
+      const pa = albums.find(a => adj.get(a.id)?.has(song.id) || adj.get(song.id)?.has(a.id));
+      const siblings = songs.filter(s => {
+        const p = albums.find(a => adj.get(a.id)?.has(s.id) || adj.get(s.id)?.has(a.id));
+        return p?.id === pa?.id;
+      });
+      const idx  = siblings.indexOf(song);
+      const base = pa ? (albumPos.get(pa.id) ?? { x: 0, y: -20, z: 0 }) : { x: 0, y: -20, z: 0 };
+      const phi  = (idx / Math.max(1, siblings.length)) * 2 * Math.PI;
+      out.set(song.id, { x: base.x + 40 * Math.cos(phi), y: base.y + 130, z: base.z + 40 * Math.sin(phi) });
+    });
+
+    others.forEach((n, i) => {
+      const phi = i * 2.399;
+      out.set(n.id, { x: 320 * Math.cos(phi), y: 300 + Math.sin(i * 1.618) * 60, z: 320 * Math.sin(phi) });
+    });
+
+  } else if (mode === 'mandala') {
+    const artists = nodes.filter(n => n.type === 'artist');
+    const albums  = nodes.filter(n => n.type === 'album');
+    const songs   = nodes.filter(n => n.type === 'song');
+    const others  = nodes.filter(n => !['artist', 'album', 'song'].includes(n.type));
+
+    artists.forEach((n, i) => {
+      const phi = (i / Math.max(1, artists.length)) * 2 * Math.PI;
+      out.set(n.id, { x: 80 * Math.cos(phi), y: Math.sin(phi * 3) * 30, z: 80 * Math.sin(phi) });
+    });
+    albums.forEach((n, i) => {
+      const phi = (i / Math.max(1, albums.length)) * 2 * Math.PI;
+      out.set(n.id, { x: 200 * Math.cos(phi), y: Math.sin(phi * 5) * 50, z: 200 * Math.sin(phi) });
+    });
+    const half1 = Math.ceil(songs.length / 2);
+    songs.forEach((n, i) => {
+      const ring  = i < half1 ? 310 : 410;
+      const count = i < half1 ? half1 : songs.length - half1;
+      const idx   = i < half1 ? i : i - half1;
+      const phi   = (idx / Math.max(1, count)) * 2 * Math.PI;
+      out.set(n.id, { x: ring * Math.cos(phi), y: Math.sin(phi * 7) * 60, z: ring * Math.sin(phi) });
+    });
+    others.forEach((n, i) => {
+      const phi = (i / Math.max(1, others.length)) * 2 * Math.PI;
+      out.set(n.id, { x: 500 * Math.cos(phi), y: Math.sin(phi * 4) * 70, z: 500 * Math.sin(phi) });
+    });
+
+  } else if (mode === 'wave') {
+    const sortOrder: Record<string, number> = { artist: 0, album: 1, song: 2 };
+    const sorted = [...nodes].sort((a, b) => (sortOrder[a.type] ?? 3) - (sortOrder[b.type] ?? 3));
+    const cols    = Math.ceil(Math.sqrt(sorted.length * 1.6));
+    const rows    = Math.ceil(sorted.length / cols);
+    const spacing = 55;
+
+    sorted.forEach((n, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = (col - cols / 2) * spacing;
+      const z = (row - rows / 2) * spacing;
+      const y = 120 * Math.sin((col / cols) * Math.PI * 2) * Math.cos((row / Math.max(1, rows)) * Math.PI);
+      out.set(n.id, { x, y, z });
+    });
+
+  } else if (mode === 'lissajous') {
+    const total = nodes.length;
+    nodes.forEach((n, i) => {
+      const t = (i / Math.max(1, total - 1)) * 2 * Math.PI;
+      out.set(n.id, {
+        x: 280 * Math.sin(3 * t),
+        y: 220 * Math.sin(5 * t + Math.PI * 0.4),
+        z: 180 * Math.sin(7 * t + Math.PI * 0.9),
+      });
+    });
+
+  } else if (mode === 'crystal') {
+    const sortOrder: Record<string, number> = { artist: 0, album: 1, song: 2 };
+    const sorted  = [...nodes].sort((a, b) => (sortOrder[a.type] ?? 3) - (sortOrder[b.type] ?? 3));
+    const SPACING = 52;
+    const LAYERS  = Math.max(3, Math.ceil(Math.cbrt(sorted.length)));
+    const totalLayers = Math.ceil(sorted.length / (LAYERS * LAYERS));
+
+    sorted.forEach((n, i) => {
+      const layer   = Math.floor(i / (LAYERS * LAYERS));
+      const inLayer = i % (LAYERS * LAYERS);
+      const row     = Math.floor(inLayer / LAYERS);
+      const col     = inLayer % LAYERS;
+      const hexOff  = (row % 2) * SPACING * 0.5;
+      const x = (col - LAYERS / 2) * SPACING + hexOff;
+      const y = layer * SPACING * 0.87 - (totalLayers * SPACING * 0.87) / 2;
+      const z = (row - LAYERS / 2) * SPACING * 0.87;
+      out.set(n.id, { x, y, z });
+    });
   }
 
   return out;
@@ -356,9 +508,11 @@ export function animateArrange<N extends ArrangeNode>(
       const snap = snapshots.get(n.id);
       const tgt = targets.get(n.id);
       if (!snap || !tgt) return;
-      n.fx = snap.x + (tgt.x - snap.x) * t;
-      n.fy = snap.y + (tgt.y - snap.y) * t;
-      n.fz = snap.z + (tgt.z - snap.z) * t;
+      const fx = snap.x + (tgt.x - snap.x) * t;
+      const fy = snap.y + (tgt.y - snap.y) * t;
+      const fz = snap.z + (tgt.z - snap.z) * t;
+      n.fx = fx; n.fy = fy; n.fz = fz;
+      n.x  = fx; n.y  = fy; n.z  = fz;
     });
     fgInst?.refresh?.();
     if (raw < 1) requestAnimationFrame(step);

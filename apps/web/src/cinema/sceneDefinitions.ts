@@ -324,4 +324,183 @@ export const CINEMA_SCENES: CinemaScene[] = [
       camera.lookAt(0, 0, 0);
     },
   },
+
+  // ── 10. Fibonacci Torus ──────────────────────────────────────────────────────
+  {
+    id: 'fibonacci-torus',
+    name: 'Fibonacci Torus',
+    description: 'Songs woven into a golden spiral torus — the mathematics of nature made musical',
+    emoji: '🌀',
+    durationMs: 38_000,
+    arrangeMode: 'fibonacci-torus',
+    enter(fg) {
+      setTimeout(() => fg?.zoomToFit?.(1400, 60), 1900);
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      const angle = elapsedMs * 0.00005 * controls.orbitSpeed;
+      const tilt  = Math.sin(elapsedMs * 0.00003) * 0.5;
+      const dist  = 460;
+      camera.position.x = Math.sin(angle) * dist * Math.cos(tilt);
+      camera.position.y = dist * Math.sin(tilt) + Math.sin(elapsedMs * 0.00007) * 80;
+      camera.position.z = Math.cos(angle) * dist * Math.cos(tilt);
+      ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
+    },
+  },
+
+  // ── 11. Fractal Tree ─────────────────────────────────────────────────────────
+  {
+    id: 'fractal-tree',
+    name: 'Fractal Tree',
+    description: 'Artists at the roots, albums the branches, songs the leaves — the tree of music',
+    emoji: '🌳',
+    durationMs: 35_000,
+    arrangeMode: 'fractal-tree',
+    enter(fg) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (camera) { camera.position.x = 600; camera.position.y = -100; camera.position.z = 0; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      const t      = Math.min(1, elapsedMs / 20_000);
+      const targetY = -200 + t * 400;
+      const angle  = elapsedMs * 0.00005 * controls.orbitSpeed;
+      const dist   = 520 - t * 180;
+      camera.position.x = Math.sin(angle) * dist;
+      camera.position.y = targetY + 80;
+      camera.position.z = Math.cos(angle) * dist;
+      ctrl.target.x = 0; ctrl.target.y = targetY; ctrl.target.z = 0;
+      camera.lookAt(0, targetY, 0);
+    },
+  },
+
+  // ── 12. Mandala ───────────────────────────────────────────────────────────────
+  {
+    id: 'mandala',
+    name: 'Mandala',
+    description: 'Sacred geometry — concentric rings of artists, albums, and songs in perfect symmetry',
+    emoji: '🪷',
+    durationMs: 32_000,
+    arrangeMode: 'mandala',
+    enter(fg) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (camera) { camera.position.x = 0; camera.position.y = 700; camera.position.z = 60; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      const angle = elapsedMs * 0.00006 * controls.orbitSpeed;
+      const pulse = Math.sin(elapsedMs * 0.00008) * 100;
+      const dist  = 580 + pulse;
+      camera.position.x = Math.sin(angle) * dist * 0.3;
+      camera.position.y = dist - 100;
+      camera.position.z = Math.cos(angle) * dist * 0.3;
+      ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
+    },
+  },
+
+  // ── 13. Wave Rider ────────────────────────────────────────────────────────────
+  {
+    id: 'wave',
+    name: 'Wave Rider',
+    description: 'Ride the undulating wave of music — songs rise and fall like the open sea',
+    emoji: '🌊',
+    durationMs: 30_000,
+    arrangeMode: 'wave',
+    enter(fg) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (camera) { camera.position.x = 0; camera.position.y = 200; camera.position.z = 500; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      const angle = elapsedMs * 0.00006 * controls.orbitSpeed;
+      const dist  = 420;
+      const wave  = Math.sin(elapsedMs * 0.0001) * 60;
+      camera.position.x = Math.sin(angle) * dist;
+      camera.position.y = 120 + wave;
+      camera.position.z = Math.cos(angle) * dist;
+      ctrl.target.x = 0; ctrl.target.y = wave * 0.3; ctrl.target.z = 0;
+      camera.lookAt(0, wave * 0.3, 0);
+    },
+  },
+
+  // ── 14. Lissajous Trip ────────────────────────────────────────────────────────
+  {
+    id: 'lissajous',
+    name: 'Lissajous Trip',
+    description: 'A psychedelic journey through interlocking curves — pure mathematics meets rock and roll',
+    emoji: '🔯',
+    durationMs: 35_000,
+    arrangeMode: 'lissajous',
+    enter(fg) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (camera) { camera.position.x = 0; camera.position.y = 0; camera.position.z = 600; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      const a1 = elapsedMs * 0.00007 * controls.orbitSpeed;
+      const a2 = elapsedMs * 0.00004 * controls.orbitSpeed;
+      const dist = 520;
+      camera.position.x = Math.sin(a1) * dist;
+      camera.position.y = Math.sin(a2) * 200;
+      camera.position.z = Math.cos(a1) * dist;
+      ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
+    },
+  },
+
+  // ── 15. Crystal Cave ──────────────────────────────────────────────────────────
+  {
+    id: 'crystal',
+    name: 'Crystal Cave',
+    description: 'Descend into a hexagonal crystal lattice — pure isometric geometry, pure sound',
+    emoji: '💎',
+    durationMs: 35_000,
+    arrangeMode: 'crystal',
+    enter(fg) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (camera) { camera.position.x = 0; camera.position.y = 600; camera.position.z = 400; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      const t     = Math.min(1, elapsedMs / 15_000);
+      const angle = elapsedMs * 0.00006 * controls.orbitSpeed;
+      const dist  = 600 - t * 350;
+      const yPos  = 600 - t * 580;
+      camera.position.x = Math.sin(angle) * dist;
+      camera.position.y = yPos;
+      camera.position.z = Math.cos(angle) * dist;
+      ctrl.target.x = 0; ctrl.target.y = yPos * 0.2; ctrl.target.z = 0;
+      camera.lookAt(0, yPos * 0.2, 0);
+    },
+  },
 ];
