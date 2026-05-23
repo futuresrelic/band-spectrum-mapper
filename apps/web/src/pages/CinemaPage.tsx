@@ -40,6 +40,10 @@ const TYPE_LABELS: Record<string, string> = {
   artist: '🎸 Artist', album: '💿 Album', song: '🎵 Song',
   keyword: '🔑 Keyword', theme: '🌿 Theme', tag: '🏷 Tag', emotion: '💜 Emotion',
 };
+const TYPE_ICONS: Record<string, string> = {
+  artist: '🎸', album: '💿', song: '🎵',
+  keyword: '🔑', theme: '🌿', tag: '🏷', emotion: '💜',
+};
 const ALL_TYPES = ['artist', 'album', 'song', 'keyword', 'theme', 'tag', 'emotion'];
 
 const HIGHLIGHT_COLOR = '#ffffff';
@@ -56,8 +60,7 @@ function nodeValFor(type: string): number {
 function sphereR(val: number) { return BASE_NODE_REL * Math.cbrt(val); }
 
 const TRANSITION_MS      = 700;
-const DEFAULT_LABEL_SHOW = 450;
-const DEFAULT_LABEL_FULL = 160;
+const DEFAULT_LABEL_DISTANCES = { artist: 650, album: 420, song: 280, other: 180 };
 
 // ── Pause-mode orbit pivot ────────────────────────────────────────────────────
 
@@ -83,6 +86,7 @@ function fetchScopes(): Promise<{ bands: { id: string; name: string }[] }> {
 export default function CinemaPage() {
   // ── Data ─────────────────────────────────────────────────────────────────────
   const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
+  const [selectedNode, setSelectedNode]       = useState<CinemaNode | null>(null);
   const [simNodes, setSimNodes]               = useState<CinemaNode[]>([]);
   const [simLinks, setSimLinks]               = useState<CinemaLink[]>([]);
 
@@ -103,10 +107,21 @@ export default function CinemaPage() {
   const cinemaControlsRef = useRef<CinemaControls>(DEFAULT_CINEMA_CONTROLS);
   useEffect(() => { cinemaControlsRef.current = cinemaControls; }, [cinemaControls]);
 
+  const [labelDistances, setLabelDistances] = useState(DEFAULT_LABEL_DISTANCES);
+  useEffect(() => { labelDistancesRef.current = labelDistances; }, [labelDistances]);
+
   // Hidden node types (show/hide in graph)
   const [hiddenTypes, setHiddenTypes]   = useState<Set<string>>(new Set());
   const hiddenTypesRef                  = useRef<Set<string>>(new Set());
   useEffect(() => { hiddenTypesRef.current = hiddenTypes; }, [hiddenTypes]);
+
+  // ── Lyrics overlay ───────────────────────────────────────────────────────────
+  const [showLyrics, setShowLyrics]   = useState(true);
+  const showLyricsRef                 = useRef(true);
+  useEffect(() => { showLyricsRef.current = showLyrics; }, [showLyrics]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const lyricsSpritesRef              = useRef<any[]>([]);
+  const lyricsDataCacheRef            = useRef<Record<string, string[]> | null>(null);
 
   // ── Tour mode ─────────────────────────────────────────────────────────────────
   const [tourMode, setTourMode]               = useState(false);
@@ -155,8 +170,7 @@ export default function CinemaPage() {
   const isTransRef      = useRef(false);
   const simNodesRef     = useRef<CinemaNode[]>([]);
   const labelMapRef     = useRef<Map<string, any>>(new Map());
-  const labelShowRef    = useRef(DEFAULT_LABEL_SHOW);
-  const labelFullRef    = useRef(DEFAULT_LABEL_FULL);
+  const labelDistancesRef = useRef(DEFAULT_LABEL_DISTANCES);
   const didFitRef       = useRef(false);
   const containerRef    = useRef<HTMLDivElement>(null);
   const lastMoveRef     = useRef(Date.now());
@@ -387,8 +401,7 @@ export default function CinemaPage() {
         // Proximity label opacity
         if (camera) {
           const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
-          const showDist = labelShowRef.current;
-          const fullDist = labelFullRef.current;
+          const ld = labelDistancesRef.current;
           for (const n of simNodesRef.current) {
             const sprite = labelMapRef.current.get(n.id);
             if (!sprite) continue;
@@ -397,6 +410,10 @@ export default function CinemaPage() {
             if (n.x == null) { sprite.visible = false; continue; }
             const dx = (n.x ?? 0) - cx, dy = (n.y ?? 0) - cy, dz = (n.z ?? 0) - cz;
             const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            const showDist = n.type === 'artist' ? ld.artist
+              : n.type === 'album' ? ld.album
+              : n.type === 'song' ? ld.song : ld.other;
+            const fullDist = Math.round(showDist * 0.32);
             if (dist >= showDist) {
               sprite.visible = false;
             } else {
@@ -427,6 +444,77 @@ export default function CinemaPage() {
     }, 500);
     return () => { window.removeEventListener('mousemove', onMove); clearInterval(iv); };
   }, [socialMode]);
+
+  // ── Lyrics sprites for Lyrical DNA scene ─────────────────────────────────────
+
+  useEffect(() => {
+    const scene = CINEMA_SCENES[currentSceneIdx];
+    if (!scene || scene.id !== 'lyrical-dna' || !showLyrics) {
+      cleanupLyricsSprites();
+      return;
+    }
+    if (!simNodes.length) return;
+
+    const addSprites = async () => {
+      try {
+        let lyricMap = lyricsDataCacheRef.current;
+        if (!lyricMap) {
+          const qs = selectedBandIds.length ? `?bandIds=${selectedBandIds.join(',')}` : '';
+          const data: { albums: Array<{ songs: Array<{ id: string; lyricText: string }> }> } =
+            await api.get(`/api/public/lyrics-universe${qs}`);
+          lyricMap = {};
+          for (const alb of data.albums) {
+            for (const s of alb.songs) {
+              const lines = s.lyricText
+                .split('\n')
+                .map(l => l.trim())
+                .filter(l => l.length > 0)
+                .slice(0, 5);
+              lyricMap[`song:${s.id}`] = lines;
+            }
+          }
+          lyricsDataCacheRef.current = lyricMap;
+        }
+
+        cleanupLyricsSprites();
+        const threeScene = fgRef.current?.scene?.();
+        if (!threeScene) return;
+
+        const newSprites: any[] = [];
+        for (const [nodeId, lines] of Object.entries(lyricMap)) {
+          const node = simNodes.find(n => n.id === nodeId);
+          if (!node || node.x == null) continue;
+          lines.forEach((line, li) => {
+            if (!line.trim()) return;
+            const sp = new SpriteText(line.slice(0, 60));
+            sp.color = 'rgba(199,210,254,0.65)';
+            sp.textHeight = 2.8;
+            sp.fontFace = 'Georgia, serif';
+            sp.backgroundColor = 'rgba(3,7,18,0.5)';
+            sp.padding = 1;
+            const angle = li * 0.9 + nodeId.charCodeAt(5) * 0.1;
+            (sp as any).position.set(
+              (node.x ?? 0) + Math.sin(angle) * 18,
+              (node.y ?? 0) + 14 + li * 7,
+              (node.z ?? 0) + Math.cos(angle) * 18,
+            );
+            threeScene.add(sp as any);
+            newSprites.push(sp as any);
+          });
+        }
+        lyricsSpritesRef.current = newSprites;
+      } catch (_e) {
+        // Lyrics not available — scene still works without them
+      }
+    };
+
+    const timer = setTimeout(addSprites, 1800);
+    return () => {
+      clearTimeout(timer);
+      cleanupLyricsSprites();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSceneIdx, showLyrics, simNodes]);
 
   // ── Social mode ───────────────────────────────────────────────────────────────
 
@@ -535,6 +623,29 @@ export default function CinemaPage() {
     setSimReady(true);
   }, [simNodes]);
 
+  const onNodeClick = useCallback((node: object) => {
+    const n = node as CinemaNode;
+    setSelectedNode(prev => prev?.id === n.id ? null : n);
+    if (!isPlayingRef.current) {
+      const ctrl = fgRef.current?.controls?.();
+      if (ctrl && n.x != null) {
+        orbitAnimRef.current = {
+          sx: ctrl.target.x, sy: ctrl.target.y, sz: ctrl.target.z,
+          tx: n.x, ty: n.y ?? 0, tz: n.z ?? 0,
+          t0: performance.now(), dur: 600,
+        };
+      }
+    }
+  }, []);
+
+  function cleanupLyricsSprites() {
+    const scene = fgRef.current?.scene?.();
+    for (const s of lyricsSpritesRef.current) {
+      scene?.remove(s);
+    }
+    lyricsSpritesRef.current = [];
+  }
+
   // ── Derived ───────────────────────────────────────────────────────────────────
 
   const currentScene = CINEMA_SCENES[currentSceneIdx];
@@ -583,6 +694,7 @@ export default function CinemaPage() {
           cooldownTicks={simReady ? 0 : 120}
           d3VelocityDecay={0.4}
           onEngineStop={onEngineStop}
+          onNodeClick={onNodeClick}
           width={window.innerWidth}
           height={window.innerHeight}
         />
@@ -764,6 +876,23 @@ export default function CinemaPage() {
                 Reset to defaults
               </button>
 
+              {/* Label distances */}
+              <div className="border-t border-gray-800 pt-3 space-y-2">
+                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Label Show Distance</div>
+                {(['artist', 'album', 'song', 'other'] as const).map(t => (
+                  <label key={t} className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span className="capitalize">{t === 'other' ? 'Tag / Theme' : t}</span>
+                      <span>{labelDistances[t]}</span>
+                    </div>
+                    <input type="range" min="50" max="1200" step="10"
+                      value={labelDistances[t]}
+                      onChange={e => setLabelDistances(prev => ({ ...prev, [t]: Number(e.target.value) }))}
+                      className="w-full accent-indigo-500" />
+                  </label>
+                ))}
+              </div>
+
               {/* Node type visibility */}
               <div className="border-t border-gray-800 pt-3 space-y-2">
                 <div className="flex items-center justify-between">
@@ -792,6 +921,71 @@ export default function CinemaPage() {
                         />
                         <span className={hidden ? 'line-through' : ''}>{TYPE_LABELS[type] ?? type}</span>
                         <span className="ml-auto text-[10px] text-gray-700">{hidden ? 'hidden' : '✓'}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Lyrics overlay (Lyrical DNA scene) */}
+              <div className="border-t border-gray-800 pt-3">
+                <button
+                  onClick={() => setShowLyrics(v => !v)}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                    showLyrics ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-700 hover:text-gray-500'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${showLyrics ? 'bg-indigo-500' : 'bg-gray-700'}`} />
+                  <span className={showLyrics ? '' : 'line-through'}>Lyric text overlay</span>
+                  <span className="ml-auto text-[10px] text-gray-700">{showLyrics ? '✓' : 'hidden'}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Selected node info ── */}
+          {selectedNode && (
+            <div className="absolute bottom-20 left-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-3 backdrop-blur-sm w-60 shadow-2xl max-h-96 overflow-y-auto">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="shrink-0">{TYPE_ICONS[selectedNode.type] ?? '•'}</span>
+                  <span className="text-xs font-semibold text-white truncate">{selectedNode.label}</span>
+                </div>
+                <button onClick={() => setSelectedNode(null)} className="shrink-0 text-gray-600 hover:text-gray-400 ml-2">✕</button>
+              </div>
+              <div className="text-[10px] text-gray-500 mb-2">{TYPE_LABELS[selectedNode.type] ?? selectedNode.type}</div>
+
+              {/* Spectrum scores */}
+              {!!selectedNode.data?.scores && (
+                <div className="space-y-1 mb-3 border-t border-gray-800 pt-2">
+                  <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-1">Spectrum</div>
+                  {Object.entries(selectedNode.data.scores as Record<string, number>).map(([axis, val]) => (
+                    <div key={axis} className="flex items-center gap-2">
+                      <span className="text-[10px] text-gray-500 w-18 capitalize shrink-0">{axis}</span>
+                      <div className="flex-1 bg-gray-800 rounded-full h-1">
+                        <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${Math.min(100, val * 10)}%` }} />
+                      </div>
+                      <span className="text-[10px] text-gray-400 w-4 text-right">{val}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Connections */}
+              <div className="border-t border-gray-800 pt-2">
+                <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-1">
+                  Connected ({adjRef.current.get(selectedNode.id)?.size ?? 0})
+                </div>
+                <div className="space-y-0.5 max-h-32 overflow-y-auto">
+                  {[...(adjRef.current.get(selectedNode.id) ?? [])].slice(0, 12).map(connId => {
+                    const connNode = simNodes.find(n => n.id === connId);
+                    if (!connNode) return null;
+                    return (
+                      <button key={connId}
+                        onClick={() => setSelectedNode(connNode)}
+                        className="w-full text-left text-[11px] text-gray-400 flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-gray-800 hover:text-white transition-colors">
+                        <span className="shrink-0">{TYPE_ICONS[connNode.type] ?? '•'}</span>
+                        <span className="truncate">{connNode.label}</span>
                       </button>
                     );
                   })}

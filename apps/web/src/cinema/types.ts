@@ -11,6 +11,11 @@ export interface CinemaNode {
   x?: number; y?: number; z?: number;
   vx?: number; vy?: number; vz?: number;
   fx?: number; fy?: number; fz?: number;
+  // Payload from graph API (e.g. axis scores on song nodes, bandId, etc.)
+  data?: {
+    scores?: { aggression: number; complexity: number; atmosphere: number; emotion: number; psychedelic: number; concept: number };
+    [key: string]: unknown;
+  };
 }
 
 export interface CinemaLink {

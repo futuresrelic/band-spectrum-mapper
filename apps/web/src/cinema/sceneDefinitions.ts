@@ -223,7 +223,7 @@ export const CINEMA_SCENES: CinemaScene[] = [
     description: 'A sweeping orbital view of the emotional similarity constellation',
     emoji: '💜',
     durationMs: 30_000,
-    arrangeMode: 'radial',
+    arrangeMode: 'emotional-spectrum',
     enter(fg) {
       setTimeout(() => fg?.zoomToFit?.(1200, 60), 1900);
       return {};
@@ -232,11 +232,12 @@ export const CINEMA_SCENES: CinemaScene[] = [
       const camera = getCamera(fg);
       const ctrl   = getCtrl(fg);
       if (!camera || !ctrl) return;
-      const angle = elapsedMs * 0.00005 * controls.orbitSpeed;
-      const dist  = 720;
-      camera.position.x = Math.sin(angle) * dist;
-      camera.position.y = 220 - Math.sin(elapsedMs * 0.00009) * 70;
-      camera.position.z = Math.cos(angle) * dist;
+      const dist  = 480;
+      const angle = elapsedMs * 0.00004 * controls.orbitSpeed;
+      const tilt  = elapsedMs * 0.00003;
+      camera.position.x = Math.sin(angle) * dist * Math.cos(tilt);
+      camera.position.y = 200 + Math.sin(elapsedMs * 0.00007) * 150;
+      camera.position.z = Math.cos(angle) * dist * Math.cos(tilt);
       ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
       camera.lookAt(0, 0, 0);
     },
@@ -249,26 +250,23 @@ export const CINEMA_SCENES: CinemaScene[] = [
     description: 'A slow zoom into the heart of the music galaxy',
     emoji: '🧬',
     durationMs: 35_000,
-    arrangeMode: 'galaxy',
+    arrangeMode: 'helix',
     enter(fg) {
-      const camera = getCamera(fg);
-      const ctrl   = getCtrl(fg);
-      if (camera) { camera.position.x = 0; camera.position.y = 120; camera.position.z = 1100; }
-      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      setTimeout(() => fg?.zoomToFit?.(1600, 80), 2000);
       return {};
     },
     tick(fg, _n, _a, elapsedMs, _s, controls) {
       const camera = getCamera(fg);
       const ctrl   = getCtrl(fg);
       if (!camera || !ctrl) return;
-      const t     = Math.min(1, elapsedMs / 35_000);
-      const angle = elapsedMs * 0.00003 * controls.orbitSpeed;
-      const z     = 1100 - t * 800;
-      camera.position.x = Math.sin(angle) * 90;
-      camera.position.y = 120 - t * 70;
-      camera.position.z = z;
-      ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
-      camera.lookAt(0, 0, 0);
+      const angle = elapsedMs * 0.00004 * controls.orbitSpeed;
+      const r = 320;
+      const y = Math.sin(elapsedMs * 0.00005) * 180;
+      camera.position.x = Math.sin(angle) * r;
+      camera.position.y = y;
+      camera.position.z = Math.cos(angle) * r;
+      ctrl.target.x = 0; ctrl.target.y = y * 0.3; ctrl.target.z = 0;
+      camera.lookAt(0, y * 0.3, 0);
     },
   },
 
@@ -295,6 +293,32 @@ export const CINEMA_SCENES: CinemaScene[] = [
       const dist  = 520;
       camera.position.x = Math.sin(angle) * dist;
       camera.position.y = 420 - Math.sin(elapsedMs * 0.00006) * 120;
+      camera.position.z = Math.cos(angle) * dist;
+      ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
+    },
+  },
+
+  // ── 9. Genre Web ────────────────────────────────────────────────────────────
+  {
+    id: 'genre-web',
+    name: 'Genre Web',
+    description: 'Songs cluster around their genres and themes — explore the musical taxonomy',
+    emoji: '🎸',
+    durationMs: 35_000,
+    arrangeMode: 'genre-web',
+    enter(fg) {
+      setTimeout(() => fg?.zoomToFit?.(1400, 60), 1900);
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      const angle = elapsedMs * 0.00005 * controls.orbitSpeed;
+      const dist  = 680;
+      camera.position.x = Math.sin(angle) * dist;
+      camera.position.y = 180 + Math.sin(elapsedMs * 0.00008) * 80;
       camera.position.z = Math.cos(angle) * dist;
       ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
       camera.lookAt(0, 0, 0);

@@ -4,7 +4,7 @@
  * without duplicating ~200 lines of pure math.
  */
 
-export type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system';
+export type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system' | 'helix' | 'emotional-spectrum' | 'genre-web';
 
 /** Minimal shape required for layout computation. */
 export interface ArrangeNode {
@@ -140,6 +140,197 @@ export function computeArrangeTargets<N extends ArrangeNode>(
     others.forEach((n, i) => {
       const phi = (i / Math.max(1, others.length)) * 2 * Math.PI;
       out.set(n.id, { x: beltR * Math.cos(phi), y: Math.sin(i * 0.618) * 45, z: beltR * Math.sin(phi) });
+    });
+
+  } else if (mode === 'helix') {
+    const songs   = nodes.filter(n => n.type === 'song');
+    const albums  = nodes.filter(n => n.type === 'album');
+    const artists = nodes.filter(n => n.type === 'artist');
+    const others  = nodes.filter(n => !['song', 'album', 'artist'].includes(n.type));
+    const songCount = songs.length;
+
+    // Two interleaved strands spiraling up Y axis
+    songs.forEach((n, i) => {
+      const step   = i;
+      const strand = i % 2;
+      const angle  = step * 0.72 + (strand === 1 ? Math.PI : 0);
+      const radius = 120;
+      const pitch  = 22;
+      const yCenter = (songCount / 2) * pitch / 2;
+      out.set(n.id, {
+        x: radius * Math.cos(angle),
+        y: step * pitch - yCenter,
+        z: radius * Math.sin(angle),
+      });
+    });
+
+    // Albums in an outer ring
+    const albumR = Math.max(220, 180 + albums.length * 4);
+    albums.forEach((n, i) => {
+      const phi = (i / Math.max(1, albums.length)) * 2 * Math.PI;
+      out.set(n.id, {
+        x: albumR * Math.cos(phi),
+        y: Math.sin(i * 1.618) * 30,
+        z: albumR * Math.sin(phi),
+      });
+    });
+
+    // Artists at the base
+    const yBase = -(songCount / 2) * 22 / 2 - 90;
+    artists.forEach((n, i) => {
+      const phi = (i / Math.max(1, artists.length)) * 2 * Math.PI;
+      out.set(n.id, {
+        x: 70 * Math.cos(phi),
+        y: yBase,
+        z: 70 * Math.sin(phi),
+      });
+    });
+
+    // Outer ring for tags, themes, keywords, emotions
+    others.forEach((n, i) => {
+      const phi = (i / Math.max(1, others.length)) * 2 * Math.PI;
+      out.set(n.id, {
+        x: 300 * Math.cos(phi),
+        y: Math.sin(i * 0.618) * 60,
+        z: 300 * Math.sin(phi),
+      });
+    });
+
+  } else if (mode === 'emotional-spectrum') {
+    const SCALE = 320;
+    const songs   = nodes.filter(n => n.type === 'song');
+    const artists = nodes.filter(n => n.type === 'artist');
+    const albums  = nodes.filter(n => n.type === 'album');
+    const others  = nodes.filter(n => !['song', 'artist', 'album'].includes(n.type));
+
+    // Emotion axis extremes
+    const EMOTION_AXIS: Record<string, { x: number; y: number; z: number }> = {
+      'emotion:aggression':  { x: SCALE,        y: 0,            z: 0 },
+      'emotion:atmosphere':  { x: 0,             y: 0,            z: SCALE },
+      'emotion:emotion':     { x: 0,             y: SCALE,        z: 0 },
+      'emotion:psychedelic': { x: -SCALE,        y: 0,            z: 0 },
+      'emotion:concept':     { x: 0,             y: -SCALE,       z: 0 },
+      'emotion:complexity':  { x: -SCALE * 0.7,  y: SCALE * 0.7,  z: 0 },
+    };
+
+    let songScatterIdx = 0;
+    songs.forEach((n, idx) => {
+      const scores = (n as any).data?.scores as Record<string, number> | undefined;
+      if (scores && typeof scores === 'object') {
+        const agg  = scores['aggression']  ?? 5;
+        const emo  = scores['emotion']     ?? 5;
+        const psy  = scores['psychedelic'] ?? 5;
+        out.set(n.id, {
+          x: (agg - 5) * (SCALE / 5),
+          y: (emo - 5) * (SCALE / 5),
+          z: (psy - 5) * (SCALE / 5),
+        });
+      } else {
+        // Scatter using golden angle
+        const i   = songScatterIdx++;
+        const phi = idx * 2.399;
+        const r   = 180 + Math.sqrt(i) * 8;
+        out.set(n.id, {
+          x: r * Math.cos(phi),
+          y: Math.sin(idx * 0.7) * 60,
+          z: r * Math.sin(phi),
+        });
+      }
+    });
+
+    artists.forEach((n, i) => {
+      const phi = (i / Math.max(1, artists.length)) * 2 * Math.PI;
+      const r   = SCALE * 1.6;
+      out.set(n.id, { x: r * Math.cos(phi), y: 0, z: r * Math.sin(phi) });
+    });
+
+    albums.forEach((n, i) => {
+      const phi = (i / Math.max(1, albums.length)) * 2 * Math.PI;
+      const r   = SCALE * 1.2;
+      out.set(n.id, { x: r * Math.cos(phi), y: Math.sin(i * 1.2) * 50, z: r * Math.sin(phi) });
+    });
+
+    others.forEach((n, i) => {
+      const knownPos = EMOTION_AXIS[n.id];
+      if (knownPos) {
+        out.set(n.id, knownPos);
+      } else if (n.id.startsWith('emotion:')) {
+        out.set(n.id, { x: SCALE, y: SCALE * 0.5, z: SCALE * 0.5 });
+      } else {
+        const phi = (i / Math.max(1, others.length)) * 2 * Math.PI;
+        const r   = SCALE * 1.8;
+        out.set(n.id, { x: r * Math.cos(phi), y: Math.sin(i * 0.618) * 50, z: r * Math.sin(phi) });
+      }
+    });
+
+  } else if (mode === 'genre-web') {
+    const tags    = nodes.filter(n => n.type === 'tag' || n.type === 'theme');
+    const albums  = nodes.filter(n => n.type === 'album');
+    const songs   = nodes.filter(n => n.type === 'song');
+    const artists = nodes.filter(n => n.type === 'artist');
+    const keywords = nodes.filter(n => n.type === 'keyword' || n.type === 'emotion');
+
+    // Step 1: Place tags/themes in a ring at r=160, staggered Y
+    const tagPositions = new Map<string, { x: number; y: number; z: number }>();
+    tags.forEach((n, i) => {
+      const phi = (i / Math.max(1, tags.length)) * 2 * Math.PI;
+      const pos = {
+        x: 160 * Math.cos(phi),
+        y: Math.sin(i * 1.618) * 30,
+        z: 160 * Math.sin(phi),
+      };
+      tagPositions.set(n.id, pos);
+      out.set(n.id, pos);
+    });
+
+    // Step 2: Albums at r=340
+    albums.forEach((n, i) => {
+      const phi = (i / Math.max(1, albums.length)) * 2 * Math.PI;
+      out.set(n.id, { x: 340 * Math.cos(phi), y: 0, z: 340 * Math.sin(phi) });
+    });
+
+    // Step 3: Songs cluster near connected tag/theme nodes
+    songs.forEach((n) => {
+      const connectedTagIds = [...(adj.get(n.id) ?? [])].filter(id => tagPositions.has(id));
+      if (connectedTagIds.length > 0) {
+        let cx = 0, cy = 0, cz = 0;
+        for (const tid of connectedTagIds) {
+          const tp = tagPositions.get(tid)!;
+          cx += tp.x; cy += tp.y; cz += tp.z;
+        }
+        cx /= connectedTagIds.length;
+        cy /= connectedTagIds.length;
+        cz /= connectedTagIds.length;
+        // Random offset: r between 30-60
+        const seedVal = n.id.charCodeAt(0) + n.id.charCodeAt(n.id.length - 1);
+        const rOffset = 30 + (seedVal % 30);
+        const angle   = seedVal * 0.5;
+        out.set(n.id, {
+          x: cx + Math.cos(angle) * rOffset,
+          y: cy + Math.sin(seedVal * 0.3) * 20,
+          z: cz + Math.sin(angle) * rOffset,
+        });
+      } else {
+        const seedVal = n.id.charCodeAt(0) + n.id.charCodeAt(n.id.length - 1);
+        const phi     = seedVal * 2.399;
+        out.set(n.id, {
+          x: 240 * Math.cos(phi),
+          y: Math.sin(seedVal * 0.5) * 30,
+          z: 240 * Math.sin(phi),
+        });
+      }
+    });
+
+    // Step 4: Artists at r=520
+    artists.forEach((n, i) => {
+      const phi = (i / Math.max(1, artists.length)) * 2 * Math.PI;
+      out.set(n.id, { x: 520 * Math.cos(phi), y: 0, z: 520 * Math.sin(phi) });
+    });
+
+    // Step 5: Keywords/emotions at r=420
+    keywords.forEach((n, i) => {
+      const phi = (i / Math.max(1, keywords.length)) * 2 * Math.PI;
+      out.set(n.id, { x: 420 * Math.cos(phi), y: Math.sin(i * 0.618) * 40, z: 420 * Math.sin(phi) });
     });
   }
 
