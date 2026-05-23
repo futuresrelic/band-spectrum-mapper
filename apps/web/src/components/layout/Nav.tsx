@@ -15,6 +15,7 @@ const links = [
   { to: '/song-spectrum',  label: 'Song Spectrum' },
   { to: '/word-cloud',     label: 'Word Cloud' },
   { to: '/cinema',           label: 'Cinema Mode' },
+  { to: '/cinema/lyrics',   label: 'Lyrics Universe' },
   { to: '/song-nodes',      label: 'Song Nodes' },
   { to: '/spectrum-studio', label: 'Spectrum Studio' },
   { to: '/trivia',          label: 'Trivia' },
@@ -39,7 +40,7 @@ export default function Nav({ onClose }: { onClose?: () => void }) {
   const { user, login, logout } = useAuth();
 
   return (
-    <nav className="w-52 shrink-0 bg-surface-900 text-white flex flex-col h-full min-h-screen">
+    <nav className="w-52 shrink-0 bg-surface-900 text-white flex flex-col h-full min-h-screen overflow-hidden">
       <div className="px-4 py-6 border-b border-surface-800 flex items-start justify-between">
         <div>
           <span className="text-xs font-semibold uppercase tracking-widest text-surface-200">
@@ -58,7 +59,7 @@ export default function Nav({ onClose }: { onClose?: () => void }) {
         )}
       </div>
 
-      <ul className="flex-1 py-4 space-y-0.5">
+      <ul className="flex-1 overflow-y-auto py-4 space-y-0.5">
         {links.map(({ to, label }) => (
           <li key={to}>
             <NavLink

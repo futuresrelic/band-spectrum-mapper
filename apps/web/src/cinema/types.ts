@@ -20,15 +20,32 @@ export interface CinemaLink {
   weight: number;
 }
 
+/** Camera and playback controls exposed to every scene's tick() function. */
+export interface CinemaControls {
+  /** Orbit angular speed multiplier. 1 = normal (~one rotation per ~6s). */
+  orbitSpeed: number;
+  /** Radial distance from target node during orbit. */
+  approachDist: number;
+  /** Camera Y elevation above the target node during orbit. */
+  elevationOffset: number;
+  /** Global scene-timer speed multiplier (affects dwell timings). */
+  speedMultiplier: number;
+}
+
+export const DEFAULT_CINEMA_CONTROLS: CinemaControls = {
+  orbitSpeed: 1,
+  approachDist: 120,
+  elevationOffset: 55,
+  speedMultiplier: 1,
+};
+
 /**
  * A named Cinema scene: defines the arrangement, camera choreography, and duration.
  *
  * enter() is called once when the scene starts — set up initial camera position and
  * return a state object that will be passed back to tick() every frame.
  *
- * tick() is called every rAF frame while the scene is active. Modify camera.position /
- * controls.target here for continuous motion. May also call fg.cameraPosition() for
- * periodic fly-to animations.
+ * tick() is called every rAF frame while the scene is active.
  */
 export interface CinemaScene {
   id: string;
@@ -45,5 +62,16 @@ export interface CinemaScene {
     adj: Map<string, Set<string>>,
     elapsedMs: number,
     state: unknown,
+    controls: CinemaControls,
   ) => void;
+}
+
+/** One step in a user-authored tour. */
+export interface TourStep {
+  id: string;
+  nodeId: string;
+  nodeLabel: string;
+  nodeType: string;
+  /** How long to orbit before advancing (ms). */
+  dwellMs: number;
 }

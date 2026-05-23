@@ -366,3 +366,47 @@ publicRouter.get('/word-hunt/reveal', async (req, res, next): Promise<void> => {
     res.json({ songs: results });
   } catch (e) { next(e); }
 });
+
+// ── Lyrics Universe ─────────────────────────────────────────────────────────
+// Returns albums with primary lyrics per song, for the 3D lyrics spiral view.
+
+publicRouter.get('/lyrics-universe', async (req, res, next) => {
+  try {
+    const bandIdsRaw = ((req.query['bandIds'] as string) ?? '');
+    const bandIds    = bandIdsRaw ? bandIdsRaw.split(',').filter(Boolean) : [];
+
+    const albums = await prisma.album.findMany({
+      where: {
+        ...(bandIds.length ? { bandId: { in: bandIds } } : {}),
+        songs: { some: { lyrics: { some: { isPrimary: true } } } },
+      },
+      include: {
+        band: { select: { name: true } },
+        songs: {
+          where: { lyrics: { some: { isPrimary: true } } },
+          take: 12,
+          orderBy: { trackNumber: 'asc' },
+          include: {
+            lyrics: { where: { isPrimary: true }, select: { text: true }, take: 1 },
+          },
+        },
+      },
+      orderBy: { year: 'asc' },
+      take: 8,
+    });
+
+    const result = albums.map(a => ({
+      id:       a.id,
+      title:    a.title,
+      year:     a.year,
+      bandName: a.band.name,
+      songs: a.songs.map(s => ({
+        id:        s.id,
+        title:     s.title,
+        lyricText: s.lyrics[0]?.text ?? '',
+      })),
+    }));
+
+    res.json({ albums: result });
+  } catch (e) { next(e); }
+});

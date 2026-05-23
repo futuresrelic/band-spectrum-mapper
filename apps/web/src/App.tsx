@@ -52,6 +52,7 @@ import GamesPage from './pages/GamesPage';
 import GraphHuntPage from './pages/GraphHuntPage';
 import SpectrumStudioPage from './pages/SpectrumStudioPage';
 import CinemaPage from './pages/CinemaPage';
+import LyricsUniversePage from './pages/LyricsUniversePage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -99,6 +100,7 @@ export default function App() {
         <Route path="/view/:bandSlug" element={<ViewerBandPage />} />
         <Route path="/explore"          element={<ExplorePage />} />
         <Route path="/cinema"           element={<CinemaPage />} />
+        <Route path="/cinema/lyrics"   element={<LyricsUniversePage />} />
         <Route path="/leaderboard"     element={<LeaderboardPage />} />
         <Route path="/games"           element={<GamesPage />} />
         <Route path="/graph-hunt"      element={<GraphHuntPage />} />
