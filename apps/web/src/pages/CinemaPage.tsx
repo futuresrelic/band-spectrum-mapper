@@ -27,6 +27,7 @@ import { CINEMA_SCENES } from '../cinema/sceneDefinitions';
 import { initOrbitState, updateOrbitCamera, type OrbitCameraState } from '../cinema/orbitCamera';
 import type { CinemaNode, CinemaLink, CinemaControls, TourStep } from '../cinema/types';
 import { DEFAULT_CINEMA_CONTROLS } from '../cinema/types';
+import { CINEMA_THEMES, getTheme, DEFAULT_THEME_ID, type CinemaTheme } from '../cinema/themes';
 import TourPlanner from '../cinema/TourPlanner';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -100,6 +101,12 @@ export default function CinemaPage() {
   const [showBandPicker, setShowBandPicker]       = useState(false);
   const [showWatermark, setShowWatermark]         = useState(true);
   const [simReady, setSimReady]                   = useState(false);
+
+  // ── Visual theme ─────────────────────────────────────────────────────────────
+  const [selectedThemeId, setSelectedThemeId] = useState(DEFAULT_THEME_ID);
+  const currentTheme  = useMemo(() => getTheme(selectedThemeId), [selectedThemeId]);
+  const currentThemeRef = useRef<CinemaTheme>(getTheme(DEFAULT_THEME_ID));
+  useEffect(() => { currentThemeRef.current = currentTheme; }, [currentTheme]);
 
   // ── Controls ─────────────────────────────────────────────────────────────────
   const [showControls, setShowControls]     = useState(false);
@@ -560,14 +567,14 @@ export default function CinemaPage() {
   const nodeColor = useCallback((node: object) => {
     const n = node as CinemaNode;
     if (tourMode && n.id === tourHighlightedId) return HIGHLIGHT_COLOR;
-    return TYPE_COLOR[n.type] ?? '#4b5563';
-  }, [tourMode, tourHighlightedId]);
+    return currentTheme.nodeColors[n.type] ?? '#4b5563';
+  }, [tourMode, tourHighlightedId, currentTheme]);
 
   const nodeVal = useCallback((node: object) => {
     const n = node as CinemaNode;
     if (tourMode && n.id === tourHighlightedId) return 12;
-    return nodeValFor(n.type);
-  }, [tourMode, tourHighlightedId]);
+    return nodeValFor(n.type) * currentTheme.nodeValMultiplier;
+  }, [tourMode, tourHighlightedId, currentTheme]);
 
   // Link highlighting: bright white for active node's edges, indigo for all tour-node edges
   const linkColor = useCallback((link: object) => {
@@ -582,8 +589,8 @@ export default function CinemaPage() {
         return 'rgba(165,180,252,0.55)';
       }
     }
-    return 'rgba(100,116,139,0.2)';
-  }, [tourMode, tourHighlightedId, tourNodeIds]);
+    return currentThemeRef.current.linkColor;
+  }, [tourMode, tourHighlightedId, tourNodeIds, currentTheme]);
 
   const linkWidth = useCallback((link: object) => {
     if (tourMode) {
@@ -593,8 +600,8 @@ export default function CinemaPage() {
       if (tourHighlightedId && (srcId === tourHighlightedId || tgtId === tourHighlightedId)) return 2;
       if (tourNodeIds.size > 0 && (tourNodeIds.has(srcId) || tourNodeIds.has(tgtId))) return 1;
     }
-    return 0.4;
-  }, [tourMode, tourHighlightedId, tourNodeIds]);
+    return 0.4 * currentThemeRef.current.linkWidthMultiplier;
+  }, [tourMode, tourHighlightedId, tourNodeIds, currentTheme]);
 
   const nodeThreeObject = useCallback((node: object) => {
     const n      = node as CinemaNode;
@@ -673,6 +680,7 @@ export default function CinemaPage() {
     >
       {/* 3D graph */}
       {simNodes.length > 0 && (
+        <div style={{ filter: currentTheme.cssFilter || undefined }}>
         <ForceGraph3D
           ref={fgRef}
           graphData={visibleGraphData}
@@ -681,14 +689,14 @@ export default function CinemaPage() {
           nodeColor={nodeColor}
           nodeVal={nodeVal}
           nodeRelSize={BASE_NODE_REL}
-          nodeOpacity={0.92}
+          nodeOpacity={currentTheme.nodeOpacity}
           nodeResolution={8}
           nodeThreeObjectExtend
           nodeThreeObject={nodeThreeObject}
           linkColor={linkColor}
           linkWidth={linkWidth}
           linkOpacity={0.85}
-          backgroundColor="#030712"
+          backgroundColor={currentTheme.backgroundColor}
           showNavInfo={false}
           warmupTicks={simReady ? 0 : 80}
           cooldownTicks={simReady ? 0 : 120}
@@ -698,6 +706,7 @@ export default function CinemaPage() {
           width={window.innerWidth}
           height={window.innerHeight}
         />
+        </div>
       )}
 
       {/* Fade overlay */}
@@ -939,6 +948,27 @@ export default function CinemaPage() {
                   <span className={showLyrics ? '' : 'line-through'}>Lyric text overlay</span>
                   <span className="ml-auto text-[10px] text-gray-700">{showLyrics ? '✓' : 'hidden'}</span>
                 </button>
+              </div>
+
+              {/* Visual theme */}
+              <div className="border-t border-gray-800 pt-3 space-y-2">
+                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Visual Theme</div>
+                <div className="grid grid-cols-2 gap-1">
+                  {CINEMA_THEMES.map(theme => (
+                    <button
+                      key={theme.id}
+                      onClick={() => setSelectedThemeId(theme.id)}
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                        selectedThemeId === theme.id
+                          ? 'bg-indigo-900/60 border border-indigo-700/40 text-indigo-300'
+                          : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                      }`}
+                    >
+                      <span>{theme.emoji}</span>
+                      <span className="truncate">{theme.name}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
