@@ -53,6 +53,32 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## LyricsFlow — performance rewrite: forward path, visibility culling, expanded controls (2026-05-23)
+
+### Changed
+
+- **Architecture rewrite** (`apps/web/src/pages/LyricsFlowPage.tsx`):
+  - ForceGraph3D now renders an **empty graph** (zero nodes/links) — used only for its Three.js renderer. Eliminates all physics, force simulation, and node-object overhead for the 1 000+ lyric lines.
+  - SpriteText objects are added **directly to `fg.scene()`** (bypassing ForceGraph3D's node system), so positions update in-place without triggering re-renders.
+  - **Forward S-curve path** replaces helix layout: primary axis is Z (`z = i * stepZ`), X oscillates with `sin(i * 0.07) * wobble`. Eliminates the wrap-around overlap where adjacent helix turns rendered in front of each other.
+  - **Visibility culling**: sprites beyond `visibleRange` units have `.visible = false` — Three.js skips them entirely. Camera sees at most ~30–50 sprites per frame regardless of total count (1 000+).
+  - **Squared-distance check**: `dSq = dx²+dy²+dz²`, compared to `rangeSq` before any `Math.sqrt()`. `sqrt` called only for visible sprites to compute fade alpha.
+
+- **7-slider settings panel** (`FlowConfig` interface):
+  - `textSize` — lyric line font size
+  - `titleSize` — song title card font size
+  - `stepZ` — Z-axis spacing between entries
+  - `wobble` — X-axis oscillation amplitude
+  - `visibleRange` — culling radius around camera
+  - `lookBehind` — how many lines behind camera to keep active
+  - `lookAhead` — how many lines ahead camera aims toward
+  - Position-only config changes (`stepZ`, `wobble`) update sprite positions in-place; no scene rebuild needed.
+
+### Modified files
+- `apps/web/src/pages/LyricsFlowPage.tsx` — full architecture rewrite
+
+---
+
 ## Cinema Mode Phase 2 — smooth transitions, link highlighting, type visibility (2026-05-23)
 
 ### Fixed / Improved
