@@ -14,6 +14,7 @@ const links = [
   { to: '/social-planner', label: 'Content Planner' },
   { to: '/song-spectrum',  label: 'Song Spectrum' },
   { to: '/word-cloud',     label: 'Word Cloud' },
+  { to: '/cinema',           label: 'Cinema Mode' },
   { to: '/song-nodes',      label: 'Song Nodes' },
   { to: '/spectrum-studio', label: 'Spectrum Studio' },
   { to: '/trivia',          label: 'Trivia' },

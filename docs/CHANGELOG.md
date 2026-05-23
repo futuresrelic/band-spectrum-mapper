@@ -4,6 +4,66 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Cinema Mode — cinematic autoplay showcase engine (2026-05-23)
+
+### Added
+
+- **Cinema Mode page** (`/cinema`) — a fullscreen cinematic autoplay showcase for the graph.
+  - Accessible publicly (no auth required), linked from the SiteHeader and admin Nav.
+  - Loads the artist-universe graph (optional band filter) and cycles through 8 named scenes.
+  - Each scene has its own 3D arrangement and continuous camera choreography.
+
+- **8 named Cinema scenes** — each with distinct arrangement and camera motion:
+  1. **🌟 Artist Universe** — radial arrange, slow horizontal camera orbit
+  2. **🌌 Galaxy Drift** — galaxy arrange, camera descends from 900 units above
+  3. **🔮 Inside the Sphere** — sphere arrange, camera at centre looking outward, rotates look-at
+  4. **🪐 Solar System Tour** — solar-system arrange, flies to each artist node every 9 s
+  5. **✨ Node Flythrough** — natural arrange, random walk through connected songs/albums
+  6. **💜 Emotional Spectrum** — radial arrange, slow orbit at high altitude
+  7. **🧬 Lyrical DNA** — galaxy arrange, slow dolly in from 1 100 units
+  8. **🌍 Cosmic Overview** — sphere arrange, sweeping bird's-eye orbit
+
+- **Scene orchestration** — centralized timing + transition system:
+  - Progress bar counts down each scene's duration (configurable per scene).
+  - Fade-to-black overlay (CSS opacity transition, 700 ms) between scenes.
+  - Scene `enter()` fires on switch; `tick()` runs every rAF frame during playback.
+  - TrackballControls disabled during playback — camera is fully owned by the scene engine.
+  - TrackballControls re-enabled on pause so the user can freely orbit/zoom.
+
+- **Transport controls** — play/pause, prev/next, scene progress bar, scene selector playlist.
+  - Keyboard shortcuts: Space/K = play-pause, J/← = prev, L/→ = next, F = social mode.
+  - Scene playlist popup (click scene name): jump to any scene with fade transition.
+
+- **Social Mode** (press F or click 🎬):
+  - Fullscreen via `document.requestFullscreen()`.
+  - All UI chrome hidden — only a minimal transport row appears on mouse move.
+  - Cursor auto-hides after 3 s of inactivity.
+  - Optional watermark (Band Spectrum Mapper + scene name), toggleable mid-session.
+  - Exits cleanly via Esc or the Exit button.
+
+- **Band filter** — optional panel to restrict the graph to specific bands.
+  - Defaults to all bands (no bandIds param → full dataset).
+
+### Refactored
+
+- **Shared layout utilities** extracted to `apps/web/src/cinema/graphArrange.ts`:
+  - `easeInOutQuad`, `buildAdj`, `computeArrangeTargets`, `animateArrange` and `ArrangeMode` type.
+  - `ThreeDGraphView` now imports these instead of duplicating ~170 lines of pure math.
+  - No behaviour change to ThreeDGraphView — pure import refactor.
+
+### New files
+- `apps/web/src/cinema/graphArrange.ts` — shared 3D layout math
+- `apps/web/src/cinema/types.ts` — CinemaScene, CinemaNode, CinemaLink types
+- `apps/web/src/cinema/sceneDefinitions.ts` — 8 named scene objects
+- `apps/web/src/pages/CinemaPage.tsx` — the Cinema Mode page
+
+### Limitations
+- Cinema Mode fetches the artist-universe preset; it does not switch presets between scenes (avoids re-fetch delays that would break the cinematic flow).
+- Social Mode does not yet capture screenshots or video — this requires browser MediaRecorder + canvas capture, planned for a future phase.
+- BPM sync / beat-reactive motion is architecture-ready (tick functions receive elapsed ms) but not yet wired to audio tempo data.
+
+---
+
 ## 3D graph — WASD flight, 3D mode in Explore & Song Nodes, arrange modes (2026-05-22)
 
 ### Added

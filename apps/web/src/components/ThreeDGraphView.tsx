@@ -13,6 +13,13 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
 import type { GraphNode, GraphEdge } from '../api/songNodes';
+import {
+  easeInOutQuad,
+  buildAdj,
+  computeArrangeTargets,
+  animateArrange,
+} from '../cinema/graphArrange';
+import type { ArrangeMode } from '../cinema/graphArrange';
 
 // Manual quaternion-rotate so we don't need to import from 'three' (no bundled types in v0.184)
 function applyQuat(
@@ -75,25 +82,7 @@ function nodeValFor(type: string): number {
   }
 }
 
-// ── Adjacency ─────────────────────────────────────────────────────────────────
-
-function buildAdj(links: SimLink[]): Map<string, Set<string>> {
-  const adj = new Map<string, Set<string>>();
-  for (const l of links) {
-    const s = linkEndId(l.source);
-    const t = linkEndId(l.target);
-    if (!s || !t) continue;
-    if (!adj.has(s)) adj.set(s, new Set());
-    if (!adj.has(t)) adj.set(t, new Set());
-    adj.get(s)!.add(t);
-    adj.get(t)!.add(s);
-  }
-  return adj;
-}
-
 // ── Arrange modes ─────────────────────────────────────────────────────────────
-
-type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system';
 
 const ARRANGE_OPTIONS: { id: ArrangeMode; emoji: string; label: string; desc: string }[] = [
   { id: 'natural',      emoji: '⚛️', label: 'Natural',      desc: 'Physics-based organic clustering' },
@@ -102,152 +91,6 @@ const ARRANGE_OPTIONS: { id: ArrangeMode; emoji: string; label: string; desc: st
   { id: 'galaxy',       emoji: '🌌', label: 'Galaxy',        desc: 'Golden-angle spiral, densest at centre' },
   { id: 'solar-system', emoji: '🪐', label: 'Solar System',  desc: 'Artists as stars · albums orbit · songs orbit albums' },
 ];
-
-function easeInOutQuad(t: number) {
-  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-}
-
-function computeArrangeTargets(
-  nodes: SimNode[],
-  mode: ArrangeMode,
-  adj: Map<string, Set<string>>,
-): Map<string, { x: number; y: number; z: number }> {
-  const out = new Map<string, { x: number; y: number; z: number }>();
-
-  if (mode === 'radial') {
-    const RING: Record<string, number> = {
-      artist: 0, emotion: 90, album: 170, keyword: 170,
-      theme: 250, song: 340, tag: 420,
-    };
-    const byType = new Map<string, SimNode[]>();
-    for (const n of nodes) {
-      if (!byType.has(n.type)) byType.set(n.type, []);
-      byType.get(n.type)!.push(n);
-    }
-    for (const [type, group] of byType) {
-      const r = RING[type] ?? 340;
-      group.forEach((n, i) => {
-        const a = (i / group.length) * 2 * Math.PI;
-        out.set(n.id, {
-          x: r === 0 ? 0 : r * Math.cos(a),
-          y: Math.sin(i * 1.618 + type.charCodeAt(0)) * 28,
-          z: r === 0 ? 0 : r * Math.sin(a),
-        });
-      });
-    }
-
-  } else if (mode === 'sphere') {
-    const N = nodes.length;
-    const R = Math.max(160, Math.sqrt(N) * 16);
-    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-    nodes.forEach((n, i) => {
-      const y = 1 - (i / Math.max(1, N - 1)) * 2;
-      const r = Math.sqrt(Math.max(0, 1 - y * y));
-      const phi = goldenAngle * i;
-      out.set(n.id, { x: R * r * Math.cos(phi), y: R * y, z: R * r * Math.sin(phi) });
-    });
-
-  } else if (mode === 'galaxy') {
-    // Sort by degree descending; most-connected nodes closest to centre
-    const sorted = [...nodes].sort((a, b) =>
-      (adj.get(b.id)?.size ?? 0) - (adj.get(a.id)?.size ?? 0),
-    );
-    const GA = 2.399; // golden angle in radians
-    sorted.forEach((n, i) => {
-      const r = 20 + Math.sqrt(i) * 14;
-      const phi = i * GA;
-      // Galactic disk with tapered Y thickness
-      const diskThick = Math.max(0, 80 - r * 0.18);
-      const y = Math.sin(i * 0.53) * diskThick * 0.35;
-      out.set(n.id, { x: r * Math.cos(phi), y, z: r * Math.sin(phi) });
-    });
-
-  } else if (mode === 'solar-system') {
-    const artists = nodes.filter(n => n.type === 'artist');
-    const albums  = nodes.filter(n => n.type === 'album');
-    const songs   = nodes.filter(n => n.type === 'song');
-    const others  = nodes.filter(n => !['artist','album','song'].includes(n.type));
-
-    // Stars in a ring
-    const starR = Math.max(300, artists.length * 80);
-    artists.forEach((a, i) => {
-      const phi = (i / Math.max(1, artists.length)) * 2 * Math.PI;
-      out.set(a.id, { x: starR * Math.cos(phi), y: 0, z: starR * Math.sin(phi) });
-    });
-
-    // Albums orbit their artist
-    albums.forEach((alb) => {
-      const pa = artists.find(a => adj.get(a.id)?.has(alb.id) || adj.get(alb.id)?.has(a.id));
-      const siblings = albums.filter(b => {
-        const p = artists.find(a => adj.get(a.id)?.has(b.id) || adj.get(b.id)?.has(a.id));
-        return p?.id === pa?.id;
-      });
-      const idx = siblings.indexOf(alb);
-      const phi = (idx / Math.max(1, siblings.length)) * 2 * Math.PI;
-      const orbitR = 70 + siblings.length * 6;
-      const base = pa ? (out.get(pa.id) ?? { x: starR + 160, y: 0, z: 0 }) : { x: starR + 160, y: 0, z: 0 };
-      out.set(alb.id, {
-        x: base.x + orbitR * Math.cos(phi),
-        y: orbitR * 0.28 * Math.sin(phi * 2),
-        z: base.z + orbitR * Math.sin(phi),
-      });
-    });
-
-    // Songs orbit their album
-    songs.forEach((song) => {
-      const pa = albums.find(a => adj.get(a.id)?.has(song.id) || adj.get(song.id)?.has(a.id));
-      const siblings = songs.filter(s => {
-        const p = albums.find(a => adj.get(a.id)?.has(s.id) || adj.get(s.id)?.has(a.id));
-        return p?.id === pa?.id;
-      });
-      const idx = siblings.indexOf(song);
-      const phi = (idx / Math.max(1, siblings.length)) * 2 * Math.PI;
-      const r = 28;
-      const base = pa ? (out.get(pa.id) ?? { x: 0, y: 0, z: 0 }) : { x: 0, y: 0, z: 0 };
-      out.set(song.id, {
-        x: base.x + r * Math.cos(phi),
-        y: base.y + r * 0.5 * Math.sin(phi * 3),
-        z: base.z + r * Math.sin(phi),
-      });
-    });
-
-    // Others in a wide outer belt
-    const beltR = starR + 320;
-    others.forEach((n, i) => {
-      const phi = (i / Math.max(1, others.length)) * 2 * Math.PI;
-      out.set(n.id, { x: beltR * Math.cos(phi), y: Math.sin(i * 0.618) * 45, z: beltR * Math.sin(phi) });
-    });
-  }
-
-  return out;
-}
-
-function animateArrange(
-  nodes: SimNode[],
-  targets: Map<string, { x: number; y: number; z: number }>,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  fgRef: React.MutableRefObject<any>,
-  durationMs = 1400,
-) {
-  const startTime = performance.now();
-  const snapshots = new Map(nodes.map(n => [n.id, { x: n.x ?? 0, y: n.y ?? 0, z: n.z ?? 0 }]));
-
-  const step = (now: number) => {
-    const raw = Math.min(1, (now - startTime) / durationMs);
-    const t = easeInOutQuad(raw);
-    nodes.forEach(n => {
-      const snap = snapshots.get(n.id)!;
-      const tgt = targets.get(n.id);
-      if (!tgt) return;
-      n.fx = snap.x + (tgt.x - snap.x) * t;
-      n.fy = snap.y + (tgt.y - snap.y) * t;
-      n.fz = snap.z + (tgt.z - snap.z) * t;
-    });
-    fgRef.current?.refresh();
-    if (raw < 1) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
-}
 
 // ── Component props ───────────────────────────────────────────────────────────
 

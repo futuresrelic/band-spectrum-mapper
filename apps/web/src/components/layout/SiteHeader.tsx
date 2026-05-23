@@ -4,12 +4,13 @@ import { useAuth } from '../../contexts/AuthContext';
 interface SiteHeaderProps {
   theme?: 'dark' | 'light';
   /** Optional active section for highlighted nav link */
-  active?: 'library' | 'explore' | 'games' | 'leaderboard';
+  active?: 'library' | 'explore' | 'cinema' | 'games' | 'leaderboard';
 }
 
 const NAV = [
   { label: 'Library',     to: '/view'        },
   { label: 'Explore',     to: '/explore'     },
+  { label: 'Cinema',      to: '/cinema'      },
   { label: 'Games',       to: '/games'       },
   { label: 'Leaderboard', to: '/leaderboard' },
 ] as const;

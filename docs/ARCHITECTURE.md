@@ -400,3 +400,71 @@ Word Hunt score: `max(0, 1000 − wrongCount × 100 − timeSec × 2)`
 
 A perfect game (no wrong guesses, under 8 seconds) scores 1000.
 Each wrong guess costs 100 points; each second costs 2 points.
+
+## Cinema Mode — Cinematic Autoplay Showcase Engine (2026-05-23)
+
+### New directory: `apps/web/src/cinema/`
+
+A self-contained Cinema Mode module:
+
+```
+apps/web/src/cinema/
+├── graphArrange.ts      # Shared 3D layout math (extracted from ThreeDGraphView)
+├── types.ts             # CinemaScene, CinemaNode, CinemaLink interfaces
+└── sceneDefinitions.ts  # 8 named scene objects (enter + tick functions)
+```
+
+### Scene Engine Architecture
+
+The scene engine is purely functional — no class, no global state. The page (`CinemaPage.tsx`) owns all state in refs and drives the engine:
+
+```
+CinemaPage
+  ├── React state: currentSceneIdx, isPlaying, transitionOpacity, socialMode
+  ├── Refs: fgRef, simNodesRef, adjRef, sceneStateRef, sceneStartRef
+  ├── rAF loop (every frame):
+  │     controls.enabled = !isPlaying
+  │     → scene.tick(fg, nodes, adj, elapsed, state) when playing
+  │     → orbit target animation when paused
+  │     → proximity label opacity updates
+  └── Scene timer (setInterval 120ms):
+        → update progress bar
+        → call advanceScene() when elapsed ≥ durationMs
+```
+
+### Transition System
+
+Scene changes use a CSS opacity overlay (not Three.js):
+1. Set `transitionOpacity = 1` → black overlay fades in (700 ms CSS transition)
+2. Wait 700 ms → call `scene.enter()` + `animateArrange()` + reset scene clock
+3. Set `transitionOpacity = 0` → overlay fades out
+
+### Camera Authority
+
+- **During playback**: `controls.enabled = false` — TrackballControls receives no user input. Scene `tick()` functions directly set `camera.position` and `controls.target` each frame. TrackballControls `update()` still runs (the graph's own rAF loop calls it) but applies zero accumulated drag, so it just orients the camera to look at `controls.target`.
+- **During pause**: `controls.enabled = true` — user can freely orbit, zoom, and fly (WASD not available on Cinema page — it's a viewing page).
+- **Fly-to scenes**: use `fg.cameraPosition(pos, lookAt, durationMs)` for periodic node fly-tos; `tick()` does not set camera between fly-to events (camera stays wherever TWEEN last placed it).
+
+### Shared Layout Utilities
+
+`graphArrange.ts` exports the 5 pure functions previously inlined in ThreeDGraphView:
+- `easeInOutQuad(t)` — quadratic ease in-out
+- `buildAdj(links)` — builds adjacency map from link array
+- `computeArrangeTargets(nodes, mode, adj)` — computes 3D target positions for all 5 arrange modes
+- `animateArrange(nodes, targets, fg, durationMs)` — interpolated node placement animation
+- `ArrangeMode` type
+
+`ThreeDGraphView` imports from `graphArrange` instead of duplicating the code. No behaviour change.
+
+### Social Mode
+
+- `document.requestFullscreen()` on the Cinema page container div
+- `controls.enabled` state hidden (playback-controlled)
+- Cursor auto-hides after 3 s via `mousemove` + `setInterval`
+- Watermark overlay (toggleable): "Band Spectrum Mapper / scene name"
+- Minimal transport controls appear on mouse move; hidden otherwise
+
+### Public Route
+
+`/cinema` — added to public routes in `App.tsx` (no auth required).
+Added to `SiteHeader` NAV (public site header) and admin `Nav` sidebar.
