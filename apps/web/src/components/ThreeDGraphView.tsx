@@ -116,6 +116,8 @@ export default function ThreeDGraphView({ nodes: rawNodes, edges: rawEdges, heig
   const [labelFullDist, setLabelFullDist] = useState(DEFAULT_LABEL_FULL);
   const [nodeScale, setNodeScale] = useState(1);
   const [linkOpacityVal, setLinkOpacityVal] = useState(0.5);
+  const [invertZoom, setInvertZoom] = useState(false);
+  const invertZoomRef = useRef(false);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fgRef           = useRef<any>(null);
@@ -141,6 +143,7 @@ export default function ThreeDGraphView({ nodes: rawNodes, edges: rawEdges, heig
   useEffect(() => { labelShowRef.current = labelShowDist; }, [labelShowDist]);
   useEffect(() => { labelFullRef.current = labelFullDist; }, [labelFullDist]);
   useEffect(() => { showLabelsRef.current = showLabels; }, [showLabels]);
+  useEffect(() => { invertZoomRef.current = invertZoom; }, [invertZoom]);
 
   // Rebuild sim data when graph data changes
   useEffect(() => {
@@ -284,7 +287,7 @@ export default function ThreeDGraphView({ nodes: rawNodes, edges: rawEdges, heig
       const p = camera.position;
       const t = controls.target;
       const dist = Math.sqrt((t.x - p.x) ** 2 + (t.y - p.y) ** 2 + (t.z - p.z) ** 2);
-      const sign = e.deltaY > 0 ? 1 : -1; // +1 = zoom out
+      const sign = invertZoomRef.current ? (e.deltaY > 0 ? -1 : 1) : (e.deltaY > 0 ? 1 : -1); // +1 = zoom out (unless inverted)
       const step = Math.max(2, dist * 0.1);
 
       // Move camera along cursor ray
@@ -537,6 +540,20 @@ export default function ThreeDGraphView({ nodes: rawNodes, edges: rawEdges, heig
                   className="w-full accent-indigo-500" />
               </div>
 
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-400">Scroll zoom direction</span>
+                <button
+                  onClick={() => setInvertZoom(v => !v)}
+                  className={`text-xs px-3 py-1 rounded-lg border transition-colors ${
+                    invertZoom
+                      ? 'bg-indigo-900/60 border-indigo-700/50 text-indigo-300'
+                      : 'bg-gray-800 border-gray-700 text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  {invertZoom ? 'Inverted' : 'Normal'}
+                </button>
+              </div>
+
               <button
                 onClick={() => {
                   setShowLabels(true);
@@ -544,6 +561,7 @@ export default function ThreeDGraphView({ nodes: rawNodes, edges: rawEdges, heig
                   setLabelFullDist(DEFAULT_LABEL_FULL);
                   setNodeScale(1);
                   setLinkOpacityVal(0.5);
+                  setInvertZoom(false);
                 }}
                 className="w-full text-[11px] text-gray-600 hover:text-gray-400 transition-colors text-center"
               >

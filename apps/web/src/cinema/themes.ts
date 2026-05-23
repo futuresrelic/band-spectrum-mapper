@@ -23,6 +23,10 @@ export interface CinemaTheme {
   nodeOpacity: number;
   /** Multiplier applied to nodeValFor() result — use < 1 to shrink nodes (outlines), > 1 to enlarge */
   nodeValMultiplier: number;
+  /** Render a radial backdrop-filter blur overlay: edges blurred, centre sharp (bokeh DoF effect). */
+  bokehOverlay?: boolean;
+  /** Render a repeating dot-screen overlay in screen blend mode to simulate halftone printing. */
+  dotOverlay?: boolean;
 }
 
 const DEFAULT_NODE_COLORS: Record<string, string> = {
@@ -91,6 +95,20 @@ export const CINEMA_THEMES: CinemaTheme[] = [
     backgroundColor: '#060608', cssFilter: '',
     nodeColors: { song: '#1e1e2e', album: '#1e1e2e', artist: '#1e1e2e', theme: '#1e1e2e', tag: '#1e1e2e', keyword: '#1e1e2e', emotion: '#1e1e2e' },
     linkColor: 'rgba(200,210,255,0.65)', linkWidthMultiplier: 3, nodeOpacity: 0.25, nodeValMultiplier: 0.3,
+  },
+  {
+    id: 'bokeh',     name: 'Bokeh',      emoji: '📸',
+    backgroundColor: '#000814', cssFilter: 'brightness(1.08) saturate(1.15)',
+    nodeColors: { song: '#818cf8', keyword: '#4b5563', album: '#a78bfa', artist: '#fbbf24', theme: '#34d399', tag: '#22d3ee', emotion: '#f472b6' },
+    linkColor: 'rgba(120,130,200,0.22)', linkWidthMultiplier: 1, nodeOpacity: 0.96, nodeValMultiplier: 1,
+    bokehOverlay: true,
+  },
+  {
+    id: 'halftone',  name: 'Halftone',   emoji: '🔘',
+    backgroundColor: '#02000f', cssFilter: 'contrast(1.2) saturate(1.4)',
+    nodeColors: { song: '#6366f1', keyword: '#374151', album: '#8b5cf6', artist: '#f59e0b', theme: '#10b981', tag: '#06b6d4', emotion: '#ec4899' },
+    linkColor: 'rgba(100,116,139,0.28)', linkWidthMultiplier: 1, nodeOpacity: 0.93, nodeValMultiplier: 1,
+    dotOverlay: true,
   },
 ];
 

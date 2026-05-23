@@ -15,7 +15,7 @@
  *  - Band filter
  */
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import ForceGraph3D from 'react-force-graph-3d';
@@ -167,6 +167,7 @@ export default function CinemaPage() {
 
   // ── Refs ─────────────────────────────────────────────────────────────────────
   const fgRef           = useRef<any>(null);
+  const selectedNodeRef = useRef<CinemaNode | null>(null);
   const adjRef          = useRef<Map<string, Set<string>>>(new Map());
   const orbitAnimRef    = useRef<OrbitAnim | null>(null);
   const sceneStateRef   = useRef<unknown>(null);
@@ -567,21 +568,29 @@ export default function CinemaPage() {
   const nodeColor = useCallback((node: object) => {
     const n = node as CinemaNode;
     if (tourMode && n.id === tourHighlightedId) return HIGHLIGHT_COLOR;
+    const sel = selectedNodeRef.current;
+    if (sel && !isPlayingRef.current) {
+      if (n.id === sel.id) return '#ffffff';
+      if (adjRef.current.get(sel.id)?.has(n.id)) return '#22d3ee';
+      return '#0d1117';
+    }
     return currentTheme.nodeColors[n.type] ?? '#4b5563';
   }, [tourMode, tourHighlightedId, currentTheme]);
 
   const nodeVal = useCallback((node: object) => {
     const n = node as CinemaNode;
     if (tourMode && n.id === tourHighlightedId) return 12;
+    const sel = selectedNodeRef.current;
+    if (sel && !isPlayingRef.current && n.id === sel.id) return nodeValFor(n.type) * 1.6;
     return nodeValFor(n.type) * currentTheme.nodeValMultiplier;
   }, [tourMode, tourHighlightedId, currentTheme]);
 
   // Link highlighting: bright white for active node's edges, indigo for all tour-node edges
   const linkColor = useCallback((link: object) => {
+    const l     = link as { source: string | { id: string }; target: string | { id: string } };
+    const srcId = typeof l.source === 'string' ? l.source : (l.source as any).id as string;
+    const tgtId = typeof l.target === 'string' ? l.target : (l.target as any).id as string;
     if (tourMode) {
-      const l     = link as { source: string | { id: string }; target: string | { id: string } };
-      const srcId = typeof l.source === 'string' ? l.source : (l.source as any).id as string;
-      const tgtId = typeof l.target === 'string' ? l.target : (l.target as any).id as string;
       if (tourHighlightedId && (srcId === tourHighlightedId || tgtId === tourHighlightedId)) {
         return 'rgba(255,255,255,0.75)';
       }
@@ -589,16 +598,26 @@ export default function CinemaPage() {
         return 'rgba(165,180,252,0.55)';
       }
     }
+    const sel = selectedNodeRef.current;
+    if (sel && !isPlayingRef.current) {
+      if (srcId === sel.id || tgtId === sel.id) return '#22d3ee';
+      return 'rgba(15,15,30,0.08)';
+    }
     return currentThemeRef.current.linkColor;
   }, [tourMode, tourHighlightedId, tourNodeIds, currentTheme]);
 
   const linkWidth = useCallback((link: object) => {
+    const l     = link as { source: string | { id: string }; target: string | { id: string } };
+    const srcId = typeof l.source === 'string' ? l.source : (l.source as any).id as string;
+    const tgtId = typeof l.target === 'string' ? l.target : (l.target as any).id as string;
     if (tourMode) {
-      const l     = link as { source: string | { id: string }; target: string | { id: string } };
-      const srcId = typeof l.source === 'string' ? l.source : (l.source as any).id as string;
-      const tgtId = typeof l.target === 'string' ? l.target : (l.target as any).id as string;
       if (tourHighlightedId && (srcId === tourHighlightedId || tgtId === tourHighlightedId)) return 2;
       if (tourNodeIds.size > 0 && (tourNodeIds.has(srcId) || tourNodeIds.has(tgtId))) return 1;
+    }
+    const sel = selectedNodeRef.current;
+    if (sel && !isPlayingRef.current) {
+      if (srcId === sel.id || tgtId === sel.id) return 2;
+      return 0.12;
     }
     return 0.4 * currentThemeRef.current.linkWidthMultiplier;
   }, [tourMode, tourHighlightedId, tourNodeIds, currentTheme]);
@@ -632,13 +651,19 @@ export default function CinemaPage() {
 
   const onNodeClick = useCallback((node: object) => {
     const n = node as CinemaNode;
-    setSelectedNode(prev => prev?.id === n.id ? null : n);
-    if (!isPlayingRef.current) {
+    const sel = selectedNodeRef.current;
+    // While paused and a node is already selected, ignore clicks on non-adjacent nodes (matching Explore behaviour)
+    if (!isPlayingRef.current && sel && sel.id !== n.id && !adjRef.current.get(sel.id)?.has(n.id)) return;
+    const newSel = sel?.id === n.id ? null : n;
+    selectedNodeRef.current = newSel;
+    setSelectedNode(newSel);
+    fgRef.current?.refresh();
+    if (!isPlayingRef.current && newSel) {
       const ctrl = fgRef.current?.controls?.();
-      if (ctrl && n.x != null) {
+      if (ctrl && newSel.x != null) {
         orbitAnimRef.current = {
           sx: ctrl.target.x, sy: ctrl.target.y, sz: ctrl.target.z,
-          tx: n.x, ty: n.y ?? 0, tz: n.z ?? 0,
+          tx: newSel.x, ty: newSel.y ?? 0, tz: newSel.z ?? 0,
           t0: performance.now(), dur: 600,
         };
       }
@@ -707,6 +732,31 @@ export default function CinemaPage() {
           height={window.innerHeight}
         />
         </div>
+      )}
+
+      {/* Bokeh depth-of-field overlay — radial backdrop-blur, edges blurred centre sharp */}
+      {currentTheme.bokehOverlay && simNodes.length > 0 && (
+        <div
+          className="pointer-events-none absolute inset-0 z-[5]"
+          style={{
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            maskImage: 'radial-gradient(ellipse 44% 50% at center, transparent 36%, rgba(0,0,0,0.28) 54%, black 74%)',
+            WebkitMaskImage: 'radial-gradient(ellipse 44% 50% at center, transparent 36%, rgba(0,0,0,0.28) 54%, black 74%)',
+          } as React.CSSProperties}
+        />
+      )}
+
+      {/* Halftone dot-screen overlay — repeating radial dots in screen blend mode */}
+      {currentTheme.dotOverlay && simNodes.length > 0 && (
+        <div
+          className="pointer-events-none absolute inset-0 z-[5]"
+          style={{
+            backgroundImage: 'radial-gradient(circle 1.8px at 1.8px 1.8px, rgba(255,255,255,0.52) 100%, transparent 100%)',
+            backgroundSize: '6px 6px',
+            mixBlendMode: 'screen',
+          }}
+        />
       )}
 
       {/* Fade overlay */}
@@ -981,7 +1031,7 @@ export default function CinemaPage() {
                   <span className="shrink-0">{TYPE_ICONS[selectedNode.type] ?? '•'}</span>
                   <span className="text-xs font-semibold text-white truncate">{selectedNode.label}</span>
                 </div>
-                <button onClick={() => setSelectedNode(null)} className="shrink-0 text-gray-600 hover:text-gray-400 ml-2">✕</button>
+                <button onClick={() => { selectedNodeRef.current = null; setSelectedNode(null); fgRef.current?.refresh(); }} className="shrink-0 text-gray-600 hover:text-gray-400 ml-2">✕</button>
               </div>
               <div className="text-[10px] text-gray-500 mb-2">{TYPE_LABELS[selectedNode.type] ?? selectedNode.type}</div>
 
@@ -1012,7 +1062,7 @@ export default function CinemaPage() {
                     if (!connNode) return null;
                     return (
                       <button key={connId}
-                        onClick={() => setSelectedNode(connNode)}
+                        onClick={() => { selectedNodeRef.current = connNode; setSelectedNode(connNode); fgRef.current?.refresh(); }}
                         className="w-full text-left text-[11px] text-gray-400 flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-gray-800 hover:text-white transition-colors">
                         <span className="shrink-0">{TYPE_ICONS[connNode.type] ?? '•'}</span>
                         <span className="truncate">{connNode.label}</span>
