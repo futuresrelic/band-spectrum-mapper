@@ -20,6 +20,9 @@ interface OrbitTourState {
   currentIdx: number;
   candidates: CinemaNode[];
   orbitState: OrbitCameraState | null;
+  prevTargetX: number;
+  prevTargetY: number;
+  prevTargetZ: number;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -129,7 +132,7 @@ export const CINEMA_SCENES: CinemaScene[] = [
     enter(fg, nodes): OrbitTourState {
       const artists = nodes.filter(n => n.type === 'artist');
       setTimeout(() => fg?.zoomToFit?.(1800, 60), 1900);
-      return { currentIdx: 0, candidates: artists, orbitState: null };
+      return { currentIdx: 0, candidates: artists, orbitState: null, prevTargetX: 0, prevTargetY: 0, prevTargetZ: 0 };
     },
     tick(fg, _n, _a, elapsedMs, state, controls) {
       const s = state as OrbitTourState;
@@ -144,11 +147,15 @@ export const CINEMA_SCENES: CinemaScene[] = [
           node.x, node.y ?? 0, node.z ?? 0,
           camera.position.x, camera.position.y, camera.position.z,
           elapsedMs, dwellMs,
+          s.prevTargetX, s.prevTargetY, s.prevTargetZ,
         );
       }
 
       const result = updateOrbitCamera(fg, s.orbitState, elapsedMs, controls);
       if (result === 'done') {
+        s.prevTargetX = s.orbitState.targetX;
+        s.prevTargetY = s.orbitState.targetY;
+        s.prevTargetZ = s.orbitState.targetZ;
         s.currentIdx++;
         s.orbitState = null;
       }
@@ -172,6 +179,7 @@ export const CINEMA_SCENES: CinemaScene[] = [
         currentIdx: 0,
         candidates: neighbors.length ? neighbors : songs,
         orbitState: null,
+        prevTargetX: 0, prevTargetY: 0, prevTargetZ: 0,
       };
     },
     tick(fg, nodes, adj, elapsedMs, state, controls) {
@@ -193,11 +201,15 @@ export const CINEMA_SCENES: CinemaScene[] = [
           target.x, target.y ?? 0, target.z ?? 0,
           camera.position.x, camera.position.y, camera.position.z,
           elapsedMs, dwellMs,
+          s.prevTargetX, s.prevTargetY, s.prevTargetZ,
         );
       }
 
       const result = updateOrbitCamera(fg, s.orbitState, elapsedMs, controls);
       if (result === 'done') {
+        s.prevTargetX = s.orbitState.targetX;
+        s.prevTargetY = s.orbitState.targetY;
+        s.prevTargetZ = s.orbitState.targetZ;
         s.currentIdx++;
         s.orbitState = null;
       }

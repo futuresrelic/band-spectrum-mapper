@@ -59,7 +59,7 @@ export default function TourPlanner({
     return nodes
       .filter(n => typeFilter === 'all' || n.type === typeFilter)
       .filter(n => !q || n.label.toLowerCase().includes(q))
-      .slice(0, 60);
+      .slice(0, 120);
   }, [nodes, typeFilter, search]);
 
   const stepNodeIds = useMemo(() => new Set(steps.map(s => s.nodeId)), [steps]);
@@ -197,7 +197,7 @@ export default function TourPlanner({
       </div>
 
       {/* ── Scrollable node list ── */}
-      <div className="flex-1 overflow-y-auto space-y-0.5 min-h-0">
+      <div className="overflow-y-auto space-y-0.5" style={{ minHeight: '80px', maxHeight: '260px' }}>
         {filtered.map(n => (
           <button
             key={n.id}
