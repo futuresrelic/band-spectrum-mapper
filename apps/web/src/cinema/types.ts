@@ -13,7 +13,7 @@ export interface CinemaNode {
   fx?: number; fy?: number; fz?: number;
   // Payload from graph API (e.g. axis scores on song nodes, bandId, etc.)
   data?: {
-    scores?: { aggression: number; complexity: number; atmosphere: number; emotion: number; psychedelic: number; concept: number };
+    scores?: Record<string, number>;
     [key: string]: unknown;
   };
 }
