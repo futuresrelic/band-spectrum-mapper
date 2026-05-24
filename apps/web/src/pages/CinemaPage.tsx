@@ -20,6 +20,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
+import * as THREE from 'three';
 import { api } from '../lib/api';
 import type { GraphData } from '../api/songNodes';
 import { buildAdj, computeArrangeTargets, animateArrange, easeInOutQuad } from '../cinema/graphArrange';
@@ -76,6 +77,20 @@ function blendHex(from: string, to: string, t: number): string {
   const r  = Math.round(r0+(r1-r0)*t), g = Math.round(g0+(g1-g0)*t), b = Math.round(b0+(b1-b0)*t);
   return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
 }
+
+// ── Genre cloud poles (must match graphArrange.ts GENRE_POLES) ───────────────
+
+const POLE_R = 360;
+const GENRE_CLOUD_POLES = [
+  { id: 'metal',      color: '#64748B', x: POLE_R,          y: 35,  z: 0 },
+  { id: 'rock',       color: '#FB923C', x: POLE_R * 0.5,    y: -15, z: POLE_R * 0.866 },
+  { id: 'pop',        color: '#F472B6', x: -POLE_R * 0.5,   y: 35,  z: POLE_R * 0.866 },
+  { id: 'hiphop',     color: '#818CF8', x: -POLE_R,         y: -15, z: 0 },
+  { id: 'electronic', color: '#22D3EE', x: -POLE_R * 0.5,   y: 35,  z: -POLE_R * 0.866 },
+  { id: 'folk',       color: '#A3E635', x: POLE_R * 0.5,    y: -15, z: -POLE_R * 0.866 },
+] as const;
+
+type GenreCloudId = typeof GENRE_CLOUD_POLES[number]['id'];
 
 // ── Pause-mode orbit pivot ────────────────────────────────────────────────────
 
@@ -189,7 +204,7 @@ export default function CinemaPage() {
   // Genre source selector
   const [genreSource, setGenreSource] = useState<GenreSource>('priority');
 
-  // Director mode
+  // Director mode — global sequence
   const [showDirector, setShowDirector] = useState(false);
   const [directorPlaying, setDirectorPlaying] = useState(false);
   const [directorKeyframes, setDirectorKeyframesRaw] = useState<CinemaKeyframe[]>(() => {
@@ -202,6 +217,25 @@ export default function CinemaPage() {
     setDirectorKeyframesRaw(kfs);
     try { localStorage.setItem('cinema-director-keyframes', JSON.stringify(kfs)); } catch { /* ignore */ }
   }, []);
+
+  // Per-scene camera keyframes (looping, override scene tick when set)
+  const [sceneKeyframesMap, setSceneKeyframesMapRaw] = useState<Record<string, CinemaKeyframe[]>>(() => {
+    try {
+      const stored = localStorage.getItem('cinema-scene-keyframes');
+      return stored ? (JSON.parse(stored) as Record<string, CinemaKeyframe[]>) : {};
+    } catch { return {}; }
+  });
+  const setSceneKeyframesMap = useCallback((map: Record<string, CinemaKeyframe[]>) => {
+    setSceneKeyframesMapRaw(map);
+    try { localStorage.setItem('cinema-scene-keyframes', JSON.stringify(map)); } catch { /* ignore */ }
+  }, []);
+  const [sceneKfPlaying, setSceneKfPlaying] = useState(false);
+
+  // Genre cloud zones (Three.js spheres, independent of node graph)
+  const [genreCloudsEnabled, setGenreCloudsEnabled] = useState(false);
+  const [genreCloudOpacity, setGenreCloudOpacity]   = useState(0.14);
+  const [genreCloudSize, setGenreCloudSize]         = useState(145);
+  const [hiddenGenreClouds, setHiddenGenreClouds]   = useState<Set<string>>(new Set());
 
   // AI Director
   const [showAiDirector, setShowAiDirector]   = useState(false);
@@ -269,6 +303,20 @@ export default function CinemaPage() {
     fromPos: { x: number; y: number; z: number };
     fromTarget: { x: number; y: number; z: number };
   } | null>(null);
+
+  // Per-scene looping keyframe playback
+  const sceneKeyframesMapRef = useRef<Record<string, CinemaKeyframe[]>>({});
+  const sceneKfPlayRef = useRef<{
+    keyframes: CinemaKeyframe[];
+    idx: number;
+    startMs: number;
+    fromPos: { x: number; y: number; z: number };
+    fromTarget: { x: number; y: number; z: number };
+  } | null>(null);
+
+  // Genre cloud meshes managed by Three.js
+  const genreCloudMeshesRef = useRef<THREE.Mesh[]>([]);
+
   const [cursorHidden, setCursorHidden] = useState(false);
 
   // Sync refs ↔ state
@@ -276,6 +324,8 @@ export default function CinemaPage() {
   useEffect(() => { currentIdxRef.current = currentSceneIdx; }, [currentSceneIdx]);
   useEffect(() => { simNodesRef.current   = simNodes;        }, [simNodes]);
   useEffect(() => { tourModeRef.current   = tourMode;        }, [tourMode]);
+
+  useEffect(() => { sceneKeyframesMapRef.current = sceneKeyframesMap; }, [sceneKeyframesMap]);
 
   useEffect(() => { labelShowBgRef.current      = labelShowBg;      }, [labelShowBg]);
   useEffect(() => { labelBgOpacityRef.current   = labelBgOpacity;   }, [labelBgOpacity]);
@@ -355,6 +405,24 @@ export default function CinemaPage() {
     currentIdxRef.current = idx;
     setCurrentSceneIdx(idx);
     setSceneProgress(0);
+
+    // If this scene has user-defined keyframes, start looping them
+    const kfs = sceneKeyframesMapRef.current[scene.id] ?? [];
+    if (kfs.length > 0) {
+      const camera = fg.camera?.();
+      const ctrl2  = fg.controls?.();
+      sceneKfPlayRef.current = {
+        keyframes: kfs,
+        idx: 0,
+        startMs: Date.now(),
+        fromPos: camera ? { x: camera.position.x, y: camera.position.y, z: camera.position.z } : { x: 0, y: 600, z: 0 },
+        fromTarget: ctrl2?.target ? { x: ctrl2.target.x, y: ctrl2.target.y, z: ctrl2.target.z } : { x: 0, y: 0, z: 0 },
+      };
+      setSceneKfPlaying(true);
+    } else {
+      sceneKfPlayRef.current = null;
+      setSceneKfPlaying(false);
+    }
   }, []);
 
   // ── Transitions ───────────────────────────────────────────────────────────────
@@ -523,8 +591,36 @@ export default function CinemaPage() {
               }
             }
           } else {
-            const scene = CINEMA_SCENES[currentIdxRef.current];
-            scene?.tick?.(fg, simNodesRef.current, adjRef.current, elapsed, sceneStateRef.current, controls);
+            // Scene keyframe override: if the current scene has user-defined keyframes, loop them
+            const skf = sceneKfPlayRef.current;
+            if (skf && camera && ctrl) {
+              ctrl.enabled = false;
+              const kf = skf.keyframes[skf.idx];
+              if (kf) {
+                const t = easeInOutQuad(Math.min(1, (Date.now() - skf.startMs) / kf.durationMs));
+                camera.position.set(
+                  skf.fromPos.x + (kf.position.x - skf.fromPos.x) * t,
+                  skf.fromPos.y + (kf.position.y - skf.fromPos.y) * t,
+                  skf.fromPos.z + (kf.position.z - skf.fromPos.z) * t,
+                );
+                const tx = skf.fromTarget.x + (kf.target.x - skf.fromTarget.x) * t;
+                const ty = skf.fromTarget.y + (kf.target.y - skf.fromTarget.y) * t;
+                const tz = skf.fromTarget.z + (kf.target.z - skf.fromTarget.z) * t;
+                ctrl.target.set(tx, ty, tz);
+                camera.lookAt(tx, ty, tz);
+                if (t >= 1) {
+                  // Loop: advance to next, wrapping back to 0
+                  const nextIdx = (skf.idx + 1) % skf.keyframes.length;
+                  skf.startMs = Date.now();
+                  skf.fromPos = { ...kf.position };
+                  skf.fromTarget = { ...kf.target };
+                  skf.idx = nextIdx;
+                }
+              }
+            } else {
+              const scene = CINEMA_SCENES[currentIdxRef.current];
+              scene?.tick?.(fg, simNodesRef.current, adjRef.current, elapsed, sceneStateRef.current, controls);
+            }
           }
         }
 
@@ -605,6 +701,68 @@ export default function CinemaPage() {
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
   }, [simNodes]);
+
+  // ── Genre cloud spheres (Three.js overlay) ───────────────────────────────────
+
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg || !simReady) return;
+    const scene3d = fg.scene?.() as THREE.Scene | undefined;
+    if (!scene3d) return;
+
+    // Dispose old meshes
+    for (const m of genreCloudMeshesRef.current) {
+      scene3d.remove(m);
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+    }
+    genreCloudMeshesRef.current = [];
+
+    if (!genreCloudsEnabled) return;
+
+    const newMeshes: THREE.Mesh[] = [];
+    for (const pole of GENRE_CLOUD_POLES) {
+      if (hiddenGenreClouds.has(pole.id)) continue;
+      const color = new THREE.Color(pole.color);
+
+      // Inner glow core (60% size, 2× opacity)
+      const innerGeo = new THREE.SphereGeometry(genreCloudSize * 0.55, 24, 24);
+      const innerMat = new THREE.MeshBasicMaterial({
+        color, transparent: true,
+        opacity: Math.min(1, genreCloudOpacity * 1.8),
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.FrontSide,
+      });
+      const inner = new THREE.Mesh(innerGeo, innerMat);
+      inner.position.set(pole.x, pole.y, pole.z);
+      scene3d.add(inner);
+      newMeshes.push(inner);
+
+      // Outer diffuse shell
+      const outerGeo = new THREE.SphereGeometry(genreCloudSize, 28, 28);
+      const outerMat = new THREE.MeshBasicMaterial({
+        color, transparent: true,
+        opacity: genreCloudOpacity,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.FrontSide,
+      });
+      const outer = new THREE.Mesh(outerGeo, outerMat);
+      outer.position.set(pole.x, pole.y, pole.z);
+      scene3d.add(outer);
+      newMeshes.push(outer);
+    }
+    genreCloudMeshesRef.current = newMeshes;
+
+    return () => {
+      for (const m of newMeshes) {
+        scene3d.remove(m);
+        m.geometry.dispose();
+        (m.material as THREE.Material).dispose();
+      }
+    };
+  }, [simReady, genreCloudsEnabled, genreCloudOpacity, genreCloudSize, hiddenGenreClouds]);
 
   // ── Cursor auto-hide ──────────────────────────────────────────────────────────
 
@@ -897,6 +1055,68 @@ export default function CinemaPage() {
     directorPlayRef.current = null;
     setDirectorPlaying(false);
   }, []);
+
+  // ── Scene camera keyframe callbacks ──────────────────────────────────────────
+
+  const handleSceneCapture = useCallback(() => {
+    const scene = CINEMA_SCENES[currentIdxRef.current];
+    if (!scene || !fgRef.current) return;
+    const camera = fgRef.current.camera?.();
+    const ctrl2  = fgRef.current.controls?.();
+    if (!camera) return;
+    const existing = sceneKeyframesMapRef.current[scene.id] ?? [];
+    const kf: CinemaKeyframe = {
+      id: `skf-${Date.now()}`,
+      label: `Shot ${existing.length + 1}`,
+      position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+      target: ctrl2?.target ? { x: ctrl2.target.x, y: ctrl2.target.y, z: ctrl2.target.z } : { x: 0, y: 0, z: 0 },
+      durationMs: 3000,
+    };
+    const updated = { ...sceneKeyframesMapRef.current, [scene.id]: [...existing, kf] };
+    setSceneKeyframesMap(updated);
+  }, [setSceneKeyframesMap]);
+
+  const handleSceneKfChange = useCallback((kfs: CinemaKeyframe[]) => {
+    const scene = CINEMA_SCENES[currentIdxRef.current];
+    if (!scene) return;
+    const updated = { ...sceneKeyframesMapRef.current, [scene.id]: kfs };
+    setSceneKeyframesMap(updated);
+    // If currently playing with this scene's KFs, restart
+    if (sceneKfPlayRef.current && kfs.length === 0) {
+      sceneKfPlayRef.current = null;
+      setSceneKfPlaying(false);
+    } else if (sceneKfPlayRef.current && kfs.length > 0) {
+      sceneKfPlayRef.current.keyframes = kfs;
+    }
+  }, [setSceneKeyframesMap]);
+
+  const handleSceneKfPlay = useCallback(() => {
+    const scene = CINEMA_SCENES[currentIdxRef.current];
+    if (!scene || !fgRef.current) return;
+    const kfs = sceneKeyframesMapRef.current[scene.id] ?? [];
+    if (!kfs.length) return;
+    const camera = fgRef.current.camera?.();
+    const ctrl2  = fgRef.current.controls?.();
+    if (!camera) return;
+    setIsPlaying(false);
+    sceneKfPlayRef.current = {
+      keyframes: kfs,
+      idx: 0,
+      startMs: Date.now(),
+      fromPos: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+      fromTarget: ctrl2?.target ? { x: ctrl2.target.x, y: ctrl2.target.y, z: ctrl2.target.z } : { x: 0, y: 0, z: 0 },
+    };
+    setSceneKfPlaying(true);
+  }, []);
+
+  const handleSceneKfStop = useCallback(() => {
+    sceneKfPlayRef.current = null;
+    setSceneKfPlaying(false);
+  }, []);
+
+  const handleSceneKfGoTo = useCallback((kf: CinemaKeyframe) => {
+    handleDirectorGoTo(kf);
+  }, [handleDirectorGoTo]);
 
   const applyAiSettings = useCallback(async () => {
     const prompt = aiPromptInput.trim();
@@ -1383,6 +1603,59 @@ export default function CinemaPage() {
                 </div>
               </div>
 
+              {/* Genre cloud zones */}
+              <div className="border-t border-gray-800 pt-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Genre zones</div>
+                  <button
+                    onClick={() => setGenreCloudsEnabled(v => !v)}
+                    className={`text-[10px] px-2 py-0.5 rounded transition-colors ${genreCloudsEnabled ? 'bg-indigo-900 text-indigo-300' : 'bg-gray-800 text-gray-500'}`}
+                  >
+                    {genreCloudsEnabled ? 'on' : 'off'}
+                  </button>
+                </div>
+                {genreCloudsEnabled && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-gray-500 w-14 shrink-0">Opacity</span>
+                      <input type="range" min="1" max="40" value={Math.round(genreCloudOpacity * 100)}
+                        onChange={e => setGenreCloudOpacity(Number(e.target.value) / 100)}
+                        className="flex-1 accent-indigo-500" />
+                      <span className="text-[10px] text-gray-600 w-8 text-right">{Math.round(genreCloudOpacity * 100)}%</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-gray-500 w-14 shrink-0">Size</span>
+                      <input type="range" min="40" max="300" value={genreCloudSize}
+                        onChange={e => setGenreCloudSize(Number(e.target.value))}
+                        className="flex-1 accent-indigo-500" />
+                      <span className="text-[10px] text-gray-600 w-8 text-right">{genreCloudSize}</span>
+                    </div>
+                    <div className="text-[10px] text-gray-600 mb-1">Show / hide zones</div>
+                    <div className="grid grid-cols-2 gap-1">
+                      {GENRE_CLOUD_POLES.map(pole => {
+                        const hidden = hiddenGenreClouds.has(pole.id as GenreCloudId);
+                        return (
+                          <button key={pole.id}
+                            onClick={() => setHiddenGenreClouds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(pole.id as GenreCloudId)) next.delete(pole.id as GenreCloudId); else next.add(pole.id as GenreCloudId);
+                              return next;
+                            })}
+                            className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] transition-colors ${hidden ? 'text-gray-700' : 'text-gray-300'}`}
+                          >
+                            <span className="w-2 h-2 rounded-full shrink-0" style={hidden ? { background: '#374151' } : { background: pole.color }} />
+                            <span className={hidden ? 'line-through' : ''}>{pole.id.charAt(0).toUpperCase() + pole.id.slice(1)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="text-[10px] text-gray-600 leading-snug">
+                      Use Genre Radar arrange to position songs in their genre zones.
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Lyrics overlay (Lyrical DNA scene) */}
               <div className="border-t border-gray-800 pt-3">
                 <button
@@ -1689,6 +1962,15 @@ export default function CinemaPage() {
             onPlay={handleDirectorPlay}
             onStop={handleDirectorStop}
             onGoTo={handleDirectorGoTo}
+            currentSceneId={currentScene?.id ?? null}
+            currentSceneName={currentScene ? `${currentScene.emoji} ${currentScene.name}` : null}
+            sceneKeyframes={currentScene ? (sceneKeyframesMap[currentScene.id] ?? []) : []}
+            isSceneKfPlaying={sceneKfPlaying}
+            onSceneCapture={handleSceneCapture}
+            onSceneKfPlay={handleSceneKfPlay}
+            onSceneKfStop={handleSceneKfStop}
+            onSceneKfGoTo={handleSceneKfGoTo}
+            onSceneKeyframesChange={handleSceneKfChange}
           />
         </div>
       )}
