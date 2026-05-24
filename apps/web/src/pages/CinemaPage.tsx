@@ -154,8 +154,8 @@ export default function CinemaPage() {
   useEffect(() => { labelDistancesRef.current = labelDistances; }, [labelDistances]);
 
   // Hidden node types (show/hide in graph)
-  const [hiddenTypes, setHiddenTypes]   = useState<Set<string>>(new Set(['genre', 'emotion']));
-  const hiddenTypesRef                  = useRef<Set<string>>(new Set(['genre', 'emotion']));
+  const [hiddenTypes, setHiddenTypes]   = useState<Set<string>>(new Set(['genre', 'emotion', 'theme']));
+  const hiddenTypesRef                  = useRef<Set<string>>(new Set(['genre', 'emotion', 'theme']));
   useEffect(() => { hiddenTypesRef.current = hiddenTypes; }, [hiddenTypes]);
 
   // ── Lyrics overlay ───────────────────────────────────────────────────────────
@@ -1444,8 +1444,13 @@ export default function CinemaPage() {
     setHiddenTypes(prev => {
       const next = new Set(prev);
       if (next.has(type)) next.delete(type); else next.add(type);
+      // Update ref immediately (before the useEffect runs after re-render)
+      // so reArrange() below reads the correct new set.
+      hiddenTypesRef.current = next;
       return next;
     });
+    // Re-run arrangement so visible nodes fill the space — no holes.
+    reArrange();
   }
 
   // ── Render ────────────────────────────────────────────────────────────────────
