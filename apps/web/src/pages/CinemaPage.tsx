@@ -210,6 +210,30 @@ export default function CinemaPage() {
   const [nodeOpacityUser, setNodeOpacityUser] = useState(() => 0.92);
   useEffect(() => { setNodeOpacityUser(currentTheme.nodeOpacity); }, [currentTheme]);
 
+  // Global label text size multiplier (all node labels scale together)
+  const [labelSizeMultiplier, setLabelSizeMultiplier] = useState(1.0);
+  const labelSizeMultiplierRef = useRef(1.0);
+  useEffect(() => { labelSizeMultiplierRef.current = labelSizeMultiplier; }, [labelSizeMultiplier]);
+
+  // Lyric sprite text size
+  const [lyricsTextSize, setLyricsTextSize] = useState(2.8);
+  const lyricsTextSizeRef = useRef(2.8);
+  useEffect(() => { lyricsTextSizeRef.current = lyricsTextSize; }, [lyricsTextSize]);
+
+  // Per-node visual overrides: custom color + size multiplier, persisted in localStorage
+  const [nodeOverrides, setNodeOverridesRaw] = useState<Record<string, { color?: string; sizeMultiplier?: number }>>(() => {
+    try {
+      const stored = localStorage.getItem('cinema-node-overrides');
+      return stored ? (JSON.parse(stored) as Record<string, { color?: string; sizeMultiplier?: number }>) : {};
+    } catch { return {}; }
+  });
+  const nodeOverridesRef = useRef<Record<string, { color?: string; sizeMultiplier?: number }>>({});
+  const setNodeOverrides = useCallback((overrides: Record<string, { color?: string; sizeMultiplier?: number }>) => {
+    nodeOverridesRef.current = overrides;
+    setNodeOverridesRaw(overrides);
+    try { localStorage.setItem('cinema-node-overrides', JSON.stringify(overrides)); } catch { /* ignore */ }
+  }, []);
+
   // Genre source selector
   const [genreSource, setGenreSource] = useState<GenreSource>('priority');
 
@@ -398,6 +422,31 @@ export default function CinemaPage() {
     selectionDimRef.current = selectionDim;
     if (selectedNodeRef.current) fgRef.current?.refresh();
   }, [selectionDim]);
+
+  // Update existing label sprites when global size multiplier changes
+  useEffect(() => {
+    for (const [nodeId, sprite] of labelMapRef.current) {
+      const node = simNodesRef.current.find(n => n.id === nodeId);
+      if (!node) continue;
+      const base = node.type === 'artist' ? 5 : node.type === 'keyword' ? 4 : 3.5;
+      (sprite as any).textHeight = base * labelSizeMultiplier;
+    }
+    fgRef.current?.refresh();
+  }, [labelSizeMultiplier]);
+
+  // Update lyric sprites when text size changes
+  useEffect(() => {
+    for (const sp of lyricsSpritesRef.current) {
+      (sp as any).textHeight = lyricsTextSize;
+    }
+    fgRef.current?.refresh();
+  }, [lyricsTextSize]);
+
+  // Refresh graph when per-node overrides change
+  useEffect(() => {
+    nodeOverridesRef.current = nodeOverrides;
+    fgRef.current?.refresh();
+  }, [nodeOverrides]);
 
   // ── Derived: tour node IDs + visible graph data ───────────────────────────────
 
@@ -962,7 +1011,7 @@ export default function CinemaPage() {
             if (!line.trim()) return;
             const sp = new SpriteText(line.slice(0, 60));
             sp.color = 'rgba(199,210,254,0.65)';
-            sp.textHeight = 2.8;
+            sp.textHeight = lyricsTextSizeRef.current;
             sp.fontFace = 'Georgia, serif';
             sp.backgroundColor = 'rgba(3,7,18,0.5)';
             sp.padding = 1;
@@ -1038,6 +1087,8 @@ export default function CinemaPage() {
   const nodeColor = useCallback((node: object) => {
     const n = node as CinemaNode;
     if (tourMode && n.id === tourHighlightedId) return HIGHLIGHT_COLOR;
+    const override = nodeOverridesRef.current[n.id];
+    const baseColor = override?.color ?? (currentTheme.nodeColors[n.type] ?? '#4b5563');
     const chain = selectedChainRef.current;
     if (chain.length > 0 && !isPlayingRef.current) {
       const chainIdx = chain.findIndex(c => c.id === n.id);
@@ -1046,21 +1097,21 @@ export default function CinemaPage() {
       }
       const lastId = chain[chain.length - 1]!.id;
       if (adjRef.current.get(lastId)?.has(n.id)) return '#22d3ee';
-      const themeColor = currentTheme.nodeColors[n.type] ?? '#4b5563';
-      return blendHex(themeColor, '#0d1117', selectionDimRef.current);
+      return blendHex(baseColor, '#0d1117', selectionDimRef.current);
     }
-    return currentTheme.nodeColors[n.type] ?? '#4b5563';
+    return baseColor;
   }, [tourMode, tourHighlightedId, currentTheme]);
 
   const nodeVal = useCallback((node: object) => {
     const n = node as CinemaNode;
-    if (tourMode && n.id === tourHighlightedId) return 12;
+    const sizeMult = nodeOverridesRef.current[n.id]?.sizeMultiplier ?? 1;
+    if (tourMode && n.id === tourHighlightedId) return 12 * sizeMult;
     const chain = selectedChainRef.current;
     if (chain.length > 0 && !isPlayingRef.current) {
       const inChain = chain.some(c => c.id === n.id);
-      if (inChain) return nodeValFor(n.type) * 1.6;
+      if (inChain) return nodeValFor(n.type) * 1.6 * sizeMult;
     }
-    return nodeValFor(n.type) * currentTheme.nodeValMultiplier;
+    return nodeValFor(n.type) * currentTheme.nodeValMultiplier * sizeMult;
   }, [tourMode, tourHighlightedId, currentTheme]);
 
   // Link highlighting: bright white for active node's edges, indigo for all tour-node edges
@@ -1118,7 +1169,8 @@ export default function CinemaPage() {
     const n      = node as CinemaNode;
     const sprite = new SpriteText(n.label);
     sprite.color = '#e2e8f000';
-    sprite.textHeight = n.type === 'artist' ? 5 : n.type === 'keyword' ? 4 : 3.5;
+    const baseTextH = n.type === 'artist' ? 5 : n.type === 'keyword' ? 4 : 3.5;
+    sprite.textHeight = baseTextH * labelSizeMultiplierRef.current;
     sprite.fontWeight = '600';
     sprite.backgroundColor = 'rgba(3,7,18,0.7)';
     sprite.padding = 1.5;
@@ -1772,11 +1824,20 @@ export default function CinemaPage() {
                 ))}
                 <label className="block space-y-1">
                   <div className="flex justify-between text-[10px] text-gray-400">
-                    <span>Lyrics</span>
+                    <span>Lyrics show distance</span>
                     <span>{lyricsShowDist}</span>
                   </div>
                   <input type="range" min={50} max={600} step={10} value={lyricsShowDist}
                     onChange={e => setLyricsShowDist(Number(e.target.value))}
+                    className="w-full accent-indigo-500" />
+                </label>
+                <label className="block space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-400">
+                    <span>Lyrics text size</span>
+                    <span>{lyricsTextSize.toFixed(1)}</span>
+                  </div>
+                  <input type="range" min={1} max={10} step={0.2} value={lyricsTextSize}
+                    onChange={e => setLyricsTextSize(Number(e.target.value))}
                     className="w-full accent-indigo-500" />
                 </label>
               </div>
@@ -1981,6 +2042,16 @@ export default function CinemaPage() {
               {/* Label styling */}
               <div className="border-t border-gray-800 pt-3 space-y-2">
                 <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Label Style</div>
+                <label className="block space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-400">
+                    <span>Label size</span>
+                    <span>{labelSizeMultiplier.toFixed(1)}×</span>
+                  </div>
+                  <input type="range" min={0.3} max={3.5} step={0.1} value={labelSizeMultiplier}
+                    onChange={e => setLabelSizeMultiplier(Number(e.target.value))}
+                    className="w-full accent-indigo-500" />
+                  <div className="text-[10px] text-gray-700">Artist / album / song label text · 1× = default</div>
+                </label>
                 <button
                   onClick={() => setLabelShowBg(v => !v)}
                   className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
@@ -2095,6 +2166,77 @@ export default function CinemaPage() {
                   ))}
                 </div>
               )}
+
+              {/* Per-node visual overrides */}
+              {(() => {
+                const ov = nodeOverrides[selectedNode.id];
+                const defaultColor = currentTheme.nodeColors[selectedNode.type] ?? '#4b5563';
+                return (
+                  <div className="border-t border-gray-800 pt-2 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] text-gray-600 uppercase tracking-wide">Visual Override</div>
+                      {ov && (
+                        <button
+                          onClick={() => {
+                            const next = { ...nodeOverrides };
+                            delete next[selectedNode.id];
+                            setNodeOverrides(next);
+                          }}
+                          className="text-[10px] text-red-700 hover:text-red-500 transition-colors"
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-gray-400 flex-1">Color</span>
+                      <input
+                        type="color"
+                        value={ov?.color ?? defaultColor}
+                        onChange={e => {
+                          const existingOv = nodeOverrides[selectedNode.id] ?? {};
+                          setNodeOverrides({ ...nodeOverrides, [selectedNode.id]: { ...existingOv, color: e.target.value } });
+                        }}
+                        className="w-8 h-5 rounded cursor-pointer border-0 bg-transparent"
+                      />
+                      {ov?.color && (
+                        <button
+                          onClick={() => {
+                            const existingOv = nodeOverrides[selectedNode.id] ?? {};
+                            const next = { ...existingOv };
+                            delete next.color;
+                            if (Object.keys(next).length === 0) {
+                              const allOverrides = { ...nodeOverrides };
+                              delete allOverrides[selectedNode.id];
+                              setNodeOverrides(allOverrides);
+                            } else {
+                              setNodeOverrides({ ...nodeOverrides, [selectedNode.id]: next });
+                            }
+                          }}
+                          className="text-[10px] text-gray-700 hover:text-gray-400"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[10px] text-gray-400 mb-1">
+                        <span>Size</span>
+                        <span>{(ov?.sizeMultiplier ?? 1).toFixed(1)}×</span>
+                      </div>
+                      <input
+                        type="range" min={0.2} max={5} step={0.1}
+                        value={ov?.sizeMultiplier ?? 1}
+                        onChange={e => {
+                          const existingOv = nodeOverrides[selectedNode.id] ?? {};
+                          setNodeOverrides({ ...nodeOverrides, [selectedNode.id]: { ...existingOv, sizeMultiplier: Number(e.target.value) } });
+                        }}
+                        className="w-full accent-indigo-500"
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Connections */}
               <div className="border-t border-gray-800 pt-2">
