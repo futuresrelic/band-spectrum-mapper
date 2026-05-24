@@ -15,6 +15,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
+    "@types/three": "^0.184.1",
     "concurrently": "^8.2.2",
     "serve": "^14.2.3",
     "typescript": "^5.4.5"
