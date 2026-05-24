@@ -182,6 +182,11 @@ export default function CinemaPage() {
   useEffect(() => { lyricsWindowSizeRef.current  = lyricsWindowSize;  }, [lyricsWindowSize]);
   useEffect(() => { lyricsScrollSpeedRef.current = lyricsScrollSpeed; }, [lyricsScrollSpeed]);
 
+  // Show lyrics only for the currently selected chain node(s)
+  const [lyricsSelectedOnly, setLyricsSelectedOnly]       = useState(false);
+  const lyricsSelectedOnlyRef                             = useRef(false);
+  useEffect(() => { lyricsSelectedOnlyRef.current = lyricsSelectedOnly; }, [lyricsSelectedOnly]);
+
   // Per-song scroll state (populated when sprites are created)
   const lyricsScrollOffsetRef = useRef<Map<string, number>>(new Map());
   const lyricsTotalLinesRef   = useRef<Map<string, number>>(new Map());
@@ -200,6 +205,10 @@ export default function CinemaPage() {
   // Selection dim strength (0 = keep theme colour, 1 = fully dark)
   const [selectionDim, setSelectionDim] = useState(1.0);
   const selectionDimRef = useRef(1.0);
+
+  // Node sphere opacity override (user-adjustable, reset to theme default when theme changes)
+  const [nodeOpacityUser, setNodeOpacityUser] = useState(() => 0.92);
+  useEffect(() => { setNodeOpacityUser(currentTheme.nodeOpacity); }, [currentTheme]);
 
   // Genre source selector
   const [genreSource, setGenreSource] = useState<GenreSource>('priority');
@@ -304,6 +313,9 @@ export default function CinemaPage() {
     fromTarget: { x: number; y: number; z: number };
   } | null>(null);
 
+  // Applies a node-chain selection by ID array — used by Director keyframe playback
+  const applyKfSelectionRef = useRef((_ids: string[] | undefined) => { /* filled in effect below */ });
+
   // Per-scene looping keyframe playback
   const sceneKeyframesMapRef = useRef<Record<string, CinemaKeyframe[]>>({});
   const sceneKfPlayRef = useRef<{
@@ -348,6 +360,26 @@ export default function CinemaPage() {
   useEffect(() => { freeCamRef.current              = freeCam;              }, [freeCam]);
   useEffect(() => { lyricsProgressiveModeRef.current = lyricsProgressiveMode; }, [lyricsProgressiveMode]);
   useEffect(() => { lyricsRevealPaceRef.current      = lyricsRevealPace;      }, [lyricsRevealPace]);
+
+  useEffect(() => {
+    applyKfSelectionRef.current = (ids: string[] | undefined) => {
+      if (!ids || ids.length === 0) {
+        selectedChainRef.current = [];
+        selectedNodeRef.current  = null;
+        setSelectedNode(null);
+        fgRef.current?.refresh();
+        return;
+      }
+      const chain = ids
+        .map(id => simNodesRef.current.find(n => n.id === id))
+        .filter((n): n is CinemaNode => n !== undefined);
+      selectedChainRef.current = chain;
+      const last = chain[chain.length - 1] ?? null;
+      selectedNodeRef.current  = last;
+      setSelectedNode(last);
+      fgRef.current?.refresh();
+    };
+  }, [setSelectedNode]);
   useEffect(() => {
     selectionDimRef.current = selectionDim;
     if (selectedNodeRef.current) fgRef.current?.refresh();
@@ -547,10 +579,15 @@ export default function CinemaPage() {
             camera.lookAt(tx, ty, tz);
             if (t >= 1) {
               if (dp.idx + 1 < dp.keyframes.length) {
+                const nextKf = dp.keyframes[dp.idx + 1];
                 dp.startMs = Date.now();
                 dp.fromPos = { ...kf.position };
                 dp.fromTarget = { ...kf.target };
                 dp.idx += 1;
+                // Apply the incoming keyframe's node selection
+                if (nextKf?.selectedChain !== undefined) {
+                  applyKfSelectionRef.current(nextKf.selectedChain);
+                }
               } else {
                 directorPlayRef.current = null;
                 setDirectorPlaying(false);
@@ -703,7 +740,9 @@ export default function CinemaPage() {
               });
             }
             // Track which songIds are in proximity this frame
-            const inProximity = new Set<string>();
+            const selectedOnly   = lyricsSelectedOnlyRef.current;
+            const selectedIds    = new Set(selectedChainRef.current.map(n => n.id));
+            const inProximity    = new Set<string>();
             for (const sp of lyricsSpritesRef.current) {
               const pos = sp.position;
               if (!pos) { sp.visible = false; continue; }
@@ -713,6 +752,8 @@ export default function CinemaPage() {
                 continue;
               }
               const songId = sp._songId as string;
+              // Filter to selected nodes only when mode is on
+              if (selectedOnly && !selectedIds.has(songId)) { sp.visible = false; continue; }
               inProximity.add(songId);
               if (progressiveMode) {
                 if (!lyricsProximitySinceRef.current.has(songId)) {
@@ -1065,6 +1106,7 @@ export default function CinemaPage() {
     const camera = fg.camera?.();
     const ctrl2  = fg.controls?.();
     if (!camera) return;
+    const chainIds = selectedChainRef.current.map(n => n.id);
     const kf: CinemaKeyframe = {
       id: `kf-${Date.now()}`,
       label: `Shot ${directorKeyframes.length + 1}`,
@@ -1073,6 +1115,7 @@ export default function CinemaPage() {
         ? { x: ctrl2.target.x, y: ctrl2.target.y, z: ctrl2.target.z }
         : { x: 0, y: 0, z: 0 },
       durationMs: 3000,
+      ...(chainIds.length > 0 ? { selectedChain: chainIds } : {}),
     };
     setDirectorKeyframes([...directorKeyframes, kf]);
   }, [directorKeyframes, setDirectorKeyframes]);
@@ -1102,6 +1145,8 @@ export default function CinemaPage() {
     const ctrl2  = fg.controls?.();
     if (!camera) return;
     setIsPlaying(false); // stop scene playback
+    // Apply the first keyframe's node selection immediately
+    applyKfSelectionRef.current(directorKeyframes[0]?.selectedChain);
     directorPlayRef.current = {
       keyframes: directorKeyframes,
       idx: 0,
@@ -1347,7 +1392,7 @@ export default function CinemaPage() {
           nodeColor={nodeColor}
           nodeVal={nodeVal}
           nodeRelSize={BASE_NODE_REL}
-          nodeOpacity={currentTheme.nodeOpacity}
+          nodeOpacity={nodeOpacityUser}
           nodeResolution={8}
           nodeThreeObjectExtend
           nodeThreeObject={nodeThreeObject}
@@ -1779,6 +1824,18 @@ export default function CinemaPage() {
 
                 {showLyrics && (
                   <>
+                    {/* Selected node only */}
+                    <button
+                      onClick={() => setLyricsSelectedOnly(v => !v)}
+                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                        lyricsSelectedOnly ? 'text-green-300 bg-green-900/20' : 'text-gray-500 hover:text-gray-300'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${lyricsSelectedOnly ? 'bg-green-400' : 'bg-gray-700'}`} />
+                      <span>Selected node only</span>
+                      <span className="ml-auto text-[10px] text-gray-600">{lyricsSelectedOnly ? 'on' : 'off'}</span>
+                    </button>
+
                     {/* Scroll mode toggle */}
                     <button
                       onClick={() => setLyricsScrollMode(v => !v)}
@@ -1892,6 +1949,19 @@ export default function CinemaPage() {
                     onChange={e => setSelectionDim(Number(e.target.value))}
                     className="w-full accent-indigo-500" />
                   <div className="text-[10px] text-gray-600">0 = colours · 1 = fully dark</div>
+                </label>
+              </div>
+
+              {/* Node opacity */}
+              <div className="border-t border-gray-800 pt-3">
+                <label className="block space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-400">
+                    <span>Node opacity</span><span>{Math.round(nodeOpacityUser * 100)}%</span>
+                  </div>
+                  <input type="range" min={0.05} max={1} step={0.05} value={nodeOpacityUser}
+                    onChange={e => setNodeOpacityUser(Number(e.target.value))}
+                    className="w-full accent-indigo-500" />
+                  <div className="text-[10px] text-gray-600">Lower = more transparent nodes · resets with theme</div>
                 </label>
               </div>
 

@@ -97,4 +97,6 @@ export interface CinemaKeyframe {
   target: { x: number; y: number; z: number };
   /** Time in ms to interpolate FROM the previous keyframe to this one. */
   durationMs: number;
+  /** Node IDs that should be selected when this keyframe activates. Undefined = no change. */
+  selectedChain?: string[];
 }

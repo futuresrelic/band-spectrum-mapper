@@ -88,11 +88,16 @@ function KeyframeList({
                 />
               ) : (
                 <button
-                  className="flex-1 text-left text-gray-300 hover:text-white truncate"
+                  className="flex-1 min-w-0 text-left text-gray-300 hover:text-white flex items-center gap-1"
                   title="Click to rename"
                   onClick={() => { setEditingId(kf.id); setEditLabel(kf.label); }}
                 >
-                  {kf.label}
+                  <span className="truncate">{kf.label}</span>
+                  {kf.selectedChain && kf.selectedChain.length > 0 && (
+                    <span className="shrink-0 text-[9px] bg-green-900/60 text-green-400 px-1 rounded-full" title={`${kf.selectedChain.length} node(s) selected`}>
+                      ◉{kf.selectedChain.length}
+                    </span>
+                  )}
                 </button>
               )}
 
