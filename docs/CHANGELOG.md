@@ -4,6 +4,24 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Cinema: Scene cam playback fix, chain selection, progressive lyrics, free cam (2026-05-24)
+
+### Fixed
+
+- **Scene cam "Preview loop" not working** — the sceneKfPlayRef block was nested inside the `isPlayingRef` guard, so clicking "Preview loop" (which stops scene playback first) never drove the camera. The block now runs independently at the top of the rAF tick, identical to how the global Director sequence works. Scene cam now previews correctly whether the scene is playing or stopped.
+
+### Added
+
+- **Copy path to Sequence** — in the 🎬 Scene cam tab, a "↗ Copy path to Sequence" button appears when the current scene has keyframes. Clicking it appends those shots to the global Director sequence, letting you chain multiple scenes' paths into one long one-shot sequence.
+
+- **Node chain selection** — clicking a node starts a selection chain; clicking an adjacent node extends it; clicking a node already in the chain truncates back to it; clicking the background clears. Visual feedback: chain nodes glow white/sky-blue, edges between consecutive chain nodes are bright white, potential next-hop edges from the last node show dim cyan as navigation guides. Everything else dims.
+
+- **Progressive lyrics reveal** — a new mode in the Lyrical DNA controls (⚙ → Lyrics → Progressive reveal). When on, lyrics appear line by line as the camera lingers near a node, with a pace slider (0.5s–8s per line). Moving away from a node resets its timer so the reveal starts fresh next time you approach.
+
+- **Free cam toggle** (`🕹 Free` button, appears during scene playback) — disables the scene's built-in camera program so you can navigate freely with mouse/touch without the camera being pulled back to the programmed path. The button turns amber when active. Automatically resets to locked when you change scenes.
+
+---
+
 ## Cinema Mode — Genre Radar layout, Director Mode, genre nodes (2026-05-24)
 
 ### Added
