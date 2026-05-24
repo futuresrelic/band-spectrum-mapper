@@ -165,6 +165,7 @@ interface Props {
   onSceneKfStop: () => void;
   onSceneKfGoTo: (kf: CinemaKeyframe) => void;
   onSceneKeyframesChange: (kfs: CinemaKeyframe[]) => void;
+  onCopyToSequence?: () => void;
 }
 
 export default function CameraDirector(props: Props) {
@@ -173,6 +174,7 @@ export default function CameraDirector(props: Props) {
     currentSceneId, currentSceneName,
     sceneKeyframes, isSceneKfPlaying,
     onSceneCapture, onSceneKfPlay, onSceneKfStop, onSceneKfGoTo, onSceneKeyframesChange,
+    onCopyToSequence,
   } = props;
 
   const [tab, setTab] = useState<Tab>('sequence');
@@ -244,9 +246,19 @@ export default function CameraDirector(props: Props) {
                 playLabel="Preview loop"
               />
               {sceneKeyframes.length > 0 && (
-                <div className="text-[10px] text-gray-600 text-center">
-                  🔁 Loops automatically when scene plays
-                </div>
+                <>
+                  <div className="text-[10px] text-gray-600 text-center">
+                    🔁 Loops automatically when scene plays
+                  </div>
+                  {onCopyToSequence && (
+                    <button
+                      onClick={onCopyToSequence}
+                      className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-400 hover:text-gray-200 text-[11px] transition-colors"
+                    >
+                      ↗ Copy path to Sequence
+                    </button>
+                  )}
+                </>
               )}
             </>
           ) : (

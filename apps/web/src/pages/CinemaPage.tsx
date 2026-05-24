@@ -317,6 +317,20 @@ export default function CinemaPage() {
   // Genre cloud meshes managed by Three.js
   const genreCloudMeshesRef = useRef<THREE.Mesh[]>([]);
 
+  // Node chain selection
+  const selectedChainRef = useRef<CinemaNode[]>([]);
+
+  // Free cam — disables scene.tick() so user can navigate freely during playback
+  const [freeCam, setFreeCam] = useState(false);
+  const freeCamRef = useRef(false);
+
+  // Lyrics progressive reveal
+  const [lyricsProgressiveMode, setLyricsProgressiveMode] = useState(false);
+  const [lyricsRevealPace, setLyricsRevealPace]           = useState(2);
+  const lyricsProgressiveModeRef = useRef(false);
+  const lyricsRevealPaceRef      = useRef(2);
+  const lyricsProximitySinceRef  = useRef<Map<string, number>>(new Map());
+
   const [cursorHidden, setCursorHidden] = useState(false);
 
   // Sync refs ↔ state
@@ -331,6 +345,9 @@ export default function CinemaPage() {
   useEffect(() => { labelBgOpacityRef.current   = labelBgOpacity;   }, [labelBgOpacity]);
   useEffect(() => { labelTextColorRef.current   = labelTextColor;   }, [labelTextColor]);
   useEffect(() => { labelAlwaysOnTopRef.current = labelAlwaysOnTop; }, [labelAlwaysOnTop]);
+  useEffect(() => { freeCamRef.current              = freeCam;              }, [freeCam]);
+  useEffect(() => { lyricsProgressiveModeRef.current = lyricsProgressiveMode; }, [lyricsProgressiveMode]);
+  useEffect(() => { lyricsRevealPaceRef.current      = lyricsRevealPace;      }, [lyricsRevealPace]);
   useEffect(() => {
     selectionDimRef.current = selectionDim;
     if (selectedNodeRef.current) fgRef.current?.refresh();
@@ -405,6 +422,7 @@ export default function CinemaPage() {
     currentIdxRef.current = idx;
     setCurrentSceneIdx(idx);
     setSceneProgress(0);
+    setFreeCam(false); // reset free cam on scene change
 
     // If this scene has user-defined keyframes, start looping them
     const kfs = sceneKeyframesMapRef.current[scene.id] ?? [];
@@ -541,7 +559,34 @@ export default function CinemaPage() {
           }
         }
 
-        if (ctrl) ctrl.enabled = !isPlayingRef.current && directorPlayRef.current === null;
+        // Scene-KF loop — runs independently so "Preview loop" works when scene is not playing
+        if (sceneKfPlayRef.current && camera && ctrl && !directorPlayRef.current) {
+          const skf = sceneKfPlayRef.current;
+          const kf  = skf.keyframes[skf.idx];
+          ctrl.enabled = false;
+          if (kf) {
+            const t = easeInOutQuad(Math.min(1, (Date.now() - skf.startMs) / kf.durationMs));
+            camera.position.set(
+              skf.fromPos.x + (kf.position.x - skf.fromPos.x) * t,
+              skf.fromPos.y + (kf.position.y - skf.fromPos.y) * t,
+              skf.fromPos.z + (kf.position.z - skf.fromPos.z) * t,
+            );
+            const tx = skf.fromTarget.x + (kf.target.x - skf.fromTarget.x) * t;
+            const ty = skf.fromTarget.y + (kf.target.y - skf.fromTarget.y) * t;
+            const tz = skf.fromTarget.z + (kf.target.z - skf.fromTarget.z) * t;
+            ctrl.target.set(tx, ty, tz);
+            camera.lookAt(tx, ty, tz);
+            if (t >= 1) {
+              const nextIdx = (skf.idx + 1) % skf.keyframes.length;
+              skf.startMs = Date.now();
+              skf.fromPos = { ...kf.position };
+              skf.fromTarget = { ...kf.target };
+              skf.idx = nextIdx;
+            }
+          }
+        }
+
+        if (ctrl) ctrl.enabled = (!isPlayingRef.current || freeCamRef.current) && directorPlayRef.current === null && sceneKfPlayRef.current === null;
 
         if (isPlayingRef.current && camera && ctrl) {
           const elapsed  = performance.now() - sceneStartRef.current;
@@ -591,33 +636,8 @@ export default function CinemaPage() {
               }
             }
           } else {
-            // Scene keyframe override: if the current scene has user-defined keyframes, loop them
-            const skf = sceneKfPlayRef.current;
-            if (skf && camera && ctrl) {
-              ctrl.enabled = false;
-              const kf = skf.keyframes[skf.idx];
-              if (kf) {
-                const t = easeInOutQuad(Math.min(1, (Date.now() - skf.startMs) / kf.durationMs));
-                camera.position.set(
-                  skf.fromPos.x + (kf.position.x - skf.fromPos.x) * t,
-                  skf.fromPos.y + (kf.position.y - skf.fromPos.y) * t,
-                  skf.fromPos.z + (kf.position.z - skf.fromPos.z) * t,
-                );
-                const tx = skf.fromTarget.x + (kf.target.x - skf.fromTarget.x) * t;
-                const ty = skf.fromTarget.y + (kf.target.y - skf.fromTarget.y) * t;
-                const tz = skf.fromTarget.z + (kf.target.z - skf.fromTarget.z) * t;
-                ctrl.target.set(tx, ty, tz);
-                camera.lookAt(tx, ty, tz);
-                if (t >= 1) {
-                  // Loop: advance to next, wrapping back to 0
-                  const nextIdx = (skf.idx + 1) % skf.keyframes.length;
-                  skf.startMs = Date.now();
-                  skf.fromPos = { ...kf.position };
-                  skf.fromTarget = { ...kf.target };
-                  skf.idx = nextIdx;
-                }
-              }
-            } else {
+            // Scene KF loop or free cam disables built-in scene tick
+            if (!sceneKfPlayRef.current && !freeCamRef.current) {
               const scene = CINEMA_SCENES[currentIdxRef.current];
               scene?.tick?.(fg, simNodesRef.current, adjRef.current, elapsed, sceneStateRef.current, controls);
             }
@@ -667,29 +687,51 @@ export default function CinemaPage() {
             }
           }
 
-          // Lyrics sprite: distance culling + scroll-window auto-advance
+          // Lyrics sprite: distance culling + scroll/progressive reveal
           if (lyricsSpritesRef.current.length > 0) {
-            const lyricDistSq = lyricsShowDistRef.current ** 2;
-            const scrollMode  = lyricsScrollModeRef.current;
-            const winSize     = lyricsWindowSizeRef.current;
-            const now         = performance.now();
-            if (scrollMode && now - lyricsScrollLastRef.current > lyricsScrollSpeedRef.current * 1000) {
+            const lyricDistSq       = lyricsShowDistRef.current ** 2;
+            const scrollMode        = lyricsScrollModeRef.current;
+            const progressiveMode   = lyricsProgressiveModeRef.current;
+            const revealPaceMs      = lyricsRevealPaceRef.current * 1000;
+            const winSize           = lyricsWindowSizeRef.current;
+            const now               = performance.now();
+            if (scrollMode && !progressiveMode && now - lyricsScrollLastRef.current > lyricsScrollSpeedRef.current * 1000) {
               lyricsScrollLastRef.current = now;
               lyricsTotalLinesRef.current.forEach((total, songId) => {
                 const cur = lyricsScrollOffsetRef.current.get(songId) ?? 0;
                 lyricsScrollOffsetRef.current.set(songId, (cur + 1) % Math.max(1, total));
               });
             }
+            // Track which songIds are in proximity this frame
+            const inProximity = new Set<string>();
             for (const sp of lyricsSpritesRef.current) {
               const pos = sp.position;
               if (!pos) { sp.visible = false; continue; }
               const ldx = pos.x - cx, ldy = pos.y - cy, ldz = pos.z - cz;
-              if (ldx * ldx + ldy * ldy + ldz * ldz > lyricDistSq) { sp.visible = false; continue; }
-              if (scrollMode) {
-                const offset = lyricsScrollOffsetRef.current.get(sp._songId as string) ?? 0;
+              if (ldx * ldx + ldy * ldy + ldz * ldz > lyricDistSq) {
+                sp.visible = false;
+                continue;
+              }
+              const songId = sp._songId as string;
+              inProximity.add(songId);
+              if (progressiveMode) {
+                if (!lyricsProximitySinceRef.current.has(songId)) {
+                  lyricsProximitySinceRef.current.set(songId, now);
+                }
+                const timeNear = now - (lyricsProximitySinceRef.current.get(songId) ?? now);
+                const linesRevealed = Math.floor(timeNear / revealPaceMs) + 1;
+                sp.visible = (sp._lineIdx as number) < linesRevealed;
+              } else if (scrollMode) {
+                const offset = lyricsScrollOffsetRef.current.get(songId) ?? 0;
                 sp.visible = (sp._lineIdx as number) >= offset && (sp._lineIdx as number) < offset + winSize;
               } else {
                 sp.visible = true;
+              }
+            }
+            // Clear proximity timers for songs that left the range
+            if (progressiveMode) {
+              for (const songId of lyricsProximitySinceRef.current.keys()) {
+                if (!inProximity.has(songId)) lyricsProximitySinceRef.current.delete(songId);
               }
             }
           }
@@ -896,10 +938,14 @@ export default function CinemaPage() {
   const nodeColor = useCallback((node: object) => {
     const n = node as CinemaNode;
     if (tourMode && n.id === tourHighlightedId) return HIGHLIGHT_COLOR;
-    const sel = selectedNodeRef.current;
-    if (sel && !isPlayingRef.current) {
-      if (n.id === sel.id) return '#ffffff';
-      if (adjRef.current.get(sel.id)?.has(n.id)) return '#22d3ee';
+    const chain = selectedChainRef.current;
+    if (chain.length > 0 && !isPlayingRef.current) {
+      const chainIdx = chain.findIndex(c => c.id === n.id);
+      if (chainIdx >= 0) {
+        return chainIdx === chain.length - 1 ? '#ffffff' : '#7dd3fc';
+      }
+      const lastId = chain[chain.length - 1]!.id;
+      if (adjRef.current.get(lastId)?.has(n.id)) return '#22d3ee';
       const themeColor = currentTheme.nodeColors[n.type] ?? '#4b5563';
       return blendHex(themeColor, '#0d1117', selectionDimRef.current);
     }
@@ -909,8 +955,11 @@ export default function CinemaPage() {
   const nodeVal = useCallback((node: object) => {
     const n = node as CinemaNode;
     if (tourMode && n.id === tourHighlightedId) return 12;
-    const sel = selectedNodeRef.current;
-    if (sel && !isPlayingRef.current && n.id === sel.id) return nodeValFor(n.type) * 1.6;
+    const chain = selectedChainRef.current;
+    if (chain.length > 0 && !isPlayingRef.current) {
+      const inChain = chain.some(c => c.id === n.id);
+      if (inChain) return nodeValFor(n.type) * 1.6;
+    }
     return nodeValFor(n.type) * currentTheme.nodeValMultiplier;
   }, [tourMode, tourHighlightedId, currentTheme]);
 
@@ -927,9 +976,18 @@ export default function CinemaPage() {
         return 'rgba(165,180,252,0.55)';
       }
     }
-    const sel = selectedNodeRef.current;
-    if (sel && !isPlayingRef.current) {
-      if (srcId === sel.id || tgtId === sel.id) return '#22d3ee';
+    const chain = selectedChainRef.current;
+    if (chain.length > 0 && !isPlayingRef.current) {
+      // Bright white for links that are part of the chain path
+      for (let i = 0; i < chain.length - 1; i++) {
+        const a = chain[i]!.id, b = chain[i + 1]!.id;
+        if ((srcId === a && tgtId === b) || (srcId === b && tgtId === a)) {
+          return 'rgba(255,255,255,0.85)';
+        }
+      }
+      // Dim cyan for links from the last chain node (possible next hops)
+      const lastId = chain[chain.length - 1]!.id;
+      if (srcId === lastId || tgtId === lastId) return 'rgba(34,211,238,0.4)';
       return 'rgba(15,15,30,0.08)';
     }
     return currentThemeRef.current.linkColor;
@@ -943,9 +1001,14 @@ export default function CinemaPage() {
       if (tourHighlightedId && (srcId === tourHighlightedId || tgtId === tourHighlightedId)) return 2;
       if (tourNodeIds.size > 0 && (tourNodeIds.has(srcId) || tourNodeIds.has(tgtId))) return 1;
     }
-    const sel = selectedNodeRef.current;
-    if (sel && !isPlayingRef.current) {
-      if (srcId === sel.id || tgtId === sel.id) return 2;
+    const chain = selectedChainRef.current;
+    if (chain.length > 0 && !isPlayingRef.current) {
+      for (let i = 0; i < chain.length - 1; i++) {
+        const a = chain[i]!.id, b = chain[i + 1]!.id;
+        if ((srcId === a && tgtId === b) || (srcId === b && tgtId === a)) return 2.5;
+      }
+      const lastId = chain[chain.length - 1]!.id;
+      if (srcId === lastId || tgtId === lastId) return 1;
       return 0.12;
     }
     return 0.4 * currentThemeRef.current.linkWidthMultiplier;
@@ -1118,6 +1181,15 @@ export default function CinemaPage() {
     handleDirectorGoTo(kf);
   }, [handleDirectorGoTo]);
 
+  const handleCopySceneToSequence = useCallback(() => {
+    const scene = CINEMA_SCENES[currentIdxRef.current];
+    if (!scene) return;
+    const kfs = sceneKeyframesMapRef.current[scene.id] ?? [];
+    if (!kfs.length) return;
+    setDirectorKeyframes([...directorKeyframes, ...kfs]);
+    setShowDirector(true);
+  }, [directorKeyframes, setDirectorKeyframes]);
+
   const applyAiSettings = useCallback(async () => {
     const prompt = aiPromptInput.trim();
     if (!prompt || isAiThinking) return;
@@ -1173,24 +1245,59 @@ export default function CinemaPage() {
   }, [aiPromptInput, isAiThinking, selectedBandIds, reArrange]);
 
   const onNodeClick = useCallback((node: object) => {
-    const n = node as CinemaNode;
-    const sel = selectedNodeRef.current;
-    // While paused and a node is already selected, ignore clicks on non-adjacent nodes (matching Explore behaviour)
-    if (!isPlayingRef.current && sel && sel.id !== n.id && !adjRef.current.get(sel.id)?.has(n.id)) return;
-    const newSel = sel?.id === n.id ? null : n;
-    selectedNodeRef.current = newSel;
-    setSelectedNode(newSel);
+    const n     = node as CinemaNode;
+    const chain = selectedChainRef.current;
+
+    // Click on node already in chain → truncate to it (or remove if it's the last)
+    const existingIdx = chain.findIndex(c => c.id === n.id);
+    if (existingIdx >= 0) {
+      const newChain = existingIdx === chain.length - 1
+        ? chain.slice(0, -1)
+        : chain.slice(0, existingIdx + 1);
+      selectedChainRef.current = newChain;
+      const lastInChain = newChain[newChain.length - 1] ?? null;
+      selectedNodeRef.current = lastInChain;
+      setSelectedNode(lastInChain);
+      fgRef.current?.refresh();
+      return;
+    }
+
+    // Determine new chain
+    const lastNode = chain[chain.length - 1];
+    let newChain: CinemaNode[];
+    if (chain.length === 0) {
+      newChain = [n];
+    } else if (lastNode && adjRef.current.get(lastNode.id)?.has(n.id)) {
+      // Adjacent to last chain node → extend
+      newChain = [...chain, n];
+    } else {
+      // Not adjacent → start fresh chain
+      newChain = [n];
+    }
+
+    selectedChainRef.current = newChain;
+    selectedNodeRef.current  = n;
+    setSelectedNode(n);
     fgRef.current?.refresh();
-    if (!isPlayingRef.current && newSel) {
+
+    if (!isPlayingRef.current) {
       const ctrl = fgRef.current?.controls?.();
-      if (ctrl && newSel.x != null) {
+      if (ctrl && n.x != null) {
         orbitAnimRef.current = {
           sx: ctrl.target.x, sy: ctrl.target.y, sz: ctrl.target.z,
-          tx: newSel.x, ty: newSel.y ?? 0, tz: newSel.z ?? 0,
+          tx: n.x, ty: n.y ?? 0, tz: n.z ?? 0,
           t0: performance.now(), dur: 600,
         };
       }
     }
+  }, []);
+
+  const onBackgroundClick = useCallback(() => {
+    if (selectedChainRef.current.length === 0 && !selectedNodeRef.current) return;
+    selectedChainRef.current = [];
+    selectedNodeRef.current  = null;
+    setSelectedNode(null);
+    fgRef.current?.refresh();
   }, []);
 
   function cleanupLyricsSprites() {
@@ -1254,6 +1361,7 @@ export default function CinemaPage() {
           d3VelocityDecay={0.4}
           onEngineStop={onEngineStop}
           onNodeClick={onNodeClick}
+          onBackgroundClick={onBackgroundClick}
           width={window.innerWidth}
           height={window.innerHeight}
         />
@@ -1705,6 +1813,30 @@ export default function CinemaPage() {
                         </label>
                       </>
                     )}
+
+                    {/* Progressive reveal mode */}
+                    <button
+                      onClick={() => setLyricsProgressiveMode(v => !v)}
+                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                        lyricsProgressiveMode ? 'text-amber-300 bg-amber-900/20' : 'text-gray-500 hover:text-gray-300'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${lyricsProgressiveMode ? 'bg-amber-400' : 'bg-gray-700'}`} />
+                      <span>Progressive reveal</span>
+                      <span className="ml-auto text-[10px] text-gray-600">{lyricsProgressiveMode ? 'on' : 'off'}</span>
+                    </button>
+                    {lyricsProgressiveMode && (
+                      <label className="block space-y-1">
+                        <div className="flex justify-between text-[10px] text-gray-400">
+                          <span>Reveal pace</span>
+                          <span>{lyricsRevealPace}s / line</span>
+                        </div>
+                        <input type="range" min={0.5} max={8} step={0.5} value={lyricsRevealPace}
+                          onChange={e => setLyricsRevealPace(Number(e.target.value))}
+                          className="w-full accent-amber-500" />
+                        <div className="text-[10px] text-gray-700">Linger near a node — lines appear one by one</div>
+                      </label>
+                    )}
                   </>
                 )}
               </div>
@@ -1909,6 +2041,15 @@ export default function CinemaPage() {
             </div>
 
             <div className="flex items-center gap-2">
+              {isPlaying && (
+                <button
+                  onClick={() => setFreeCam(v => !v)}
+                  title={freeCam ? 'Free cam — click to restore scene camera' : 'Lock camera to scene path'}
+                  className={`text-xs transition-colors px-2 py-1 rounded ${freeCam ? 'text-amber-300 bg-amber-900/30' : 'text-gray-600 hover:text-gray-300'}`}
+                >
+                  {freeCam ? '🕹 Free' : '🎥'}
+                </button>
+              )}
               <span className="hidden md:inline text-[10px] text-gray-700">Space · F · ⚙</span>
               <button onClick={toggleSocialMode} title="Social Mode (F)" className="text-xs text-gray-600 hover:text-gray-300 transition-colors">🎬</button>
             </div>
@@ -1971,6 +2112,7 @@ export default function CinemaPage() {
             onSceneKfStop={handleSceneKfStop}
             onSceneKfGoTo={handleSceneKfGoTo}
             onSceneKeyframesChange={handleSceneKfChange}
+            onCopyToSequence={handleCopySceneToSequence}
           />
         </div>
       )}
