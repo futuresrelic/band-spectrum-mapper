@@ -26,7 +26,7 @@ import type { GraphData } from '../api/songNodes';
 import { buildAdj, computeArrangeTargets, animateArrange, easeInOutQuad } from '../cinema/graphArrange';
 import { CINEMA_SCENES } from '../cinema/sceneDefinitions';
 import { initOrbitState, updateOrbitCamera, type OrbitCameraState } from '../cinema/orbitCamera';
-import type { CinemaNode, CinemaLink, CinemaControls, TourStep, CinemaKeyframe } from '../cinema/types';
+import type { CinemaNode, CinemaLink, CinemaControls, TourStep, CinemaKeyframe, NodeSequence } from '../cinema/types';
 import { DEFAULT_CINEMA_CONTROLS } from '../cinema/types';
 import { CINEMA_THEMES, getTheme, DEFAULT_THEME_ID, type CinemaTheme } from '../cinema/themes';
 import TourPlanner from '../cinema/TourPlanner';
@@ -257,6 +257,19 @@ export default function CinemaPage() {
   const [showTourPlanner, setShowTourPlanner] = useState(false);
   const [tourSteps, setTourSteps]             = useState<TourStep[]>([]);
   const [tourStepIdx, setTourStepIdx]         = useState(0);
+  const [tourAddMode, setTourAddMode]         = useState(false);
+
+  // Named saved sequences (persisted in localStorage)
+  const [savedSequences, setSavedSequencesRaw] = useState<NodeSequence[]>(() => {
+    try {
+      const stored = localStorage.getItem('cinema-node-sequences');
+      return stored ? (JSON.parse(stored) as NodeSequence[]) : [];
+    } catch { return []; }
+  });
+  const setSavedSequences = (seqs: NodeSequence[]) => {
+    setSavedSequencesRaw(seqs);
+    try { localStorage.setItem('cinema-node-sequences', JSON.stringify(seqs)); } catch { /* ignore */ }
+  };
 
   // Highlighted node — current tour stop; turns white + oversized
   const [tourHighlightedId, setTourHighlightedId] = useState<string | null>(null);
@@ -271,11 +284,12 @@ export default function CinemaPage() {
   useEffect(() => { tourStepsRef.current   = tourSteps;   }, [tourSteps]);
   useEffect(() => { tourStepIdxRef.current = tourStepIdx; }, [tourStepIdx]);
 
-  // Clear highlight when leaving tour mode
+  // Clear highlight + add-mode when leaving tour mode
   useEffect(() => {
     if (!tourMode) {
       tourHighlightedIdRef.current = null;
       setTourHighlightedId(null);
+      setTourAddMode(false);
     }
   }, [tourMode]);
 
@@ -528,6 +542,43 @@ export default function CinemaPage() {
     applyHighlightRef.current(null);
   }, []);
 
+  // Tour step mutations
+  const handleStepChange = useCallback((id: string, patch: Partial<TourStep>) => {
+    setTourSteps(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
+  }, []);
+
+  const handleMoveStep = useCallback((id: string, dir: -1 | 1) => {
+    setTourSteps(prev => {
+      const idx = prev.findIndex(s => s.id === id);
+      if (idx < 0) return prev;
+      const next = idx + dir;
+      if (next < 0 || next >= prev.length) return prev;
+      const arr = [...prev];
+      const tmp = arr[idx]!; arr[idx] = arr[next]!; arr[next] = tmp;
+      return arr;
+    });
+  }, []);
+
+  // Save/load sequence handlers
+  const handleSaveSequence = useCallback((name: string) => {
+    const seq: NodeSequence = {
+      id: `seq-${Date.now()}`,
+      name,
+      steps: tourSteps,
+      savedAt: new Date().toISOString(),
+    };
+    setSavedSequences([...savedSequences, seq]);
+  }, [tourSteps, savedSequences, setSavedSequences]);
+
+  const handleLoadSequence = useCallback((seq: NodeSequence) => {
+    setTourSteps(seq.steps);
+    stopTour();
+  }, [stopTour]);
+
+  const handleDeleteSequence = useCallback((id: string) => {
+    setSavedSequences(savedSequences.filter(s => s.id !== id));
+  }, [savedSequences, setSavedSequences]);
+
   // ── Scene timer ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -637,9 +688,17 @@ export default function CinemaPage() {
             if (step) {
               const node = simNodesRef.current.find(n => n.id === step.nodeId);
               if (node && node.x != null) {
+                // Blend per-step overrides into global controls for this shot
+                const stepControls: CinemaControls = {
+                  ...controls,
+                  ...(step.orbitSpeed   !== undefined ? { orbitSpeed:      step.orbitSpeed   } : {}),
+                  ...(step.approachDist !== undefined ? { approachDist:    step.approachDist } : {}),
+                  ...(step.elevation    !== undefined ? { elevationOffset: step.elevation    } : {}),
+                  ...(step.orbitMode    !== undefined ? { orbitMode:       step.orbitMode    } : {}),
+                };
                 if (!tourOrbitRef.current) {
                   const prevLookAt = tourPrevTargetRef.current ?? { x: 0, y: 0, z: 0 };
-                  const dwellMs    = Math.round(step.dwellMs / controls.speedMultiplier);
+                  const dwellMs    = Math.round(step.dwellMs / stepControls.speedMultiplier);
                   tourOrbitRef.current = initOrbitState(
                     node.x, node.y ?? 0, node.z ?? 0,
                     camera.position.x, camera.position.y, camera.position.z,
@@ -649,7 +708,7 @@ export default function CinemaPage() {
                   applyHighlightRef.current(step.nodeId);
                 }
 
-                const result = updateOrbitCamera(fg, tourOrbitRef.current, elapsed, controls);
+                const result = updateOrbitCamera(fg, tourOrbitRef.current, elapsed, stepControls);
                 if (result === 'done') {
                   // Store the departing node's position for the next fly-in's look-at lerp
                   tourPrevTargetRef.current = {
@@ -1290,7 +1349,23 @@ export default function CinemaPage() {
   }, [aiPromptInput, isAiThinking, selectedBandIds, reArrange]);
 
   const onNodeClick = useCallback((node: object) => {
-    const n     = node as CinemaNode;
+    const n = node as CinemaNode;
+
+    // Tour add mode: clicking a graph node appends it as a tour step
+    if (tourAddMode && tourMode) {
+      const alreadyInTour = tourStepsRef.current.some(s => s.nodeId === n.id);
+      if (!alreadyInTour) {
+        setTourSteps(prev => [...prev, {
+          id: `step-${Date.now()}-${n.id}`,
+          nodeId: n.id,
+          nodeLabel: n.label,
+          nodeType: n.type,
+          dwellMs: 8000,
+        }]);
+      }
+      return;
+    }
+
     const chain = selectedChainRef.current;
 
     // Click on node already in chain → truncate to it (or remove if it's the last)
@@ -2198,12 +2273,19 @@ export default function CinemaPage() {
             steps={tourSteps}
             isPlaying={isPlaying && tourMode}
             currentStepIdx={tourStepIdx}
+            isAddMode={tourAddMode}
             onAddStep={step => setTourSteps(prev => [...prev, step])}
             onRemoveStep={id => setTourSteps(prev => prev.filter(s => s.id !== id))}
-            onDwellChange={(id, ms) => setTourSteps(prev => prev.map(s => s.id === id ? { ...s, dwellMs: ms } : s))}
+            onStepChange={handleStepChange}
+            onMoveStep={handleMoveStep}
             onPlay={startTour}
             onStop={stopTour}
             onClear={() => { setTourSteps([]); stopTour(); }}
+            onToggleAddMode={() => setTourAddMode(v => !v)}
+            savedSequences={savedSequences}
+            onSaveSequence={handleSaveSequence}
+            onLoadSequence={handleLoadSequence}
+            onDeleteSequence={handleDeleteSequence}
           />
         </div>
       )}

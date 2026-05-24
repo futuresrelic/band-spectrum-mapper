@@ -85,6 +85,19 @@ export interface TourStep {
   nodeType: string;
   /** How long to orbit/breathe after arriving (ms) — travel time is separate. */
   dwellMs: number;
+  /** Per-step camera overrides — undefined means use the global CinemaControls value. */
+  orbitSpeed?: number;
+  approachDist?: number;
+  elevation?: number;
+  orbitMode?: 'orbit' | 'breathe';
+}
+
+/** A saved, named node-based camera sequence. */
+export interface NodeSequence {
+  id: string;
+  name: string;
+  steps: TourStep[];
+  savedAt: string;
 }
 
 /** A camera keyframe for Director Mode. */
