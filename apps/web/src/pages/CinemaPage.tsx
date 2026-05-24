@@ -154,8 +154,8 @@ export default function CinemaPage() {
   useEffect(() => { labelDistancesRef.current = labelDistances; }, [labelDistances]);
 
   // Hidden node types (show/hide in graph)
-  const [hiddenTypes, setHiddenTypes]   = useState<Set<string>>(new Set());
-  const hiddenTypesRef                  = useRef<Set<string>>(new Set());
+  const [hiddenTypes, setHiddenTypes]   = useState<Set<string>>(new Set(['genre', 'emotion']));
+  const hiddenTypesRef                  = useRef<Set<string>>(new Set(['genre', 'emotion']));
   useEffect(() => { hiddenTypesRef.current = hiddenTypes; }, [hiddenTypes]);
 
   // ── Lyrics overlay ───────────────────────────────────────────────────────────
