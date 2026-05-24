@@ -72,24 +72,25 @@ export const aiTagService = {
     }
 
     const prompt = `You are tagging songs for a cross-genre music discovery platform.
-Generate 5–8 concise thematic tags for this song. Tags help listeners from different backgrounds find songs that resonate with them.
+Generate 3–5 precise discovery tags for this song. Tags help listeners find songs that match their mood or interest.
 
-Tag categories to draw from (mix and match as appropriate):
-- THEME: what the song is fundamentally about (e.g. "mortality", "isolation", "duality", "control", "transcendence", "grief", "consciousness", "time", "identity", "communication", "power", "rebellion", "connection", "loss", "transformation")
-- MOOD: the emotional texture (e.g. "melancholic", "euphoric", "meditative", "unsettling", "cathartic", "introspective", "hypnotic", "intense")
-- STYLE: the musical/lyrical approach (e.g. "atmospheric", "progressive", "minimalist", "layered", "spoken-word", "cinematic", "abstract", "polyrhythmic", "conceptual")
-- CONTEXT: the conceptual lens (e.g. "spiritual", "political", "philosophical", "psychological", "mythological", "technological", "existential")
+Draw from these categories (pick the most relevant, do not fill all categories):
+- AFFECT: the felt emotional quality (e.g. "melancholic", "cathartic", "unsettling", "euphoric", "hypnotic", "anxious", "serene", "abrasive")
+- TEXTURE: sonic/lyrical character (e.g. "atmospheric", "layered", "cinematic", "minimalist", "dense", "sparse", "abstract")
+- THEME: the core subject (e.g. "mortality", "isolation", "identity", "transcendence", "duality", "loss", "transformation", "ego dissolution")
+- CONTEXT: conceptual lens (e.g. "existential", "spiritual", "psychological", "philosophical", "political")
 
 Rules:
-- Each tag: 1–3 words, lowercase, no punctuation, no genre names (no "metal", "rock", etc — those are handled separately)
-- Prefer specific over generic: "god complex" beats "religion"; "machine consciousness" beats "technology"
-- Tags should help a Pop fan or a Folk fan understand what the song is about and why it might resonate with them
-- Do NOT repeat tags already obvious from the genre spectrum
+- 3–5 tags total — quality over quantity
+- Each tag: 1–3 words, lowercase, no punctuation
+- No genre names (no "metal", "rock", "jazz" — those are separate)
+- Prefer vivid and specific: "ego dissolution" beats "self-reflection"; "cyclical grief" beats "sadness"
+- Tags should make sense to a listener who has never heard this genre before
 
 ${contextParts.join('\n\n')}
 
 Return ONLY a JSON array of tag strings. No markdown. No explanation.
-Example: ["mortality", "ego dissolution", "cyclical time", "meditative", "philosophical", "isolation"]`;
+Example: ["mortality", "ego dissolution", "hypnotic", "existential", "cathartic"]`;
 
     const client = getClient();
     const completion = await client.chat.completions.create({

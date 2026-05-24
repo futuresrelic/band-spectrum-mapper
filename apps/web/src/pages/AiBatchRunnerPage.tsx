@@ -18,11 +18,11 @@ const JOB_LABELS: Record<JobType, string> = {
 };
 
 const JOB_DESCRIPTIONS: Record<JobType, string> = {
-  analysis: 'Themes, emotional register, notable craft elements',
+  analysis: 'Curated discovery tags + emotional register + notable craft elements + narrative voice (also writes tags to Song Cloud — runs one AI call for both)',
   spectrum: 'Aggression, Complexity, Atmosphere, Emotion, Psychedelic, Concept (0–10)',
   research: 'Music style summary and background context',
   genre: 'How much each genre audience would enjoy it (Metal, Rock, Pop, Hip-Hop, Electronic, Folk/Indie)',
-  tags: 'Generate thematic tags (mood, theme, style, context) — powers the Song Cloud',
+  tags: 'Generate thematic tags separately — not needed if Analysis has already run (Analysis now includes tags)',
   metadata: 'Fetch track length from MusicBrainz (rate-limited, ~1 req/sec)',
 };
 

@@ -12,11 +12,21 @@ function getClient(): OpenAI {
   return new OpenAI({ apiKey });
 }
 
+// Unified analysis prompt — covers tags AND analysis fields in a single call.
+// "themes" field in the DB is now populated with the same curated tags so other
+// features (album context, social copy) that read aiAnalysis.themes still work.
+// Running the "analysis" batch job now also satisfies the "tags" batch job.
 const ANALYSIS_PROMPT = `You are a music analyst specializing in lyrical content. Analyze the following song lyrics and return a JSON object with exactly these fields:
-- themes: array of 3-6 short thematic keywords or phrases (e.g. "mortality", "isolation", "industrial machinery")
+- tags: array of 3-5 curated discovery tags. Draw from these categories (mix freely):
+  MOOD — "melancholic", "euphoric", "unsettling", "hypnotic", "cathartic", "anxious", "serene", "abrasive"
+  TEXTURE — "atmospheric", "layered", "minimalist", "cinematic", "abstract", "dense", "sparse", "hypnotic"
+  THEME — "mortality", "isolation", "identity", "transcendence", "rebellion", "loss", "duality", "transformation"
+  CONTEXT — "existential", "spiritual", "psychological", "philosophical", "political"
+  Rules: 1-3 words each, lowercase, no genre names (no "metal", "rock", "jazz" etc)
 - emotionalRegister: one sentence describing the dominant emotional tone
 - conceptualDepth: one sentence assessing how layered or abstract the lyrical concepts are
 - notableElements: array of 2-4 notable craft elements (e.g. "extended metaphor", "cyclical structure", "visceral imagery")
+- narrativeVoice: one sentence on the lyrical perspective and delivery style (e.g. "second-person address that implicates the listener directly", "fractured first-person across shifting time frames", "omniscient narrator observing from outside")
 
 Return only valid JSON. No markdown, no explanation.
 
@@ -24,10 +34,11 @@ Lyrics:
 `;
 
 interface AiResponseShape {
-  themes: string[];
+  tags: string[];
   emotionalRegister: string;
   conceptualDepth: string;
   notableElements: string[];
+  narrativeVoice: string;
 }
 
 function parseAiResponse(raw: string): AiResponseShape {
@@ -41,7 +52,7 @@ function parseAiResponse(raw: string): AiResponseShape {
 
   const obj = parsed as Record<string, unknown>;
   if (
-    !Array.isArray(obj['themes']) ||
+    !Array.isArray(obj['tags']) ||
     typeof obj['emotionalRegister'] !== 'string' ||
     typeof obj['conceptualDepth'] !== 'string' ||
     !Array.isArray(obj['notableElements'])
@@ -50,11 +61,16 @@ function parseAiResponse(raw: string): AiResponseShape {
   }
 
   return {
-    themes: (obj['themes'] as unknown[]).map(String),
+    tags: (obj['tags'] as unknown[]).map(String).slice(0, 5),
     emotionalRegister: obj['emotionalRegister'] as string,
     conceptualDepth: obj['conceptualDepth'] as string,
     notableElements: (obj['notableElements'] as unknown[]).map(String),
+    narrativeVoice: typeof obj['narrativeVoice'] === 'string' ? obj['narrativeVoice'] : '',
   };
+}
+
+function slugify(name: string): string {
+  return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
 export const aiAnalysisService = {
@@ -195,7 +211,7 @@ ${lyric.text.slice(0, 4000)}`;
       create: {
         songId,
         model: MODEL,
-        themes: parsed.themes,
+        themes: parsed.tags,
         emotionalRegister: parsed.emotionalRegister,
         conceptualDepth: parsed.conceptualDepth,
         notableElements: parsed.notableElements,
@@ -203,13 +219,29 @@ ${lyric.text.slice(0, 4000)}`;
       },
       update: {
         model: MODEL,
-        themes: parsed.themes,
+        themes: parsed.tags,
         emotionalRegister: parsed.emotionalRegister,
         conceptualDepth: parsed.conceptualDepth,
         notableElements: parsed.notableElements,
         rawResponse: raw,
       },
     });
+
+    // Write tags to SongTag table so the analysis batch also satisfies the tags batch
+    for (const tagName of parsed.tags) {
+      const slug = slugify(tagName);
+      if (!slug) continue;
+      const tag = await prisma.tag.upsert({
+        where: { slug },
+        create: { name: tagName.toLowerCase().trim(), slug },
+        update: {},
+      });
+      await prisma.songTag.upsert({
+        where: { songId_tagId: { songId, tagId: tag.id } },
+        create: { songId, tagId: tag.id },
+        update: {},
+      });
+    }
 
     return {
       ...record,
