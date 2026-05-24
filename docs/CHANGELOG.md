@@ -4,6 +4,22 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Cinema Mode — Genre Radar layout, Director Mode, genre nodes (2026-05-24)
+
+### Added
+
+- **Genre Radar arrangement + Scene 17 🎼** — new `genre-radar` ArrangeMode places the 6 genre nodes at the vertices of a large hexagon. Songs are positioned at the weighted centroid of their genre poles based on actual genre scores, so songs with a strong single-genre identity cluster near their pole while multi-genre songs land naturally between poles. Songs with no genre data form a compact scatter near the center. Albums float above the centroid of their songs. Scene 17 "Genre Radar" uses a slow orbital sweep at 35° elevation.
+
+- **Director Mode** (`📽️` toolbar button) — build a fully custom camera sequence with keyframes:
+  - **Capture** — saves the current camera position and look-at target as a named shot.
+  - **Label editing** — click any shot name to rename it inline.
+  - **Duration** — per-shot duration selector (1s → 20s).
+  - **Reorder / Delete / Go-to** — ↑ ↓ to reorder shots, ✕ to remove, ⟶ to fly the camera to that position for preview.
+  - **▶ Play sequence** — plays all shots in order using smooth easeInOut interpolation; stops scene playback while active.
+  - **Persistent** — keyframes are saved to localStorage and survive page reload.
+
+---
+
 ## Cinema Mode — AI genre nodes, AI Director, new themes, label controls, camera polish (2026-05-23)
 
 ### Added
