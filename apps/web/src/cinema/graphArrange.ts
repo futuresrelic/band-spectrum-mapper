@@ -4,7 +4,7 @@
  * without duplicating ~200 lines of pure math.
  */
 
-export type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system' | 'helix' | 'emotional-spectrum' | 'genre-web' | 'fibonacci-torus' | 'fractal-tree' | 'mandala' | 'wave' | 'lissajous' | 'crystal' | 'fibonacci-spiral';
+export type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system' | 'helix' | 'emotional-spectrum' | 'genre-web' | 'fibonacci-torus' | 'fractal-tree' | 'mandala' | 'wave' | 'lissajous' | 'crystal' | 'fibonacci-spiral' | 'genre-radar';
 
 /** Minimal shape required for layout computation. */
 export interface ArrangeNode {
@@ -37,10 +37,13 @@ export function buildAdj(
   return adj;
 }
 
+type RawEdge = { source: string | { id: string }; target: string | { id: string }; type?: string; weight?: number };
+
 export function computeArrangeTargets<N extends ArrangeNode>(
   nodes: N[],
   mode: ArrangeMode,
   adj: Map<string, Set<string>>,
+  edges?: RawEdge[],
 ): Map<string, { x: number; y: number; z: number }> {
   const out = new Map<string, { x: number; y: number; z: number }>();
 
@@ -494,6 +497,107 @@ export function computeArrangeTargets<N extends ArrangeNode>(
       const phi = i * goldenAngle;
       const y   = Math.sin(i * 0.15) * 30 + (sortOrder[n.type] ?? 3) * 15 - 20;
       out.set(n.id, { x: r * Math.cos(phi), y, z: r * Math.sin(phi) });
+    });
+
+  } else if (mode === 'genre-radar') {
+    // Genre nodes sit at the 6 vertices of a large hexagon.
+    // Songs are placed at the weighted centroid of their genre poles.
+    // Songs with no genre data cluster near the center.
+    const POLE_R = 360;
+    const cos60  = 0.5;
+    const sin60  = 0.866;
+    const GENRE_POLES: Record<string, { x: number; y: number; z: number }> = {
+      'genre:metal':      { x: POLE_R,             y: 35,   z: 0 },
+      'genre:rock':       { x: POLE_R * cos60,      y: -15,  z: POLE_R * sin60 },
+      'genre:pop':        { x: -POLE_R * cos60,     y: 35,   z: POLE_R * sin60 },
+      'genre:hiphop':     { x: -POLE_R,             y: -15,  z: 0 },
+      'genre:electronic': { x: -POLE_R * cos60,     y: 35,   z: -POLE_R * sin60 },
+      'genre:folk':       { x: POLE_R * cos60,      y: -15,  z: -POLE_R * sin60 },
+    };
+
+    // Place genre pole nodes at their fixed positions
+    for (const [id, pos] of Object.entries(GENRE_POLES)) {
+      out.set(id, { ...pos });
+    }
+
+    // Build song → genre weights from raw edges (genre_link only)
+    const songGenreWeights = new Map<string, Map<string, number>>();
+    const endId = (v: string | { id: string }) => (typeof v === 'string' ? v : v.id);
+    if (edges) {
+      for (const e of edges) {
+        if (e.type !== 'genre_link') continue;
+        const src = endId(e.source);
+        const tgt = endId(e.target);
+        if (!songGenreWeights.has(src)) songGenreWeights.set(src, new Map());
+        songGenreWeights.get(src)!.set(tgt, e.weight ?? 1);
+      }
+    }
+
+    const songs   = nodes.filter(n => n.type === 'song');
+    const albums  = nodes.filter(n => n.type === 'album');
+    const artists = nodes.filter(n => n.type === 'artist');
+    const others  = nodes.filter(n => !['song', 'album', 'artist', 'genre'].includes(n.type));
+    type V3 = { x: number; y: number; z: number };
+    const songPos = new Map<string, V3>();
+
+    let unlinkedIdx = 0;
+    for (const song of songs) {
+      const weights = songGenreWeights.get(song.id);
+      if (weights && weights.size > 0) {
+        let wx = 0, wy = 0, wz = 0, totalW = 0;
+        for (const [gid, w] of weights) {
+          const pole = GENRE_POLES[gid];
+          if (!pole) continue;
+          wx += pole.x * w; wy += pole.y * w; wz += pole.z * w;
+          totalW += w;
+        }
+        if (totalW > 0) {
+          // Pull 80% toward centroid so songs don't sit exactly ON poles
+          const seed = song.id.charCodeAt(0) * 7 + song.id.charCodeAt(song.id.length - 1) * 3;
+          const jr   = 18 + (seed % 22);
+          const ja   = seed * 0.7;
+          const pos: V3 = {
+            x: (wx / totalW) * 0.78 + Math.cos(ja) * jr,
+            y: (wy / totalW) * 0.78 + Math.sin(seed * 0.3) * 10,
+            z: (wz / totalW) * 0.78 + Math.sin(ja) * jr,
+          };
+          songPos.set(song.id, pos);
+          out.set(song.id, pos);
+        }
+      } else {
+        // No genre data — golden-angle scatter near center
+        const phi = unlinkedIdx * 2.399;
+        const r   = 30 + Math.sqrt(unlinkedIdx) * 10;
+        const pos: V3 = { x: r * Math.cos(phi), y: Math.sin(unlinkedIdx * 0.618) * 18, z: r * Math.sin(phi) };
+        songPos.set(song.id, pos);
+        out.set(song.id, pos);
+        unlinkedIdx++;
+      }
+    }
+
+    // Albums: centroid of their songs, slightly elevated
+    for (const alb of albums) {
+      const connSongs = [...(adj.get(alb.id) ?? [])].filter(id => songPos.has(id));
+      if (connSongs.length > 0) {
+        let cx = 0, cy = 0, cz = 0;
+        for (const sid of connSongs) { const sp = songPos.get(sid)!; cx += sp.x; cy += sp.y; cz += sp.z; }
+        out.set(alb.id, { x: cx / connSongs.length, y: cy / connSongs.length + 38, z: cz / connSongs.length });
+      } else {
+        const phi = albums.indexOf(alb) / Math.max(1, albums.length) * 2 * Math.PI;
+        out.set(alb.id, { x: POLE_R * 1.1 * Math.cos(phi), y: 55, z: POLE_R * 1.1 * Math.sin(phi) });
+      }
+    }
+
+    // Artists: outer ring well beyond the hex
+    artists.forEach((a, i) => {
+      const phi = (i / Math.max(1, artists.length)) * 2 * Math.PI;
+      out.set(a.id, { x: POLE_R * 1.5 * Math.cos(phi), y: 80, z: POLE_R * 1.5 * Math.sin(phi) });
+    });
+
+    // Other nodes (tags, themes, etc.): outer belt
+    others.forEach((n, i) => {
+      const phi = (i / Math.max(1, others.length)) * 2 * Math.PI;
+      out.set(n.id, { x: POLE_R * 1.75 * Math.cos(phi), y: Math.sin(i * 0.618) * 45, z: POLE_R * 1.75 * Math.sin(phi) });
     });
   }
 

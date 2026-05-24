@@ -562,4 +562,38 @@ export const CINEMA_SCENES: CinemaScene[] = [
       camera.lookAt(0, 0, 0);
     },
   },
+  {
+    id: 'genre-radar',
+    name: 'Genre Radar',
+    description: 'Songs orbit their genre poles — see where music truly lives on the spectrum',
+    emoji: '🎼',
+    durationMs: 40_000,
+    arrangeMode: 'genre-radar',
+    enter(fg) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      // 35° elevation looking over the full hexagon from above-side
+      if (camera) { camera.position.x = 260; camera.position.y = 520; camera.position.z = 360; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 20; ctrl.target.z = 0; }
+      if (camera) camera.lookAt(0, 20, 0);
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      // Slow orbital sweep — lets user read which cluster is which genre
+      const t     = Math.min(1, elapsedMs / 18_000);
+      const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const angle = elapsedMs * 0.000028 * controls.orbitSpeed;
+      // Descend gently from high overview to mid-angle for immersion
+      const dist = 600 - eased * 160;
+      const yPos = 520 - eased * 200;
+      camera.position.x = Math.sin(angle) * dist;
+      camera.position.y = yPos;
+      camera.position.z = Math.cos(angle) * dist;
+      ctrl.target.x = 0; ctrl.target.y = 20; ctrl.target.z = 0;
+      camera.lookAt(0, 20, 0);
+    },
+  },
 ];

@@ -25,10 +25,11 @@ import type { GraphData } from '../api/songNodes';
 import { buildAdj, computeArrangeTargets, animateArrange, easeInOutQuad } from '../cinema/graphArrange';
 import { CINEMA_SCENES } from '../cinema/sceneDefinitions';
 import { initOrbitState, updateOrbitCamera, type OrbitCameraState } from '../cinema/orbitCamera';
-import type { CinemaNode, CinemaLink, CinemaControls, TourStep } from '../cinema/types';
+import type { CinemaNode, CinemaLink, CinemaControls, TourStep, CinemaKeyframe } from '../cinema/types';
 import { DEFAULT_CINEMA_CONTROLS } from '../cinema/types';
 import { CINEMA_THEMES, getTheme, DEFAULT_THEME_ID, type CinemaTheme } from '../cinema/themes';
 import TourPlanner from '../cinema/TourPlanner';
+import CameraDirector from '../cinema/CameraDirector';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -188,6 +189,20 @@ export default function CinemaPage() {
   // Genre source selector
   const [genreSource, setGenreSource] = useState<GenreSource>('priority');
 
+  // Director mode
+  const [showDirector, setShowDirector] = useState(false);
+  const [directorPlaying, setDirectorPlaying] = useState(false);
+  const [directorKeyframes, setDirectorKeyframesRaw] = useState<CinemaKeyframe[]>(() => {
+    try {
+      const stored = localStorage.getItem('cinema-director-keyframes');
+      return stored ? (JSON.parse(stored) as CinemaKeyframe[]) : [];
+    } catch { return []; }
+  });
+  const setDirectorKeyframes = useCallback((kfs: CinemaKeyframe[]) => {
+    setDirectorKeyframesRaw(kfs);
+    try { localStorage.setItem('cinema-director-keyframes', JSON.stringify(kfs)); } catch { /* ignore */ }
+  }, []);
+
   // AI Director
   const [showAiDirector, setShowAiDirector]   = useState(false);
   const [aiPromptInput, setAiPromptInput]     = useState('');
@@ -246,6 +261,14 @@ export default function CinemaPage() {
   const didFitRef       = useRef(false);
   const containerRef    = useRef<HTMLDivElement>(null);
   const lastMoveRef     = useRef(Date.now());
+  const simLinksRef     = useRef<CinemaLink[]>([]);
+  const directorPlayRef = useRef<{
+    keyframes: CinemaKeyframe[];
+    idx: number;
+    startMs: number;
+    fromPos: { x: number; y: number; z: number };
+    fromTarget: { x: number; y: number; z: number };
+  } | null>(null);
   const [cursorHidden, setCursorHidden] = useState(false);
 
   // Sync refs ↔ state
@@ -305,6 +328,7 @@ export default function CinemaPage() {
 
     setSimNodes(nodes);
     setSimLinks(links);
+    simLinksRef.current = links;
     adjRef.current = buildAdj(links);
   }, [graphData]);
 
@@ -323,7 +347,7 @@ export default function CinemaPage() {
       didFitRef.current = false;
       fg.d3ReheatSimulation?.();
     } else {
-      animateArrange(visNodes, computeArrangeTargets(visNodes, scene.arrangeMode, adj), fg);
+      animateArrange(visNodes, computeArrangeTargets(visNodes, scene.arrangeMode, adj, simLinksRef.current), fg);
     }
 
     sceneStateRef.current = scene.enter(fg, nodes, adj);
@@ -414,7 +438,42 @@ export default function CinemaPage() {
         const ctrl   = fg.controls?.();
         const camera = fg.camera?.();
 
-        if (ctrl) ctrl.enabled = !isPlayingRef.current;
+        // Director playback takes precedence over everything
+        if (directorPlayRef.current && camera) {
+          const dp = directorPlayRef.current;
+          const kf = dp.keyframes[dp.idx];
+          if (ctrl) ctrl.enabled = false;
+          if (!kf) {
+            directorPlayRef.current = null;
+            setDirectorPlaying(false);
+          } else {
+            const elapsed = Date.now() - dp.startMs;
+            const t = easeInOutQuad(Math.min(1, elapsed / kf.durationMs));
+            camera.position.set(
+              dp.fromPos.x + (kf.position.x - dp.fromPos.x) * t,
+              dp.fromPos.y + (kf.position.y - dp.fromPos.y) * t,
+              dp.fromPos.z + (kf.position.z - dp.fromPos.z) * t,
+            );
+            const tx = dp.fromTarget.x + (kf.target.x - dp.fromTarget.x) * t;
+            const ty = dp.fromTarget.y + (kf.target.y - dp.fromTarget.y) * t;
+            const tz = dp.fromTarget.z + (kf.target.z - dp.fromTarget.z) * t;
+            if (ctrl) ctrl.target.set(tx, ty, tz);
+            camera.lookAt(tx, ty, tz);
+            if (t >= 1) {
+              if (dp.idx + 1 < dp.keyframes.length) {
+                dp.startMs = Date.now();
+                dp.fromPos = { ...kf.position };
+                dp.fromTarget = { ...kf.target };
+                dp.idx += 1;
+              } else {
+                directorPlayRef.current = null;
+                setDirectorPlaying(false);
+              }
+            }
+          }
+        }
+
+        if (ctrl) ctrl.enabled = !isPlayingRef.current && directorPlayRef.current === null;
 
         if (isPlayingRef.current && camera && ctrl) {
           const elapsed  = performance.now() - sceneStartRef.current;
@@ -773,8 +832,70 @@ export default function CinemaPage() {
       didFitRef.current = false;
       fgRef.current.d3ReheatSimulation?.();
     } else {
-      animateArrange(visNodes, computeArrangeTargets(visNodes, mode, adj), fgRef.current);
+      animateArrange(visNodes, computeArrangeTargets(visNodes, mode, adj, simLinksRef.current), fgRef.current);
     }
+  }, []);
+
+  // ── Director callbacks ────────────────────────────────────────────────────────
+
+  const handleDirectorCapture = useCallback(() => {
+    const fg = fgRef.current;
+    if (!fg) return;
+    const camera = fg.camera?.();
+    const ctrl2  = fg.controls?.();
+    if (!camera) return;
+    const kf: CinemaKeyframe = {
+      id: `kf-${Date.now()}`,
+      label: `Shot ${directorKeyframes.length + 1}`,
+      position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+      target: ctrl2?.target
+        ? { x: ctrl2.target.x, y: ctrl2.target.y, z: ctrl2.target.z }
+        : { x: 0, y: 0, z: 0 },
+      durationMs: 3000,
+    };
+    setDirectorKeyframes([...directorKeyframes, kf]);
+  }, [directorKeyframes, setDirectorKeyframes]);
+
+  const handleDirectorGoTo = useCallback((kf: CinemaKeyframe) => {
+    const fg = fgRef.current;
+    if (!fg) return;
+    const camera = fg.camera?.();
+    const ctrl2  = fg.controls?.();
+    if (!camera) return;
+    directorPlayRef.current = {
+      keyframes: [kf],
+      idx: 0,
+      startMs: Date.now(),
+      fromPos: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+      fromTarget: ctrl2?.target
+        ? { x: ctrl2.target.x, y: ctrl2.target.y, z: ctrl2.target.z }
+        : { x: 0, y: 0, z: 0 },
+    };
+  }, []);
+
+  const handleDirectorPlay = useCallback(() => {
+    if (!directorKeyframes.length) return;
+    const fg = fgRef.current;
+    if (!fg) return;
+    const camera = fg.camera?.();
+    const ctrl2  = fg.controls?.();
+    if (!camera) return;
+    setIsPlaying(false); // stop scene playback
+    directorPlayRef.current = {
+      keyframes: directorKeyframes,
+      idx: 0,
+      startMs: Date.now(),
+      fromPos: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+      fromTarget: ctrl2?.target
+        ? { x: ctrl2.target.x, y: ctrl2.target.y, z: ctrl2.target.z }
+        : { x: 0, y: 0, z: 0 },
+    };
+    setDirectorPlaying(true);
+  }, [directorKeyframes]);
+
+  const handleDirectorStop = useCallback(() => {
+    directorPlayRef.current = null;
+    setDirectorPlaying(false);
   }, []);
 
   const applyAiSettings = useCallback(async () => {
@@ -1011,7 +1132,16 @@ export default function CinemaPage() {
               ✦ Arrange
             </button>
             <button
-              onClick={() => { setShowAiDirector(v => !v); setShowBandPicker(false); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); }}
+              onClick={() => { setShowDirector(v => !v); setShowAiDirector(false); setShowBandPicker(false); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); }}
+              title="Director Mode — build a custom camera sequence"
+              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                showDirector || directorPlaying ? 'bg-amber-900/60 border-amber-700 text-amber-300' : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+              }`}
+            >
+              📽️{directorPlaying ? ' ●' : ''}
+            </button>
+            <button
+              onClick={() => { setShowAiDirector(v => !v); setShowDirector(false); setShowBandPicker(false); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); }}
               title="AI Director — describe the view you want"
               className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
                 showAiDirector ? 'bg-purple-900/60 border-purple-700 text-purple-300' : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
@@ -1020,13 +1150,13 @@ export default function CinemaPage() {
               🤖 AI
             </button>
             <button
-              onClick={() => { setShowBandPicker(v => !v); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); }}
+              onClick={() => { setShowBandPicker(v => !v); setShowControls(false); setShowDirector(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); }}
               className="text-xs bg-gray-900/80 border border-gray-700 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors"
             >
               Bands{selectedBandIds.length > 0 ? ` (${selectedBandIds.length})` : ''}
             </button>
             <button
-              onClick={() => { setShowControls(v => !v); setShowBandPicker(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); }}
+              onClick={() => { setShowControls(v => !v); setShowBandPicker(false); setShowDirector(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); }}
               title="Camera controls & node visibility"
               className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
                 showControls || hiddenTypes.size > 0
@@ -1536,6 +1666,30 @@ export default function CinemaPage() {
               )}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* ── Director panel ── */}
+      {showDirector && !socialMode && (
+        <div
+          className="absolute bottom-20 left-4 z-40 bg-gray-900/95 border border-amber-800/40 rounded-xl p-3 backdrop-blur-sm w-72 shadow-2xl flex flex-col overflow-hidden"
+          style={{ maxHeight: 'calc(100dvh - 140px)' }}
+        >
+          <div className="flex items-center justify-between mb-3 shrink-0">
+            <div className="text-[10px] font-semibold text-amber-500 uppercase tracking-wide">📽️ Director Mode</div>
+            {directorPlaying && (
+              <span className="text-[10px] text-red-400 animate-pulse font-medium">● Recording</span>
+            )}
+          </div>
+          <CameraDirector
+            keyframes={directorKeyframes}
+            setKeyframes={setDirectorKeyframes}
+            isPlaying={directorPlaying}
+            onCapture={handleDirectorCapture}
+            onPlay={handleDirectorPlay}
+            onStop={handleDirectorStop}
+            onGoTo={handleDirectorGoTo}
+          />
         </div>
       )}
 

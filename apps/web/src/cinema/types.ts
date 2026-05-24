@@ -86,3 +86,15 @@ export interface TourStep {
   /** How long to orbit/breathe after arriving (ms) — travel time is separate. */
   dwellMs: number;
 }
+
+/** A camera keyframe for Director Mode. */
+export interface CinemaKeyframe {
+  id: string;
+  /** Human-readable shot name (editable). */
+  label: string;
+  position: { x: number; y: number; z: number };
+  /** Camera look-at target (TrackballControls.target). */
+  target: { x: number; y: number; z: number };
+  /** Time in ms to interpolate FROM the previous keyframe to this one. */
+  durationMs: number;
+}
