@@ -132,6 +132,28 @@ function fetchScopes(): Promise<{ bands: { id: string; name: string }[] }> {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
+/** Per-type label text sizes (point units for SpriteText.textHeight). */
+type LabelTextSizes = {
+  artist: number; album: number; song: number;
+  keyword: number; theme: number; tag: number; emotion: number; genre: number;
+};
+const DEFAULT_LABEL_TEXT_SIZES: LabelTextSizes = {
+  artist: 5.0, album: 3.5, song: 3.5,
+  keyword: 2.5, theme: 2.5, tag: 2.5, emotion: 2.5, genre: 2.5,
+};
+/** Ordered config for the Label Style UI — main then network types. */
+const LABEL_SIZE_ROWS = [
+  { key: 'artist'  as const, emoji: '🎸', name: 'Artist / Band', min: 1, max: 16 },
+  { key: 'album'   as const, emoji: '💿', name: 'Album',          min: 1, max: 12 },
+  { key: 'song'    as const, emoji: '🎵', name: 'Song',           min: 1, max: 12 },
+  null, // ── divider ──
+  { key: 'tag'     as const, emoji: '🏷', name: 'Tag',            min: 0.5, max: 8 },
+  { key: 'theme'   as const, emoji: '🌿', name: 'Theme',          min: 0.5, max: 8 },
+  { key: 'keyword' as const, emoji: '🔑', name: 'Keyword',        min: 0.5, max: 8 },
+  { key: 'emotion' as const, emoji: '💜', name: 'Emotion',        min: 0.5, max: 8 },
+  { key: 'genre'   as const, emoji: '🎼', name: 'Genre',          min: 0.5, max: 8 },
+];
+
 /**
  * When stare-at-lyrics is enabled, blend the camera lookAt target toward the
  * nearest lyric sprite. Blend strength decays with distance so the effect is
@@ -258,10 +280,9 @@ export default function CinemaPage() {
   const [nodeOpacityUser, setNodeOpacityUser] = useState(() => 0.92);
   useEffect(() => { setNodeOpacityUser(currentTheme.nodeOpacity); }, [currentTheme]);
 
-  // Per-type label text sizes (pts — default matches original hardcoded values)
-  const DEFAULT_LABEL_TEXT_SIZES = useMemo(() => ({ artist: 5.0, album: 3.5, song: 3.5, other: 3.5 }), []);
-  const [labelTextSizes, setLabelTextSizes] = useState({ artist: 5.0, album: 3.5, song: 3.5, other: 3.5 });
-  const labelTextSizesRef = useRef({ artist: 5.0, album: 3.5, song: 3.5, other: 3.5 });
+  // Per-type label text sizes — full set of node types
+  const [labelTextSizes, setLabelTextSizes] = useState<LabelTextSizes>({ ...DEFAULT_LABEL_TEXT_SIZES });
+  const labelTextSizesRef = useRef<LabelTextSizes>({ ...DEFAULT_LABEL_TEXT_SIZES });
   useEffect(() => { labelTextSizesRef.current = labelTextSizes; }, [labelTextSizes]);
 
   // Active arrangement mode (tracked so the quick-switcher can highlight the active one)
@@ -498,12 +519,7 @@ export default function CinemaPage() {
       const node = simNodesRef.current.find(n => n.id === nodeId);
       if (!node) continue;
       const sz = labelTextSizesRef.current;
-      (sprite as any).textHeight = (
-        node.type === 'artist' ? sz.artist
-        : node.type === 'album' ? sz.album
-        : node.type === 'song'  ? sz.song
-        : sz.other
-      );
+      (sprite as any).textHeight = (sz as Record<string, number>)[node.type] ?? sz.tag;
     }
     fgRef.current?.refresh();
   }, [labelTextSizes]);
@@ -923,7 +939,7 @@ export default function CinemaPage() {
               const camLen = Math.sqrt(tcx * tcx + tcy * tcy + tcz * tcz);
               if (camLen > 0) {
                 const sz = labelTextSizesRef.current;
-                const th = n.type === 'artist' ? sz.artist : n.type === 'album' ? sz.album : n.type === 'song' ? sz.song : sz.other;
+                const th = (sz as Record<string, number>)[n.type] ?? sz.tag;
                 const r = sphereR(nodeValFor(n.type));
                 const offset = r + th * 0.6 + 3;
                 (sprite as any).position.set(
@@ -1288,7 +1304,7 @@ export default function CinemaPage() {
     const sprite = new SpriteText(n.label);
     sprite.color = '#e2e8f000';
     const sz = labelTextSizesRef.current;
-    sprite.textHeight = n.type === 'artist' ? sz.artist : n.type === 'album' ? sz.album : n.type === 'song' ? sz.song : sz.other;
+    sprite.textHeight = (sz as Record<string, number>)[n.type] ?? sz.tag;
     sprite.fontWeight = '600';
     sprite.backgroundColor = 'rgba(3,7,18,0.7)';
     sprite.padding = 1.5;
@@ -2235,27 +2251,28 @@ export default function CinemaPage() {
               {/* Label styling */}
               <div className="border-t border-gray-800 pt-3 space-y-2">
                 <div className="flex items-center justify-between">
-                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Label Style</div>
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Label Text Sizes</div>
                   <button onClick={() => setLabelTextSizes({ ...DEFAULT_LABEL_TEXT_SIZES })}
-                    className="text-[10px] text-gray-700 hover:text-gray-500">reset sizes</button>
+                    className="text-[10px] text-gray-700 hover:text-gray-500">reset</button>
                 </div>
-                {([
-                  { key: 'artist', label: '🎸 Artist / Band', min: 2, max: 14 },
-                  { key: 'album',  label: '💿 Album',          min: 1, max: 10 },
-                  { key: 'song',   label: '🎵 Song',           min: 1, max: 10 },
-                  { key: 'other',  label: '🏷 Tag / Keyword',  min: 1, max: 8  },
-                ] as const).map(({ key, label, min, max }) => (
-                  <label key={key} className="block space-y-0.5">
-                    <div className="flex justify-between text-[10px] text-gray-400">
-                      <span>{label}</span>
-                      <span>{labelTextSizes[key].toFixed(1)}</span>
-                    </div>
-                    <input type="range" min={min} max={max} step={0.5}
-                      value={labelTextSizes[key]}
-                      onChange={e => setLabelTextSizes(prev => ({ ...prev, [key]: Number(e.target.value) }))}
-                      className="w-full accent-indigo-500" />
-                  </label>
-                ))}
+                <div className="space-y-1">
+                  {LABEL_SIZE_ROWS.map((row, i) =>
+                    row === null
+                      ? <div key={`div-${i}`} className="border-t border-gray-800/60 my-0.5" />
+                      : (
+                        <div key={row.key} className="grid items-center gap-1" style={{ gridTemplateColumns: '5.5rem 1fr 2.5rem' }}>
+                          <span className="text-[10px] text-gray-500 truncate" title={row.name}>{row.emoji} {row.name}</span>
+                          <input
+                            type="range" min={row.min} max={row.max} step={0.5}
+                            value={labelTextSizes[row.key]}
+                            onChange={e => setLabelTextSizes(prev => ({ ...prev, [row.key]: Number(e.target.value) }))}
+                            className="w-full accent-indigo-500 h-0.5"
+                          />
+                          <span className="text-[10px] text-gray-600 text-right tabular-nums">{labelTextSizes[row.key].toFixed(1)}</span>
+                        </div>
+                      )
+                  )}
+                </div>
                 <button
                   onClick={() => setLabelShowBg(v => !v)}
                   className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
