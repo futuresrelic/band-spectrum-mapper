@@ -236,6 +236,11 @@ export default function CinemaPage() {
   const lyricsTextSizeRef = useRef(2.8);
   useEffect(() => { lyricsTextSizeRef.current = lyricsTextSize; }, [lyricsTextSize]);
 
+  // Maximum lyric lines shown per node (5 = first verse feel; 20+ = full song)
+  const [lyricsMaxLines, setLyricsMaxLines] = useState(5);
+  const lyricsMaxLinesRef = useRef(5);
+  useEffect(() => { lyricsMaxLinesRef.current = lyricsMaxLines; }, [lyricsMaxLines]);
+
   // Per-node visual overrides: custom color + size multiplier, persisted in localStorage
   const [nodeOverrides, setNodeOverridesRaw] = useState<Record<string, { color?: string; sizeMultiplier?: number }>>(() => {
     try {
@@ -353,6 +358,8 @@ export default function CinemaPage() {
   const tourModeRef     = useRef(false);
   const isTransRef      = useRef(false);
   const simNodesRef     = useRef<CinemaNode[]>([]);
+  // O(1) node lookup for rAF loops (updated whenever simNodes changes)
+  const nodeMapRef      = useRef<Map<string, CinemaNode>>(new Map());
   const labelMapRef     = useRef<Map<string, any>>(new Map());
   const labelDistancesRef = useRef(DEFAULT_LABEL_DISTANCES);
   const didFitRef       = useRef(false);
@@ -402,7 +409,10 @@ export default function CinemaPage() {
   // Sync refs ↔ state
   useEffect(() => { isPlayingRef.current  = isPlaying;       }, [isPlaying]);
   useEffect(() => { currentIdxRef.current = currentSceneIdx; }, [currentSceneIdx]);
-  useEffect(() => { simNodesRef.current   = simNodes;        }, [simNodes]);
+  useEffect(() => {
+    simNodesRef.current = simNodes;
+    nodeMapRef.current  = new Map(simNodes.map(n => [n.id, n]));
+  }, [simNodes]);
   useEffect(() => { tourModeRef.current   = tourMode;        }, [tourMode]);
 
   useEffect(() => { sceneKeyframesMapRef.current = sceneKeyframesMap; }, [sceneKeyframesMap]);
@@ -502,6 +512,7 @@ export default function CinemaPage() {
     setSimReady(false);
     didFitRef.current = false;
     labelMapRef.current.clear();
+    lyricsDataCacheRef.current = null; // invalidate so sprites rebuild with fresh positions
 
     const nodes: CinemaNode[] = graphData.nodes.map(n => ({ ...n }));
     const nodeSet = new Set(nodes.map(n => n.id));
@@ -891,6 +902,18 @@ export default function CinemaPage() {
             const selectedIds    = new Set(selectedChainRef.current.map(n => n.id));
             const inProximity    = new Set<string>();
             for (const sp of lyricsSpritesRef.current) {
+              // Keep sprite co-located with its node — works across any arrangement
+              const ownerNode = nodeMapRef.current.get(sp._songId as string);
+              if (ownerNode && ownerNode.x != null) {
+                const lyricAngle = sp._lyricAngle as number;
+                const lyricLi   = sp._lyricLi   as number;
+                sp.position.set(
+                  (ownerNode.x ?? 0) + Math.sin(lyricAngle) * 18,
+                  (ownerNode.y ?? 0) + 14 + lyricLi * 7,
+                  (ownerNode.z ?? 0) + Math.cos(lyricAngle) * 18,
+                );
+              }
+
               const pos = sp.position;
               if (!pos) { sp.visible = false; continue; }
               const ldx = pos.x - cx, ldy = pos.y - cy, ldz = pos.z - cz;
@@ -1006,15 +1029,13 @@ export default function CinemaPage() {
     return () => { window.removeEventListener('mousemove', onMove); clearInterval(iv); };
   }, [socialMode]);
 
-  // ── Lyrics sprites for Lyrical DNA scene ─────────────────────────────────────
+  // ── Lyrics sprites (scene-agnostic — active in any view when showLyrics is on) ───
 
   useEffect(() => {
-    const scene = CINEMA_SCENES[currentSceneIdx];
-    if (!scene || scene.id !== 'lyrical-dna' || !showLyrics) {
+    if (!showLyrics || !simNodes.length) {
       cleanupLyricsSprites();
       return;
     }
-    if (!simNodes.length) return;
 
     const addSprites = async () => {
       try {
@@ -1026,12 +1047,12 @@ export default function CinemaPage() {
           lyricMap = {};
           for (const alb of data.albums) {
             for (const s of alb.songs) {
-              const lines = s.lyricText
+              // Store ALL non-empty lines — slicing happens at sprite creation time
+              // so changing lyricsMaxLines can rebuild sprites without re-fetching.
+              lyricMap[`song:${s.id}`] = s.lyricText
                 .split('\n')
                 .map(l => l.trim())
-                .filter(l => l.length > 0)
-                .slice(0, 5);
-              lyricMap[`song:${s.id}`] = lines;
+                .filter(l => l.length > 0);
             }
           }
           lyricsDataCacheRef.current = lyricMap;
@@ -1041,10 +1062,12 @@ export default function CinemaPage() {
         const threeScene = fgRef.current?.scene?.();
         if (!threeScene) return;
 
+        const maxLines = lyricsMaxLinesRef.current;
         const newSprites: any[] = [];
-        for (const [nodeId, lines] of Object.entries(lyricMap)) {
-          const node = simNodes.find(n => n.id === nodeId);
+        for (const [nodeId, allLines] of Object.entries(lyricMap)) {
+          const node = nodeMapRef.current.get(nodeId);
           if (!node || node.x == null) continue;
+          const lines = allLines.slice(0, maxLines);
           let visIdx = 0;
           lines.forEach((line, li) => {
             if (!line.trim()) return;
@@ -1060,8 +1083,11 @@ export default function CinemaPage() {
               (node.y ?? 0) + 14 + li * 7,
               (node.z ?? 0) + Math.cos(angle) * 18,
             );
-            (sp as any)._songId  = nodeId;
-            (sp as any)._lineIdx = visIdx++;
+            // Stored so the rAF loop can reposition sprites as nodes move
+            (sp as any)._songId      = nodeId;
+            (sp as any)._lineIdx     = visIdx++;
+            (sp as any)._lyricAngle  = angle;
+            (sp as any)._lyricLi     = li;
             threeScene.add(sp as any);
             newSprites.push(sp as any);
           });
@@ -1070,17 +1096,17 @@ export default function CinemaPage() {
         }
         lyricsSpritesRef.current = newSprites;
       } catch (_e) {
-        // Lyrics not available — scene still works without them
+        // Lyrics unavailable — continue without them
       }
     };
 
-    const timer = setTimeout(addSprites, 1800);
+    const timer = setTimeout(addSprites, 600);
     return () => {
       clearTimeout(timer);
       cleanupLyricsSprites();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSceneIdx, showLyrics, simNodes]);
+  }, [showLyrics, simNodes, lyricsMaxLines]);
 
   // ── Social mode ───────────────────────────────────────────────────────────────
 
@@ -1920,6 +1946,16 @@ export default function CinemaPage() {
                   <input type="range" min={1} max={10} step={0.2} value={lyricsTextSize}
                     onChange={e => setLyricsTextSize(Number(e.target.value))}
                     className="w-full accent-indigo-500" />
+                </label>
+                <label className="block space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-400">
+                    <span>Lines per node</span>
+                    <span>{lyricsMaxLines === 1 ? '1 line' : lyricsMaxLines >= 30 ? 'full' : `${lyricsMaxLines} lines`}</span>
+                  </div>
+                  <input type="range" min={1} max={30} step={1} value={lyricsMaxLines}
+                    onChange={e => setLyricsMaxLines(Number(e.target.value))}
+                    className="w-full accent-indigo-500" />
+                  <div className="text-[10px] text-gray-700">5 = first verse · 30 = full song (rebuilds sprites)</div>
                 </label>
               </div>
 
