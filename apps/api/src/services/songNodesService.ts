@@ -598,13 +598,10 @@ async function buildLyricalDna(bandIds: string[]): Promise<GraphData> {
   for (const s of songs) {
     const text = s.lyrics[0]?.text ?? '';
     const tokens = tokenize(text);
-    // Count frequency
-    const freq = new Map<string, number>();
-    for (const t of tokens) freq.set(t, (freq.get(t) ?? 0) + 1);
-    // Take top 20 keywords by frequency
-    const topKw = new Set(
-      [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([w]) => w),
-    );
+    // Use ALL unique content words — the ≥2-songs shared filter below keeps the
+    // graph manageable. A top-N cutoff was the cause of words like "fall" being
+    // present in a song's lyrics but missing from its keyword set.
+    const topKw = new Set(tokens);
     songsWithKw.push({ ...s, keywords: topKw });
     for (const kw of topKw) keywordCounts.set(kw, (keywordCounts.get(kw) ?? 0) + 1);
   }
