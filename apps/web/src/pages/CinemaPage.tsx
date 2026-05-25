@@ -132,6 +132,40 @@ function fetchScopes(): Promise<{ bands: { id: string; name: string }[] }> {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
+/**
+ * When stare-at-lyrics is enabled, blend the camera lookAt target toward the
+ * nearest lyric sprite within maxDist. Sprites don't need .visible — proximity
+ * alone is used so it works even when the scene isn't playing.
+ */
+function stareLookAt(
+  camX: number, camY: number, camZ: number,
+  tx: number, ty: number, tz: number,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sprites: any[],
+  enabled: boolean,
+  maxDist: number,
+): [number, number, number] {
+  if (!enabled || sprites.length === 0) return [tx, ty, tz];
+  const maxDistSq = maxDist * maxDist;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let nearest: any = null;
+  let nearestDSq = Infinity;
+  for (const sp of sprites) {
+    const dx = sp.position.x - camX;
+    const dy = sp.position.y - camY;
+    const dz = sp.position.z - camZ;
+    const dSq = dx * dx + dy * dy + dz * dz;
+    if (dSq < maxDistSq && dSq < nearestDSq) { nearestDSq = dSq; nearest = sp; }
+  }
+  if (!nearest) return [tx, ty, tz];
+  const blend = 0.4;
+  return [
+    tx + (nearest.position.x - tx) * blend,
+    ty + (nearest.position.y - ty) * blend,
+    tz + (nearest.position.z - tz) * blend,
+  ];
+}
+
 export default function CinemaPage() {
   // ── Data ─────────────────────────────────────────────────────────────────────
   const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
@@ -240,6 +274,11 @@ export default function CinemaPage() {
   const [lyricsMaxLines, setLyricsMaxLines] = useState(5);
   const lyricsMaxLinesRef = useRef(5);
   useEffect(() => { lyricsMaxLinesRef.current = lyricsMaxLines; }, [lyricsMaxLines]);
+
+  // During Director / scene-cam playback, blend lookAt toward nearest lyric sprite
+  const [stareLyrics, setStareLyrics] = useState(false);
+  const stareLyricsRef = useRef(false);
+  useEffect(() => { stareLyricsRef.current = stareLyrics; }, [stareLyrics]);
 
   // Per-node visual overrides: custom color + size multiplier, persisted in localStorage
   const [nodeOverrides, setNodeOverridesRaw] = useState<Record<string, { color?: string; sizeMultiplier?: number }>>(() => {
@@ -708,7 +747,12 @@ export default function CinemaPage() {
             const ty = dp.fromTarget.y + (kf.target.y - dp.fromTarget.y) * t;
             const tz = dp.fromTarget.z + (kf.target.z - dp.fromTarget.z) * t;
             if (ctrl) ctrl.target.set(tx, ty, tz);
-            camera.lookAt(tx, ty, tz);
+            const [dlx, dly, dlz] = stareLookAt(
+              camera.position.x, camera.position.y, camera.position.z,
+              tx, ty, tz,
+              lyricsSpritesRef.current, stareLyricsRef.current, lyricsShowDistRef.current,
+            );
+            camera.lookAt(dlx, dly, dlz);
             if (t >= 1) {
               if (dp.idx + 1 < dp.keyframes.length) {
                 const nextKf = dp.keyframes[dp.idx + 1];
@@ -744,7 +788,12 @@ export default function CinemaPage() {
             const ty = skf.fromTarget.y + (kf.target.y - skf.fromTarget.y) * t;
             const tz = skf.fromTarget.z + (kf.target.z - skf.fromTarget.z) * t;
             ctrl.target.set(tx, ty, tz);
-            camera.lookAt(tx, ty, tz);
+            const [slx, sly, slz] = stareLookAt(
+              camera.position.x, camera.position.y, camera.position.z,
+              tx, ty, tz,
+              lyricsSpritesRef.current, stareLyricsRef.current, lyricsShowDistRef.current,
+            );
+            camera.lookAt(slx, sly, slz);
             if (t >= 1) {
               const nextIdx = (skf.idx + 1) % skf.keyframes.length;
               skf.startMs = Date.now();
@@ -1957,6 +2006,18 @@ export default function CinemaPage() {
                     className="w-full accent-indigo-500" />
                   <div className="text-[10px] text-gray-700">5 = first verse · 30 = full song (rebuilds sprites)</div>
                 </label>
+                {/* Stare-at-lyrics: shift camera lookAt toward nearest lyric during Director / scene-cam playback */}
+                <button
+                  onClick={() => setStareLyrics(v => !v)}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                    stareLyrics ? 'text-indigo-300 bg-indigo-900/30' : 'text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${stareLyrics ? 'bg-indigo-400' : 'bg-gray-700'}`} />
+                  <span>👁 Stare at lyrics (Director / Scene cam)</span>
+                  <span className="ml-auto text-[10px] text-gray-600">{stareLyrics ? 'on' : 'off'}</span>
+                </button>
+                <div className="text-[10px] text-gray-700 px-0.5">When on, the camera drifts to look toward the nearest lyric sprite during playback.</div>
               </div>
 
               {/* Node type visibility */}

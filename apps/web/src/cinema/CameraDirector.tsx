@@ -1,15 +1,13 @@
 import { useState } from 'react';
 import type { CinemaKeyframe } from './types';
 
-const DURATION_OPTIONS = [
-  { label: '1s',  ms: 1_000 },
-  { label: '2s',  ms: 2_000 },
-  { label: '3s',  ms: 3_000 },
-  { label: '5s',  ms: 5_000 },
-  { label: '8s',  ms: 8_000 },
-  { label: '12s', ms: 12_000 },
-  { label: '20s', ms: 20_000 },
-];
+function fmtDuration(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem === 0 ? `${m}m` : `${m}m ${rem}s`;
+}
 
 function fmtPos(p: { x: number; y: number; z: number }) {
   return `${p.x.toFixed(0)}, ${p.y.toFixed(0)}, ${p.z.toFixed(0)}`;
@@ -53,7 +51,8 @@ function KeyframeList({
     onChange(arr);
   }
 
-  const totalSec = (keyframes.reduce((s, k) => s + k.durationMs, 0) / 1000).toFixed(1);
+  const totalMs  = keyframes.reduce((s, k) => s + k.durationMs, 0);
+  const totalSec = fmtDuration(totalMs);
 
   return (
     <div className="flex flex-col gap-2">
@@ -111,13 +110,24 @@ function KeyframeList({
               <span className="text-gray-700 text-[10px] font-mono truncate flex-1" title={`pos ${fmtPos(kf.position)} | tgt ${fmtPos(kf.target)}`}>
                 {fmtPos(kf.position)}
               </span>
-              <select
-                value={kf.durationMs}
-                onChange={e => updateKf(kf.id, { durationMs: Number(e.target.value) })}
-                className="bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-gray-400 text-[10px] outline-none shrink-0"
-              >
-                {DURATION_OPTIONS.map(o => <option key={o.ms} value={o.ms}>{o.label}</option>)}
-              </select>
+              <div className="flex items-center gap-1 shrink-0">
+                <input
+                  type="number"
+                  min={0.5}
+                  step={0.5}
+                  value={kf.durationMs / 1000}
+                  onChange={e => {
+                    const secs = parseFloat(e.target.value);
+                    if (!isNaN(secs) && secs >= 0.5) updateKf(kf.id, { durationMs: Math.round(secs * 1000) });
+                  }}
+                  className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-gray-400 text-[10px] outline-none"
+                  title="Duration in seconds (no limit)"
+                />
+                <span className="text-[10px] text-gray-600">s</span>
+                {kf.durationMs >= 60_000 && (
+                  <span className="text-[9px] text-amber-600/80" title="formatted">{fmtDuration(kf.durationMs)}</span>
+                )}
+              </div>
             </div>
           </div>
         ))}
@@ -126,7 +136,7 @@ function KeyframeList({
       {keyframes.length > 0 && (
         <div className="space-y-2 pt-1 border-t border-gray-800">
           <div className="text-[10px] text-gray-600 text-center">
-            {keyframes.length} shot{keyframes.length > 1 ? 's' : ''} · {totalSec}s
+            {keyframes.length} shot{keyframes.length > 1 ? 's' : ''} · {totalSec} total
           </div>
           <div className="flex gap-2">
             {isPlaying ? (
