@@ -40,6 +40,12 @@ export interface CinemaControls {
    * 'breathe' — camera stays near the target with gentle oscillation.
    */
   orbitMode: 'orbit' | 'breathe';
+  /**
+   * Vertical offset applied to the camera's lookAt point during orbit / breathe.
+   * Positive = camera tilts down to look below the target; negative = tilts up.
+   * Range: –200 to +200.
+   */
+  pitchBias: number;
 }
 
 export const DEFAULT_CINEMA_CONTROLS: CinemaControls = {
@@ -48,6 +54,7 @@ export const DEFAULT_CINEMA_CONTROLS: CinemaControls = {
   elevationOffset: 55,
   speedMultiplier: 1,
   orbitMode: 'orbit',
+  pitchBias: 0,
 };
 
 /**

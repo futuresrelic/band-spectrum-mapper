@@ -134,8 +134,9 @@ function fetchScopes(): Promise<{ bands: { id: string; name: string }[] }> {
 
 /**
  * When stare-at-lyrics is enabled, blend the camera lookAt target toward the
- * nearest lyric sprite within maxDist. Sprites don't need .visible — proximity
- * alone is used so it works even when the scene isn't playing.
+ * nearest lyric sprite. Blend strength decays with distance so the effect is
+ * strong when lyrics are visible and gentle when the camera is further away.
+ * No hard cutoff — always pulls toward the nearest sprite when enabled.
  */
 function stareLookAt(
   camX: number, camY: number, camZ: number,
@@ -143,10 +144,9 @@ function stareLookAt(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sprites: any[],
   enabled: boolean,
-  maxDist: number,
+  refDist: number,   // lyricsShowDist — used as the "full strength" reference distance
 ): [number, number, number] {
   if (!enabled || sprites.length === 0) return [tx, ty, tz];
-  const maxDistSq = maxDist * maxDist;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let nearest: any = null;
   let nearestDSq = Infinity;
@@ -155,10 +155,12 @@ function stareLookAt(
     const dy = sp.position.y - camY;
     const dz = sp.position.z - camZ;
     const dSq = dx * dx + dy * dy + dz * dz;
-    if (dSq < maxDistSq && dSq < nearestDSq) { nearestDSq = dSq; nearest = sp; }
+    if (dSq < nearestDSq) { nearestDSq = dSq; nearest = sp; }
   }
   if (!nearest) return [tx, ty, tz];
-  const blend = 0.4;
+  // Blend: up to 0.45 when at refDist or closer; decays as 1/(1 + dist/refDist)
+  const dist  = Math.sqrt(nearestDSq);
+  const blend = Math.min(0.45, 0.45 / (1 + dist / refDist));
   return [
     tx + (nearest.position.x - tx) * blend,
     ty + (nearest.position.y - ty) * blend,
@@ -342,6 +344,7 @@ export default function CinemaPage() {
   const [tourSteps, setTourSteps]             = useState<TourStep[]>([]);
   const [tourStepIdx, setTourStepIdx]         = useState(0);
   const [tourAddMode, setTourAddMode]         = useState(false);
+  const tourAddModeRef                        = useRef(false);
 
   // Named saved sequences (persisted in localStorage)
   const [savedSequences, setSavedSequencesRaw] = useState<NodeSequence[]>(() => {
@@ -453,6 +456,7 @@ export default function CinemaPage() {
     nodeMapRef.current  = new Map(simNodes.map(n => [n.id, n]));
   }, [simNodes]);
   useEffect(() => { tourModeRef.current   = tourMode;        }, [tourMode]);
+  useEffect(() => { tourAddModeRef.current = tourAddMode;    }, [tourAddMode]);
 
   useEffect(() => { sceneKeyframesMapRef.current = sceneKeyframesMap; }, [sceneKeyframesMap]);
 
@@ -1520,7 +1524,7 @@ export default function CinemaPage() {
     const n = node as CinemaNode;
 
     // Tour add mode: clicking a graph node appends it as a tour step
-    if (tourAddMode && tourMode) {
+    if (tourAddModeRef.current && tourModeRef.current) {
       const alreadyInTour = tourStepsRef.current.some(s => s.nodeId === n.id);
       if (!alreadyInTour) {
         setTourSteps(prev => [...prev, {
@@ -1956,6 +1960,17 @@ export default function CinemaPage() {
                 <input type="range" min="0.25" max="4" step="0.25" value={cinemaControls.speedMultiplier}
                   onChange={e => updateControl('speedMultiplier', Number(e.target.value))}
                   className="w-full accent-indigo-500" />
+              </label>
+
+              <label className="block space-y-1">
+                <div className="flex justify-between text-[10px] text-gray-400">
+                  <span>Pitch bias</span>
+                  <span>{cinemaControls.pitchBias > 0 ? `+${cinemaControls.pitchBias}` : cinemaControls.pitchBias}</span>
+                </div>
+                <input type="range" min={-200} max={200} step={5} value={cinemaControls.pitchBias}
+                  onChange={e => updateControl('pitchBias', Number(e.target.value))}
+                  className="w-full accent-indigo-500" />
+                <div className="text-[10px] text-gray-700">Tilts the orbit look direction — + looks lower, − looks higher</div>
               </label>
 
               <button onClick={() => setCinemaControls(DEFAULT_CINEMA_CONTROLS)}

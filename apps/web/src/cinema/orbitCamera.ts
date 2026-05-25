@@ -111,17 +111,20 @@ export function updateOrbitCamera(
     camera.position.x = state.flyStartCamX + (approachX - state.flyStartCamX) * flyT;
     camera.position.y = state.flyStartCamY + (approachY - state.flyStartCamY) * flyT;
     camera.position.z = state.flyStartCamZ + (approachZ - state.flyStartCamZ) * flyT;
-    // Smoothly rotate from previous look-at to new target — no snap
+    // Smoothly rotate from previous look-at to new target — no snap.
+    // Ease-in pitch bias so the fly-in doesn't snap to a tilted view.
+    const pitchFly = (controls.pitchBias ?? 0) * flyT;
     const lx = state.prevLookAtX + (targetX - state.prevLookAtX) * flyT;
     const ly = state.prevLookAtY + (targetY - state.prevLookAtY) * flyT;
     const lz = state.prevLookAtZ + (targetZ - state.prevLookAtZ) * flyT;
-    camera.lookAt(lx, ly, lz);
+    camera.lookAt(lx, ly + pitchFly, lz);
     return 'flying';
   }
 
   // ── Dwell phase ──────────────────────────────────────────────────────────────
   const dwellElapsed = flyElapsed - state.flyDurationMs;
   const speed        = controls.orbitSpeed;
+  const pitchBias    = controls.pitchBias ?? 0;
 
   if (controls.orbitMode === 'breathe') {
     camera.position.x = approachX + Math.sin(dwellElapsed * 0.0008 * speed) * 10;
@@ -134,8 +137,8 @@ export function updateOrbitCamera(
     camera.position.z = targetZ + Math.cos(angle) * dist;
   }
 
-  // Always face the target once in dwell phase
-  camera.lookAt(targetX, targetY, targetZ);
+  // Face the target with optional pitch bias (positive = look below, negative = look above)
+  camera.lookAt(targetX, targetY + pitchBias, targetZ);
 
   if (state.dwellStart < 0) state.dwellStart = elapsedMs;
   if (state.dwellMs > 0 && elapsedMs - state.dwellStart >= state.dwellMs) return 'done';
