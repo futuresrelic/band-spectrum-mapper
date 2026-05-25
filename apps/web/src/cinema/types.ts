@@ -85,6 +85,8 @@ export interface TourStep {
   nodeType: string;
   /** How long to orbit/breathe after arriving (ms) — travel time is separate. */
   dwellMs: number;
+  /** Travel duration from the previous node to this one (ms). Default 1800. */
+  flyInMs?: number;
   /** Per-step camera overrides — undefined means use the global CinemaControls value. */
   orbitSpeed?: number;
   approachDist?: number;

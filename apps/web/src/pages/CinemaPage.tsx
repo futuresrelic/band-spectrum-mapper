@@ -54,6 +54,18 @@ const ALL_TYPES = ['artist', 'album', 'song', 'keyword', 'theme', 'tag', 'emotio
 
 const HIGHLIGHT_COLOR = '#ffffff';
 
+const QUICK_ARRANGE_MODES = [
+  { mode: 'sphere',           emoji: '🌐', label: 'Sphere'   },
+  { mode: 'galaxy',           emoji: '🌌', label: 'Galaxy'   },
+  { mode: 'helix',            emoji: '🧬', label: 'Helix'    },
+  { mode: 'wave',             emoji: '🌊', label: 'Wave'     },
+  { mode: 'mandala',          emoji: '🔵', label: 'Mandala'  },
+  { mode: 'crystal',          emoji: '💎', label: 'Crystal'  },
+  { mode: 'radial',           emoji: '🎯', label: 'Radial'   },
+  { mode: 'fibonacci-spiral', emoji: '🌀', label: 'Spiral'   },
+  { mode: 'natural',          emoji: '🌿', label: 'Natural'  },
+] as const;
+
 const BASE_NODE_REL = 4;
 function nodeValFor(type: string): number {
   switch (type) {
@@ -210,10 +222,14 @@ export default function CinemaPage() {
   const [nodeOpacityUser, setNodeOpacityUser] = useState(() => 0.92);
   useEffect(() => { setNodeOpacityUser(currentTheme.nodeOpacity); }, [currentTheme]);
 
-  // Global label text size multiplier (all node labels scale together)
-  const [labelSizeMultiplier, setLabelSizeMultiplier] = useState(1.0);
-  const labelSizeMultiplierRef = useRef(1.0);
-  useEffect(() => { labelSizeMultiplierRef.current = labelSizeMultiplier; }, [labelSizeMultiplier]);
+  // Per-type label text sizes (pts — default matches original hardcoded values)
+  const DEFAULT_LABEL_TEXT_SIZES = useMemo(() => ({ artist: 5.0, album: 3.5, song: 3.5, other: 3.5 }), []);
+  const [labelTextSizes, setLabelTextSizes] = useState({ artist: 5.0, album: 3.5, song: 3.5, other: 3.5 });
+  const labelTextSizesRef = useRef({ artist: 5.0, album: 3.5, song: 3.5, other: 3.5 });
+  useEffect(() => { labelTextSizesRef.current = labelTextSizes; }, [labelTextSizes]);
+
+  // Active arrangement mode (tracked so the quick-switcher can highlight the active one)
+  const [activeArrangeMode, setActiveArrangeMode] = useState<string>(CINEMA_SCENES[0]?.arrangeMode ?? 'sphere');
 
   // Lyric sprite text size
   const [lyricsTextSize, setLyricsTextSize] = useState(2.8);
@@ -423,16 +439,21 @@ export default function CinemaPage() {
     if (selectedNodeRef.current) fgRef.current?.refresh();
   }, [selectionDim]);
 
-  // Update existing label sprites when global size multiplier changes
+  // Update existing label sprites when per-type sizes change
   useEffect(() => {
     for (const [nodeId, sprite] of labelMapRef.current) {
       const node = simNodesRef.current.find(n => n.id === nodeId);
       if (!node) continue;
-      const base = node.type === 'artist' ? 5 : node.type === 'keyword' ? 4 : 3.5;
-      (sprite as any).textHeight = base * labelSizeMultiplier;
+      const sz = labelTextSizesRef.current;
+      (sprite as any).textHeight = (
+        node.type === 'artist' ? sz.artist
+        : node.type === 'album' ? sz.album
+        : node.type === 'song'  ? sz.song
+        : sz.other
+      );
     }
     fgRef.current?.refresh();
-  }, [labelSizeMultiplier]);
+  }, [labelTextSizes]);
 
   // Update lyric sprites when text size changes
   useEffect(() => {
@@ -753,6 +774,7 @@ export default function CinemaPage() {
                     camera.position.x, camera.position.y, camera.position.z,
                     elapsed, dwellMs,
                     prevLookAt.x, prevLookAt.y, prevLookAt.z,
+                    step.flyInMs ?? 1800,
                   );
                   applyHighlightRef.current(step.nodeId);
                 }
@@ -829,6 +851,23 @@ export default function CinemaPage() {
                 : false;
               const mat = (sprite as any).material;
               if (mat) mat.depthTest = !labelAlwaysOnTopRef.current;
+
+              // Position label on the camera-facing side of the node so it is never
+              // occluded by the node sphere itself, regardless of viewing angle.
+              const nx = n.x ?? 0, ny = n.y ?? 0, nz = n.z ?? 0;
+              const tcx = cx - nx, tcy = cy - ny, tcz = cz - nz;
+              const camLen = Math.sqrt(tcx * tcx + tcy * tcy + tcz * tcz);
+              if (camLen > 0) {
+                const sz = labelTextSizesRef.current;
+                const th = n.type === 'artist' ? sz.artist : n.type === 'album' ? sz.album : n.type === 'song' ? sz.song : sz.other;
+                const r = sphereR(nodeValFor(n.type));
+                const offset = r + th * 0.6 + 3;
+                (sprite as any).position.set(
+                  (tcx / camLen) * offset,
+                  (tcy / camLen) * offset,
+                  (tcz / camLen) * offset,
+                );
+              }
             }
           }
 
@@ -1169,8 +1208,8 @@ export default function CinemaPage() {
     const n      = node as CinemaNode;
     const sprite = new SpriteText(n.label);
     sprite.color = '#e2e8f000';
-    const baseTextH = n.type === 'artist' ? 5 : n.type === 'keyword' ? 4 : 3.5;
-    sprite.textHeight = baseTextH * labelSizeMultiplierRef.current;
+    const sz = labelTextSizesRef.current;
+    sprite.textHeight = n.type === 'artist' ? sz.artist : n.type === 'album' ? sz.album : n.type === 'song' ? sz.song : sz.other;
     sprite.fontWeight = '600';
     sprite.backgroundColor = 'rgba(3,7,18,0.7)';
     sprite.padding = 1.5;
@@ -1198,6 +1237,8 @@ export default function CinemaPage() {
     if (!fgRef.current) return;
     const mode     = (overrideMode ?? scene?.arrangeMode) as import('../cinema/graphArrange').ArrangeMode | undefined;
     if (!mode) return;
+    if (overrideMode) setActiveArrangeMode(overrideMode);
+    else if (scene?.arrangeMode) setActiveArrangeMode(scene.arrangeMode);
     const visNodes = simNodesRef.current.filter(n => !hiddenTypesRef.current.has(n.type));
     const adj      = adjRef.current;
     if (mode === 'natural') {
@@ -1661,6 +1702,21 @@ export default function CinemaPage() {
               Bands{selectedBandIds.length > 0 ? ` (${selectedBandIds.length})` : ''}
             </button>
             <button
+              onClick={() => {
+                const opening = !showTourPlanner;
+                setShowTourPlanner(opening);
+                if (opening) { setTourMode(true); setShowControls(false); setShowDirector(false); setShowBandPicker(false); setShowPlaylist(false); setShowAiDirector(false); }
+              }}
+              title="Node Sequence — fly the camera between nodes"
+              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                showTourPlanner || (tourMode && tourSteps.length > 0)
+                  ? 'bg-indigo-900/60 border-indigo-700 text-indigo-300'
+                  : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+              }`}
+            >
+              🗺{tourSteps.length > 0 ? ` ${tourSteps.length}` : ''}
+            </button>
+            <button
               onClick={() => { setShowControls(v => !v); setShowBandPicker(false); setShowDirector(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); }}
               title="Camera controls & node visibility"
               className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
@@ -1745,7 +1801,32 @@ export default function CinemaPage() {
           {/* ── Controls panel ── */}
           {showControls && (
             <div className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-4 backdrop-blur-sm w-64 shadow-2xl space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100dvh - 80px)' }}>
-              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Camera Controls</div>
+
+              {/* Quick arrangement switcher */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Arrangement</div>
+                  <button onClick={() => reArrange()} className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors">Re-apply</button>
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  {QUICK_ARRANGE_MODES.map(({ mode, emoji, label }) => (
+                    <button
+                      key={mode}
+                      onClick={() => { setActiveArrangeMode(mode); reArrange(mode); }}
+                      className={`flex flex-col items-center gap-0.5 px-1 py-1.5 rounded-lg text-[10px] transition-colors ${
+                        activeArrangeMode === mode
+                          ? 'bg-indigo-900/60 border border-indigo-700/40 text-indigo-300'
+                          : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                      }`}
+                    >
+                      <span>{emoji}</span>
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide border-t border-gray-800 pt-3">Camera Controls</div>
 
               {/* Camera motion mode */}
               <div className="space-y-1.5">
@@ -2041,17 +2122,28 @@ export default function CinemaPage() {
 
               {/* Label styling */}
               <div className="border-t border-gray-800 pt-3 space-y-2">
-                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Label Style</div>
-                <label className="block space-y-1">
-                  <div className="flex justify-between text-[10px] text-gray-400">
-                    <span>Label size</span>
-                    <span>{labelSizeMultiplier.toFixed(1)}×</span>
-                  </div>
-                  <input type="range" min={0.3} max={3.5} step={0.1} value={labelSizeMultiplier}
-                    onChange={e => setLabelSizeMultiplier(Number(e.target.value))}
-                    className="w-full accent-indigo-500" />
-                  <div className="text-[10px] text-gray-700">Artist / album / song label text · 1× = default</div>
-                </label>
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Label Style</div>
+                  <button onClick={() => setLabelTextSizes({ ...DEFAULT_LABEL_TEXT_SIZES })}
+                    className="text-[10px] text-gray-700 hover:text-gray-500">reset sizes</button>
+                </div>
+                {([
+                  { key: 'artist', label: '🎸 Artist / Band', min: 2, max: 14 },
+                  { key: 'album',  label: '💿 Album',          min: 1, max: 10 },
+                  { key: 'song',   label: '🎵 Song',           min: 1, max: 10 },
+                  { key: 'other',  label: '🏷 Tag / Keyword',  min: 1, max: 8  },
+                ] as const).map(({ key, label, min, max }) => (
+                  <label key={key} className="block space-y-0.5">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>{label}</span>
+                      <span>{labelTextSizes[key].toFixed(1)}</span>
+                    </div>
+                    <input type="range" min={min} max={max} step={0.5}
+                      value={labelTextSizes[key]}
+                      onChange={e => setLabelTextSizes(prev => ({ ...prev, [key]: Number(e.target.value) }))}
+                      className="w-full accent-indigo-500" />
+                  </label>
+                ))}
                 <button
                   onClick={() => setLabelShowBg(v => !v)}
                   className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
@@ -2409,12 +2501,24 @@ export default function CinemaPage() {
         </div>
       )}
 
-      {/* ── Tour planner ── */}
-      {showTourPlanner && !socialMode && tourMode && (
+      {/* ── Sequence (Tour) planner — right-side panel accessible from top toolbar ── */}
+      {showTourPlanner && !socialMode && (
         <div
-          className="absolute bottom-20 left-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-3 backdrop-blur-sm w-72 shadow-2xl flex flex-col overflow-hidden"
-          style={{ maxHeight: 'calc(100dvh - 140px)' }}
+          className="absolute top-12 right-4 z-40 bg-gray-900/97 border border-indigo-800/50 rounded-xl p-3 backdrop-blur-sm w-80 shadow-2xl flex flex-col overflow-hidden"
+          style={{ maxHeight: 'calc(100dvh - 80px)' }}
         >
+          <div className="flex items-center justify-between mb-2 shrink-0">
+            <div className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wide">🗺 Node Sequence</div>
+            <div className="flex items-center gap-2">
+              {isPlaying && tourMode && (
+                <span className="text-[10px] text-red-400 animate-pulse font-medium">● Playing</span>
+              )}
+              <button onClick={() => setShowTourPlanner(false)} className="text-gray-600 hover:text-gray-400 text-xs">✕</button>
+            </div>
+          </div>
+          <div className="text-[10px] text-gray-600 mb-2 shrink-0">
+            Click 🖱 then click graph nodes to build a flight path. Fly-in ✈ = travel time, ◉ = time at node.
+          </div>
           <TourPlanner
             nodes={simNodes}
             steps={tourSteps}

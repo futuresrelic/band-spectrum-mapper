@@ -35,7 +35,8 @@ const TYPE_ICONS: Record<string, string> = {
   theme: '🌿', tag: '🏷', emotion: '💜',
 };
 const TYPE_ORDER = ['artist', 'album', 'song', 'keyword', 'theme', 'tag', 'emotion'];
-const DWELL_PRESETS = [2000, 4000, 6000, 8000, 10000, 15000, 20000, 30000, 60000];
+const DWELL_PRESETS  = [2000, 4000, 6000, 8000, 10000, 15000, 20000, 30000, 60000];
+const FLY_IN_PRESETS = [600, 1000, 1800, 2800, 4000, 6000, 10000];
 const ORBIT_SPEED_OPTIONS = [0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0, 3.0];
 
 function dwellLabel(ms: number) {
@@ -66,6 +67,16 @@ function StepRow({
         <span className="shrink-0 text-[12px]">{TYPE_ICONS[step.nodeType] ?? '•'}</span>
         <span className="flex-1 truncate text-gray-300" title={step.nodeLabel}>{step.nodeLabel}</span>
 
+        {/* Fly-in speed */}
+        <select
+          value={step.flyInMs ?? 1800}
+          onChange={e => onChange({ flyInMs: Number(e.target.value) })}
+          title="Travel time to reach this node"
+          className="text-[10px] bg-gray-700/60 border border-gray-600 text-gray-300 rounded px-1 py-0.5 shrink-0"
+        >
+          {FLY_IN_PRESETS.map(ms => <option key={ms} value={ms}>✈{dwellLabel(ms)}</option>)}
+        </select>
+
         {/* Dwell selector */}
         <select
           value={step.dwellMs}
@@ -73,7 +84,7 @@ function StepRow({
           title="Time orbiting after arrival"
           className="text-[10px] bg-gray-700/60 border border-gray-600 text-gray-300 rounded px-1 py-0.5 shrink-0"
         >
-          {DWELL_PRESETS.map(ms => <option key={ms} value={ms}>{dwellLabel(ms)}</option>)}
+          {DWELL_PRESETS.map(ms => <option key={ms} value={ms}>◉{dwellLabel(ms)}</option>)}
         </select>
 
         {/* Reorder */}

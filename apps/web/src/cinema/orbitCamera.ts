@@ -14,7 +14,7 @@
 import { easeInOutQuad } from './graphArrange';
 import type { CinemaControls } from './types';
 
-const FLY_DURATION_MS = 1800;
+const DEFAULT_FLY_DURATION_MS = 1800;
 
 export interface OrbitCameraState {
   targetX: number;
@@ -34,6 +34,8 @@ export interface OrbitCameraState {
   dwellStart: number;
   /** How long to orbit/breathe after arriving (ms); 0 = infinite. */
   dwellMs: number;
+  /** How long the fly-in lasts (ms). Default 1800. */
+  flyDurationMs: number;
 }
 
 /**
@@ -53,6 +55,7 @@ export function initOrbitState(
   prevLookAtX = 0,
   prevLookAtY = 0,
   prevLookAtZ = 0,
+  flyDurationMs = DEFAULT_FLY_DURATION_MS,
 ): OrbitCameraState {
   const startAngle = Math.atan2(camX - targetX, camZ - targetZ);
   return {
@@ -63,6 +66,7 @@ export function initOrbitState(
     prevLookAtX, prevLookAtY, prevLookAtZ,
     dwellStart: -1,
     dwellMs,
+    flyDurationMs,
   };
 }
 
@@ -89,7 +93,7 @@ export function updateOrbitCamera(
   const elevation = controls.elevationOffset;
 
   const flyElapsed = elapsedMs - state.flyStartTime;
-  const flyRaw     = Math.min(1, flyElapsed / FLY_DURATION_MS);
+  const flyRaw     = Math.min(1, flyElapsed / state.flyDurationMs);
   const flyT       = easeInOutQuad(flyRaw);
 
   // Where the fly-in aims for
@@ -116,7 +120,7 @@ export function updateOrbitCamera(
   }
 
   // ── Dwell phase ──────────────────────────────────────────────────────────────
-  const dwellElapsed = flyElapsed - FLY_DURATION_MS;
+  const dwellElapsed = flyElapsed - state.flyDurationMs;
   const speed        = controls.orbitSpeed;
 
   if (controls.orbitMode === 'breathe') {
