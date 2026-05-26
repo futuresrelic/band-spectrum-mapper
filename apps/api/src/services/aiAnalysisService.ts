@@ -19,10 +19,14 @@ function getClient(): OpenAI {
 const ANALYSIS_PROMPT = `You are a music analyst specializing in lyrical content. Analyze the following song lyrics and return a JSON object with exactly these fields:
 - tags: array of 3-5 curated discovery tags. Draw from these categories (mix freely):
   MOOD — "melancholic", "euphoric", "unsettling", "hypnotic", "cathartic", "anxious", "serene", "abrasive"
-  TEXTURE — "atmospheric", "layered", "minimalist", "cinematic", "abstract", "dense", "sparse", "hypnotic"
+  TEXTURE — "atmospheric", "layered", "minimalist", "cinematic", "abstract", "dense", "sparse"
   THEME — "mortality", "isolation", "identity", "transcendence", "rebellion", "loss", "duality", "transformation"
   CONTEXT — "existential", "spiritual", "psychological", "philosophical", "political"
-  Rules: 1-3 words each, lowercase, no genre names (no "metal", "rock", "jazz" etc)
+  CANONICAL FORM RULES (critical — read carefully):
+  • Use the simplest adjectival or root-noun form. Never suffix a concept with -ity, -ness, -tion, -ism, or -ization when the root already works as a tag. "spiritual" not "spirituality"; "transcendent" not "transcendence" (unless the noun is more natural, e.g. "mortality" or "isolation" are fine).
+  • Do NOT expand a single-word concept into a phrase. "spiritual awakening" is redundant if "spiritual" or "transcendent" already applies. Pick the tightest word that conveys the idea.
+  • Before finalising, check: are any two of your tags near-synonyms or root/derived-form pairs of each other? If yes, keep only the simpler one.
+  • 1-3 words each, lowercase, no genre names (no "metal", "rock", "jazz")
 - emotionalRegister: one sentence describing the dominant emotional tone
 - conceptualDepth: one sentence assessing how layered or abstract the lyrical concepts are
 - notableElements: array of 2-4 notable craft elements (e.g. "extended metaphor", "cyclical structure", "visceral imagery")

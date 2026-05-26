@@ -177,6 +177,28 @@ function StepRow({
               ))}
             </div>
           </div>
+
+          {/* On-arrive behaviours */}
+          <div className="flex items-center gap-4 pt-1 border-t border-gray-700/30">
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={step.selectOnArrive ?? false}
+                onChange={e => onChange({ selectOnArrive: e.target.checked || undefined })}
+                className="accent-indigo-500 w-3 h-3 shrink-0"
+              />
+              <span className="text-[10px] text-gray-400">◉ Select node</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={step.stareLyricsOnArrive ?? false}
+                onChange={e => onChange({ stareLyricsOnArrive: e.target.checked || undefined })}
+                className="accent-indigo-500 w-3 h-3 shrink-0"
+              />
+              <span className="text-[10px] text-gray-400">👁 Stare lyrics</span>
+            </label>
+          </div>
         </div>
       )}
     </div>

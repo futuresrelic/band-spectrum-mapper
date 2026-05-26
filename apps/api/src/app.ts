@@ -32,6 +32,7 @@ import { gameRouter } from './routes/game.js';
 import { triviaRouter } from './routes/trivia.js';
 import { wordHuntRouter } from './routes/wordHunt.js';
 import { spectrumStudioRouter } from './routes/spectrumStudio.js';
+import { nodeSequencesRouter } from './routes/nodeSequences.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -109,6 +110,9 @@ export function createApp() {
 
   // Word Hunt game scores (auth required for POST)
   app.use('/api/word-hunt', wordHuntRouter);
+
+  // Cinema node sequences — per-user saved tour paths
+  app.use('/api/node-sequences', nodeSequencesRouter);
 
   // Spectrum Studio — visual data explorer (admin only)
   app.use('/api/spectrum-studio', spectrumStudioRouter);

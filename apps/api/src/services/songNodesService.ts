@@ -176,7 +176,9 @@ async function buildArtistUniverse(bandIds: string[], genreSource: GenreSource =
   const albumSet = new Map<string, string>();        // albumId → title
   const albumBandMap = new Map<string, string>();    // albumId → bandId
   const tagSet = new Map<string, string>();          // tagId → name
-  const themeSet = new Map<string, number>();        // themeKey → count
+  // Note: Theme nodes removed from artist-universe — Tags carry the same data
+  // since the AI analysis batch now writes to both SongTag and aiAnalysis.themes.
+  // Theme-constellation preset still uses aiAnalysis.themes for its specific view.
   let edgeIdx = 0;
 
   for (const s of songs) {
@@ -210,16 +212,6 @@ async function buildArtistUniverse(bandIds: string[], genreSource: GenreSource =
       });
     }
 
-    // song → themes (from AI batch analysis)
-    const themes = (s.aiAnalysis?.themes as string[] | null) ?? [];
-    for (const t of themes) {
-      const key = t.toLowerCase().trim();
-      themeSet.set(key, (themeSet.get(key) ?? 0) + 1);
-      edges.push({
-        id: `e${edgeIdx++}`, source: `song:${s.id}`,
-        target: `theme:${key}`, type: 'conceptual', weight: 0.7,
-      });
-    }
   }
 
   // Artist nodes
@@ -258,18 +250,6 @@ async function buildArtistUniverse(bandIds: string[], genreSource: GenreSource =
       const pruned = edges.filter(
         (e) => !(e.type === 'shared_tag' && e.target === `tag:${id}`),
       );
-      edges.length = 0;
-      edges.push(...pruned);
-    }
-  }
-
-  // Theme nodes (only themes shared by ≥ 2 songs; requires AI batch to have run)
-  for (const [key, count] of themeSet) {
-    if (count >= 2) {
-      nodes.push({ id: `theme:${key}`, type: 'theme', label: key,
-        data: { color: NODE_COLORS.theme, count } });
-    } else {
-      const pruned = edges.filter((e) => !(e.type === 'conceptual' && e.target === `theme:${key}`));
       edges.length = 0;
       edges.push(...pruned);
     }
@@ -373,7 +353,6 @@ async function buildAlbumCluster(albumId: string): Promise<GraphData> {
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const tagSet = new Map<string, string>();
-  const themeSet = new Map<string, number>(); // theme label → count
   let edgeIdx = 0;
 
   // Central album node
@@ -397,36 +376,14 @@ async function buildAlbumCluster(albumId: string): Promise<GraphData> {
         target: `tag:${st.tag.id}`, type: 'shared_tag', weight: 0.6,
       });
     }
-
-    const themes = (s.aiAnalysis?.themes as string[] | null) ?? [];
-    for (const t of themes) {
-      const key = t.toLowerCase().trim();
-      themeSet.set(key, (themeSet.get(key) ?? 0) + 1);
-      edges.push({
-        id: `e${edgeIdx++}`, source: `song:${s.id}`,
-        target: `theme:${key}`, type: 'conceptual', weight: 0.7,
-        label: t,
-      });
-    }
+    // Theme nodes removed — Tags carry the same data after the merged AI batch.
+    // theme-constellation preset still works via aiAnalysis.themes directly.
   }
 
   // Tag nodes
   for (const [id, name] of tagSet) {
     nodes.push({ id: `tag:${id}`, type: 'tag', label: name,
       data: { color: NODE_COLORS.tag } });
-  }
-
-  // Theme nodes (≥ 2 occurrences)
-  for (const [key, count] of themeSet) {
-    if (count >= 2) {
-      nodes.push({ id: `theme:${key}`, type: 'theme', label: key,
-        data: { color: NODE_COLORS.theme, count } });
-    } else {
-      // prune singleton theme edges
-      const pruned = edges.filter((e) => !(e.type === 'conceptual' && e.target === `theme:${key}`));
-      edges.length = 0;
-      edges.push(...pruned);
-    }
   }
 
   return {

@@ -86,6 +86,10 @@ Rules:
 - No genre names (no "metal", "rock", "jazz" — those are separate)
 - Prefer vivid and specific: "ego dissolution" beats "self-reflection"; "cyclical grief" beats "sadness"
 - Tags should make sense to a listener who has never heard this genre before
+CANONICAL FORM RULES (critical):
+- Use the simplest adjectival or root-noun form. Never suffix a concept with -ity, -ness, -tion, or -ism when the root already works. Write "spiritual" not "spirituality"; "transcendent" not "transcendence" (unless the noun is most natural, e.g. "mortality" or "isolation" are fine).
+- Do NOT expand a single word into a phrase when the word is sufficient. "spiritual awakening" is redundant if "spiritual" or "transcendent" already applies.
+- Before finalising your list, check: are any two tags near-synonyms or root/derived forms of each other? If yes, drop the weaker one and replace it with something more distinct.
 
 ${contextParts.join('\n\n')}
 

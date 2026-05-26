@@ -374,10 +374,12 @@ export default function CinemaPage() {
       return stored ? (JSON.parse(stored) as NodeSequence[]) : [];
     } catch { return []; }
   });
-  const setSavedSequences = (seqs: NodeSequence[]) => {
-    setSavedSequencesRaw(seqs);
-    try { localStorage.setItem('cinema-node-sequences', JSON.stringify(seqs)); } catch { /* ignore */ }
-  };
+  // Load sequences from the server on mount; replaces localStorage cache when logged in
+  useEffect(() => {
+    api.get<NodeSequence[]>('/api/node-sequences')
+      .then(serverSeqs => { setSavedSequencesRaw(serverSeqs); })
+      .catch(() => { /* not logged in or API unavailable — keep localStorage sequences */ });
+  }, []);
 
   // Highlighted node — current tour stop; turns white + oversized
   const [tourHighlightedId, setTourHighlightedId] = useState<string | null>(null);
@@ -673,8 +675,22 @@ export default function CinemaPage() {
     tourStepIdxRef.current  = 0;
     tourOrbitRef.current    = null;
     applyHighlightRef.current(steps[0]?.nodeId ?? null);
+    // Apply step-0 arrive flags immediately so the first node is ready on play
+    const firstStep = steps[0];
+    if (firstStep?.selectOnArrive === true) {
+      const node = nodeMapRef.current.get(firstStep.nodeId);
+      if (node) {
+        selectedChainRef.current = [node];
+        selectedNodeRef.current  = node;
+        setSelectedNode(node);
+      }
+    }
+    if (firstStep?.stareLyricsOnArrive === true) {
+      stareLyricsRef.current = true;
+      setStareLyrics(true);
+    }
     setIsPlaying(true);
-  }, []);
+  }, [setSelectedNode, setStareLyrics]);
 
   const stopTour = useCallback(() => {
     setIsPlaying(false);
@@ -701,14 +717,24 @@ export default function CinemaPage() {
 
   // Save/load sequence handlers
   const handleSaveSequence = useCallback((name: string) => {
-    const seq: NodeSequence = {
-      id: `seq-${Date.now()}`,
-      name,
-      steps: tourSteps,
-      savedAt: new Date().toISOString(),
-    };
-    setSavedSequences([...savedSequences, seq]);
-  }, [tourSteps, savedSequences, setSavedSequences]);
+    const steps = tourStepsRef.current;
+    api.post<NodeSequence>('/api/node-sequences', { name, steps })
+      .then(saved => { setSavedSequencesRaw(prev => [...prev, saved]); })
+      .catch(() => {
+        // Not logged in or API down — persist locally only
+        const seq: NodeSequence = {
+          id: `local-${Date.now()}`,
+          name,
+          steps,
+          savedAt: new Date().toISOString(),
+        };
+        setSavedSequencesRaw(prev => {
+          const updated = [...prev, seq];
+          try { localStorage.setItem('cinema-node-sequences', JSON.stringify(updated)); } catch { /* ignore */ }
+          return updated;
+        });
+      });
+  }, []);
 
   const handleLoadSequence = useCallback((seq: NodeSequence) => {
     setTourSteps(seq.steps);
@@ -716,8 +742,16 @@ export default function CinemaPage() {
   }, [stopTour]);
 
   const handleDeleteSequence = useCallback((id: string) => {
-    setSavedSequences(savedSequences.filter(s => s.id !== id));
-  }, [savedSequences, setSavedSequences]);
+    api.delete(`/api/node-sequences/${id}`)
+      .then(() => { setSavedSequencesRaw(prev => prev.filter(s => s.id !== id)); })
+      .catch(() => {
+        setSavedSequencesRaw(prev => {
+          const updated = prev.filter(s => s.id !== id);
+          try { localStorage.setItem('cinema-node-sequences', JSON.stringify(updated)); } catch { /* ignore */ }
+          return updated;
+        });
+      });
+  }, []);
 
   // ── Scene timer ───────────────────────────────────────────────────────────────
 
@@ -878,6 +912,20 @@ export default function CinemaPage() {
                     tourStepIdxRef.current = nextIdx;
                     // Highlight next node now so viewer sees where camera is heading
                     applyHighlightRef.current(steps[nextIdx]?.nodeId ?? null);
+                    // Apply per-step arrive flags
+                    const nextStep = steps[nextIdx];
+                    if (nextStep?.selectOnArrive === true) {
+                      const arrNode = nodeMapRef.current.get(nextStep.nodeId);
+                      if (arrNode) {
+                        selectedChainRef.current = [arrNode];
+                        selectedNodeRef.current  = arrNode;
+                        setSelectedNode(arrNode);
+                      }
+                    }
+                    if (nextStep?.stareLyricsOnArrive === true) {
+                      stareLyricsRef.current = true;
+                      setStareLyrics(true);
+                    }
                   }
                 }
               }

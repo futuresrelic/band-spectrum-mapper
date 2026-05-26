@@ -99,6 +99,10 @@ export interface TourStep {
   approachDist?: number;
   elevation?: number;
   orbitMode?: 'orbit' | 'breathe';
+  /** When true, this node is added to the selection chain on arrival. */
+  selectOnArrive?: boolean;
+  /** When true, stare-at-lyrics mode is activated on arrival. */
+  stareLyricsOnArrive?: boolean;
 }
 
 /** A saved, named node-based camera sequence. */
