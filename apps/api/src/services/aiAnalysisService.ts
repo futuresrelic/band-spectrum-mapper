@@ -197,8 +197,17 @@ ${lyric.text.slice(0, 4000)}`;
     const lyric = song.lyrics[0] ?? null;
     if (!lyric) throw new HttpError(404, 'No primary lyrics found for this song');
 
+    const contextAnalysis = await prisma.songContextAnalysis.findUnique({ where: { songId } });
+
     const client = getClient();
-    const prompt = `${ANALYSIS_PROMPT}${lyric.text.slice(0, 4000)}`;
+    const contextSuffix = (() => {
+      const parts: string[] = [];
+      if (contextAnalysis?.titleSignificance) parts.push(`Title significance: ${contextAnalysis.titleSignificance}`);
+      if (contextAnalysis?.lyricalInterpretation) parts.push(`Lyrical interpretation: ${contextAnalysis.lyricalInterpretation}`);
+      if (contextAnalysis?.historicalContext) parts.push(`Historical context: ${contextAnalysis.historicalContext}`);
+      return parts.length ? `\n\nAdditional context (use to refine tag accuracy):\n${parts.join('\n\n')}` : '';
+    })();
+    const prompt = `${ANALYSIS_PROMPT}${lyric.text.slice(0, 4000)}${contextSuffix}`;
 
     const completion = await client.chat.completions.create({
       model: MODEL,

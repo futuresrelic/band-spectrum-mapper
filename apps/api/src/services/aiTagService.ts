@@ -20,7 +20,7 @@ function slugify(name: string): string {
 
 export const aiTagService = {
   async generateAndApply(songId: string): Promise<string[]> {
-    const [song, aiAnalysis, research, aiSpectrum, genreSpectrum] = await Promise.all([
+    const [song, aiAnalysis, research, aiSpectrum, genreSpectrum, contextAnalysis, recentComments] = await Promise.all([
       prisma.song.findUnique({
         where: { id: songId },
         include: {
@@ -33,6 +33,8 @@ export const aiTagService = {
       prisma.songResearch.findUnique({ where: { songId }, select: { musicStyle: true, summary: true } }),
       prisma.songAiSpectrum.findUnique({ where: { songId } }),
       prisma.songAiGenreSpectrum.findUnique({ where: { songId } }),
+      prisma.songContextAnalysis.findUnique({ where: { songId } }),
+      prisma.songComment.findMany({ where: { songId }, select: { text: true }, orderBy: { createdAt: 'desc' }, take: 10 }),
     ]);
 
     if (!song) throw new HttpError(404, 'Song not found');
@@ -49,7 +51,7 @@ export const aiTagService = {
       contextParts.push(`Music style: ${research.musicStyle}`);
     }
     if (research?.summary) {
-      contextParts.push(`Background: ${research.summary.slice(0, 400)}`);
+      contextParts.push(`Background: ${research.summary.slice(0, 1200)}`);
     }
     if (aiAnalysis) {
       const themes = (aiAnalysis.themes as string[]).join(', ');
@@ -69,6 +71,19 @@ export const aiTagService = {
     }
     if (lyric) {
       contextParts.push(`Lyrics excerpt:\n${lyric.text.slice(0, 1200)}`);
+    }
+    if (contextAnalysis?.titleSignificance) {
+      contextParts.push(`Title significance: ${contextAnalysis.titleSignificance}`);
+    }
+    if (contextAnalysis?.lyricalInterpretation) {
+      contextParts.push(`Lyrical interpretation: ${contextAnalysis.lyricalInterpretation}`);
+    }
+    if (contextAnalysis?.historicalContext) {
+      contextParts.push(`Historical context: ${contextAnalysis.historicalContext}`);
+    }
+    if (recentComments.length > 0) {
+      const commentSnippet = recentComments.map((c: { text: string }) => `"${c.text}"`).join(' | ').slice(0, 600);
+      contextParts.push(`Listener perspectives: ${commentSnippet}`);
     }
 
     const prompt = `You are tagging songs for a cross-genre music discovery platform.
@@ -90,6 +105,7 @@ CANONICAL FORM RULES (critical):
 - Use the simplest adjectival or root-noun form. Never suffix a concept with -ity, -ness, -tion, or -ism when the root already works. Write "spiritual" not "spirituality"; "transcendent" not "transcendence" (unless the noun is most natural, e.g. "mortality" or "isolation" are fine).
 - Do NOT expand a single word into a phrase when the word is sufficient. "spiritual awakening" is redundant if "spiritual" or "transcendent" already applies.
 - Before finalising your list, check: are any two tags near-synonyms or root/derived forms of each other? If yes, drop the weaker one and replace it with something more distinct.
+- If lyrical interpretation or historical context is provided above, prioritise tags that reflect the song's KNOWN meaning rather than surface imagery alone
 
 ${contextParts.join('\n\n')}
 

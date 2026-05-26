@@ -49,6 +49,12 @@ type GenreAggregate = { perspective: string; avg: number; count: number };
 type AnalysisAggregate = { helpful: number; notHelpful: number; total: number };
 type MyGenreRating = { perspective: string; score: number };
 
+type AiTag = { name: string; slug: string };
+type TagProposalShape = {
+  id: string; tagName: string; slug: string; status: string;
+  score: number; voteCount: number; proposedBy: string; createdAt: string;
+};
+
 type GenreRatingsResponse = {
   genreAggregates: GenreAggregate[];
   analysisAggregate: AnalysisAggregate;
@@ -559,6 +565,163 @@ function AnalysisRatingSection({ songId }: { songId: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Community tags + proposals
+// ---------------------------------------------------------------------------
+
+function CommunityTagsSection({ songId }: { songId: string }) {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const [input, setInput] = useState('');
+  const [err, setErr] = useState('');
+
+  const { data: aiTags = [] } = useQuery<AiTag[]>({
+    queryKey: ['song-ai-tags', songId],
+    queryFn: () => api.get<AiTag[]>(`/api/public/songs/${songId}/tags`),
+    staleTime: 60_000,
+  });
+
+  const { data: proposals = [] } = useQuery<TagProposalShape[]>({
+    queryKey: ['tag-proposals', songId],
+    queryFn: () => api.get<TagProposalShape[]>(`/api/public/songs/${songId}/tag-proposals`),
+    staleTime: 30_000,
+  });
+
+  const proposeMutation = useMutation({
+    mutationFn: (tagName: string) =>
+      api.post<TagProposalShape>(`/api/songs/${songId}/tag-proposals`, { tagName }),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['tag-proposals', songId] }); setInput(''); setErr(''); },
+    onError: (e: Error & { status?: number }) => setErr(e.message ?? 'Failed to propose tag'),
+  });
+
+  const voteMutation = useMutation({
+    mutationFn: ({ id, vote }: { id: string; vote: 1 | -1 }) =>
+      api.put<TagProposalShape>(`/api/songs/${songId}/tag-proposals/${id}/vote`, { vote }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['tag-proposals', songId] }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) =>
+      api.delete(`/api/songs/${songId}/tag-proposals/${id}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['tag-proposals', songId] }),
+  });
+
+  const pendingProposals = proposals.filter((p) => p.status === 'pending');
+  const approvedProposals = proposals.filter((p) => p.status === 'approved');
+
+  return (
+    <div className="px-7 py-6 border-b border-slate-800 space-y-5">
+      <div>
+        <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-1">Tags</p>
+        <p className="text-[11px] text-slate-600 leading-snug">
+          AI-generated tags reflect lyrical themes and emotional character.
+          Community proposals that reach +2 votes become official.
+        </p>
+      </div>
+
+      {/* AI tags */}
+      {aiTags.length > 0 && (
+        <div>
+          <p className="text-[10px] text-slate-600 uppercase tracking-wide mb-2">AI tags</p>
+          <div className="flex flex-wrap gap-1.5">
+            {aiTags.map((t) => (
+              <span key={t.slug} className="px-2.5 py-1 rounded-full bg-cyan-950/50 border border-cyan-800/40 text-cyan-300 text-xs font-medium">
+                {t.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Approved community tags */}
+      {approvedProposals.length > 0 && (
+        <div>
+          <p className="text-[10px] text-slate-600 uppercase tracking-wide mb-2">Community tags</p>
+          <div className="flex flex-wrap gap-1.5">
+            {approvedProposals.map((p) => (
+              <span key={p.id} className="px-2.5 py-1 rounded-full bg-indigo-950/50 border border-indigo-700/40 text-indigo-300 text-xs font-medium">
+                {p.tagName}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Pending proposals with voting */}
+      {pendingProposals.length > 0 && (
+        <div>
+          <p className="text-[10px] text-slate-600 uppercase tracking-wide mb-2">
+            Pending proposals {user ? '— vote to promote' : '— log in to vote'}
+          </p>
+          <div className="space-y-1.5">
+            {pendingProposals.map((p) => (
+              <div key={p.id} className="flex items-center gap-2 bg-slate-800/50 rounded-lg px-3 py-2">
+                <span className="flex-1 text-sm text-slate-300">{p.tagName}</span>
+                <span className="text-[10px] text-slate-600">by {p.proposedBy}</span>
+                {user && (
+                  <>
+                    <button
+                      onClick={() => voteMutation.mutate({ id: p.id, vote: 1 })}
+                      className="text-xs px-1.5 py-0.5 rounded bg-slate-700 hover:bg-emerald-800/50 text-slate-400 hover:text-emerald-300 transition-colors"
+                      title="Upvote"
+                    >▲</button>
+                    <span className="text-xs tabular-nums w-5 text-center text-slate-400">{p.score}</span>
+                    <button
+                      onClick={() => voteMutation.mutate({ id: p.id, vote: -1 })}
+                      className="text-xs px-1.5 py-0.5 rounded bg-slate-700 hover:bg-rose-900/50 text-slate-400 hover:text-rose-300 transition-colors"
+                      title="Downvote"
+                    >▼</button>
+                    {p.proposedBy === (user.username ?? user.name) && (
+                      <button
+                        onClick={() => deleteMutation.mutate(p.id)}
+                        className="text-[10px] text-slate-700 hover:text-rose-500 transition-colors ml-1"
+                        title="Remove your proposal"
+                      >✕</button>
+                    )}
+                  </>
+                )}
+                {!user && (
+                  <span className="text-xs tabular-nums text-slate-500">{p.score > 0 ? `+${p.score}` : p.score}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Propose a tag — logged-in users only */}
+      {user ? (
+        <div>
+          <p className="text-[10px] text-slate-600 uppercase tracking-wide mb-2">Propose a tag</p>
+          <div className="flex gap-2">
+            <input
+              value={input}
+              onChange={(e) => { setInput(e.target.value); setErr(''); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && input.trim()) { e.preventDefault(); proposeMutation.mutate(input.trim()); } }}
+              placeholder="e.g. cathartic, ego dissolution…"
+              maxLength={40}
+              className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-600"
+            />
+            <button
+              onClick={() => { if (input.trim()) proposeMutation.mutate(input.trim()); }}
+              disabled={!input.trim() || proposeMutation.isPending}
+              className="px-4 py-2 rounded-lg bg-indigo-700 hover:bg-indigo-600 disabled:bg-slate-800 disabled:text-slate-600 text-white text-sm font-medium transition-colors"
+            >
+              {proposeMutation.isPending ? '…' : 'Propose'}
+            </button>
+          </div>
+          {err && <p className="text-xs text-rose-400 mt-1">{err}</p>}
+          <p className="text-[10px] text-slate-700 mt-1">1–3 words · lowercase · no genre names · needs +2 votes to become official</p>
+        </div>
+      ) : (
+        <p className="text-[11px] text-slate-600">
+          <Link to="/auth/login" className="text-indigo-400 hover:underline">Log in</Link> to propose or vote on tags.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -739,6 +902,9 @@ export default function ShareSongPage() {
 
           {/* Fan rating */}
           <GenrePerspectiveSection songId={song.id} />
+
+          {/* Community tags + proposals */}
+          <CommunityTagsSection songId={song.id} />
 
           {/* Stats footer + disclaimer */}
           <div className="px-7 py-5 bg-slate-950/50 space-y-2">

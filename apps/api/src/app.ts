@@ -18,6 +18,7 @@ import { ratingsRouter } from './routes/ratings.js';
 import { adminRouter } from './routes/admin.js';
 import { tagsRouter } from './routes/tags.js';
 import { commentsRouter } from './routes/comments.js';
+import { tagProposalsRouter } from './routes/tagProposals.js';
 import { brandRouter } from './routes/brand.js';
 import { genreRatingsRouter } from './routes/genre-ratings.js';
 import { musicBrainzRouter } from './routes/musicbrainz.js';
@@ -74,6 +75,7 @@ export function createApp() {
   app.use('/api/discography', discographyRouter);
   app.use('/api/tags', tagsRouter);
   app.use('/api/songs/:songId/comments', commentsRouter);
+  app.use('/api/songs/:songId/tag-proposals', tagProposalsRouter);
 
   // Public read-only (no auth)
   app.use('/api/public', publicRouter);

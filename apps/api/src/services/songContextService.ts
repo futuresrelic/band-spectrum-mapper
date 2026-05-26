@@ -4,7 +4,7 @@ import { HttpError } from '../middleware/errorHandler.js';
 import { adminKnowledgeService } from './adminKnowledgeService.js';
 import type { SongContextAnalysis } from '@band-spectrum-mapper/shared';
 
-const MODEL = 'gpt-4o-mini';
+const MODEL = 'gpt-4o';
 
 function getClient(): OpenAI {
   const apiKey = process.env['OPENAI_API_KEY'];
@@ -132,7 +132,7 @@ export const songContextService = {
 
     const prompt = `You are a music analyst, literary critic, and cultural historian with deep expertise in progressive metal, art rock, and concept albums. You treat music as serious art and engage with it at the level of an intelligent, passionate critic.
 
-Analyze the song comprehensively using all data provided below.
+Analyze the song comprehensively using all data provided below. In addition to the data supplied, draw on any knowledge from your training about this song, artist, and cultural moment — documented interpretations, known artist statements in interviews, critical reception, and cultural or philosophical references the artist is known to use. Do not fabricate facts; synthesize only what you are genuinely confident about from training.
 
 SONG: "${song.title}"
 ARTIST: ${song.band.name}${albumLine ? `\nALBUM: ${albumLine}` : ''}

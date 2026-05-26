@@ -6,7 +6,7 @@ import { api } from '../lib/api';
 import PageHeader from '../components/layout/PageHeader';
 import type { Song } from '@band-spectrum-mapper/shared';
 
-type JobType = 'analysis' | 'spectrum' | 'research' | 'genre' | 'tags' | 'metadata';
+type JobType = 'analysis' | 'spectrum' | 'research' | 'genre' | 'tags' | 'metadata' | 'context';
 
 const JOB_LABELS: Record<JobType, string> = {
   analysis: 'AI Lyric Analysis',
@@ -15,6 +15,7 @@ const JOB_LABELS: Record<JobType, string> = {
   genre: 'Genre Accessibility',
   tags: 'Thematic Tags',
   metadata: 'Track Duration',
+  context: 'Context Analysis',
 };
 
 const JOB_DESCRIPTIONS: Record<JobType, string> = {
@@ -24,6 +25,7 @@ const JOB_DESCRIPTIONS: Record<JobType, string> = {
   genre: 'How much each genre audience would enjoy it (Metal, Rock, Pop, Hip-Hop, Electronic, Folk/Indie)',
   tags: 'Generate thematic tags separately — not needed if Analysis has already run (Analysis now includes tags)',
   metadata: 'Fetch track length from MusicBrainz (rate-limited, ~1 req/sec)',
+  context: 'Deep synthesis of title meaning, lyrical interpretation, and historical context. Run after Research for best results. Output feeds into tag quality.',
 };
 
 interface ScanResult {
@@ -65,6 +67,9 @@ async function runJob(songId: string, job: JobType, force: boolean): Promise<voi
   if (job === 'metadata') {
     await api.post<void>(`/api/admin/songs/${songId}/fetch-metadata`, {});
     return;
+  }
+  if (job === 'context') {
+    force ? await analysisApi.regenerateSongContext(songId) : await analysisApi.getSongContext(songId);
   }
 }
 
@@ -119,10 +124,10 @@ export default function AiBatchRunnerPage() {
       const songs = await bandsApi.listSongs(band.id);
       for (const song of songs) {
         const statuses: Record<JobType, RowStatus> = {
-          analysis: 'pending', spectrum: 'pending', research: 'pending', genre: 'pending', tags: 'pending', metadata: 'pending',
+          analysis: 'pending', spectrum: 'pending', research: 'pending', genre: 'pending', tags: 'pending', metadata: 'pending', context: 'pending',
         };
         const errors: Record<JobType, string> = {
-          analysis: '', spectrum: '', research: '', genre: '', tags: '', metadata: '',
+          analysis: '', spectrum: '', research: '', genre: '', tags: '', metadata: '', context: '',
         };
         all.push({ song, bandName: band.name, statuses, errors });
       }

@@ -78,6 +78,44 @@ publicRouter.get('/songs/:id', async (req, res, next) => {
   }
 });
 
+// GET /api/public/songs/:songId/tags — official AI tags for a song
+publicRouter.get('/songs/:songId/tags', async (req, res, next): Promise<void> => {
+  try {
+    const { songId } = req.params as { songId: string };
+    const songTags = await prisma.songTag.findMany({
+      where: { songId },
+      include: { tag: { select: { name: true, slug: true } } },
+      orderBy: { tag: { name: 'asc' } },
+    });
+    res.json(songTags.map((st) => ({ name: st.tag.name, slug: st.tag.slug }))); return;
+  } catch (e) { next(e); }
+});
+
+// GET /api/public/songs/:songId/tag-proposals — community proposals with vote scores
+publicRouter.get('/songs/:songId/tag-proposals', async (req, res, next): Promise<void> => {
+  try {
+    const { songId } = req.params as { songId: string };
+    const proposals = await prisma.tagProposal.findMany({
+      where: { songId, status: { not: 'rejected' } },
+      include: {
+        votes: { select: { vote: true } },
+        user: { select: { name: true, username: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    res.json(proposals.map((p) => ({
+      id: p.id,
+      tagName: p.tagName,
+      slug: p.slug,
+      status: p.status,
+      score: p.votes.reduce((s: number, v: { vote: number }) => s + v.vote, 0),
+      voteCount: p.votes.length,
+      proposedBy: p.user.username ?? p.user.name ?? 'Anonymous',
+      createdAt: p.createdAt.toISOString(),
+    }))); return;
+  } catch (e) { next(e); }
+});
+
 // GET /api/public/community?songIds=id1,id2,id3
 // Batch community averages — no auth required
 publicRouter.get('/community', async (req, res, next) => {

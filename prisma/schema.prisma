@@ -86,6 +86,7 @@ model Song {
   themeScores        SongThemeScore[]
   spectrumAnalyses   SongSpectrumAnalysis[]
   socialPosts        SocialPost[]
+  tagProposals       TagProposal[]
 
   @@unique([bandId, slug])
   @@map("songs")
@@ -374,6 +375,8 @@ model User {
   gameScores           GameScore[]
   wordHuntScores       WordHuntScore[]
   nodeSequences        UserNodeSequence[]
+  tagProposals         TagProposal[]
+  tagVotes             TagVote[]
 
   @@map("users")
 }
@@ -393,6 +396,44 @@ model UserNodeSequence {
 
   @@index([userId])
   @@map("user_node_sequences")
+}
+
+// ---------------------------------------------------------------------------
+// Community tag proposals — user-submitted tag candidates with voting
+// Auto-promoted to SongTag when net vote score reaches threshold (default 2)
+// ---------------------------------------------------------------------------
+
+model TagProposal {
+  id        String    @id @default(cuid())
+  songId    String
+  tagName   String    // display name (lowercase, trimmed)
+  slug      String    // URL-safe key
+  userId    String
+  status    String    @default("pending") // pending | approved | rejected
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  song  Song       @relation(fields: [songId], references: [id], onDelete: Cascade)
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  votes TagVote[]
+
+  @@unique([songId, slug])
+  @@index([songId])
+  @@map("tag_proposals")
+}
+
+model TagVote {
+  id         String      @id @default(cuid())
+  proposalId String
+  userId     String
+  vote       Int         // +1 upvote, -1 downvote
+  createdAt  DateTime    @default(now())
+
+  proposal TagProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, userId])
+  @@map("tag_votes")
 }
 
 // ---------------------------------------------------------------------------
@@ -801,3 +842,4 @@ model PromptTemplate {
 
   @@map("prompt_templates")
 }
+
