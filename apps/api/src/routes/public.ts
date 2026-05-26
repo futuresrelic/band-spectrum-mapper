@@ -188,7 +188,7 @@ publicRouter.get('/cloud', async (_req, res, next) => {
 // ---------------------------------------------------------------------------
 
 const PUBLIC_PRESETS: GraphLayoutPreset[] = [
-  'artist-universe', 'album-cluster', 'theme-constellation',
+  'artist-universe', 'album-cluster', 'tag-constellation',
   'emotional-similarity', 'lyrical-dna',
 ];
 

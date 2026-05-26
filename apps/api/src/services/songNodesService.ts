@@ -5,7 +5,7 @@
  * Layout presets:
  *   artist-universe     — all songs from selected bands, hierarchy + shared tags
  *   album-cluster       — songs in an album with tag/theme satellites
- *   theme-constellation — songs grouped around shared AI themes
+ *   tag-constellation   — songs grouped around shared AI tags
  *   maynard-universe    — preset: bands matching TOOL/APC/Puscifer names
  *   emotional-similarity— songs connected by cosine-similar radar profiles
  *   lyrical-dna         — songs connected by top shared keywords
@@ -30,7 +30,7 @@ export type EdgeType =
 export type GraphLayoutPreset =
   | 'artist-universe'
   | 'album-cluster'
-  | 'theme-constellation'
+  | 'tag-constellation'
   | 'maynard-universe'
   | 'emotional-similarity'
   | 'lyrical-dna';
@@ -178,7 +178,7 @@ async function buildArtistUniverse(bandIds: string[], genreSource: GenreSource =
   const tagSet = new Map<string, string>();          // tagId → name
   // Note: Theme nodes removed from artist-universe — Tags carry the same data
   // since the AI analysis batch now writes to both SongTag and aiAnalysis.themes.
-  // Theme-constellation preset still uses aiAnalysis.themes for its specific view.
+  // Tag-constellation preset uses SongTag for its dedicated grouped view.
   let edgeIdx = 0;
 
   for (const s of songs) {
@@ -377,7 +377,7 @@ async function buildAlbumCluster(albumId: string): Promise<GraphData> {
       });
     }
     // Theme nodes removed — Tags carry the same data after the merged AI batch.
-    // theme-constellation preset still works via aiAnalysis.themes directly.
+    // tag-constellation preset handles its own tag-hub graph separately.
   }
 
   // Tag nodes
@@ -393,44 +393,43 @@ async function buildAlbumCluster(albumId: string): Promise<GraphData> {
 }
 
 // ---------------------------------------------------------------------------
-// Layout: theme-constellation
+// Layout: tag-constellation
 // ---------------------------------------------------------------------------
 
-async function buildThemeConstellation(bandIds: string[]): Promise<GraphData> {
+async function buildTagConstellation(bandIds: string[]): Promise<GraphData> {
   const songs = await fetchSongs({ bandIds, limit: 200 });
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
-  const themeMap = new Map<string, { count: number; songs: string[] }>();
+  const tagMap = new Map<string, { count: number; songs: string[] }>();
   let edgeIdx = 0;
 
   for (const s of songs) {
     nodes.push(songNode(s));
-    const themes = (s.aiAnalysis?.themes as string[] | null) ?? [];
-    for (const t of themes) {
-      const key = t.toLowerCase().trim();
-      const entry = themeMap.get(key) ?? { count: 0, songs: [] };
+    for (const st of s.songTags) {
+      const key = st.tag.name.toLowerCase().trim();
+      const entry = tagMap.get(key) ?? { count: 0, songs: [] };
       entry.count += 1;
       entry.songs.push(s.id);
-      themeMap.set(key, entry);
+      tagMap.set(key, entry);
       edges.push({
         id: `e${edgeIdx++}`, source: `song:${s.id}`,
-        target: `theme:${key}`, type: 'conceptual', weight: 0.8,
+        target: `tag:${key}`, type: 'shared_tag', weight: 0.8,
       });
     }
   }
 
-  // Theme nodes — sized by how many songs use them
-  for (const [key, { count }] of themeMap) {
+  // Tag nodes — sized by how many songs use them
+  for (const [key, { count }] of tagMap) {
     if (count >= 1) {
       nodes.push({
-        id: `theme:${key}`, type: 'theme', label: key,
-        data: { color: NODE_COLORS.theme, size: Math.min(50, 15 + count * 5), count },
+        id: `tag:${key}`, type: 'tag', label: key,
+        data: { color: NODE_COLORS.tag, size: Math.min(50, 15 + count * 5), count },
       });
     }
   }
 
   const bandNames = [...new Set(songs.map((s) => s.band.name))].join(', ');
-  return { nodes, edges, preset: 'theme-constellation', label: `Theme Constellation: ${bandNames}` };
+  return { nodes, edges, preset: 'tag-constellation', label: `Tag Constellation: ${bandNames}` };
 }
 
 // ---------------------------------------------------------------------------
@@ -611,8 +610,8 @@ export async function buildGraph(
       if (!albumId) throw Object.assign(new Error('albumId required for album-cluster'), { statusCode: 400 });
       return buildAlbumCluster(albumId);
 
-    case 'theme-constellation':
-      return buildThemeConstellation(bandIds);
+    case 'tag-constellation':
+      return buildTagConstellation(bandIds);
 
     case 'maynard-universe':
       return buildMaynardUniverse();

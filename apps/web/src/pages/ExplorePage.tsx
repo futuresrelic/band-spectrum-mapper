@@ -220,7 +220,7 @@ function NodeDetailPanel({ node, onClose }: { node: ReturnType<Core['$']> | null
 
 const PUBLIC_PRESETS = [
   { id: 'artist-universe',     backendPreset: 'artist-universe',      label: 'Artist Universe',     desc: 'Songs, albums, and tags by artist' },
-  { id: 'theme-constellation', backendPreset: 'theme-constellation',  label: 'Theme Constellation', desc: 'Songs grouped by shared AI themes' },
+  { id: 'tag-constellation',   backendPreset: 'tag-constellation',    label: 'Tag Constellation',   desc: 'Songs grouped by shared AI tags' },
   { id: 'emotional-similarity',backendPreset: 'emotional-similarity', label: 'Emotional Similarity',desc: 'Songs linked by matching radar' },
   { id: 'lyrical-dna',         backendPreset: 'lyrical-dna',          label: 'Lyrical DNA',         desc: 'Songs bridged by shared keywords' },
   { id: 'fibonacci-spiral',    backendPreset: 'artist-universe',      label: 'Fibonacci Spiral',    desc: 'All nodes in golden-angle phyllotaxis' },
@@ -605,12 +605,12 @@ export default function ExplorePage() {
   }
 
   // ---------------------------------------------------------------------------
-  // Theme Constellation layout — each theme is a hub, songs ring around it
+  // Tag Constellation layout — each tag is a hub, songs ring around it
   // ---------------------------------------------------------------------------
 
-  function runThemeLayout(cy: Core) {
+  function runTagLayout(cy: Core) {
     const TWO_PI = Math.PI * 2;
-    const themeNodes = cy.nodes('[type = "theme"]');
+    const themeNodes = cy.nodes('[type = "tag"]');
 
     if (themeNodes.length === 0) {
       layoutReadyRef.current = true;
@@ -619,7 +619,7 @@ export default function ExplorePage() {
       return;
     }
 
-    // Sort themes by how many songs connect to them
+    // Sort tags by how many songs connect to them
     const themesRanked = themeNodes.toArray().map((n) => ({
       node: n,
       songCount: n.neighborhood('node[type = "song"]').length,
@@ -639,7 +639,7 @@ export default function ExplorePage() {
     // Two passes: first count connections per song per theme, then assign
     cy.nodes('[type = "song"]').forEach((songNode) => {
       let bestTheme = '', bestCount = 0;
-      cy.nodes('[type = "theme"]').forEach((t) => {
+      cy.nodes('[type = "tag"]').forEach((t) => {
         const connected = t.neighborhood(`#${CSS.escape(songNode.id())}`).length;
         if (connected > bestCount) { bestCount = connected; bestTheme = t.id(); }
       });
@@ -1266,8 +1266,8 @@ export default function ExplorePage() {
       // Each layout function sets layoutReadyRef.current = true and calls startPulse
       if (preset === 'artist-universe') {
         runClusterLayout(cy);
-      } else if (preset === 'theme-constellation') {
-        runThemeLayout(cy);
+      } else if (preset === 'tag-constellation') {
+        runTagLayout(cy);
       } else if (preset === 'emotional-similarity') {
         runEmotionalLayout(cy);
       } else if (preset === 'lyrical-dna') {
@@ -1476,7 +1476,7 @@ export default function ExplorePage() {
                 onClick={() => {
                   const cy = cyRef.current;
                   if (!cy) return;
-                  if (preset === 'theme-constellation') runThemeLayout(cy);
+                  if (preset === 'tag-constellation') runTagLayout(cy);
                   else if (preset === 'emotional-similarity') runEmotionalLayout(cy);
                   else if (preset === 'lyrical-dna') runLyricalLayout(cy);
                   else if (preset === 'fibonacci-spiral') runFibonacciLayout(cy);

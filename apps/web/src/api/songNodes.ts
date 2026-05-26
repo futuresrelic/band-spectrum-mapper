@@ -6,7 +6,7 @@ export type EdgeType =
   | 'similar_radar' | 'conceptual' | 'shared_word';
 
 export type GraphLayoutPreset =
-  | 'artist-universe' | 'album-cluster' | 'theme-constellation'
+  | 'artist-universe' | 'album-cluster' | 'tag-constellation'
   | 'maynard-universe' | 'emotional-similarity' | 'lyrical-dna'
   | 'fibonacci-spiral' | 'fractal-tree';
 
@@ -50,7 +50,7 @@ export interface NodeScopes {
 export const LAYOUT_PRESETS: { id: GraphLayoutPreset; label: string; description: string }[] = [
   { id: 'artist-universe',      label: 'Artist Universe',       description: 'Songs, albums, and tags for selected bands' },
   { id: 'album-cluster',        label: 'Album Cluster',         description: 'Songs in an album with theme/tag satellites' },
-  { id: 'theme-constellation',  label: 'Theme Constellation',   description: 'Songs grouped around shared AI themes' },
+  { id: 'tag-constellation',    label: 'Tag Constellation',     description: 'Songs grouped around shared AI tags' },
   { id: 'maynard-universe',     label: 'Maynard Universe',      description: 'TOOL · A Perfect Circle · Puscifer' },
   { id: 'emotional-similarity', label: 'Emotional Similarity',  description: 'Songs connected by matching radar profiles' },
   { id: 'lyrical-dna',          label: 'Lyrical DNA',           description: 'Songs bridged by shared lyric keywords' },

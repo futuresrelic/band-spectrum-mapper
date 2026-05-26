@@ -184,7 +184,7 @@ function buildLayoutConfig(preset: GraphLayoutPreset) {
         concentric: (n: NodeSingular) => n.data('type') === 'album' ? 3
           : n.data('type') === 'song' ? 2 : 1,
         levelWidth: () => 1 };
-    case 'theme-constellation':
+    case 'tag-constellation':
       return { ...base, name: 'cose',
         nodeRepulsion: () => 12000, edgeElasticity: () => 50, idealEdgeLength: () => 60 };
     case 'emotional-similarity':

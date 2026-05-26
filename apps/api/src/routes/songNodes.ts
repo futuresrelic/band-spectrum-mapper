@@ -12,7 +12,7 @@ songNodesRouter.use(requireAuth);
 songNodesRouter.use(requireAdmin);
 
 const VALID_PRESETS: GraphLayoutPreset[] = [
-  'artist-universe', 'album-cluster', 'theme-constellation',
+  'artist-universe', 'album-cluster', 'tag-constellation',
   'maynard-universe', 'emotional-similarity', 'lyrical-dna',
 ];
 
