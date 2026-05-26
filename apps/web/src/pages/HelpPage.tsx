@@ -52,7 +52,7 @@ export default function HelpPage() {
         <div className="card mb-10 p-4">
           <p className="text-xs font-bold uppercase tracking-widest text-surface-400 mb-3">Jump to</p>
           <div className="flex flex-wrap gap-2 text-sm">
-            {['Overview', 'Spectrum Scoring', 'AI Analysis', 'Comments & Community', 'Sharing', 'Account & Access'].map((s) => (
+            {['Overview', 'Spectrum Scoring', 'AI Analysis', 'Comments & Community', 'Explore & Cinema', 'Sharing', 'Account & Access'].map((s) => (
               <a
                 key={s}
                 href={`#${s.toLowerCase().replace(/[^a-z]+/g, '-')}`}
@@ -111,6 +111,12 @@ export default function HelpPage() {
                 The library (bands, albums, songs, lyrics) is managed by the app administrator.
                 Lyrics are entered manually or imported from files. The tool is designed to be
                 band-agnostic — any band can be added.
+              </p>
+              <p>
+                Signed-in users can submit band discographies for admin review via the{' '}
+                <Link to="/my/contribute" className="text-indigo-600 hover:underline">Contribute</Link>{' '}
+                page. Community members can also propose tags for any song — proposals that
+                reach a +2 net vote score are automatically promoted to official tags.
               </p>
             </FAQ>
           </FaqGroup>
@@ -264,6 +270,28 @@ export default function HelpPage() {
               </p>
             </FAQ>
 
+            <FAQ q="What are Community Tag Proposals?">
+              <p>
+                Signed-in users can suggest tags for any song on its share page. A proposed tag
+                starts as "pending" and is visible to other signed-in users.
+              </p>
+              <p>
+                When a proposal's net score reaches +2 upvotes from community members, it is
+                automatically promoted to an official tag — identical to the AI-generated tags.
+                You can upvote proposals you agree with, downvote ones you think are wrong, and
+                remove your own proposals at any time.
+              </p>
+            </FAQ>
+
+            <FAQ q="How do I propose a tag?">
+              <p>
+                On any song's share page (<code>/share/songs/:id</code>), scroll to the{' '}
+                <strong>Tags</strong> section near the bottom. If you are signed in, you will see
+                a "Propose a tag" input field. Keep tags short (1–3 words), lowercase, and focused
+                on the song's emotional or thematic character — not genre names.
+              </p>
+            </FAQ>
+
             <FAQ q="Can I delete a comment?">
               <p>
                 You can delete your own comments. The app admin can delete any comment. To delete
@@ -277,6 +305,81 @@ export default function HelpPage() {
                 Your individual axis scores are visible only to you on the "Mine" tab of the spectrum
                 and rating pages. What is public is the community average — a blend of all eligible
                 raters with personal scores anonymised.
+              </p>
+            </FAQ>
+          </FaqGroup>
+        </div>
+
+        <div id="explore-cinema">
+          <FaqGroup title="Explore & Cinema">
+            <FAQ q="What is the Explore Graph?">
+              <p>
+                The{' '}
+                <Link to="/explore" className="text-indigo-600 hover:underline">Explore Graph</Link>{' '}
+                is an interactive network visualisation showing how songs, albums, artists, and
+                tags connect to each other. Each song is a node; edges represent relationships
+                like "same artist", "shared tag", "similar radar profile", or "shared lyric keyword".
+              </p>
+              <p>
+                Switch between preset layouts (Artist Universe, Album Cluster, Tag Constellation,
+                Emotional Similarity, Lyrical DNA) and toggle between 2D and 3D views.
+                A band filter lets you focus on specific artists.
+              </p>
+            </FAQ>
+
+            <FAQ q="Will using Explore or Cinema affect other users?">
+              <p>
+                <strong>No.</strong> Both Explore and Cinema Mode are purely visual. You are
+                viewing a read-only representation of the data — clicking nodes, zooming,
+                orbiting the camera, switching layouts, or building a custom tour sequence
+                does not write anything to the database and has no effect on anyone else.
+                Go as wild as you like.
+              </p>
+            </FAQ>
+
+            <FAQ q="What is Cinema Mode?">
+              <p>
+                <Link to="/cinema" className="text-indigo-600 hover:underline">Cinema Mode</Link>{' '}
+                is a cinematic autoplay showcase of the music graph in 3D. It cycles through
+                named scenes — each with a distinct arrangement and continuous camera choreography.
+                No account is required.
+              </p>
+              <p>Key features:</p>
+              <ul className="list-disc list-inside space-y-1 mt-1">
+                <li>16+ named scenes (Artist Universe, Galaxy Drift, Fibonacci Spiral, Mandala, and more)</li>
+                <li>Social Mode — fullscreen with cursor auto-hide and optional watermark</li>
+                <li>Node Tour / Director — build a custom camera path through specific song nodes</li>
+                <li>Progressive lyrics reveal — lyrics appear line by line as the camera lingers near a node</li>
+                <li>Lyrics Universe — a dedicated 3D view where every lyric line floats in space</li>
+                <li>AI Director — describe a mood in plain English and the AI picks the arrangement and visual theme</li>
+              </ul>
+              <p className="mt-2">
+                Press <strong>Space</strong> or <strong>K</strong> to play/pause.
+                Press <strong>F</strong> for fullscreen Social Mode.
+              </p>
+            </FAQ>
+
+            <FAQ q="What is Spectrum Studio?">
+              <p>
+                <Link to="/spectrum-studio" className="text-indigo-600 hover:underline">Spectrum Studio</Link>{' '}
+                is a data visualisation sandbox. Plot every song across 31 data fields — spectrum
+                axes, AI genre scores, philosophical theme scores, metadata — using 12 different
+                chart types. Click any node to see its full field breakdown and similarity
+                connections to the most similar songs.
+              </p>
+              <p>No account required to explore.</p>
+            </FAQ>
+
+            <FAQ q="How do I save a Cinema Mode tour sequence?">
+              <p>
+                In Cinema Mode, open the Tour/Script panel and build a sequence by adding nodes.
+                Signed-in users can save sequences to their account — saved sequences are available
+                on any device. Guests can save to localStorage (browser-local only).
+              </p>
+              <p>
+                Each step in a sequence supports optional flags: <strong>Select on arrive</strong>{' '}
+                (highlights the node when reached) and <strong>Stare at lyrics on arrive</strong>{' '}
+                (auto-shows the node's lyrics as the camera arrives).
               </p>
             </FAQ>
           </FaqGroup>
@@ -328,9 +431,16 @@ export default function HelpPage() {
             </FAQ>
 
             <FAQ q="What can I do with an account?">
-              <p>
-                Submit your own spectrum scores across all six axes, post comments in song
-                discussion sections, and access the share page with your name attributed to comments.
+              <p>Sign in with Google to unlock:</p>
+              <ul className="list-disc list-inside space-y-1 mt-1">
+                <li>Submit your own spectrum scores across all six axes</li>
+                <li>Post comments in song discussion sections</li>
+                <li>Propose community tags for songs and vote on others' proposals</li>
+                <li>Submit band and album discographies for admin review via the Contribute page</li>
+                <li>Save Cinema Mode node sequences to your account (available on any device)</li>
+              </ul>
+              <p className="mt-2">
+                Individual scores stay private — only the community average is public.
               </p>
             </FAQ>
 

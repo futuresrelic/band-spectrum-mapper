@@ -102,6 +102,7 @@ npm run dev
 | `OPENAI_API_KEY` | OpenAI key for AI analysis features | For AI features |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID | For auth |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | For auth |
+| `SESSION_SECRET` | Express session signing key — use a long random string | Yes |
 | `AUDIO_WORKER_URL` | URL of Python audio worker (e.g. `http://localhost:8001`) | For Song Spectrum Analyzer |
 | `YOUTUBE_API_KEY` | YouTube Data API v3 key — metadata import only | For YouTube metadata fetch |
 | `ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT` | Set `true` to allow yt-dlp audio download (dev only) | Never in production |
@@ -166,20 +167,50 @@ npx prisma db seed --schema=prisma/schema.prisma
 
 ---
 
-## MVP Feature List
+## Feature List
 
+### Library & Scoring
 - [x] Band, album, song library with full CRUD
-- [x] Searchable library with browse hierarchy (band → album → song)
+- [x] Browse hierarchy (band → album → song) — publicly accessible, no login needed
 - [x] Lyrics management: manual entry, paste, file import (.txt, .md, .csv, .json)
 - [x] Lyrics revision history with ability to review previous versions
 - [x] Song spectrum scoring across 6 axes (Aggression, Complexity, Atmosphere, Emotion, Psychedelic, Concept)
-- [x] Radar chart per song
-- [x] Axis score averages by band and album
-- [x] Lyrics analysis: normalization, tokenization, stopword removal, term frequency
-- [x] Word cloud visualization
-- [x] Comparison view (band vs band, album vs album, custom selections)
+- [x] Three score layers: Core (admin), Community (user average), AI (GPT-generated)
+- [x] Radar chart per song showing all three layers simultaneously
+- [x] User song ratings — any signed-in user can rate songs
+
+### AI Analysis
+- [x] Three-layer AI per song: Lyric Analysis, Song Research, Deep Synthesis
+- [x] Wikipedia-sourced research: song, album, and artist pages summarised
+- [x] Deep synthesis: Title Significance, Historical Context, Lyrical Interpretation, Thematic Synthesis, Overall Narrative
+- [x] AI genre accessibility scoring (Metal, Rock, Pop, Hip-Hop, Electronic, Folk)
+- [x] AI thematic scores across 16 philosophical dimensions
+- [x] Context analysis (gpt-4o): draws on training knowledge, artist interviews, and documented interpretations
+- [x] Community tag proposals: AI tags enriched by context analysis; users can propose tags, +2 votes promotes to official
+
+### Visualization
+- [x] Explore Graph (Cytoscape.js 2D + Three.js 3D): Artist Universe, Album Cluster, Tag Constellation, Emotional Similarity, Lyrical DNA, and more
+- [x] Cinema Mode: cinematic 3D autoplay showcase with 16+ scenes, Social Mode, Director Mode, AI Director, progressive lyrics, Lyrics Universe
+- [x] Spectrum Studio: 12 chart types across 31 data fields
+- [x] Word cloud (lyric frequency + AI theme weighting)
+- [x] Song Nodes admin view
+
+### Community & Games
+- [x] Comment sections with AI integration (AI reads discussion when regenerating analysis)
+- [x] Community tag proposals with voting — auto-promotes to official at +2 net votes
+- [x] Album Art Quiz game with leaderboard
+- [x] Word Hunt game with leaderboard
+- [x] 3D Graph Hunt game
+- [x] Standalone leaderboard page
+- [x] User contributions (submit discographies for admin review)
+
+### Admin & Operations
+- [x] AI Batch Runner: band filter, resume from checkpoint, 7 job types
+- [x] Lyrics Batch Fetcher: skip instrumentals, resume, not-found tracking
+- [x] MusicBrainz discography import
+- [x] Social Post Generator + Social Media Planner
+- [x] Song Spectrum Analyzer (Python audio worker, optional)
 - [x] Import tracking with status and row-level error reporting
-- [x] Custom stopwords management
 - [x] Health check endpoint
 
 ---

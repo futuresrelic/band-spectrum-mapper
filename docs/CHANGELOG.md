@@ -4,6 +4,34 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Tag enrichment, Cinema sequences, Community tag proposals (2026-05-26)
+
+### Added
+
+- **Community tag proposals** — any signed-in user can propose tags for any song on its share page. Proposals display with their net vote score; upvote/downvote is available to all logged-in users. A proposal reaching net +2 votes is automatically promoted to an official `SongTag`.
+
+- **`TagProposal` + `TagVote` Prisma models** — `tag_proposals` and `tag_votes` tables with cascade deletes. `POST/PUT/DELETE /api/songs/:songId/tag-proposals` router (auth required). Public `GET /api/public/songs/:songId/tags` and `.../tag-proposals`.
+
+- **`CommunityTagsSection` on ShareSongPage** — shows AI tags (cyan), approved community tags (indigo), pending proposals with live upvote/downvote buttons, and a "Propose a tag" form for signed-in users.
+
+- **Context Analysis job in AI Batch Runner** — "Context Analysis" is now selectable as a standalone AI job in `/admin/ai-batch`. Uses `getSongContext` / `regenerateSongContext`.
+
+- **Cinema Mode — server-side node sequences** — `UserNodeSequence` Prisma model stores authored tour paths per user. Sequences saved to the API are accessible from any device. Falls back to localStorage for unauthenticated users.
+
+- **Cinema Mode — arrive flags** — each tour step now supports `selectOnArrive` and `stareLyricsOnArrive` checkboxes. Applied automatically when the camera arrives at that step.
+
+### Changed
+
+- **Tag Constellation (renamed from Theme Constellation)** — renamed throughout frontend and backend. Now uses the `SongTag` table (community + AI tags) instead of `aiAnalysis.themes`. Node type `'tag'`, edge type `'shared_tag'`.
+
+- **Tier 1 — AI tag generation is now context-aware** — `aiTagService` fetches `SongContextAnalysis` and recent listener comments, injecting `titleSignificance`, `lyricalInterpretation`, and `historicalContext` so tags reflect documented meaning rather than surface-level imagery.
+
+- **Tier 1 — Spectrum scoring is now context-aware** — `aiAnalysisService` appends `titleSignificance`, `lyricalInterpretation`, and `historicalContext` from `SongContextAnalysis` to the spectrum scoring prompt.
+
+- **Tier 2 — Context analysis upgraded to gpt-4o** — `songContextService` upgraded from `gpt-4o-mini` to `gpt-4o`; prompt explicitly instructs the AI to draw on training knowledge (published interpretations, artist interviews, cultural references).
+
+---
+
 ## Cinema: Scene cam playback fix, chain selection, progressive lyrics, free cam (2026-05-24)
 
 ### Fixed

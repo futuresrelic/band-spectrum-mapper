@@ -2,7 +2,6 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { SCORE_AXES, AXIS_COLORS, AXIS_LABELS, AXIS_INFO } from '@band-spectrum-mapper/shared';
 
-// Quick-access tiles shown between the hero and the features grid.
 const EXPLORE_TILES = [
   {
     icon: '📚',
@@ -17,7 +16,7 @@ const EXPLORE_TILES = [
   {
     icon: '🕸️',
     title: 'Explore the Graph',
-    desc: 'Interactive network visualizing how songs, albums, and artists connect.',
+    desc: 'Interactive network showing how songs, albums, tags, and artists connect. View-only — safe to click and explore freely.',
     href: '/explore',
     cta: 'Open Graph',
     color: 'border-violet-500/30 hover:border-violet-400/60',
@@ -25,9 +24,19 @@ const EXPLORE_TILES = [
     auth: false,
   },
   {
+    icon: '🎬',
+    title: 'Cinema Mode',
+    desc: 'A cinematic 3D music universe. Press play and watch songs, albums, and artists come alive. No account needed.',
+    href: '/cinema',
+    cta: 'Enter Cinema',
+    color: 'border-purple-500/30 hover:border-purple-400/60',
+    btnColor: 'bg-purple-700 hover:bg-purple-600',
+    auth: false,
+  },
+  {
     icon: '🎮',
     title: 'Games',
-    desc: 'Album Art Quiz, Word Hunt, and more. Compete for the leaderboard.',
+    desc: 'Album Art Quiz, Word Hunt, Graph Hunt, and more. Compete for the leaderboard.',
     href: '/games',
     cta: 'Play Games',
     color: 'border-sky-500/30 hover:border-sky-400/60',
@@ -35,23 +44,23 @@ const EXPLORE_TILES = [
     auth: false,
   },
   {
-    icon: '🏆',
-    title: 'Leaderboard',
-    desc: 'See who is topping the charts across both games. Claim your spot.',
-    href: '/leaderboard',
-    cta: 'View Scores',
-    color: 'border-yellow-500/30 hover:border-yellow-400/60',
-    btnColor: 'bg-yellow-600 hover:bg-yellow-500',
-    auth: false,
-  },
-  {
     icon: '🎚️',
     title: 'Rate Songs',
-    desc: 'Score your favourite tracks across the six spectrum axes.',
+    desc: 'Score your favourite tracks across the six spectrum axes. Your scores shape the community average.',
     href: '/my/rate',
     cta: 'Start Rating',
     color: 'border-rose-500/30 hover:border-rose-400/60',
     btnColor: 'bg-rose-600 hover:bg-rose-500',
+    auth: true,
+  },
+  {
+    icon: '🤝',
+    title: 'Contribute',
+    desc: 'Submit band discographies, propose tags for songs, and help build the library.',
+    href: '/my/contribute',
+    cta: 'Contribute',
+    color: 'border-emerald-500/30 hover:border-emerald-400/60',
+    btnColor: 'bg-emerald-700 hover:bg-emerald-600',
     auth: true,
   },
 ];
@@ -70,17 +79,17 @@ const FEATURES = [
   {
     icon: '📡',
     title: 'Wikipedia Research',
-    desc: 'Automatic background research on every song, album, and artist — sourced, summarised, and enriched with a dedicated musical style profile covering genre, instrumentation, and production.',
+    desc: 'Automatic background research on every song, album, and artist — sourced, summarised, and enriched with a musical style profile covering genre, instrumentation, and production.',
   },
   {
     icon: '💬',
-    title: 'Community Discussion',
-    desc: 'Comment sections where fans share interpretations. The AI actually reads the discussion and weaves compelling community insights into its Deep Analysis when regenerated.',
+    title: 'Community & Tags',
+    desc: 'Comment sections where fans share interpretations. Propose tags for any song; proposals that reach +2 community votes become official. The AI reads the discussion when regenerating analysis.',
   },
   {
-    icon: '🔬',
-    title: 'Cross-Reference',
-    desc: 'Compare bands and albums on the spectrum radar. See how one album sits relative to another, or how a band\'s sound evolves across releases.',
+    icon: '🎬',
+    title: 'Cinema & Explore',
+    desc: 'Visualise the entire music library as an interactive network or a cinematic 3D showcase. Switch layouts, follow camera tours through songs, and watch lyrics float through space.',
   },
   {
     icon: '🔗',
@@ -88,7 +97,6 @@ const FEATURES = [
     desc: 'Every song has a dedicated shareable analysis card with spectrum scores, AI insights, and a direct link — ready to post anywhere.',
   },
 ];
-
 
 const HOW_IT_WORKS = [
   {
@@ -99,12 +107,17 @@ const HOW_IT_WORKS = [
   {
     n: '02',
     title: 'Read the analysis',
-    desc: 'Three AI layers per song: lyric analysis (themes, emotional register), song research (Wikipedia background + music style), and deep synthesis (title significance, historical context, lyrical interpretation). The title analysis is particularly interesting — many progressive songs state their concept in the title and never utter it in the lyrics.',
+    desc: 'Three AI layers per song: lyric analysis (themes, emotional register), song research (Wikipedia background + music style), and deep synthesis (title significance, historical context, lyrical interpretation). The title analysis is often the most illuminating — many progressive songs state their concept in the title and never utter it in the lyrics.',
   },
   {
     n: '03',
-    title: 'Rate, comment, and share',
-    desc: 'Sign in to add your own spectrum scores, join the discussion, and shape the AI\'s analysis — it reads community comments when synthesising. Share any song\'s analysis card to social media.',
+    title: 'Explore & Cinema — safe to play',
+    desc: 'Switch to the Explore Graph for an interactive network of how everything connects — or open Cinema Mode for a cinematic 3D tour with scenes, camera choreography, and floating lyrics. Both are view-only. Nothing you click or move affects other users or the database.',
+  },
+  {
+    n: '04',
+    title: 'Rate, comment, propose tags, and share',
+    desc: 'Sign in to add your own spectrum scores, join the discussion, and propose community tags (proposals reaching +2 net votes become official). Submit band discographies via the Contribute page. Share any song\'s analysis card to social media.',
   },
 ];
 
@@ -116,10 +129,19 @@ export default function LandingPage() {
       {/* Sticky nav */}
       <header className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-surface-200">
         <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
-          <span className="font-bold text-surface-900 tracking-tight whitespace-nowrap">Band Spectrum Mapper</span>
+          <span className="font-bold text-surface-900 tracking-tight whitespace-nowrap flex items-center gap-2">
+            <img
+              src="/api/brand/logo.png"
+              alt=""
+              className="h-6 w-6 rounded object-contain"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+            Band Spectrum Mapper
+          </span>
           <nav className="flex items-center gap-3 text-sm flex-wrap justify-end">
             <Link to="/view"        className="text-surface-600 hover:text-surface-900 transition-colors">Library</Link>
             <Link to="/explore"     className="text-surface-600 hover:text-surface-900 transition-colors">Explore</Link>
+            <Link to="/cinema"      className="text-surface-600 hover:text-surface-900 transition-colors">Cinema</Link>
             <Link to="/play"        className="text-surface-600 hover:text-surface-900 transition-colors">Games</Link>
             <Link to="/leaderboard" className="text-surface-600 hover:text-surface-900 transition-colors">Leaderboard</Link>
             <Link to="/help"        className="text-surface-600 hover:text-surface-900 transition-colors">Help</Link>
@@ -136,10 +158,21 @@ export default function LandingPage() {
 
       {/* Hero */}
       <section className="bg-slate-950 text-white">
-        <div className="max-w-4xl mx-auto px-6 py-24 sm:py-32 text-center">
+        <div className="max-w-4xl mx-auto px-6 py-20 sm:py-28 text-center">
           <div className="inline-flex items-center gap-2 bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 text-xs font-semibold px-4 py-1.5 rounded-full mb-8 tracking-widest uppercase">
             Fan-Built · Independent · Free to Browse
           </div>
+
+          {/* Logo — hidden gracefully if not yet uploaded */}
+          <div className="flex justify-center mb-6">
+            <img
+              src="/api/brand/logo.png"
+              alt="Band Spectrum Mapper"
+              className="h-20 w-20 rounded-2xl object-contain opacity-90"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          </div>
+
           <h1 className="text-5xl sm:text-7xl font-bold tracking-tight mb-6 leading-none">
             Band Spectrum<br />Mapper
           </h1>
@@ -153,6 +186,12 @@ export default function LandingPage() {
               className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-8 py-3.5 rounded-lg transition-colors text-base"
             >
               Browse Library
+            </Link>
+            <Link
+              to="/cinema"
+              className="bg-purple-700 hover:bg-purple-600 text-white font-semibold px-8 py-3.5 rounded-lg transition-colors text-base"
+            >
+              🎬 Cinema Mode
             </Link>
             {user ? (
               <Link
@@ -177,7 +216,7 @@ export default function LandingPage() {
             </Link>
           </div>
           <p className="text-slate-600 text-sm mt-8">
-            No account needed to browse. Sign in to rate, comment, and share.
+            No account needed to browse, explore, or watch Cinema Mode. Sign in to rate, comment, and contribute.
           </p>
         </div>
       </section>
@@ -211,6 +250,22 @@ export default function LandingPage() {
                 </Link>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Explore & Cinema callout — clarify nothing breaks */}
+      <section className="bg-slate-800 border-y border-slate-700 py-10">
+        <div className="max-w-3xl mx-auto px-6 flex flex-col sm:flex-row items-center gap-6">
+          <div className="text-4xl flex-shrink-0 select-none">🔒</div>
+          <div>
+            <p className="text-white font-semibold mb-1">Explore and Cinema are completely safe to play with</p>
+            <p className="text-slate-400 text-sm leading-relaxed">
+              The Explore Graph and Cinema Mode are view-only visualisations of the music data.
+              Clicking nodes, changing layouts, orbiting the camera, or building a custom tour
+              sequence — none of it affects other users or writes anything to the database.
+              Go as wild as you like.
+            </p>
           </div>
         </div>
       </section>
@@ -296,17 +351,17 @@ export default function LandingPage() {
         <div className="max-w-3xl mx-auto px-6 text-center">
           <h2 className="text-2xl font-bold mb-4">Ready to dive in?</h2>
           <p className="text-slate-400 mb-8">
-            Start browsing now — no account needed. Sign in to unlock ratings, games, and commenting.
+            Start browsing now — no account needed. Sign in to unlock ratings, games, commenting, and contributions.
           </p>
           <div className="flex flex-wrap gap-4 justify-center">
             <Link to="/view" className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-8 py-3 rounded-lg transition-colors">
               Browse Library
             </Link>
+            <Link to="/cinema" className="bg-purple-700 hover:bg-purple-600 text-white font-semibold px-8 py-3 rounded-lg transition-colors">
+              🎬 Cinema Mode
+            </Link>
             <Link to="/explore" className="bg-violet-700 hover:bg-violet-600 text-white font-semibold px-8 py-3 rounded-lg transition-colors">
               Explore Graph
-            </Link>
-            <Link to="/leaderboard" className="bg-white/10 hover:bg-white/20 text-white font-semibold px-8 py-3 rounded-lg transition-colors">
-              Leaderboard
             </Link>
             {!user && (
               <a href="/api/auth/google" className="bg-white/10 hover:bg-white/20 text-white font-semibold px-8 py-3 rounded-lg transition-colors">
@@ -330,6 +385,7 @@ export default function LandingPage() {
             >
               ☕ Buy me a coffee
             </a>
+            <Link to="/cinema"      className="hover:text-slate-300 transition-colors">Cinema</Link>
             <Link to="/explore"     className="hover:text-slate-300 transition-colors">Explore</Link>
             <Link to="/leaderboard" className="hover:text-slate-300 transition-colors">Leaderboard</Link>
             <Link to="/help"        className="hover:text-slate-300 transition-colors">Help & FAQ</Link>
