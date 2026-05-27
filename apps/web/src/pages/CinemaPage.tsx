@@ -281,6 +281,39 @@ export default function CinemaPage() {
   const [selectionDim, setSelectionDim] = useState(1.0);
   const selectionDimRef = useRef(1.0);
 
+  // Label state config: separate appearance for selected vs unselected nodes
+  const [unselectedLabelScale, setUnselectedLabelScale]               = useState(1.0);
+  const [unselectedLabelOpacity, setUnselectedLabelOpacity]           = useState(1.0);
+  const [unselectedLabelColorOverride, setUnselectedLabelColorOverride] = useState('');
+  const [selectedLabelScale, setSelectedLabelScale]                   = useState(1.4);
+  const [selectedLabelColorOverride, setSelectedLabelColorOverride]   = useState('#ffffff');
+  const [selectedLabelAlwaysVisible, setSelectedLabelAlwaysVisible]   = useState(true);
+  const unselectedLabelScaleRef           = useRef(1.0);
+  const unselectedLabelOpacityRef         = useRef(1.0);
+  const unselectedLabelColorOverrideRef   = useRef('');
+  const selectedLabelScaleRef             = useRef(1.4);
+  const selectedLabelColorOverrideRef     = useRef('#ffffff');
+  const selectedLabelAlwaysVisibleRef     = useRef(true);
+
+  // Saturn ring lyrics: arrange lyric sprites in an orbital ring around each song node
+  const [ringLyricsMode, setRingLyricsMode]       = useState(false);
+  const [ringRadius, setRingRadius]               = useState(60);
+  const [ringInclination, setRingInclination]     = useState(25);
+  const [ringAzimuth, setRingAzimuth]             = useState(0);
+  const [ringArcCoverage, setRingArcCoverage]     = useState(320);
+  const [ringRotSpeed, setRingRotSpeed]           = useState(0.08);
+  const [ringTextSize, setRingTextSize]           = useState(2.0);
+  const [ringSelectedOnly, setRingSelectedOnly]   = useState(false);
+  const ringLyricsModeRef   = useRef(false);
+  const ringRadiusRef       = useRef(60);
+  const ringInclinationRef  = useRef(25);
+  const ringAzimuthRef      = useRef(0);
+  const ringArcCoverageRef  = useRef(320);
+  const ringRotSpeedRef     = useRef(0.08);
+  const ringTextSizeRef     = useRef(2.0);
+  const ringSelectedOnlyRef = useRef(false);
+  const ringStartTimeRef    = useRef(performance.now());
+
   // Node sphere opacity override (user-adjustable, reset to theme default when theme changes)
   const [nodeOpacityUser, setNodeOpacityUser] = useState(() => 0.92);
   useEffect(() => { setNodeOpacityUser(currentTheme.nodeOpacity); }, [currentTheme]);
@@ -510,6 +543,24 @@ export default function CinemaPage() {
   useEffect(() => { lyricsProgressiveModeRef.current = lyricsProgressiveMode; }, [lyricsProgressiveMode]);
   useEffect(() => { lyricsRevealPaceRef.current      = lyricsRevealPace;      }, [lyricsRevealPace]);
 
+  useEffect(() => { unselectedLabelScaleRef.current           = unselectedLabelScale;           }, [unselectedLabelScale]);
+  useEffect(() => { unselectedLabelOpacityRef.current         = unselectedLabelOpacity;         }, [unselectedLabelOpacity]);
+  useEffect(() => { unselectedLabelColorOverrideRef.current   = unselectedLabelColorOverride;   }, [unselectedLabelColorOverride]);
+  useEffect(() => { selectedLabelScaleRef.current             = selectedLabelScale;             }, [selectedLabelScale]);
+  useEffect(() => { selectedLabelColorOverrideRef.current     = selectedLabelColorOverride;     }, [selectedLabelColorOverride]);
+  useEffect(() => { selectedLabelAlwaysVisibleRef.current     = selectedLabelAlwaysVisible;     }, [selectedLabelAlwaysVisible]);
+  useEffect(() => {
+    ringLyricsModeRef.current = ringLyricsMode;
+    if (ringLyricsMode) ringStartTimeRef.current = performance.now();
+  }, [ringLyricsMode]);
+  useEffect(() => { ringRadiusRef.current       = ringRadius;       }, [ringRadius]);
+  useEffect(() => { ringInclinationRef.current  = ringInclination;  }, [ringInclination]);
+  useEffect(() => { ringAzimuthRef.current      = ringAzimuth;      }, [ringAzimuth]);
+  useEffect(() => { ringArcCoverageRef.current  = ringArcCoverage;  }, [ringArcCoverage]);
+  useEffect(() => { ringRotSpeedRef.current     = ringRotSpeed;     }, [ringRotSpeed]);
+  useEffect(() => { ringTextSizeRef.current     = ringTextSize;     }, [ringTextSize]);
+  useEffect(() => { ringSelectedOnlyRef.current = ringSelectedOnly; }, [ringSelectedOnly]);
+
   useEffect(() => {
     applyKfSelectionRef.current = (ids: string[] | undefined) => {
       if (!ids || ids.length === 0) {
@@ -534,16 +585,22 @@ export default function CinemaPage() {
     if (selectedNodeRef.current) fgRef.current?.refresh();
   }, [selectionDim]);
 
-  // Update existing label sprites when per-type sizes change
+  // Update existing label sprites when per-type sizes or label-state scales change
   useEffect(() => {
     for (const [nodeId, sprite] of labelMapRef.current) {
       const node = simNodesRef.current.find(n => n.id === nodeId);
       if (!node) continue;
       const sz = labelTextSizesRef.current;
-      (sprite as any).textHeight = (sz as Record<string, number>)[node.type] ?? sz.tag;
+      const baseSize = (sz as Record<string, number>)[node.type] ?? sz.tag;
+      const isSelected = selectedChainRef.current.some(c => c.id === nodeId);
+      const scale = isSelected ? selectedLabelScaleRef.current : unselectedLabelScaleRef.current;
+      const size  = baseSize * scale;
+      (sprite as any).textHeight = size;
+      (sprite as any)._lastTH    = size;
     }
     fgRef.current?.refresh();
-  }, [labelTextSizes]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [labelTextSizes, selectedLabelScale, unselectedLabelScale]);
 
   // Update lyric sprites when text size changes
   useEffect(() => {
@@ -990,79 +1047,108 @@ export default function CinemaPage() {
         if (camera) {
           const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
           const ld = labelDistancesRef.current;
+          // Build O(1) lookup for selected chain nodes (shared by label + lyrics sections)
+          const selectedChainSet = new Set(selectedChainRef.current.map(c => c.id));
           for (const n of simNodesRef.current) {
             const sprite = labelMapRef.current.get(n.id);
             if (!sprite) continue;
-            // Hide labels for hidden node types
             if (hiddenTypesRef.current.has(n.type)) { sprite.visible = false; continue; }
             if (n.x == null) { sprite.visible = false; continue; }
-            // Path mode: labels are distance-independent; only path nodes get labels
-            if (pathModeRef.current) {
-              if (!pathNodeSetRef.current.has(n.id)) { sprite.visible = false; continue; }
-              sprite.visible = true;
-              sprite.color = labelTextColorRef.current + 'ff';
-              (sprite as any).backgroundColor = labelShowBgRef.current
-                ? `rgba(3,7,18,${labelBgOpacityRef.current.toFixed(2)})`
-                : false;
-              const mat = (sprite as any).material;
-              if (mat) mat.depthTest = !labelAlwaysOnTopRef.current;
-              const nx = n.x ?? 0, ny = n.y ?? 0, nz = n.z ?? 0;
-              const tcx = cx - nx, tcy = cy - ny, tcz = cz - nz;
-              const camLen = Math.sqrt(tcx * tcx + tcy * tcy + tcz * tcz);
-              if (camLen > 0) {
-                const sz = labelTextSizesRef.current;
-                const th = (sz as Record<string, number>)[n.type] ?? sz.tag;
-                const r = sphereR(nodeValFor(n.type));
-                const offset = r + th * 0.6 + 3;
-                (sprite as any).position.set(
-                  (tcx / camLen) * offset,
-                  (tcy / camLen) * offset,
-                  (tcz / camLen) * offset,
-                );
-              }
-              continue;
-            }
-            const dx = (n.x ?? 0) - cx, dy = (n.y ?? 0) - cy, dz = (n.z ?? 0) - cz;
-            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+            const isSelected = selectedChainSet.has(n.id);
             const showDist = n.type === 'artist' ? ld.artist
               : n.type === 'album' ? ld.album
-              : n.type === 'song' ? ld.song : ld.other;
+              : n.type === 'song'  ? ld.song : ld.other;
             const fullDist = Math.round(showDist * 0.32);
-            if (dist >= showDist) {
-              sprite.visible = false;
-            } else {
-              sprite.visible = true;
-              const range   = Math.max(1, showDist - fullDist);
-              const opacity = Math.max(0, Math.min(1, 1 - (dist - fullDist) / range));
-              const a = Math.round(opacity * 255).toString(16).padStart(2, '0');
-              sprite.color = `${labelTextColorRef.current}${a}`;
-              (sprite as any).backgroundColor = labelShowBgRef.current
-                ? `rgba(3,7,18,${(labelBgOpacityRef.current * opacity).toFixed(2)})`
-                : false;
-              const mat = (sprite as any).material;
-              if (mat) mat.depthTest = !labelAlwaysOnTopRef.current;
+            const dx = (n.x ?? 0) - cx, dy = (n.y ?? 0) - cy, dz = (n.z ?? 0) - cz;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-              // Position label on the camera-facing side of the node so it is never
-              // occluded by the node sphere itself, regardless of viewing angle.
-              const nx = n.x ?? 0, ny = n.y ?? 0, nz = n.z ?? 0;
-              const tcx = cx - nx, tcy = cy - ny, tcz = cz - nz;
-              const camLen = Math.sqrt(tcx * tcx + tcy * tcy + tcz * tcz);
-              if (camLen > 0) {
-                const sz = labelTextSizesRef.current;
-                const th = (sz as Record<string, number>)[n.type] ?? sz.tag;
-                const r = sphereR(nodeValFor(n.type));
-                const offset = r + th * 0.6 + 3;
-                (sprite as any).position.set(
-                  (tcx / camLen) * offset,
-                  (tcy / camLen) * offset,
-                  (tcz / camLen) * offset,
-                );
-              }
+            // Visibility gate
+            if (isSelected && selectedLabelAlwaysVisibleRef.current) {
+              sprite.visible = true;
+            } else if (isSelected) {
+              sprite.visible = dist < showDist;
+            } else {
+              sprite.visible = unselectedLabelScaleRef.current > 0 && dist < showDist;
+            }
+            if (!sprite.visible) continue;
+
+            // Text size (cached to avoid per-frame canvas regeneration)
+            const sz = labelTextSizesRef.current;
+            const baseSize  = (sz as Record<string, number>)[n.type] ?? sz.tag;
+            const scale     = isSelected ? selectedLabelScaleRef.current : unselectedLabelScaleRef.current;
+            const desiredTH = baseSize * Math.max(0.01, scale);
+            if ((sprite as any)._lastTH !== desiredTH) {
+              (sprite as any).textHeight = desiredTH;
+              (sprite as any)._lastTH    = desiredTH;
+            }
+
+            // Opacity + colour
+            let opacity: number;
+            if (isSelected && selectedLabelAlwaysVisibleRef.current) {
+              opacity = 1.0;
+            } else {
+              const range = Math.max(1, showDist - fullDist);
+              opacity = Math.max(0, Math.min(1, 1 - (dist - fullDist) / range));
+              if (!isSelected) opacity *= unselectedLabelOpacityRef.current;
+            }
+            const a         = Math.round(opacity * 255).toString(16).padStart(2, '0');
+            const baseColor = isSelected
+              ? (selectedLabelColorOverrideRef.current   || labelTextColorRef.current)
+              : (unselectedLabelColorOverrideRef.current || labelTextColorRef.current);
+            sprite.color = `${baseColor}${a}`;
+            (sprite as any).backgroundColor = labelShowBgRef.current
+              ? `rgba(3,7,18,${(labelBgOpacityRef.current * opacity).toFixed(2)})` : false;
+            const mat = (sprite as any).material;
+            if (mat) mat.depthTest = !labelAlwaysOnTopRef.current;
+
+            // Position label on camera-facing side of node (never occluded by sphere)
+            const nx = n.x ?? 0, ny = n.y ?? 0, nz = n.z ?? 0;
+            const tcx = cx - nx, tcy = cy - ny, tcz = cz - nz;
+            const camLen = Math.sqrt(tcx * tcx + tcy * tcy + tcz * tcz);
+            if (camLen > 0) {
+              const r      = sphereR(nodeValFor(n.type));
+              const offset = r + desiredTH * 0.6 + 3;
+              (sprite as any).position.set(
+                (tcx / camLen) * offset,
+                (tcy / camLen) * offset,
+                (tcz / camLen) * offset,
+              );
             }
           }
 
           // Lyrics sprite: distance culling + scroll/progressive reveal
           if (lyricsSpritesRef.current.length > 0) {
+            // Pre-compute Saturn ring basis vectors once per frame (all sprites share one plane)
+            const isRingMode = ringLyricsModeRef.current;
+            let ringU: [number, number, number] = [1, 0, 0];
+            let ringV: [number, number, number] = [0, 0, 1];
+            let ringAngle = 0;
+            if (isRingMode) {
+              const incRad = ringInclinationRef.current * Math.PI / 180;
+              const azRad  = ringAzimuthRef.current    * Math.PI / 180;
+              const rnX = Math.sin(incRad) * Math.cos(azRad);
+              const rnY = Math.cos(incRad);
+              const rnZ = Math.sin(incRad) * Math.sin(azRad);
+              let uX: number, uY: number, uZ: number;
+              if (Math.abs(rnY) > 0.9) {
+                // Normal nearly vertical — use Z as reference to avoid degenerate cross product
+                const len = Math.sqrt(rnX * rnX + rnZ * rnZ);
+                if (len > 0.001) { uX = rnZ / len; uY = 0; uZ = -rnX / len; }
+                else             { uX = 1; uY = 0; uZ = 0; }
+              } else {
+                const len = Math.sqrt(rnX * rnX + rnZ * rnZ);
+                uX = -rnZ / len; uY = 0; uZ = rnX / len;
+              }
+              ringU = [uX, uY, uZ];
+              ringV = [
+                rnY * uZ - rnZ * uY,
+                rnZ * uX - rnX * uZ,
+                rnX * uY - rnY * uX,
+              ];
+              ringAngle = (performance.now() - ringStartTimeRef.current) / 1000 * ringRotSpeedRef.current;
+            }
+
             const lyricDistSq       = lyricsShowDistRef.current ** 2;
             const scrollMode        = lyricsScrollModeRef.current;
             const progressiveMode   = lyricsProgressiveModeRef.current;
@@ -1076,21 +1162,43 @@ export default function CinemaPage() {
                 lyricsScrollOffsetRef.current.set(songId, (cur + 1) % Math.max(1, total));
               });
             }
-            // Track which songIds are in proximity this frame
-            const selectedOnly   = lyricsSelectedOnlyRef.current;
-            const selectedIds    = new Set(selectedChainRef.current.map(n => n.id));
-            const inProximity    = new Set<string>();
+            const selectedOnly = lyricsSelectedOnlyRef.current;
+            const inProximity  = new Set<string>();
             for (const sp of lyricsSpritesRef.current) {
-              // Keep sprite co-located with its node — works across any arrangement
               const ownerNode = nodeMapRef.current.get(sp._songId as string);
               if (ownerNode && ownerNode.x != null) {
-                const lyricAngle = sp._lyricAngle as number;
-                const lyricLi   = sp._lyricLi   as number;
-                sp.position.set(
-                  (ownerNode.x ?? 0) + Math.sin(lyricAngle) * 18,
-                  (ownerNode.y ?? 0) + 14 + lyricLi * 7,
-                  (ownerNode.z ?? 0) + Math.cos(lyricAngle) * 18,
-                );
+                if (isRingMode) {
+                  // Saturn ring — distribute lyric lines evenly around the orbital ring
+                  const lineIdx    = sp._lineIdx as number;
+                  const totalLines = lyricsTotalLinesRef.current.get(sp._songId as string) ?? 1;
+                  const θ = (lineIdx / Math.max(1, totalLines))
+                    * 2 * Math.PI * (ringArcCoverageRef.current / 360) + ringAngle;
+                  const r = ringRadiusRef.current;
+                  sp.position.set(
+                    (ownerNode.x ?? 0) + r * (Math.cos(θ) * ringU[0] + Math.sin(θ) * ringV[0]),
+                    (ownerNode.y ?? 0) + r * (Math.cos(θ) * ringU[1] + Math.sin(θ) * ringV[1]),
+                    (ownerNode.z ?? 0) + r * (Math.cos(θ) * ringU[2] + Math.sin(θ) * ringV[2]),
+                  );
+                  const rth = ringTextSizeRef.current;
+                  if ((sp as any)._lastLyricTH !== rth) {
+                    (sp as any).textHeight    = rth;
+                    (sp as any)._lastLyricTH  = rth;
+                  }
+                } else {
+                  // Original scattered-cloud positioning
+                  const lyricAngle = sp._lyricAngle as number;
+                  const lyricLi   = sp._lyricLi   as number;
+                  sp.position.set(
+                    (ownerNode.x ?? 0) + Math.sin(lyricAngle) * 18,
+                    (ownerNode.y ?? 0) + 14 + lyricLi * 7,
+                    (ownerNode.z ?? 0) + Math.cos(lyricAngle) * 18,
+                  );
+                  const cth = lyricsTextSizeRef.current;
+                  if ((sp as any)._lastLyricTH !== cth) {
+                    (sp as any).textHeight   = cth;
+                    (sp as any)._lastLyricTH = cth;
+                  }
+                }
               }
 
               const pos = sp.position;
@@ -1101,8 +1209,9 @@ export default function CinemaPage() {
                 continue;
               }
               const songId = sp._songId as string;
-              // Filter to selected nodes only when mode is on
-              if (selectedOnly && !selectedIds.has(songId)) { sp.visible = false; continue; }
+              // Per-mode selected-only filter (uses shared selectedChainSet)
+              if (isRingMode  && ringSelectedOnlyRef.current && !selectedChainSet.has(songId)) { sp.visible = false; continue; }
+              if (!isRingMode && selectedOnly                && !selectedChainSet.has(songId)) { sp.visible = false; continue; }
               inProximity.add(songId);
               if (progressiveMode) {
                 if (!lyricsProximitySinceRef.current.has(songId)) {
@@ -2537,6 +2646,85 @@ export default function CinemaPage() {
                         <div className="text-[10px] text-gray-700">Linger near a node — lines appear one by one</div>
                       </label>
                     )}
+
+                    {/* Saturn ring lyrics */}
+                    <div className="border-t border-gray-800/60 pt-2 space-y-1">
+                      <button
+                        onClick={() => setRingLyricsMode(v => !v)}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                          ringLyricsMode ? 'text-cyan-300 bg-cyan-900/20' : 'text-gray-500 hover:text-gray-300'
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${ringLyricsMode ? 'bg-cyan-400' : 'bg-gray-700'}`} />
+                        <span>🪐 Saturn ring lyrics</span>
+                        <span className="ml-auto text-[10px] text-gray-600">{ringLyricsMode ? 'on' : 'off'}</span>
+                      </button>
+                      {ringLyricsMode && (
+                        <div className="space-y-2 pl-1 pt-1">
+                          <label className="block space-y-1">
+                            <div className="flex justify-between text-[10px] text-gray-400">
+                              <span>Ring radius</span><span>{ringRadius}</span>
+                            </div>
+                            <input type="range" min={20} max={300} step={5} value={ringRadius}
+                              onChange={e => setRingRadius(Number(e.target.value))}
+                              className="w-full accent-cyan-500" />
+                          </label>
+                          <label className="block space-y-1">
+                            <div className="flex justify-between text-[10px] text-gray-400">
+                              <span>Inclination</span><span>{ringInclination}°</span>
+                            </div>
+                            <input type="range" min={0} max={90} step={1} value={ringInclination}
+                              onChange={e => setRingInclination(Number(e.target.value))}
+                              className="w-full accent-cyan-500" />
+                            <div className="text-[10px] text-gray-700">0° flat / equatorial · 90° vertical</div>
+                          </label>
+                          <label className="block space-y-1">
+                            <div className="flex justify-between text-[10px] text-gray-400">
+                              <span>Ring angle (azimuth)</span><span>{ringAzimuth}°</span>
+                            </div>
+                            <input type="range" min={0} max={360} step={5} value={ringAzimuth}
+                              onChange={e => setRingAzimuth(Number(e.target.value))}
+                              className="w-full accent-cyan-500" />
+                          </label>
+                          <label className="block space-y-1">
+                            <div className="flex justify-between text-[10px] text-gray-400">
+                              <span>Arc coverage</span><span>{ringArcCoverage}°</span>
+                            </div>
+                            <input type="range" min={30} max={360} step={10} value={ringArcCoverage}
+                              onChange={e => setRingArcCoverage(Number(e.target.value))}
+                              className="w-full accent-cyan-500" />
+                            <div className="text-[10px] text-gray-700">360° full ring · less = open arc</div>
+                          </label>
+                          <label className="block space-y-1">
+                            <div className="flex justify-between text-[10px] text-gray-400">
+                              <span>Rotation speed</span>
+                              <span>{ringRotSpeed === 0 ? 'static' : `${ringRotSpeed.toFixed(2)} r/s`}</span>
+                            </div>
+                            <input type="range" min={0} max={1.5} step={0.01} value={ringRotSpeed}
+                              onChange={e => setRingRotSpeed(Number(e.target.value))}
+                              className="w-full accent-cyan-500" />
+                          </label>
+                          <label className="block space-y-1">
+                            <div className="flex justify-between text-[10px] text-gray-400">
+                              <span>Text size</span><span>{ringTextSize.toFixed(1)}</span>
+                            </div>
+                            <input type="range" min={0.5} max={8} step={0.2} value={ringTextSize}
+                              onChange={e => setRingTextSize(Number(e.target.value))}
+                              className="w-full accent-cyan-500" />
+                          </label>
+                          <button
+                            onClick={() => setRingSelectedOnly(v => !v)}
+                            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                              ringSelectedOnly ? 'text-cyan-300 bg-cyan-900/20' : 'text-gray-500 hover:text-gray-300'
+                            }`}
+                          >
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${ringSelectedOnly ? 'bg-cyan-400' : 'bg-gray-700'}`} />
+                            <span>Selected nodes only</span>
+                            <span className="ml-auto text-[10px] text-gray-600">{ringSelectedOnly ? 'on' : 'off'}</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
               </div>
@@ -2601,6 +2789,82 @@ export default function CinemaPage() {
                   <input type="color" value={labelTextColor}
                     onChange={e => setLabelTextColor(e.target.value)}
                     className="w-8 h-5 rounded cursor-pointer border-0 bg-transparent" />
+                </div>
+              </div>
+
+              {/* Label states: selected vs unselected appearance */}
+              <div className="border-t border-gray-800 pt-3 space-y-3">
+                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Label States</div>
+
+                {/* Unselected nodes */}
+                <div className="space-y-1.5">
+                  <div className="text-[10px] text-gray-500 font-medium">Unselected nodes</div>
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Scale{unselectedLabelScale === 0 ? ' — hidden' : ''}</span>
+                      <span>{unselectedLabelScale.toFixed(2)}×</span>
+                    </div>
+                    <input type="range" min={0} max={2} step={0.05} value={unselectedLabelScale}
+                      onChange={e => setUnselectedLabelScale(Number(e.target.value))}
+                      className="w-full accent-gray-500" />
+                    <div className="text-[10px] text-gray-700">0 = hide all unselected labels</div>
+                  </label>
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Opacity</span><span>{Math.round(unselectedLabelOpacity * 100)}%</span>
+                    </div>
+                    <input type="range" min={0} max={1} step={0.05} value={unselectedLabelOpacity}
+                      onChange={e => setUnselectedLabelOpacity(Number(e.target.value))}
+                      className="w-full accent-gray-500" />
+                  </label>
+                  <div className="flex items-center gap-2 px-1">
+                    <span className="text-[10px] text-gray-400 flex-1">Color</span>
+                    <input type="color"
+                      value={unselectedLabelColorOverride || labelTextColor}
+                      onChange={e => setUnselectedLabelColorOverride(e.target.value)}
+                      className="w-8 h-5 rounded cursor-pointer border-0 bg-transparent" />
+                    {unselectedLabelColorOverride && (
+                      <button onClick={() => setUnselectedLabelColorOverride('')}
+                        className="text-[10px] text-gray-600 hover:text-gray-400">reset</button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Selected / path nodes */}
+                <div className="space-y-1.5 border-t border-gray-800/60 pt-2">
+                  <div className="text-[10px] text-gray-500 font-medium">Selected / Path nodes</div>
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Scale</span><span>{selectedLabelScale.toFixed(2)}×</span>
+                    </div>
+                    <input type="range" min={0.5} max={3} step={0.05} value={selectedLabelScale}
+                      onChange={e => setSelectedLabelScale(Number(e.target.value))}
+                      className="w-full accent-amber-500" />
+                  </label>
+                  <div className="flex items-center gap-2 px-1">
+                    <span className="text-[10px] text-gray-400 flex-1">Color</span>
+                    <input type="color"
+                      value={selectedLabelColorOverride || labelTextColor}
+                      onChange={e => setSelectedLabelColorOverride(e.target.value)}
+                      className="w-8 h-5 rounded cursor-pointer border-0 bg-transparent" />
+                    {selectedLabelColorOverride && (
+                      <button onClick={() => setSelectedLabelColorOverride('')}
+                        className="text-[10px] text-gray-600 hover:text-gray-400">reset</button>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setSelectedLabelAlwaysVisible(v => !v)}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                      selectedLabelAlwaysVisible ? 'text-amber-300 bg-amber-900/20' : 'text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${selectedLabelAlwaysVisible ? 'bg-amber-400' : 'bg-gray-700'}`} />
+                    <span>Always visible</span>
+                    <span className="ml-auto text-[10px] text-gray-600">{selectedLabelAlwaysVisible ? 'on' : 'off'}</span>
+                  </button>
+                </div>
+                <div className="text-[10px] text-gray-700 leading-snug">
+                  Applies when a chain or path is active. Unselected scale 0 hides all other labels.
                 </div>
               </div>
 
