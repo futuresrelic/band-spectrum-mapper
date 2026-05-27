@@ -80,6 +80,11 @@ function sphereR(val: number) { return BASE_NODE_REL * Math.cbrt(val); }
 const TRANSITION_MS      = 700;
 const DEFAULT_LABEL_DISTANCES = { artist: 650, album: 420, song: 280, other: 180 };
 
+const DWELL_PRESETS       = [2000, 4000, 6000, 8000, 10000, 15000, 20000, 30000, 60000];
+const FLY_IN_PRESETS      = [600, 1000, 1800, 2800, 4000, 6000, 10000];
+const DEFAULT_PATH_DWELL_MS  = 8000;
+const DEFAULT_PATH_FLY_IN_MS = 1800;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function blendHex(from: string, to: string, t: number): string {
@@ -465,9 +470,9 @@ export default function CinemaPage() {
   // Path mode — click nodes to build a labeled path; labels only on path nodes
   const [pathMode, setPathMode]         = useState(false);
   const [showPathPanel, setShowPathPanel] = useState(false);
-  const [pathNodes, setPathNodes]       = useState<{id: string; label: string}[]>([]);
+  const [pathNodes, setPathNodes]       = useState<{id: string; label: string; type: string; dwellMs: number; flyInMs: number}[]>([]);
   const pathModeRef    = useRef(false);
-  const pathNodesRef   = useRef<{id: string; label: string}[]>([]);
+  const pathNodesRef   = useRef<{id: string; label: string; type: string; dwellMs: number; flyInMs: number}[]>([]);
   const pathNodeSetRef = useRef<Set<string>>(new Set());
 
   // Lyrics progressive reveal
@@ -711,6 +716,23 @@ export default function CinemaPage() {
     tourOrbitRef.current = null;
     applyHighlightRef.current(null);
   }, []);
+
+  const playPath = useCallback(() => {
+    if (!pathNodesRef.current.length) return;
+    const steps: TourStep[] = pathNodesRef.current.map((p, i) => ({
+      id: `path-step-${i}-${p.id}`,
+      nodeId: p.id,
+      nodeLabel: p.label,
+      nodeType: p.type,
+      dwellMs: p.dwellMs,
+      flyInMs: p.flyInMs,
+    }));
+    setTourSteps(steps);
+    tourStepsRef.current = steps;
+    setTourMode(true);
+    tourModeRef.current = true;
+    startTour();
+  }, [startTour]);
 
   // Tour step mutations
   const handleStepChange = useCallback((id: string, patch: Partial<TourStep>) => {
@@ -1309,13 +1331,6 @@ export default function CinemaPage() {
   const nodeColor = useCallback((node: object) => {
     const n = node as CinemaNode;
     if (tourMode && n.id === tourHighlightedId) return HIGHLIGHT_COLOR;
-    // Path mode: amber for path nodes, dimmed for others
-    if (pathModeRef.current && pathNodeSetRef.current.size > 0) {
-      if (pathNodeSetRef.current.has(n.id)) return '#f59e0b';
-      const ovr = nodeOverridesRef.current[n.id];
-      const base = ovr?.color ?? (currentTheme.nodeColors[n.type] ?? '#4b5563');
-      return blendHex(base, '#0d1117', selectionDimRef.current);
-    }
     const override = nodeOverridesRef.current[n.id];
     const baseColor = override?.color ?? (currentTheme.nodeColors[n.type] ?? '#4b5563');
     const chain = selectedChainRef.current;
@@ -1335,7 +1350,6 @@ export default function CinemaPage() {
     const n = node as CinemaNode;
     const sizeMult = nodeOverridesRef.current[n.id]?.sizeMultiplier ?? 1;
     if (tourMode && n.id === tourHighlightedId) return 12 * sizeMult;
-    if (pathModeRef.current && pathNodeSetRef.current.has(n.id)) return nodeValFor(n.type) * 1.8 * sizeMult;
     const chain = selectedChainRef.current;
     if (chain.length > 0 && !isPlayingRef.current) {
       const inChain = chain.some(c => c.id === n.id);
@@ -1650,18 +1664,43 @@ export default function CinemaPage() {
       return;
     }
 
-    // Path mode: toggle this node in/out of the ordered path
+    // Path mode: adjacency-constrained chain building (mirrors regular chain logic)
     if (pathModeRef.current) {
-      const existingIdx = pathNodesRef.current.findIndex(p => p.id === n.id);
-      let next: {id: string; label: string}[];
+      const chain = selectedChainRef.current;
+      const existingIdx = chain.findIndex(c => c.id === n.id);
+      let newChain: CinemaNode[];
       if (existingIdx >= 0) {
-        next = pathNodesRef.current.filter((_, i) => i !== existingIdx);
+        // Truncate to this node, or pop it if it is already the last
+        newChain = existingIdx === chain.length - 1
+          ? chain.slice(0, -1)
+          : chain.slice(0, existingIdx + 1);
       } else {
-        next = [...pathNodesRef.current, { id: n.id, label: n.label }];
+        const lastNode = chain[chain.length - 1];
+        if (chain.length === 0) {
+          newChain = [n];
+        } else if (lastNode && adjRef.current.get(lastNode.id)?.has(n.id)) {
+          newChain = [...chain, n];
+        } else {
+          newChain = [n]; // not adjacent — start a fresh path
+        }
       }
-      setPathNodes(next);
-      pathNodesRef.current   = next;
-      pathNodeSetRef.current = new Set(next.map(p => p.id));
+      selectedChainRef.current = newChain;
+      const lastInChain = newChain[newChain.length - 1] ?? null;
+      selectedNodeRef.current  = lastInChain;
+      setSelectedNode(lastInChain);
+      // Sync pathNodes from chain, preserving timing for unchanged nodes
+      const timingMap = new Map(pathNodesRef.current.map(p => [p.id, { dwellMs: p.dwellMs, flyInMs: p.flyInMs }]));
+      const nextPath = newChain.map(cn => {
+        const timing = timingMap.get(cn.id);
+        return {
+          id: cn.id, label: cn.label, type: cn.type,
+          dwellMs: timing?.dwellMs ?? DEFAULT_PATH_DWELL_MS,
+          flyInMs: timing?.flyInMs ?? DEFAULT_PATH_FLY_IN_MS,
+        };
+      });
+      setPathNodes(nextPath);
+      pathNodesRef.current   = nextPath;
+      pathNodeSetRef.current = new Set(nextPath.map(p => p.id));
       fgRef.current?.refresh();
       return;
     }
@@ -1713,6 +1752,7 @@ export default function CinemaPage() {
   }, []);
 
   const onBackgroundClick = useCallback(() => {
+    if (pathModeRef.current) return; // don't clear path on background click
     if (selectedChainRef.current.length === 0 && !selectedNodeRef.current) return;
     selectedChainRef.current = [];
     selectedNodeRef.current  = null;
@@ -1927,7 +1967,7 @@ export default function CinemaPage() {
               onClick={() => {
                 const opening = !showPathPanel;
                 setShowPathPanel(opening);
-                if (opening) { setPathMode(true); setShowControls(false); setShowDirector(false); setShowBandPicker(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); }
+                if (opening) { setPathMode(true); pathModeRef.current = true; setShowControls(false); setShowDirector(false); setShowBandPicker(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); }
               }}
               title="Path mode — click nodes to build a labeled path"
               className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
@@ -2022,15 +2062,18 @@ export default function CinemaPage() {
 
           {/* ── Path panel ── */}
           {showPathPanel && (
-            <div className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-amber-700/60 rounded-xl p-4 backdrop-blur-sm w-64 shadow-2xl space-y-3">
+            <div className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-amber-700/60 rounded-xl p-4 backdrop-blur-sm w-72 shadow-2xl space-y-3">
               <div className="flex items-center justify-between">
-                <div className="text-[10px] font-semibold text-amber-400 uppercase tracking-wide">Path Mode</div>
+                <div className="text-[10px] font-semibold text-amber-400 uppercase tracking-wide">🛤 Path Mode</div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
                       setPathNodes([]);
-                      pathNodesRef.current   = [];
-                      pathNodeSetRef.current = new Set();
+                      pathNodesRef.current     = [];
+                      pathNodeSetRef.current   = new Set();
+                      selectedChainRef.current = [];
+                      selectedNodeRef.current  = null;
+                      setSelectedNode(null);
                       fgRef.current?.refresh();
                     }}
                     className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors"
@@ -2043,10 +2086,14 @@ export default function CinemaPage() {
                       checked={pathMode}
                       onChange={(e) => {
                         setPathMode(e.target.checked);
+                        pathModeRef.current = e.target.checked;
                         if (!e.target.checked) {
                           setPathNodes([]);
-                          pathNodesRef.current   = [];
-                          pathNodeSetRef.current = new Set();
+                          pathNodesRef.current     = [];
+                          pathNodeSetRef.current   = new Set();
+                          selectedChainRef.current = [];
+                          selectedNodeRef.current  = null;
+                          setSelectedNode(null);
                         }
                         fgRef.current?.refresh();
                       }}
@@ -2057,31 +2104,84 @@ export default function CinemaPage() {
                 </div>
               </div>
               {pathNodes.length === 0 ? (
-                <p className="text-gray-500 text-xs italic">Click nodes in the graph to add them to the path</p>
+                <p className="text-gray-500 text-xs italic">
+                  Click any node to start · cyan nodes are reachable next hops · click chain nodes to truncate
+                </p>
               ) : (
-                <ol className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
-                  {pathNodes.map(({ id, label }, i) => (
-                    <li key={id} className="flex items-center gap-2">
-                      <span className="text-amber-500/50 font-mono tabular-nums text-[10px] w-4 shrink-0">{i + 1}</span>
-                      <span className="text-gray-300 text-xs truncate flex-1">{label}</span>
-                      <button
-                        onClick={() => {
-                          const next = pathNodes.filter((_, j) => j !== i);
-                          setPathNodes(next);
-                          pathNodesRef.current   = next;
-                          pathNodeSetRef.current = new Set(next.map(p => p.id));
-                          fgRef.current?.refresh();
-                        }}
-                        className="text-gray-600 hover:text-red-400 text-xs shrink-0 transition-colors"
-                      >
-                        ✕
-                      </button>
+                <ol className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                  {pathNodes.map(({ id, label, dwellMs, flyInMs }, i) => (
+                    <li key={id} className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-amber-500/50 font-mono tabular-nums text-[10px] w-4 shrink-0">{i + 1}</span>
+                        <span className="text-gray-300 text-xs truncate flex-1">{label}</span>
+                        <button
+                          onClick={() => {
+                            const next = pathNodes.filter((_, j) => j !== i);
+                            setPathNodes(next);
+                            pathNodesRef.current   = next;
+                            pathNodeSetRef.current = new Set(next.map(p => p.id));
+                            const newChain = next
+                              .map(p => nodeMapRef.current.get(p.id))
+                              .filter((cn): cn is CinemaNode => cn !== undefined);
+                            selectedChainRef.current = newChain;
+                            const lastNode = newChain[newChain.length - 1] ?? null;
+                            selectedNodeRef.current  = lastNode;
+                            setSelectedNode(lastNode);
+                            fgRef.current?.refresh();
+                          }}
+                          className="text-gray-600 hover:text-red-400 text-xs shrink-0 transition-colors"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-1.5 pl-6">
+                        <span className="text-[10px] text-gray-600 shrink-0">✈</span>
+                        <select
+                          value={flyInMs}
+                          onChange={(e) => {
+                            const next = pathNodes.map((p, j) => j === i ? { ...p, flyInMs: Number(e.target.value) } : p);
+                            setPathNodes(next);
+                            pathNodesRef.current = next;
+                          }}
+                          className="text-[10px] bg-gray-800 border border-gray-700 text-gray-300 rounded px-1 py-0.5"
+                        >
+                          {FLY_IN_PRESETS.map(ms => (
+                            <option key={ms} value={ms}>
+                              {ms < 1000 ? `${ms}ms` : `${ms % 1000 === 0 ? ms / 1000 : (ms / 1000).toFixed(1)}s`}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-[10px] text-gray-600 shrink-0 ml-1">◉</span>
+                        <select
+                          value={dwellMs}
+                          onChange={(e) => {
+                            const next = pathNodes.map((p, j) => j === i ? { ...p, dwellMs: Number(e.target.value) } : p);
+                            setPathNodes(next);
+                            pathNodesRef.current = next;
+                          }}
+                          className="text-[10px] bg-gray-800 border border-gray-700 text-gray-300 rounded px-1 py-0.5"
+                        >
+                          {DWELL_PRESETS.map(ms => (
+                            <option key={ms} value={ms}>
+                              {ms >= 60000 ? '60s' : `${ms / 1000}s`}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </li>
                   ))}
                 </ol>
               )}
+              {pathNodes.length >= 2 && (
+                <button
+                  onClick={playPath}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium bg-amber-900/40 border border-amber-700/50 text-amber-300 hover:bg-amber-800/50 transition-colors"
+                >
+                  ▶ Play Path ({pathNodes.length} nodes)
+                </button>
+              )}
               <p className="text-gray-600 text-[10px] leading-tight">
-                Click a node to add · click again to remove · labels persist regardless of camera distance
+                ✈ fly-in time · ◉ dwell time · Play converts path to a Tour sequence
               </p>
             </div>
           )}
