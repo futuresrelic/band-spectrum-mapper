@@ -34,7 +34,7 @@ interface ScanResult {
   missing: Record<JobType, number>;
 }
 
-type RowStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped';
+type RowStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped' | 'retrying';
 
 interface SongRow {
   song: Song;
@@ -42,6 +42,9 @@ interface SongRow {
   statuses: Record<JobType, RowStatus>;
   errors: Record<JobType, string>;
 }
+
+// Retry delays on 429: 20s, 40s, 90s
+const RETRY_DELAYS_MS = [20_000, 40_000, 90_000];
 
 async function runJob(songId: string, job: JobType, force: boolean): Promise<void> {
   if (job === 'analysis') {
@@ -73,6 +76,32 @@ async function runJob(songId: string, job: JobType, force: boolean): Promise<voi
   }
 }
 
+// Wraps runJob with automatic retry on 429 (rate limit). Calls onRetry(waitMs)
+// so the caller can update UI while waiting.
+async function runJobWithRetry(
+  songId: string,
+  job: JobType,
+  force: boolean,
+  abortRef: React.MutableRefObject<boolean>,
+  onRetry: (waitMs: number, attempt: number) => void,
+): Promise<void> {
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      await runJob(songId, job, force);
+      return;
+    } catch (e) {
+      const status = (e as Error & { status?: number }).status;
+      if (status === 429 && attempt < RETRY_DELAYS_MS.length && !abortRef.current) {
+        const waitMs = RETRY_DELAYS_MS[attempt] ?? 90_000;
+        onRetry(waitMs, attempt + 1);
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 // Returns true if all selected jobs for this row are already completed/skipped
 function isRowDone(row: SongRow, jobs: JobType[]): boolean {
   return jobs.every((j) => row.statuses[j] === 'done' || row.statuses[j] === 'skipped');
@@ -91,6 +120,7 @@ export default function AiBatchRunnerPage() {
   const [showBandFilter, setShowBandFilter] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [retryInfo, setRetryInfo] = useState<{ waitMs: number; attempt: number; job: string } | null>(null);
   const abortRef = useRef(false);
 
   const { data: bands, isLoading: bandsLoading } = useQuery({
@@ -194,7 +224,18 @@ export default function AiBatchRunnerPage() {
           ),
         );
         try {
-          await runJob(row.song.id, job, forceRegenerate);
+          await runJobWithRetry(
+            row.song.id, job, forceRegenerate, abortRef,
+            (waitMs, attempt) => {
+              setRetryInfo({ waitMs, attempt, job: JOB_LABELS[job] });
+              setRows((prev) =>
+                prev.map((r, idx) =>
+                  idx === i ? { ...r, statuses: { ...r.statuses, [job]: 'retrying' } } : r,
+                ),
+              );
+            },
+          );
+          setRetryInfo(null);
           setRows((prev) =>
             prev.map((r, idx) =>
               idx === i ? { ...r, statuses: { ...r.statuses, [job]: 'done' } } : r,
@@ -202,6 +243,7 @@ export default function AiBatchRunnerPage() {
           );
           setDoneCount((n) => n + 1);
         } catch (e) {
+          setRetryInfo(null);
           const status = (e as Error & { status?: number }).status;
           if (status === 404) {
             setRows((prev) =>
@@ -223,6 +265,11 @@ export default function AiBatchRunnerPage() {
             setErrorCount((n) => n + 1);
           }
         }
+
+        // Small delay between job calls within a song to avoid rate-limit bursts
+        if (!abortRef.current && job !== jobs[jobs.length - 1]) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
       }
 
       if (i < rows.length - 1 && !abortRef.current && delayMs > 0) {
@@ -234,8 +281,8 @@ export default function AiBatchRunnerPage() {
     setRunning(false);
   }, [rows, selectedJobs, delayMs, forceRegenerate, loadAllSongs]);
 
-  const stop = () => { abortRef.current = true; };
-  const reset = () => { setRows([]); setCurrentIdx(-1); setDoneCount(0); setErrorCount(0); };
+  const stop = () => { abortRef.current = true; setRetryInfo(null); };
+  const reset = () => { setRows([]); setCurrentIdx(-1); setDoneCount(0); setErrorCount(0); setRetryInfo(null); };
 
   const jobs = [...selectedJobs];
   const totalJobs = rows.length * jobs.length;
@@ -258,6 +305,7 @@ export default function AiBatchRunnerPage() {
     done: 'text-green-600',
     error: 'text-red-600',
     skipped: 'text-surface-400',
+    retrying: 'text-amber-500 animate-pulse',
   };
 
   const statusIcon: Record<RowStatus, string> = {
@@ -266,6 +314,7 @@ export default function AiBatchRunnerPage() {
     done: '✓',
     error: '✗',
     skipped: '—',
+    retrying: '↺',
   };
 
   return (
@@ -480,6 +529,9 @@ export default function AiBatchRunnerPage() {
         {forceRegenerate && rows.length > 0 && (
           <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
             Force Regenerate is ON — every song will call OpenAI regardless of cached results.
+            {selectedJobs.size >= 3 && (
+              <> Running {selectedJobs.size} jobs per song hits OpenAI harder — if you see rate limit errors, the batch will auto-retry. Consider setting delay to 3000ms or higher.</>
+            )}
           </div>
         )}
 
@@ -513,6 +565,12 @@ export default function AiBatchRunnerPage() {
                 {' '}· {rows[currentIdx]!.bandName}
                 {' '}({currentIdx + 1}/{rows.length})
               </p>
+            )}
+            {retryInfo && (
+              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                Rate limit hit on <strong>{retryInfo.job}</strong> — waiting {Math.round(retryInfo.waitMs / 1000)}s before retry #{retryInfo.attempt}.
+                The batch will resume automatically.
+              </div>
             )}
           </div>
         )}
