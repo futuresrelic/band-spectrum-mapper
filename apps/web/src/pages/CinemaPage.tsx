@@ -462,6 +462,14 @@ export default function CinemaPage() {
   const [freeCam, setFreeCam] = useState(false);
   const freeCamRef = useRef(false);
 
+  // Path mode — click nodes to build a labeled path; labels only on path nodes
+  const [pathMode, setPathMode]         = useState(false);
+  const [showPathPanel, setShowPathPanel] = useState(false);
+  const [pathNodes, setPathNodes]       = useState<{id: string; label: string}[]>([]);
+  const pathModeRef    = useRef(false);
+  const pathNodesRef   = useRef<{id: string; label: string}[]>([]);
+  const pathNodeSetRef = useRef<Set<string>>(new Set());
+
   // Lyrics progressive reveal
   const [lyricsProgressiveMode, setLyricsProgressiveMode] = useState(false);
   const [lyricsRevealPace, setLyricsRevealPace]           = useState(2);
@@ -488,6 +496,12 @@ export default function CinemaPage() {
   useEffect(() => { labelTextColorRef.current   = labelTextColor;   }, [labelTextColor]);
   useEffect(() => { labelAlwaysOnTopRef.current = labelAlwaysOnTop; }, [labelAlwaysOnTop]);
   useEffect(() => { freeCamRef.current              = freeCam;              }, [freeCam]);
+  useEffect(() => { pathModeRef.current = pathMode; }, [pathMode]);
+  useEffect(() => {
+    pathNodesRef.current   = pathNodes;
+    pathNodeSetRef.current = new Set(pathNodes.map(p => p.id));
+    fgRef.current?.refresh();
+  }, [pathNodes]);
   useEffect(() => { lyricsProgressiveModeRef.current = lyricsProgressiveMode; }, [lyricsProgressiveMode]);
   useEffect(() => { lyricsRevealPaceRef.current      = lyricsRevealPace;      }, [lyricsRevealPace]);
 
@@ -960,6 +974,32 @@ export default function CinemaPage() {
             // Hide labels for hidden node types
             if (hiddenTypesRef.current.has(n.type)) { sprite.visible = false; continue; }
             if (n.x == null) { sprite.visible = false; continue; }
+            // Path mode: labels are distance-independent; only path nodes get labels
+            if (pathModeRef.current) {
+              if (!pathNodeSetRef.current.has(n.id)) { sprite.visible = false; continue; }
+              sprite.visible = true;
+              sprite.color = labelTextColorRef.current + 'ff';
+              (sprite as any).backgroundColor = labelShowBgRef.current
+                ? `rgba(3,7,18,${labelBgOpacityRef.current.toFixed(2)})`
+                : false;
+              const mat = (sprite as any).material;
+              if (mat) mat.depthTest = !labelAlwaysOnTopRef.current;
+              const nx = n.x ?? 0, ny = n.y ?? 0, nz = n.z ?? 0;
+              const tcx = cx - nx, tcy = cy - ny, tcz = cz - nz;
+              const camLen = Math.sqrt(tcx * tcx + tcy * tcy + tcz * tcz);
+              if (camLen > 0) {
+                const sz = labelTextSizesRef.current;
+                const th = (sz as Record<string, number>)[n.type] ?? sz.tag;
+                const r = sphereR(nodeValFor(n.type));
+                const offset = r + th * 0.6 + 3;
+                (sprite as any).position.set(
+                  (tcx / camLen) * offset,
+                  (tcy / camLen) * offset,
+                  (tcz / camLen) * offset,
+                );
+              }
+              continue;
+            }
             const dx = (n.x ?? 0) - cx, dy = (n.y ?? 0) - cy, dz = (n.z ?? 0) - cz;
             const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
             const showDist = n.type === 'artist' ? ld.artist
@@ -1269,6 +1309,13 @@ export default function CinemaPage() {
   const nodeColor = useCallback((node: object) => {
     const n = node as CinemaNode;
     if (tourMode && n.id === tourHighlightedId) return HIGHLIGHT_COLOR;
+    // Path mode: amber for path nodes, dimmed for others
+    if (pathModeRef.current && pathNodeSetRef.current.size > 0) {
+      if (pathNodeSetRef.current.has(n.id)) return '#f59e0b';
+      const ovr = nodeOverridesRef.current[n.id];
+      const base = ovr?.color ?? (currentTheme.nodeColors[n.type] ?? '#4b5563');
+      return blendHex(base, '#0d1117', selectionDimRef.current);
+    }
     const override = nodeOverridesRef.current[n.id];
     const baseColor = override?.color ?? (currentTheme.nodeColors[n.type] ?? '#4b5563');
     const chain = selectedChainRef.current;
@@ -1288,6 +1335,7 @@ export default function CinemaPage() {
     const n = node as CinemaNode;
     const sizeMult = nodeOverridesRef.current[n.id]?.sizeMultiplier ?? 1;
     if (tourMode && n.id === tourHighlightedId) return 12 * sizeMult;
+    if (pathModeRef.current && pathNodeSetRef.current.has(n.id)) return nodeValFor(n.type) * 1.8 * sizeMult;
     const chain = selectedChainRef.current;
     if (chain.length > 0 && !isPlayingRef.current) {
       const inChain = chain.some(c => c.id === n.id);
@@ -1602,6 +1650,22 @@ export default function CinemaPage() {
       return;
     }
 
+    // Path mode: toggle this node in/out of the ordered path
+    if (pathModeRef.current) {
+      const existingIdx = pathNodesRef.current.findIndex(p => p.id === n.id);
+      let next: {id: string; label: string}[];
+      if (existingIdx >= 0) {
+        next = pathNodesRef.current.filter((_, i) => i !== existingIdx);
+      } else {
+        next = [...pathNodesRef.current, { id: n.id, label: n.label }];
+      }
+      setPathNodes(next);
+      pathNodesRef.current   = next;
+      pathNodeSetRef.current = new Set(next.map(p => p.id));
+      fgRef.current?.refresh();
+      return;
+    }
+
     const chain = selectedChainRef.current;
 
     // Click on node already in chain → truncate to it (or remove if it's the last)
@@ -1860,6 +1924,21 @@ export default function CinemaPage() {
               🗺{tourSteps.length > 0 ? ` ${tourSteps.length}` : ''}
             </button>
             <button
+              onClick={() => {
+                const opening = !showPathPanel;
+                setShowPathPanel(opening);
+                if (opening) { setPathMode(true); setShowControls(false); setShowDirector(false); setShowBandPicker(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); }
+              }}
+              title="Path mode — click nodes to build a labeled path"
+              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                pathMode || showPathPanel
+                  ? 'bg-amber-900/60 border-amber-700 text-amber-300'
+                  : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+              }`}
+            >
+              🛤{pathNodes.length > 0 ? ` ${pathNodes.length}` : ''}
+            </button>
+            <button
               onClick={() => { setShowControls(v => !v); setShowBandPicker(false); setShowDirector(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); }}
               title="Camera controls & node visibility"
               className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
@@ -1938,6 +2017,72 @@ export default function CinemaPage() {
                   {b.name}
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* ── Path panel ── */}
+          {showPathPanel && (
+            <div className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-amber-700/60 rounded-xl p-4 backdrop-blur-sm w-64 shadow-2xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] font-semibold text-amber-400 uppercase tracking-wide">Path Mode</div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setPathNodes([]);
+                      pathNodesRef.current   = [];
+                      pathNodeSetRef.current = new Set();
+                      fgRef.current?.refresh();
+                    }}
+                    className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    Clear
+                  </button>
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={pathMode}
+                      onChange={(e) => {
+                        setPathMode(e.target.checked);
+                        if (!e.target.checked) {
+                          setPathNodes([]);
+                          pathNodesRef.current   = [];
+                          pathNodeSetRef.current = new Set();
+                        }
+                        fgRef.current?.refresh();
+                      }}
+                      className="accent-amber-500"
+                    />
+                    <span className="text-xs text-amber-300/70">Active</span>
+                  </label>
+                </div>
+              </div>
+              {pathNodes.length === 0 ? (
+                <p className="text-gray-500 text-xs italic">Click nodes in the graph to add them to the path</p>
+              ) : (
+                <ol className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                  {pathNodes.map(({ id, label }, i) => (
+                    <li key={id} className="flex items-center gap-2">
+                      <span className="text-amber-500/50 font-mono tabular-nums text-[10px] w-4 shrink-0">{i + 1}</span>
+                      <span className="text-gray-300 text-xs truncate flex-1">{label}</span>
+                      <button
+                        onClick={() => {
+                          const next = pathNodes.filter((_, j) => j !== i);
+                          setPathNodes(next);
+                          pathNodesRef.current   = next;
+                          pathNodeSetRef.current = new Set(next.map(p => p.id));
+                          fgRef.current?.refresh();
+                        }}
+                        className="text-gray-600 hover:text-red-400 text-xs shrink-0 transition-colors"
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              <p className="text-gray-600 text-[10px] leading-tight">
+                Click a node to add · click again to remove · labels persist regardless of camera distance
+              </p>
             </div>
           )}
 
