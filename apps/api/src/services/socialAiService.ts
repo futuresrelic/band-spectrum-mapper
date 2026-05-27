@@ -291,7 +291,7 @@ Return ONLY valid JSON. No markdown, no explanation.`;
   const maxTokens = (maxTokensBySize[input.postSize] ?? 2500) * Math.max(1, input.variants);
 
   const response = await client.chat.completions.create({
-    model: 'gpt-4o',
+    model: 'gpt-4o-mini',
     messages: [
       { role: 'system', content: BSM_SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
@@ -353,7 +353,7 @@ export async function chatWithStrategist(
     : CHAT_SYSTEM_PROMPT;
 
   const response = await client.chat.completions.create({
-    model: 'gpt-4o',
+    model: 'gpt-4o-mini',
     messages: [
       { role: 'system', content: systemContent },
       ...messages,

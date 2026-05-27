@@ -4,7 +4,7 @@ import { HttpError } from '../middleware/errorHandler.js';
 import { adminKnowledgeService } from './adminKnowledgeService.js';
 import type { SongContextAnalysis } from '@band-spectrum-mapper/shared';
 
-const MODEL = 'gpt-4o';
+const MODEL = 'gpt-4o-mini';
 
 function getClient(): OpenAI {
   const apiKey = process.env['OPENAI_API_KEY'];

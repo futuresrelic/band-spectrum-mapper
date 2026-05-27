@@ -2,7 +2,7 @@ import OpenAI from 'openai';
 import { prisma } from '../lib/prisma.js';
 import { HttpError } from '../middleware/errorHandler.js';
 
-const MODEL = 'gpt-4o';
+const MODEL = 'gpt-4o-mini';
 const NOT_FOUND = 'LYRICS_NOT_FOUND';
 
 function getClient(): OpenAI {
