@@ -55,6 +55,7 @@ import CinemaPage from './pages/CinemaPage';
 import LyricsUniversePage from './pages/LyricsUniversePage';
 import LyricsFlowPage from './pages/LyricsFlowPage';
 import AdminDataGridPage from './pages/AdminDataGridPage';
+import AdminHubPage from './pages/AdminHubPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -160,6 +161,7 @@ export default function App() {
           <Route path="admin/missing-artwork" element={<AdminMissingArtworkPage />} />
           <Route path="admin/lyrics-batch" element={<AdminLyricsBatchPage />} />
           <Route path="admin/data-grid" element={<AdminDataGridPage />} />
+          <Route path="admin/hub" element={<AdminHubPage />} />
         </Route>
       </Routes>
     </AuthProvider>

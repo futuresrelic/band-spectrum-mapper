@@ -24,6 +24,7 @@ const links = [
 ];
 
 const adminLinks = [
+  { to: '/admin/hub',          label: '⚡ Admin Hub' },
   { to: '/admin/knowledge',    label: 'AI Knowledge Feed' },
   { to: '/admin/users',        label: 'User Moderation' },
   { to: '/admin/contributions', label: 'Contributions' },

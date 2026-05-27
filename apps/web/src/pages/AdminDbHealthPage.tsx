@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import {
   adminApi,
   type AlbumOption,
@@ -36,6 +37,7 @@ function SectionHeader({ label, count, note }: { label: string; count: number; n
 // ─── main page ───────────────────────────────────────────────────────────────
 
 export default function AdminDbHealthPage() {
+  const navigate = useNavigate();
   const [report, setReport] = useState<DbHealthReport | null>(null);
   const [statusMsg, setStatusMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
@@ -409,13 +411,29 @@ export default function AdminDbHealthPage() {
             <SectionHeader
               label="Songs without spectrum scores"
               count={report.songsWithoutScores.length}
-              note="Informational — re-import via Discography to add scores"
+              note="Set core scores in Quick Score, or run AI Spectrum in the Batch Runner"
             />
             {report.songsWithoutScores.length > 0 && (
-              <SimpleTable
-                cols={['Band', 'Album', 'Song']}
-                rows={report.songsWithoutScores.map((s) => [s.bandName, s.albumTitle ?? '—', s.title])}
-              />
+              <>
+                <div className="flex gap-2 mb-3">
+                  <button
+                    onClick={() => navigate('/admin/hub?tab=score')}
+                    className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                  >
+                    Quick Score Songs →
+                  </button>
+                  <button
+                    onClick={() => navigate('/admin/ai-batch')}
+                    className="text-xs px-3 py-1.5 border border-surface-600 text-surface-300 rounded hover:bg-surface-700 transition-colors"
+                  >
+                    AI Batch Runner →
+                  </button>
+                </div>
+                <SimpleTable
+                  cols={['Band', 'Album', 'Song']}
+                  rows={report.songsWithoutScores.map((s) => [s.bandName, s.albumTitle ?? '—', s.title])}
+                />
+              </>
             )}
             {report.songsWithoutScores.length === 0 && (
               <p className="text-xs text-surface-500">All songs have spectrum scores.</p>
