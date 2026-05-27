@@ -85,6 +85,17 @@ const FLY_IN_PRESETS      = [600, 1000, 1800, 2800, 4000, 6000, 10000];
 const DEFAULT_PATH_DWELL_MS  = 8000;
 const DEFAULT_PATH_FLY_IN_MS = 1800;
 
+// ── Setlist.fm types ──────────────────────────────────────────────────────────
+
+interface SetlistSong { name: string; }
+interface SetlistSet  { song?: SetlistSong[]; }
+interface SetlistEntry {
+  id: string;
+  eventDate: string;
+  venue: { name: string; city: { name: string; country: { name: string } } };
+  sets: { set: SetlistSet[] };
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function blendHex(from: string, to: string, t: number): string {
@@ -504,6 +515,16 @@ export default function CinemaPage() {
   const [pathMode, setPathMode]         = useState(false);
   const [showPathPanel, setShowPathPanel] = useState(false);
   const [pathNodes, setPathNodes]       = useState<{id: string; label: string; type: string; dwellMs: number; flyInMs: number}[]>([]);
+
+  // Setlist.fm concert setlist → Cinema tour
+  const [showSetlistPanel, setShowSetlistPanel]       = useState(false);
+  const [setlistArtistQuery, setSetlistArtistQuery]   = useState('');
+  const [setlistSearching, setSetlistSearching]       = useState(false);
+  const [setlistArtists, setSetlistArtists]           = useState<{mbid: string; name: string; sortName: string}[]>([]);
+  const [setlistSelectedArtist, setSetlistSelectedArtist] = useState<{mbid: string; name: string} | null>(null);
+  const [setlistLoading, setSetlistLoading]           = useState(false);
+  const [setlistResults, setSetlistResults]           = useState<SetlistEntry[]>([]);
+  const [setlistLoadingTour, setSetlistLoadingTour]   = useState<string | null>(null);
   const pathModeRef    = useRef(false);
   const pathNodesRef   = useRef<{id: string; label: string; type: string; dwellMs: number; flyInMs: number}[]>([]);
   const pathNodeSetRef = useRef<Set<string>>(new Set());
@@ -789,6 +810,74 @@ export default function CinemaPage() {
     setTourMode(true);
     tourModeRef.current = true;
     startTour();
+  }, [startTour]);
+
+  // ── Setlist.fm helpers ────────────────────────────────────────────────────────
+
+  const searchSetlistArtists = useCallback(async (name: string) => {
+    if (!name.trim()) return;
+    setSetlistSearching(true);
+    setSetlistArtists([]);
+    setSetlistSelectedArtist(null);
+    setSetlistResults([]);
+    try {
+      const data = await api.get<{ artist?: {mbid: string; name: string; sortName: string}[] }>(
+        `/api/setlists/search/artists?name=${encodeURIComponent(name)}`,
+      );
+      setSetlistArtists(data.artist ?? []);
+    } catch { /* ignore — may not have API key */ }
+    finally { setSetlistSearching(false); }
+  }, []);
+
+  const loadSetlistsForArtist = useCallback(async (mbid: string, name: string) => {
+    setSetlistSelectedArtist({ mbid, name });
+    setSetlistLoading(true);
+    setSetlistResults([]);
+    try {
+      const data = await api.get<{ setlist?: SetlistEntry[] }>(
+        `/api/setlists/artist/${mbid}/setlists?p=1`,
+      );
+      setSetlistResults(data.setlist ?? []);
+    } catch { /* ignore */ }
+    finally { setSetlistLoading(false); }
+  }, []);
+
+  const loadSetlistAsTour = useCallback((setlist: SetlistEntry) => {
+    setSetlistLoadingTour(setlist.id);
+    // Flatten all songs across all sets in order
+    const songTitles: string[] = [];
+    for (const s of setlist.sets.set) {
+      for (const song of s.song ?? []) {
+        if (song.name) songTitles.push(song.name);
+      }
+    }
+    // Match titles against Cinema graph song nodes
+    const songNodes = simNodesRef.current.filter(n => n.type === 'song');
+    const matched: CinemaNode[] = [];
+    for (const title of songTitles) {
+      const lower = title.toLowerCase();
+      const found = songNodes.find(n => n.label.toLowerCase() === lower)
+        ?? songNodes.find(n => n.label.toLowerCase().includes(lower))
+        ?? songNodes.find(n => lower.includes(n.label.toLowerCase()));
+      if (found && !matched.find(m => m.id === found.id)) matched.push(found);
+    }
+    if (matched.length === 0) {
+      setSetlistLoadingTour(null);
+      return;
+    }
+    const steps: TourStep[] = matched.map((n, i) => ({
+      id: `setlist-${i}-${n.id}`,
+      nodeId: n.id, nodeLabel: n.label, nodeType: n.type,
+      dwellMs: DEFAULT_PATH_DWELL_MS, flyInMs: DEFAULT_PATH_FLY_IN_MS,
+    }));
+    setTourSteps(steps);
+    tourStepsRef.current = steps;
+    setTourMode(true);
+    tourModeRef.current = true;
+    setShowSetlistPanel(false);
+    setShowTourPlanner(true);
+    startTour();
+    setSetlistLoadingTour(null);
   }, [startTour]);
 
   // Tour step mutations
@@ -2034,7 +2123,7 @@ export default function CinemaPage() {
               ✦ Arrange
             </button>
             <button
-              onClick={() => { setShowDirector(v => !v); setShowAiDirector(false); setShowBandPicker(false); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); }}
+              onClick={() => { setShowDirector(v => !v); setShowAiDirector(false); setShowBandPicker(false); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); setShowSetlistPanel(false); }}
               title="Director Mode — build a custom camera sequence"
               className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
                 showDirector || directorPlaying ? 'bg-amber-900/60 border-amber-700 text-amber-300' : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
@@ -2043,7 +2132,7 @@ export default function CinemaPage() {
               📽️{directorPlaying ? ' ●' : ''}
             </button>
             <button
-              onClick={() => { setShowAiDirector(v => !v); setShowDirector(false); setShowBandPicker(false); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); }}
+              onClick={() => { setShowAiDirector(v => !v); setShowDirector(false); setShowBandPicker(false); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); setShowSetlistPanel(false); }}
               title="AI Director — describe the view you want"
               className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
                 showAiDirector ? 'bg-purple-900/60 border-purple-700 text-purple-300' : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
@@ -2052,7 +2141,7 @@ export default function CinemaPage() {
               🤖 AI
             </button>
             <button
-              onClick={() => { setShowBandPicker(v => !v); setShowControls(false); setShowDirector(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); }}
+              onClick={() => { setShowBandPicker(v => !v); setShowControls(false); setShowDirector(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); setShowSetlistPanel(false); }}
               className="text-xs bg-gray-900/80 border border-gray-700 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors"
             >
               Bands{selectedBandIds.length > 0 ? ` (${selectedBandIds.length})` : ''}
@@ -2061,7 +2150,7 @@ export default function CinemaPage() {
               onClick={() => {
                 const opening = !showTourPlanner;
                 setShowTourPlanner(opening);
-                if (opening) { setTourMode(true); setShowControls(false); setShowDirector(false); setShowBandPicker(false); setShowPlaylist(false); setShowAiDirector(false); }
+                if (opening) { setTourMode(true); setShowControls(false); setShowDirector(false); setShowBandPicker(false); setShowPlaylist(false); setShowAiDirector(false); setShowSetlistPanel(false); }
               }}
               title="Node Sequence — fly the camera between nodes"
               className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
@@ -2076,7 +2165,7 @@ export default function CinemaPage() {
               onClick={() => {
                 const opening = !showPathPanel;
                 setShowPathPanel(opening);
-                if (opening) { setPathMode(true); pathModeRef.current = true; setShowControls(false); setShowDirector(false); setShowBandPicker(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); }
+                if (opening) { setPathMode(true); pathModeRef.current = true; setShowControls(false); setShowDirector(false); setShowBandPicker(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); setShowSetlistPanel(false); }
               }}
               title="Path mode — click nodes to build a labeled path"
               className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
@@ -2088,7 +2177,18 @@ export default function CinemaPage() {
               🛤{pathNodes.length > 0 ? ` ${pathNodes.length}` : ''}
             </button>
             <button
-              onClick={() => { setShowControls(v => !v); setShowBandPicker(false); setShowDirector(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); }}
+              onClick={() => { setShowSetlistPanel(v => !v); setShowControls(false); setShowDirector(false); setShowBandPicker(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); setShowPathPanel(false); }}
+              title="Concert setlists — generate a Cinema tour from a real setlist"
+              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                showSetlistPanel
+                  ? 'bg-green-900/60 border-green-700 text-green-300'
+                  : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+              }`}
+            >
+              🎤
+            </button>
+            <button
+              onClick={() => { setShowControls(v => !v); setShowBandPicker(false); setShowDirector(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); setShowSetlistPanel(false); }}
               title="Camera controls & node visibility"
               className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
                 showControls || hiddenTypes.size > 0
@@ -2291,6 +2391,102 @@ export default function CinemaPage() {
               )}
               <p className="text-gray-600 text-[10px] leading-tight">
                 ✈ fly-in time · ◉ dwell time · Play converts path to a Tour sequence
+              </p>
+            </div>
+          )}
+
+          {/* ── Setlist panel ── */}
+          {showSetlistPanel && (
+            <div className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-green-800/60 rounded-xl p-4 backdrop-blur-sm w-80 shadow-2xl space-y-3 overflow-y-auto" style={{ maxHeight: 'calc(100dvh - 80px)' }}>
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] font-semibold text-green-400 uppercase tracking-wide">🎤 Concert Setlists</div>
+                <button onClick={() => setShowSetlistPanel(false)} className="text-gray-600 hover:text-gray-400 text-xs">✕</button>
+              </div>
+              <p className="text-[10px] text-gray-500 leading-relaxed">
+                Search setlist.fm for an artist, pick a concert, and load the setlist as a Cinema Tour — the camera will fly through each song in order.
+              </p>
+
+              {/* Artist search */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={setlistArtistQuery}
+                  onChange={e => setSetlistArtistQuery(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') void searchSetlistArtists(setlistArtistQuery); }}
+                  placeholder="Artist name…"
+                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-200 px-3 py-1.5 focus:outline-none focus:border-green-600 placeholder-gray-600"
+                />
+                <button
+                  onClick={() => void searchSetlistArtists(setlistArtistQuery)}
+                  disabled={setlistSearching || !setlistArtistQuery.trim()}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-green-900/50 border border-green-700/50 text-green-300 hover:bg-green-800/60 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {setlistSearching ? '…' : 'Search'}
+                </button>
+              </div>
+
+              {/* Artist results */}
+              {setlistArtists.length > 0 && !setlistSelectedArtist && (
+                <div className="space-y-1">
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wide">Artists</div>
+                  {setlistArtists.slice(0, 8).map(a => (
+                    <button
+                      key={a.mbid}
+                      onClick={() => void loadSetlistsForArtist(a.mbid, a.name)}
+                      className="w-full text-left text-xs px-2 py-1.5 rounded-lg text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
+                    >
+                      {a.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Selected artist + setlist list */}
+              {setlistSelectedArtist && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] text-green-400 font-medium">{setlistSelectedArtist.name}</div>
+                    <button
+                      onClick={() => { setSetlistSelectedArtist(null); setSetlistResults([]); }}
+                      className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors"
+                    >
+                      ← Back
+                    </button>
+                  </div>
+                  {setlistLoading && <div className="text-xs text-gray-500 py-2 text-center">Loading setlists…</div>}
+                  {!setlistLoading && setlistResults.length === 0 && (
+                    <div className="text-xs text-gray-600 py-2 text-center">No setlists found.</div>
+                  )}
+                  {setlistResults.map(sl => {
+                    const songs: string[] = [];
+                    for (const s of sl.sets.set) { for (const song of s.song ?? []) { if (song.name) songs.push(song.name); } }
+                    const venue = `${sl.venue.name}, ${sl.venue.city.name}`;
+                    const matched = songs.filter(title => {
+                      const lower = title.toLowerCase();
+                      return simNodesRef.current.some(n => n.type === 'song' && (
+                        n.label.toLowerCase() === lower || n.label.toLowerCase().includes(lower) || lower.includes(n.label.toLowerCase())
+                      ));
+                    });
+                    return (
+                      <div key={sl.id} className="bg-gray-800/60 border border-gray-700/60 rounded-lg p-2.5 space-y-1.5">
+                        <div className="text-[11px] font-medium text-gray-200">{sl.eventDate}</div>
+                        <div className="text-[10px] text-gray-400 truncate">{venue}</div>
+                        <div className="text-[10px] text-gray-500">{songs.length} songs · {matched.length} matched in graph</div>
+                        <button
+                          onClick={() => loadSetlistAsTour(sl)}
+                          disabled={matched.length === 0 || setlistLoadingTour === sl.id}
+                          className="w-full text-xs py-1.5 rounded-lg bg-green-900/40 border border-green-700/50 text-green-300 hover:bg-green-800/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          {setlistLoadingTour === sl.id ? 'Loading…' : matched.length === 0 ? 'No songs in graph' : `▶ Load as Tour (${matched.length} songs)`}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <p className="text-[10px] text-gray-700 leading-relaxed">
+                Requires SETLISTFM_API_KEY environment variable. Song names are matched against the current Cinema graph — load a band first for best results.
               </p>
             </div>
           )}

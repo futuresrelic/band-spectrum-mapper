@@ -522,20 +522,30 @@ adminRouter.get('/ai-batch/scan', async (req, res, next) => {
       : [];
     const where = bandIds.length > 0 ? { bandId: { in: bandIds } } : {};
 
-    const [total, hasAnalysis, hasSpectrum, hasResearch, hasGenre, hasTags, hasMeta] = await Promise.all([
+    // Count SongAiSpectrum records where all axes = 0 (effectively unscored)
+    const spectrumZeroWhere = bandIds.length > 0
+      ? { song: { bandId: { in: bandIds } }, aggression: 0, complexity: 0, atmosphere: 0, emotion: 0, psychedelic: 0, concept: 0 }
+      : { aggression: 0, complexity: 0, atmosphere: 0, emotion: 0, psychedelic: 0, concept: 0 };
+
+    const [total, hasAnalysis, hasSpectrum, hasSpectrumAllZero, hasResearch, hasGenre, hasTags, hasMeta] = await Promise.all([
       prisma.song.count({ where }),
       prisma.song.count({ where: { ...where, aiAnalysis:      { isNot: null } } }),
       prisma.song.count({ where: { ...where, aiSpectrum:      { isNot: null } } }),
+      prisma.songAiSpectrum.count({ where: spectrumZeroWhere }),
       prisma.song.count({ where: { ...where, research:        { isNot: null } } }),
       prisma.song.count({ where: { ...where, aiGenreSpectrum: { isNot: null } } }),
       prisma.song.count({ where: { ...where, songTags:        { some: {}    } } }),
       prisma.song.count({ where: { ...where, durationSeconds: { not: null   } } }),
     ]);
 
+    // Real spectrum = has a record AND at least one axis > 0
+    const hasSpectrumReal = hasSpectrum - hasSpectrumAllZero;
+
     res.json({
       total,
-      has:     { analysis: hasAnalysis, spectrum: hasSpectrum, research: hasResearch, genre: hasGenre, tags: hasTags, metadata: hasMeta },
-      missing: { analysis: total - hasAnalysis, spectrum: total - hasSpectrum, research: total - hasResearch, genre: total - hasGenre, tags: total - hasTags, metadata: total - hasMeta },
+      has:     { analysis: hasAnalysis, spectrum: hasSpectrumReal, research: hasResearch, genre: hasGenre, tags: hasTags, metadata: hasMeta },
+      missing: { analysis: total - hasAnalysis, spectrum: total - hasSpectrumReal, research: total - hasResearch, genre: total - hasGenre, tags: total - hasTags, metadata: total - hasMeta },
+      extra:   { spectrumZero: hasSpectrumAllZero },
     });
   } catch (e) { next(e); }
 });

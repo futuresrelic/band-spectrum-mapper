@@ -190,6 +190,106 @@ export const CINEMA_THEMES: CinemaTheme[] = [
     },
     linkColor: 'rgba(100,140,180,0.2)', linkWidthMultiplier: 1, nodeOpacity: 0.85, nodeValMultiplier: 1,
   },
+  {
+    id: 'infrared',   name: 'Infrared',   emoji: '🔥',
+    backgroundColor: '#0a0000',
+    cssFilter: 'saturate(1.5) contrast(1.1)',
+    nodeColors: {
+      song: '#ff4400', keyword: '#330000', album: '#ff8800',
+      artist: '#ffee00', theme: '#cc2200', tag: '#ff6600', emotion: '#ff0055',
+    },
+    linkColor: 'rgba(255,80,0,0.2)', linkWidthMultiplier: 1.3, nodeOpacity: 0.94, nodeValMultiplier: 1,
+  },
+  {
+    id: 'deep-ocean', name: 'Deep Ocean', emoji: '🌊',
+    backgroundColor: '#010814',
+    cssFilter: 'saturate(1.4) brightness(1.05)',
+    nodeColors: {
+      song: '#00b4d8', keyword: '#023e5c', album: '#0077b6',
+      artist: '#90e0ef', theme: '#00f5d4', tag: '#48cae4', emotion: '#7b2d8b',
+    },
+    linkColor: 'rgba(0,150,200,0.18)', linkWidthMultiplier: 1.2, nodeOpacity: 0.93, nodeValMultiplier: 1,
+  },
+  {
+    id: 'obsidian',   name: 'Obsidian',   emoji: '🌋',
+    backgroundColor: '#050304',
+    cssFilter: 'contrast(1.25) saturate(1.3)',
+    nodeColors: {
+      song: '#e44c2c', keyword: '#1a1010', album: '#b03010',
+      artist: '#ff8c42', theme: '#6b1a0a', tag: '#d4502a', emotion: '#ff4040',
+    },
+    linkColor: 'rgba(200,60,20,0.18)', linkWidthMultiplier: 1, nodeOpacity: 0.92, nodeValMultiplier: 1,
+  },
+  {
+    id: 'golden-hour',name: 'Golden Hour',emoji: '🌅',
+    backgroundColor: '#080400',
+    cssFilter: 'saturate(1.6) brightness(1.05)',
+    nodeColors: {
+      song: '#f4a261', keyword: '#3d1a00', album: '#e76f51',
+      artist: '#ffd166', theme: '#e9c46a', tag: '#f77f00', emotion: '#c94040',
+    },
+    linkColor: 'rgba(244,162,97,0.2)', linkWidthMultiplier: 1.2, nodeOpacity: 0.95, nodeValMultiplier: 1,
+  },
+  {
+    id: 'void',       name: 'Void',       emoji: '⬛',
+    backgroundColor: '#000000',
+    cssFilter: 'contrast(2) brightness(0.85)',
+    nodeColors: {
+      song: '#e8e8e8', keyword: '#383838', album: '#d0d0d0',
+      artist: '#ffffff', theme: '#b8b8b8', tag: '#c8c8c8', emotion: '#a0a0ff',
+    },
+    linkColor: 'rgba(220,220,220,0.25)', linkWidthMultiplier: 1.5, nodeOpacity: 0.9, nodeValMultiplier: 1,
+  },
+  {
+    id: 'acid',       name: 'Acid',       emoji: '🧪',
+    backgroundColor: '#04000a',
+    cssFilter: 'saturate(2) contrast(1.2) brightness(1.1)',
+    nodeColors: {
+      song: '#b5ff00', keyword: '#1a0030', album: '#00ffcc',
+      artist: '#ff00ff', theme: '#7700ff', tag: '#00ff55', emotion: '#ff3300',
+    },
+    linkColor: 'rgba(150,255,0,0.2)', linkWidthMultiplier: 1.4, nodeOpacity: 0.96, nodeValMultiplier: 1,
+  },
+  {
+    id: 'rose-gold',  name: 'Rose Gold',  emoji: '💅',
+    backgroundColor: '#080406',
+    cssFilter: 'saturate(1.4) brightness(1.05)',
+    nodeColors: {
+      song: '#e8968c', keyword: '#2a1218', album: '#c06080',
+      artist: '#f8c8b8', theme: '#b04868', tag: '#d87890', emotion: '#a83858',
+    },
+    linkColor: 'rgba(200,100,120,0.2)', linkWidthMultiplier: 1.2, nodeOpacity: 0.94, nodeValMultiplier: 1,
+  },
+  {
+    id: 'arctic',     name: 'Arctic',     emoji: '🧊',
+    backgroundColor: '#02050c',
+    cssFilter: 'saturate(0.8) brightness(1.1) hue-rotate(200deg)',
+    nodeColors: {
+      song: '#a8d8f0', keyword: '#102030', album: '#70b8e8',
+      artist: '#e8f4ff', theme: '#5898c8', tag: '#88c0d8', emotion: '#b090e8',
+    },
+    linkColor: 'rgba(140,200,240,0.2)', linkWidthMultiplier: 1, nodeOpacity: 0.88, nodeValMultiplier: 1,
+  },
+  {
+    id: 'jungle',     name: 'Jungle',     emoji: '🌿',
+    backgroundColor: '#010801',
+    cssFilter: 'saturate(1.5) brightness(1.0)',
+    nodeColors: {
+      song: '#55cc44', keyword: '#0a1a05', album: '#33aa22',
+      artist: '#aaffaa', theme: '#22881a', tag: '#44bb33', emotion: '#ff6b44',
+    },
+    linkColor: 'rgba(60,180,40,0.18)', linkWidthMultiplier: 1, nodeOpacity: 0.92, nodeValMultiplier: 1,
+  },
+  {
+    id: 'vintage-noir',name:'Vintage Noir',emoji:'🎞️',
+    backgroundColor: '#06050a',
+    cssFilter: 'sepia(0.45) contrast(1.3) saturate(0.7)',
+    nodeColors: {
+      song: '#c8a870', keyword: '#2a1a10', album: '#a88850',
+      artist: '#e8d090', theme: '#806840', tag: '#b09060', emotion: '#a06050',
+    },
+    linkColor: 'rgba(180,140,80,0.22)', linkWidthMultiplier: 1.2, nodeOpacity: 0.9, nodeValMultiplier: 1,
+  },
 ];
 
 export const DEFAULT_THEME_ID = 'default';

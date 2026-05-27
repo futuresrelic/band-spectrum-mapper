@@ -35,6 +35,7 @@ import { wordHuntRouter } from './routes/wordHunt.js';
 import { spectrumStudioRouter } from './routes/spectrumStudio.js';
 import { nodeSequencesRouter } from './routes/nodeSequences.js';
 import { dataGridRouter } from './routes/dataGrid.js';
+import { setlistsRouter } from './routes/setlists.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -125,6 +126,9 @@ export function createApp() {
 
   // Admin data grid — full song matrix for admin review (admin only)
   app.use('/api/admin/data-grid', dataGridRouter);
+
+  // Setlist.fm proxy — concert setlists for Cinema Tour generation (auth required)
+  app.use('/api/setlists', setlistsRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.

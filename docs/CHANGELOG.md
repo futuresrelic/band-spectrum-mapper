@@ -4,6 +4,22 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Cinema themes, Core Score fix, Setlist.fm Cinema tours (2026-05-27)
+
+### Added
+
+- **11 new Cinema color themes** — Infrared, Deep Ocean, Obsidian, Golden Hour, Void, Acid, Rose Gold, Arctic, Jungle, Vintage Noir — high-contrast palettes tuned for IG/FB sharing. Total theme count is now 31.
+
+- **Setlist.fm → Cinema Tour** — New 🎤 button in the Cinema toolbar opens a concert setlist browser. Enter an artist name, search setlist.fm (requires `SETLISTFM_API_KEY` env var), pick a concert, and load it as a Cinema Tour — the camera flies through each song in graph order. Song titles are fuzzy-matched against the loaded Cinema graph. Backend proxy at `/api/setlists/` (auth required).
+
+- **AI Batch scan: all-zero spectrum detection** — The "Data Coverage Scan" in `/admin/ai-batch` now detects songs where an `aiSpectrum` record exists but all 6 axes equal zero (these were previously counted as "scored" but are effectively unscored). The scan card for AI Spectrum Scoring now shows an additional "⚠ X all-zero (unscored)" warning. The `missing` count for spectrum is now based on real non-zero scores.
+
+### Changed
+
+- **`/api/admin/ai-batch/scan` response** — adds `extra.spectrumZero` count and corrects `has.spectrum` / `missing.spectrum` to exclude all-zero records.
+
+---
+
 ## Tag enrichment, Cinema sequences, Community tag proposals (2026-05-26)
 
 ### Added

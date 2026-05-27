@@ -105,6 +105,7 @@ npm run dev
 | `SESSION_SECRET` | Express session signing key — use a long random string | Yes |
 | `AUDIO_WORKER_URL` | URL of Python audio worker (e.g. `http://localhost:8001`) | For Song Spectrum Analyzer |
 | `YOUTUBE_API_KEY` | YouTube Data API v3 key — metadata import only | For YouTube metadata fetch |
+| `SETLISTFM_API_KEY` | setlist.fm API key — enables Concert Setlist → Cinema Tour feature | For Cinema setlists |
 | `ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT` | Set `true` to allow yt-dlp audio download (dev only) | Never in production |
 
 ### apps/web/.env

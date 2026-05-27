@@ -32,6 +32,7 @@ interface ScanResult {
   total: number;
   has: Record<JobType, number>;
   missing: Record<JobType, number>;
+  extra?: { spectrumZero?: number };
 }
 
 type RowStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped' | 'retrying';
@@ -351,6 +352,7 @@ export default function AiBatchRunnerPage() {
                 const has     = scanResult.has[job] ?? 0;
                 const missing = scanResult.missing[job] ?? 0;
                 const pct     = scanResult.total > 0 ? Math.round((has / scanResult.total) * 100) : 0;
+                const spectrumZero = job === 'spectrum' ? (scanResult.extra?.spectrumZero ?? 0) : 0;
                 return (
                   <div key={job} className="bg-surface-50 border border-surface-200 rounded p-2">
                     <p className="text-[10px] font-medium text-surface-600 truncate">{label}</p>
@@ -363,6 +365,11 @@ export default function AiBatchRunnerPage() {
                       <div className="h-full bg-green-500 transition-all" style={{ width: `${pct}%` }} />
                     </div>
                     <p className="text-[10px] text-surface-400 mt-0.5">{has}/{scanResult.total} have data</p>
+                    {spectrumZero > 0 && (
+                      <p className="text-[10px] text-orange-500 mt-0.5 font-medium">
+                        ⚠ {spectrumZero} all-zero (unscored)
+                      </p>
+                    )}
                   </div>
                 );
               })}
