@@ -31,6 +31,7 @@ const adminLinks = [
   { to: '/admin/db-health',      label: 'DB Health' },
   { to: '/admin/missing-lyrics', label: 'Missing Lyrics' },
   { to: '/admin/lyrics-batch',   label: 'Lyrics Batch Fetch' },
+  { to: '/admin/data-grid',      label: 'Data Grid' },
   { to: '/admin/game',           label: 'Album Art Quiz' },
   { to: '/admin/missing-artwork',label: 'Missing Artwork' },
   { to: '/settings?tab=icons', label: 'App Icons & Branding' },
