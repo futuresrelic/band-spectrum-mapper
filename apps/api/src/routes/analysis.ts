@@ -125,7 +125,7 @@ analysisRouter.post('/ai/:songId/tags', requireAuth, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// GET current tags for a song
+// GET current tags for a song (returns [{name, description}])
 analysisRouter.get('/ai/:songId/tags', async (req, res, next) => {
   try {
     const tags = await aiTagService.getTags(req.params['songId']!);

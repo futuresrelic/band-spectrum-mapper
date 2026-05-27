@@ -31,12 +31,18 @@ export async function getOrRefreshTokens(userId: string): Promise<{ tokens: numb
   return { tokens: user.lookupTokens, nextRefresh };
 }
 
-export async function useToken(userId: string): Promise<void> {
+export async function useTokens(userId: string, songCount: number): Promise<void> {
   const { tokens } = await getOrRefreshTokens(userId);
-  if (tokens <= 0) throw new HttpError(429, 'No lookup tokens remaining. They refresh every 24 hours.');
+  if (songCount <= 0) return;
+  if (tokens <= 0) {
+    throw new HttpError(429, 'No song tokens remaining today. You get 3 per day, refreshing every 24 hours.');
+  }
+  if (tokens < songCount) {
+    throw new HttpError(429, `You have ${tokens} song token${tokens !== 1 ? 's' : ''} remaining today but tried to submit ${songCount} song${songCount !== 1 ? 's' : ''}. Each submitted song costs 1 token (3 per day).`);
+  }
   await prisma.user.update({
     where: { id: userId },
-    data: { lookupTokens: { decrement: 1 } },
+    data: { lookupTokens: { decrement: songCount } },
   });
 }
 

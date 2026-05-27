@@ -3,7 +3,7 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import {
   getOrRefreshTokens,
-  useToken,
+  useTokens,
   submitContribution,
   listContributions,
   approveContribution,
@@ -39,8 +39,11 @@ contributionsRouter.post('/', requireAuth, async (req, res, next) => {
       return;
     }
 
+    // Count total songs across all albums — 1 token per song, 3/day max
+    const songCount = data.albums.reduce((sum, a) => sum + (a.tracks?.length ?? 0), 0);
+
     // Admins bypass token check — unlimited submissions
-    if (!req.user!.isAdmin) await useToken(userId);
+    if (!req.user!.isAdmin) await useTokens(userId, songCount);
 
     const contribution = await submitContribution(userId, artistName.trim(), artistMbId.trim(), data);
     res.status(201).json(contribution);

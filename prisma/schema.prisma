@@ -174,9 +174,10 @@ model Tag {
 }
 
 model SongTag {
-  id     String @id @default(cuid())
-  songId String
-  tagId  String
+  id          String  @id @default(cuid())
+  songId      String
+  tagId       String
+  description String?
 
   song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
   tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)

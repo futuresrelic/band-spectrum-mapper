@@ -18,8 +18,13 @@ function slugify(name: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+export interface TagWithDescription {
+  name: string;
+  description: string;
+}
+
 export const aiTagService = {
-  async generateAndApply(songId: string): Promise<string[]> {
+  async generateAndApply(songId: string): Promise<TagWithDescription[]> {
     const [song, aiAnalysis, research, aiSpectrum, genreSpectrum, contextAnalysis, recentComments] = await Promise.all([
       prisma.song.findUnique({
         where: { id: songId },
@@ -87,30 +92,36 @@ export const aiTagService = {
     }
 
     const prompt = `You are tagging songs for a cross-genre music discovery platform.
-Generate 3–5 precise discovery tags for this song. Tags help listeners find songs that match their mood or interest.
+Generate 3–5 precise discovery tags for this song, each with a short description explaining why the tag fits THIS specific song.
 
 Draw from these categories (pick the most relevant, do not fill all categories):
 - AFFECT: the felt emotional quality (e.g. "melancholic", "cathartic", "unsettling", "euphoric", "hypnotic", "anxious", "serene", "abrasive")
 - TEXTURE: sonic/lyrical character (e.g. "atmospheric", "layered", "cinematic", "minimalist", "dense", "sparse", "abstract")
 - THEME: the core subject (e.g. "mortality", "isolation", "identity", "transcendence", "duality", "loss", "transformation", "ego dissolution")
 - CONTEXT: conceptual lens (e.g. "existential", "spiritual", "psychological", "philosophical", "political")
+- MUSICAL CRAFT: technical/structural interest (e.g. "polyrhythm", "odd time signature", "dynamic contrast", "counterpoint", "call and response", "modal", "microtonal", "through-composed")
 
-Rules:
+Tag name rules:
 - 3–5 tags total — quality over quantity
-- Each tag: 1–3 words, lowercase, no punctuation
+- Each tag name: 1–3 words, lowercase, no punctuation
 - No genre names (no "metal", "rock", "jazz" — those are separate)
 - Prefer vivid and specific: "ego dissolution" beats "self-reflection"; "cyclical grief" beats "sadness"
 - Tags should make sense to a listener who has never heard this genre before
 CANONICAL FORM RULES (critical):
 - Use the simplest adjectival or root-noun form. Never suffix a concept with -ity, -ness, -tion, or -ism when the root already works. Write "spiritual" not "spirituality"; "transcendent" not "transcendence" (unless the noun is most natural, e.g. "mortality" or "isolation" are fine).
-- Do NOT expand a single word into a phrase when the word is sufficient. "spiritual awakening" is redundant if "spiritual" or "transcendent" already applies.
-- Before finalising your list, check: are any two tags near-synonyms or root/derived forms of each other? If yes, drop the weaker one and replace it with something more distinct.
-- If lyrical interpretation or historical context is provided above, prioritise tags that reflect the song's KNOWN meaning rather than surface imagery alone
+- Do NOT expand a single word into a phrase when the word is sufficient.
+- Before finalising, check: are any two tags near-synonyms? If yes, drop the weaker one.
+- If lyrical interpretation or historical context is provided, prioritise tags that reflect the song's KNOWN meaning.
+
+Description rules:
+- 1–2 sentences max, specific to THIS song (not generic to the tag)
+- Explain how the song earns this tag — cite lyrics, structure, mood, or context
+- Do not restate the tag name in the description
 
 ${contextParts.join('\n\n')}
 
-Return ONLY a JSON array of tag strings. No markdown. No explanation.
-Example: ["mortality", "ego dissolution", "hypnotic", "existential", "cathartic"]`;
+Return ONLY a JSON array of objects. No markdown. No explanation.
+Example: [{"name":"mortality","description":"The lyric circles a confrontation with physical decay..."},{"name":"polyrhythm","description":"The 7/8 guitar pattern locks against a 4/4 bass groove..."}]`;
 
     const client = getClient();
     const completion = await client.chat.completions.create({
@@ -123,40 +134,47 @@ Example: ["mortality", "ego dissolution", "hypnotic", "existential", "cathartic"
     const raw = completion.choices[0]?.message?.content ?? '';
     const cleaned = raw.trim().replace(/^```json\s*/i, '').replace(/\s*```$/, '');
 
-    let tags: string[];
+    let tagObjects: TagWithDescription[];
     try {
       const parsed = JSON.parse(cleaned) as unknown;
       if (!Array.isArray(parsed)) throw new Error('Not an array');
-      tags = (parsed as unknown[]).map(String).slice(0, 10);
+      tagObjects = (parsed as unknown[]).slice(0, 10).map((item) => {
+        if (typeof item === 'string') return { name: item, description: '' };
+        const obj = item as Record<string, unknown>;
+        return {
+          name: String(obj['name'] ?? '').toLowerCase().trim(),
+          description: String(obj['description'] ?? '').trim(),
+        };
+      }).filter((t) => t.name.length > 0);
     } catch {
       throw new HttpError(502, 'AI returned invalid tag list');
     }
 
-    // Upsert each tag and link to the song
-    for (const tagName of tags) {
+    // Upsert each tag and link to the song with description
+    for (const { name: tagName, description } of tagObjects) {
       const slug = slugify(tagName);
       if (!slug) continue;
       const tag = await prisma.tag.upsert({
         where: { slug },
-        create: { name: tagName.toLowerCase().trim(), slug },
+        create: { name: tagName, slug },
         update: {},
       });
       await prisma.songTag.upsert({
         where: { songId_tagId: { songId, tagId: tag.id } },
-        create: { songId, tagId: tag.id },
-        update: {},
+        create: { songId, tagId: tag.id, description: description || null },
+        update: { description: description || null },
       });
     }
 
-    return tags;
+    return tagObjects;
   },
 
-  async getTags(songId: string): Promise<string[]> {
+  async getTags(songId: string): Promise<TagWithDescription[]> {
     const songTags = await prisma.songTag.findMany({
       where: { songId },
       include: { tag: { select: { name: true } } },
       orderBy: { tag: { name: 'asc' } },
     });
-    return songTags.map((st) => st.tag.name);
+    return songTags.map((st) => ({ name: st.tag.name, description: st.description ?? '' }));
   },
 };

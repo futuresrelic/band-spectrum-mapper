@@ -33,6 +33,7 @@ export interface GraphEdge {
   type: EdgeType;
   weight: number;
   label?: string;
+  description?: string;
 }
 
 export interface GraphData {

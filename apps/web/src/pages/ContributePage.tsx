@@ -75,10 +75,10 @@ export default function ContributePage() {
         <div className="rounded-lg border border-surface-200 bg-surface-50 px-4 py-3 flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold">
-              {tokenData.tokens} of 3 lookup token{tokenData.tokens !== 1 ? 's' : ''} remaining
+              {tokenData.tokens} of 3 song token{tokenData.tokens !== 1 ? 's' : ''} remaining today
             </p>
             <p className="text-xs text-surface-500 mt-0.5">
-              Refreshes in {hoursUntilRefresh(tokenData.nextRefresh)} · 1 token per submission
+              Refreshes in {hoursUntilRefresh(tokenData.nextRefresh)} · 1 token per song submitted
             </p>
           </div>
           <span
@@ -100,7 +100,7 @@ export default function ContributePage() {
         <div className="card text-center py-10">
           <p className="text-surface-700 text-sm mb-2">No tokens remaining today.</p>
           <p className="text-xs text-surface-500">
-            You'll get 3 fresh tokens in {hoursUntilRefresh(tokenData.nextRefresh)}.
+            You'll get 3 fresh song tokens in {hoursUntilRefresh(tokenData.nextRefresh)}.
           </p>
         </div>
       ) : (

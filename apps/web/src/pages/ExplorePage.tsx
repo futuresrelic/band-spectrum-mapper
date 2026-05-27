@@ -101,6 +101,17 @@ function applyLabelCascade(cy: Core, selectedId: string | null, vs: VisualStyle,
   });
 }
 
+// Path mode: only path nodes get full labels; everything else is hidden.
+function applyPathLabels(cy: Core, pathIds: string[]): void {
+  const pathSet = new Set(pathIds);
+  cy.nodes().forEach((n) => {
+    const inPath = pathSet.has(n.id());
+    n.scratch('_co', inPath ? 1 : 0);
+    n.style('text-opacity', inPath ? 1 : 0);
+    if (inPath) n.addClass('path-node'); else n.removeClass('path-node');
+  });
+}
+
 function buildCyStyle(vs: VisualStyle = DEFAULT_VS) {
   return [
     {
@@ -128,6 +139,8 @@ function buildCyStyle(vs: VisualStyle = DEFAULT_VS) {
     { selector: 'node:selected', style: { 'border-width': '3px', 'border-color': '#fff', 'text-opacity': 1, 'color': '#ffffff', 'text-outline-width': '2.5px' } },
     // Hover: label and outline snap to full visibility
     { selector: 'node.label-hover', style: { 'text-opacity': 1, 'color': '#ffffff', 'text-outline-width': '2.5px', 'border-width': '2.5px', 'border-color': 'rgba(255,255,255,0.27)' } },
+    // Path node: amber ring to indicate it's part of the selected path
+    { selector: 'node.path-node', style: { 'border-width': '3px', 'border-color': '#f59e0b', 'text-opacity': 1, 'color': '#ffffff', 'text-outline-width': '2.5px' } },
     { selector: 'edge', style: { 'width': vs.edgeWidth, 'line-color': 'data(edgeColor)', 'curve-style': 'bezier', 'opacity': vs.edgeOpacity } },
     { selector: 'edge[edgeWeight > 0.8]', style: { 'width': vs.edgeWidth * 2 } },
     { selector: 'edge.edge-hover', style: { 'opacity': 1, 'width': vs.edgeWidth * 1.8 } },
@@ -158,6 +171,7 @@ function buildElements(nodes: GraphNode[], edges: GraphEdge[]) {
         edgeType: e.type,
         edgeColor: EDGE_COLORS[e.type] ?? 'rgba(255,255,255,0.13)',
         edgeWeight: e.weight,
+        ...(e.description ? { description: e.description } : {}),
       },
     })),
   ];
@@ -186,6 +200,22 @@ function fetchPublicScopes(): Promise<Scopes> {
 function NodeDetailPanel({ node, onClose }: { node: ReturnType<Core['$']> | null; onClose: () => void }) {
   if (!node || node.length === 0) return null;
   const d = node.data() as { fullLabel: string; type: NodeType; scores?: Record<string, number>; bandName?: string; albumTitle?: string; count?: number };
+
+  // For tag nodes: collect connected songs and their per-song descriptions
+  const tagSongLinks: { songLabel: string; description?: string }[] = [];
+  if (d.type === 'tag') {
+    node.connectedEdges('[edgeType = "shared_tag"]').forEach((edge) => {
+      const source = edge.source();
+      if ((source.data('type') as string) === 'song') {
+        tagSongLinks.push({
+          songLabel: source.data('fullLabel') as string || source.data('label') as string,
+          description: edge.data('description') as string | undefined,
+        });
+      }
+    });
+    tagSongLinks.sort((a, b) => a.songLabel.localeCompare(b.songLabel));
+  }
+
   return (
     <div className="bg-white/5 rounded-lg p-3 text-xs border border-white/10">
       <div className="flex items-start justify-between mb-2">
@@ -206,6 +236,20 @@ function NodeDetailPanel({ node, onClose }: { node: ReturnType<Core['$']> | null
                 <div className="h-full rounded-full" style={{ width: `${(val / 10) * 100}%`, background: NODE_COLORS.song }} />
               </div>
               <span className="text-white/60 font-mono w-5 text-right">{val}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {d.type === 'tag' && tagSongLinks.length > 0 && (
+        <div className="mt-3 border-t border-white/10 pt-2 space-y-2 max-h-48 overflow-y-auto">
+          <div className="text-white/30 uppercase tracking-wider text-xs font-semibold mb-1">Songs with this tag</div>
+          {tagSongLinks.map(({ songLabel, description }, i) => (
+            <div key={i} className="text-xs">
+              <div className="text-cyan-300/80 font-medium">{songLabel}</div>
+              {description
+                ? <div className="text-white/40 mt-0.5 leading-snug">{description}</div>
+                : <div className="text-white/20 mt-0.5 italic">No description yet</div>
+              }
             </div>
           ))}
         </div>
@@ -286,13 +330,19 @@ export default function ExplorePage() {
   const [showAllLabels, setShowAllLabels]       = useState(false);
   const [orbitSpeed, setOrbitSpeed]             = useState(0.004);
   const [viewMode, setViewMode]                 = useState<'2d' | '3d'>('2d');
+  const [pathMode, setPathMode]                     = useState(false);
+  const [pathNodes, setPathNodes]                   = useState<{ id: string; label: string }[]>([]);
   const vStyleRef        = useRef<VisualStyle>(vStyle);
   const showAllLabelsRef = useRef(false);
   const selectedNodeIdRef = useRef<string | null>(null);
   const orbitSpeedRef    = useRef(0.004);
+  const pathModeRef      = useRef(false);
+  const pathNodesRef     = useRef<{ id: string; label: string }[]>([]);
 
   useEffect(() => { animPulseRef.current = animatePulse; }, [animatePulse]);
   useEffect(() => { orbitSpeedRef.current = orbitSpeed; }, [orbitSpeed]);
+  useEffect(() => { pathModeRef.current = pathMode; }, [pathMode]);
+  useEffect(() => { pathNodesRef.current = pathNodes; }, [pathNodes]);
   useEffect(() => {
     if (viewMode === '2d') {
       // Give the DOM a tick to show the container before resizing
@@ -1241,6 +1291,8 @@ export default function ExplorePage() {
     layoutReadyRef.current = false; // reset: animation must wait for runClusterLayout
     selectedNodeIdRef.current = null;
     setGraphLabel(graphData.label);
+    setPathNodes([]);
+    pathNodesRef.current = [];
 
     // Collect tag and theme names for filter panels
     const tags: { id: string; label: string }[] = [];
@@ -1290,16 +1342,40 @@ export default function ExplorePage() {
 
     cy.on('tap', 'node', (evt: EventObject) => {
       const node = evt.target as NodeSingular;
+      const nid = node.id();
+
+      if (pathModeRef.current) {
+        // Path mode: toggle this node in/out of the path
+        const current = pathNodesRef.current;
+        const existingIdx = current.findIndex((p) => p.id === nid);
+        let next: { id: string; label: string }[];
+        if (existingIdx >= 0) {
+          next = current.filter((_, i) => i !== existingIdx);
+        } else {
+          const label = (node.data('fullLabel') as string) || (node.data('label') as string);
+          next = [...current, { id: nid, label }];
+        }
+        setPathNodes(next);
+        pathNodesRef.current = next;
+        applyPathLabels(cy, next.map((p) => p.id));
+        cy.elements().removeClass('highlighted faded');
+        return;
+      }
+
       cy.elements().removeClass('highlighted faded');
       node.closedNeighborhood().addClass('highlighted');
       cy.elements().not(node.closedNeighborhood()).addClass('faded');
-      selectedNodeIdRef.current = node.id();
-      applyLabelCascade(cy, node.id(), vStyleRef.current, showAllLabelsRef.current);
-      setSelectedNode(cy.$(`#${CSS.escape(node.id())}`));
+      selectedNodeIdRef.current = nid;
+      applyLabelCascade(cy, nid, vStyleRef.current, showAllLabelsRef.current);
+      setSelectedNode(cy.$(`#${CSS.escape(nid)}`));
     });
     cy.on('tap', (evt: EventObject) => {
       if (evt.target === cy) {
         cy.elements().removeClass('highlighted faded');
+        if (pathModeRef.current) {
+          // Background tap in path mode doesn't clear path
+          return;
+        }
         selectedNodeIdRef.current = null;
         applyLabelCascade(cy, null, vStyleRef.current, showAllLabelsRef.current);
         setSelectedNode(null);
@@ -1397,6 +1473,21 @@ export default function ExplorePage() {
     if (!cy) return;
     applyLabelCascade(cy, selectedNodeIdRef.current, vStyleRef.current, showAllLabels);
   }, [showAllLabels]);
+
+  // Path mode toggle: switching in/out reapplies labels
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    if (pathMode) {
+      applyPathLabels(cy, pathNodes.map((p) => p.id));
+      cy.elements().removeClass('highlighted faded');
+      setSelectedNode(null);
+    } else {
+      // Restore normal cascade
+      cy.nodes().removeClass('path-node');
+      applyLabelCascade(cy, selectedNodeIdRef.current, vStyleRef.current, showAllLabelsRef.current);
+    }
+  }, [pathMode]);
 
   const toggleBand = useCallback((id: string) => {
     setSelectedBandIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
@@ -1529,6 +1620,18 @@ export default function ExplorePage() {
                 <input type="checkbox" checked={showAllLabels} onChange={(e) => setShowAllLabels(e.target.checked)} className="accent-indigo-500" />
                 <span className={`text-xs ${showAllLabels ? 'text-white/70' : 'text-white/30'}`}>Show all labels</span>
               </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={pathMode}
+                  onChange={(e) => {
+                    setPathMode(e.target.checked);
+                    if (!e.target.checked) setPathNodes([]);
+                  }}
+                  className="accent-amber-500"
+                />
+                <span className={`text-xs ${pathMode ? 'text-amber-300' : 'text-white/30'}`}>Path mode</span>
+              </label>
             </div>
           )}
 
@@ -1649,11 +1752,56 @@ export default function ExplorePage() {
           )}
 
           {/* Node detail */}
-          {selectedNode && selectedNode.length > 0 && (
+          {!pathMode && selectedNode && selectedNode.length > 0 && (
             <NodeDetailPanel node={selectedNode} onClose={() => {
               setSelectedNode(null);
               cyRef.current?.elements().removeClass('highlighted faded');
             }} />
+          )}
+
+          {/* Path panel */}
+          {pathMode && (
+            <div className="bg-white/5 rounded-lg p-3 text-xs border border-amber-500/30">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-amber-300 font-semibold uppercase tracking-wider text-xs">Path</span>
+                <button
+                  onClick={() => {
+                    setPathNodes([]);
+                    const cy = cyRef.current;
+                    if (cy) { cy.nodes().removeClass('path-node'); applyPathLabels(cy, []); }
+                  }}
+                  className="text-white/30 hover:text-white text-xs"
+                >
+                  Clear
+                </button>
+              </div>
+              {pathNodes.length === 0 ? (
+                <p className="text-white/30 text-xs italic">Click nodes to add them to the path</p>
+              ) : (
+                <ol className="space-y-1">
+                  {pathNodes.map(({ id, label }, i) => (
+                    <li key={id} className="flex items-center gap-2">
+                      <span className="text-amber-500/60 font-mono tabular-nums w-4 shrink-0">{i + 1}</span>
+                      <span className="text-white/70 truncate flex-1">{label}</span>
+                      <button
+                        onClick={() => {
+                          const next = pathNodes.filter((_, j) => j !== i);
+                          setPathNodes(next);
+                          const cy = cyRef.current;
+                          if (cy) applyPathLabels(cy, next.map((p) => p.id));
+                        }}
+                        className="text-white/20 hover:text-red-400 shrink-0"
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              <p className="text-white/20 mt-2 leading-tight">
+                Click a node to add · click again to remove
+              </p>
+            </div>
           )}
 
           {/* Legend */}

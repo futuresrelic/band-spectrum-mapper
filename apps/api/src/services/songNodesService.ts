@@ -61,6 +61,7 @@ export interface GraphEdge {
   type: EdgeType;
   weight: number;    // 0–1
   label?: string;
+  description?: string;
 }
 
 export interface GraphData {
@@ -206,6 +207,7 @@ async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
       edges.push({
         id: `e${edgeIdx++}`, source: `song:${s.id}`,
         target: `tag:${st.tag.id}`, type: 'shared_tag', weight: 0.6,
+        ...(st.description ? { description: st.description } : {}),
       });
     }
 
@@ -295,6 +297,7 @@ async function buildAlbumCluster(albumId: string): Promise<GraphData> {
       edges.push({
         id: `e${edgeIdx++}`, source: `song:${s.id}`,
         target: `tag:${st.tag.id}`, type: 'shared_tag', weight: 0.6,
+        ...(st.description ? { description: st.description } : {}),
       });
     }
     // Theme nodes removed — Tags carry the same data after the merged AI batch.
@@ -335,6 +338,7 @@ async function buildTagConstellation(bandIds: string[]): Promise<GraphData> {
       edges.push({
         id: `e${edgeIdx++}`, source: `song:${s.id}`,
         target: `tag:${key}`, type: 'shared_tag', weight: 0.8,
+        ...(st.description ? { description: st.description } : {}),
       });
     }
   }
