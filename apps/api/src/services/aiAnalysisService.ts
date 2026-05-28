@@ -178,6 +178,94 @@ ${lyric.text.slice(0, 4000)}`;
     return { ...record, createdAt: record.createdAt.toISOString(), updatedAt: record.updatedAt.toISOString() };
   },
 
+  // ---------------------------------------------------------------------------
+  // Core Score — emotional human-listener scoring → SongAxisScore
+  //
+  // Distinct from AI Spectrum (cold analysis → SongAiSpectrum):
+  //   Core = gut-feel of a deeply invested fan (BSM)
+  //   AI   = detached analytical measurement
+  // ---------------------------------------------------------------------------
+  async generateCoreScore(songId: string): Promise<{ aggression: number; complexity: number; atmosphere: number; emotion: number; psychedelic: number; concept: number; rationale: string }> {
+    const song = await prisma.song.findUnique({
+      where: { id: songId },
+      select: {
+        id: true, title: true, bandId: true,
+        band: { select: { name: true } },
+        lyrics:    { where: { isPrimary: true }, select: { text: true }, take: 1 },
+        aiSpectrum: true,
+        research:   { select: { summary: true } },
+      },
+    });
+    if (!song) throw new HttpError(404, 'Song not found');
+    const lyric = song.lyrics[0] ?? null;
+    if (!lyric) throw new HttpError(404, 'No primary lyrics found for this song');
+
+    // Gather context to inform the emotional perspective
+    const aiBlock = song.aiSpectrum
+      ? `AI analytical scores: aggression=${song.aiSpectrum.aggression} complexity=${song.aiSpectrum.complexity} atmosphere=${song.aiSpectrum.atmosphere} emotion=${song.aiSpectrum.emotion} psychedelic=${song.aiSpectrum.psychedelic} concept=${song.aiSpectrum.concept}\nAI rationale: ${song.aiSpectrum.rationale}`
+      : '';
+    const researchBlock = song.research?.summary
+      ? `Research / context: ${song.research.summary.slice(0, 600)}`
+      : '';
+
+    const prompt = `You are filling the "Core Score" for Band Spectrum Mapper (BSM). The Core Score represents how a deeply invested, passionate human listener EMOTIONALLY experiences this song — it is NOT an analyst's measurement. Think like the most devoted fan of this artist: someone who has listened hundreds of times and feels these songs physically.
+
+Artist: ${song.band.name}
+Song: "${song.title}"
+${aiBlock ? `\n${aiBlock}` : ''}
+${researchBlock ? `\n${researchBlock}` : ''}
+
+Score on 6 axes (0.0–10.0, one decimal place). Each axis is about emotional FEELING, not technical observation:
+
+- aggression: not just volume — the feeling of confrontation, intensity, or internal violence. A soft song can score high if it feels like it's tearing something apart inside you.
+- complexity: the cognitive and emotional weight of the experience. Does it reward deep repeated listening? Does it feel layered or overwhelming?
+- atmosphere: how completely does this song pull you into its world? Scoring high means it completely envelops you.
+- emotion: raw emotional weight. Does this crack something open? Score high for songs that feel viscerally human, even if abstract.
+- psychedelic: how much does it warp your sense of reality, perception, or time? Not literal drug content — the feeling of being altered.
+- concept: does the song reach for something bigger — a grand idea, a metaphysical question, a meaning beyond the personal story?
+
+Use the AI scores and context to inform your perspective, but your scores should reflect EMOTIONAL response, not mirror the analysis. They will often differ.
+
+Return ONLY valid JSON:
+{"aggression":X,"complexity":X,"atmosphere":X,"emotion":X,"psychedelic":X,"concept":X,"rationale":"one sentence on the emotional experience"}`;
+
+    const client = getClient();
+    const completion = await client.chat.completions.create({
+      model: MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.4,
+      max_tokens: 256,
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? '';
+    const cleaned = raw.trim().replace(/^```json\s*/i, '').replace(/\s*```$/, '');
+    let parsed: Record<string, unknown>;
+    try { parsed = JSON.parse(cleaned) as Record<string, unknown>; }
+    catch { throw new HttpError(502, 'AI returned invalid JSON for core score'); }
+
+    // Accept one decimal place (round to 1 dp, clamp 0–10)
+    const toScore = (v: unknown) => Math.min(10, Math.max(0, Math.round(Number(v) * 10) / 10));
+    const rationale = typeof parsed['rationale'] === 'string' ? parsed['rationale'] : '';
+
+    const scores = {
+      aggression: toScore(parsed['aggression']),
+      complexity:  toScore(parsed['complexity']),
+      atmosphere:  toScore(parsed['atmosphere']),
+      emotion:     toScore(parsed['emotion']),
+      psychedelic: toScore(parsed['psychedelic']),
+      concept:     toScore(parsed['concept']),
+    };
+
+    // Persist to SongAxisScore (Core)
+    await prisma.songAxisScore.upsert({
+      where: { songId },
+      create: { songId, bandId: song.bandId, ...scores, notes: rationale },
+      update: { ...scores, notes: rationale },
+    });
+
+    return { ...scores, rationale };
+  },
+
   async regenerate(songId: string): Promise<SongAiAnalysis> {
     const song = await prisma.song.findUnique({
       where: { id: songId },

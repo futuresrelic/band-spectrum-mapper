@@ -521,38 +521,42 @@ adminRouter.get('/ai-batch/scan', async (req, res, next) => {
       ? bandIdsParam.split(',').filter(Boolean)
       : [];
     const where = bandIds.length > 0 ? { bandId: { in: bandIds } } : {};
-
-    // Count SongAiSpectrum records where all axes = 0 (effectively unscored)
-    const spectrumZeroWhere = bandIds.length > 0
-      ? { song: { bandId: { in: bandIds } }, aggression: 0, complexity: 0, atmosphere: 0, emotion: 0, psychedelic: 0, concept: 0 }
+    const axisWhere = bandIds.length > 0
+      ? { aggression: 0, complexity: 0, atmosphere: 0, emotion: 0, psychedelic: 0, concept: 0 }
       : { aggression: 0, complexity: 0, atmosphere: 0, emotion: 0, psychedelic: 0, concept: 0 };
+    const spectrumZeroWhere  = bandIds.length > 0 ? { ...axisWhere, song: { bandId: { in: bandIds } } } : axisWhere;
+    const coreScoreZeroWhere = bandIds.length > 0 ? { ...axisWhere, bandId: { in: bandIds } } : axisWhere;
 
-    const [total, hasAnalysis, hasSpectrum, hasSpectrumAllZero, hasResearch, hasGenre, hasTags, hasMeta] = await Promise.all([
+    const [total, hasAnalysis, hasSpectrum, hasSpectrumAllZero, hasCoreScore, hasCoreScoreAllZero, hasResearch, hasGenre, hasTags, hasMeta] = await Promise.all([
       prisma.song.count({ where }),
       prisma.song.count({ where: { ...where, aiAnalysis:      { isNot: null } } }),
       prisma.song.count({ where: { ...where, aiSpectrum:      { isNot: null } } }),
       prisma.songAiSpectrum.count({ where: spectrumZeroWhere }),
+      // Core Score = SongAxisScore
+      prisma.song.count({ where: { ...where, score: { isNot: null } } }),
+      prisma.songAxisScore.count({ where: coreScoreZeroWhere }),
       prisma.song.count({ where: { ...where, research:        { isNot: null } } }),
       prisma.song.count({ where: { ...where, aiGenreSpectrum: { isNot: null } } }),
       prisma.song.count({ where: { ...where, songTags:        { some: {}    } } }),
       prisma.song.count({ where: { ...where, durationSeconds: { not: null   } } }),
     ]);
 
-    // Real spectrum = has a record AND at least one axis > 0
-    const hasSpectrumReal = hasSpectrum - hasSpectrumAllZero;
+    const hasSpectrumReal  = hasSpectrum  - hasSpectrumAllZero;
+    const hasCoreScoreReal = hasCoreScore - hasCoreScoreAllZero;
 
     res.json({
       total,
-      has:     { analysis: hasAnalysis, spectrum: hasSpectrumReal, research: hasResearch, genre: hasGenre, tags: hasTags, metadata: hasMeta },
-      missing: { analysis: total - hasAnalysis, spectrum: total - hasSpectrumReal, research: total - hasResearch, genre: total - hasGenre, tags: total - hasTags, metadata: total - hasMeta },
-      extra:   { spectrumZero: hasSpectrumAllZero },
+      has:     { analysis: hasAnalysis, spectrum: hasSpectrumReal, coreScore: hasCoreScoreReal, research: hasResearch, genre: hasGenre, tags: hasTags, metadata: hasMeta },
+      missing: { analysis: total - hasAnalysis, spectrum: total - hasSpectrumReal, coreScore: total - hasCoreScoreReal, research: total - hasResearch, genre: total - hasGenre, tags: total - hasTags, metadata: total - hasMeta },
+      extra:   { spectrumZero: hasSpectrumAllZero, coreScoreZero: hasCoreScoreAllZero },
     });
   } catch (e) { next(e); }
 });
 
 // ---------------------------------------------------------------------------
 // GET /api/admin/ai-batch/spectrum-targets
-// Returns songs with null or all-zero aiSpectrum — the "Core Score" target list.
+// Returns songs with null or all-zero CORE SCORE (SongAxisScore) — the targets for
+// the Core Score batch job. Not to be confused with AI Spectrum (SongAiSpectrum).
 // ---------------------------------------------------------------------------
 adminRouter.get('/ai-batch/spectrum-targets', async (req, res, next) => {
   try {
@@ -562,19 +566,19 @@ adminRouter.get('/ai-batch/spectrum-targets', async (req, res, next) => {
       : [];
     const where = bandIds.length > 0 ? { bandId: { in: bandIds } } : {};
 
-    const spectrumZeroWhere = bandIds.length > 0
-      ? { song: { bandId: { in: bandIds } }, aggression: 0, complexity: 0, atmosphere: 0, emotion: 0, psychedelic: 0, concept: 0 }
+    const coreZeroWhere = bandIds.length > 0
+      ? { bandId: { in: bandIds }, aggression: 0, complexity: 0, atmosphere: 0, emotion: 0, psychedelic: 0, concept: 0 }
       : { aggression: 0, complexity: 0, atmosphere: 0, emotion: 0, psychedelic: 0, concept: 0 };
 
-    // Songs with no spectrum record + songs with all-zero spectrum
-    const [songsNoSpectrum, zeroSpectra] = await Promise.all([
+    // Songs with no SongAxisScore record + songs with all-zero SongAxisScore
+    const [songsNoScore, zeroScores] = await Promise.all([
       prisma.song.findMany({
-        where: { ...where, aiSpectrum: { is: null } },
+        where: { ...where, score: { is: null } },
         select: { id: true, title: true, band: { select: { id: true, name: true } } },
         orderBy: [{ band: { name: 'asc' } }, { title: 'asc' }],
       }),
-      prisma.songAiSpectrum.findMany({
-        where: spectrumZeroWhere,
+      prisma.songAxisScore.findMany({
+        where: coreZeroWhere,
         select: { songId: true, song: { select: { id: true, title: true, band: { select: { id: true, name: true } } } } },
         orderBy: [{ song: { band: { name: 'asc' } } }, { song: { title: 'asc' } }],
       }),
@@ -583,10 +587,10 @@ adminRouter.get('/ai-batch/spectrum-targets', async (req, res, next) => {
     // Combine, de-duplicate by songId, shape like Song for the batch runner
     const seen = new Set<string>();
     const targets: { id: string; title: string; band: { id: string; name: string } }[] = [];
-    for (const s of songsNoSpectrum) {
+    for (const s of songsNoScore) {
       if (!seen.has(s.id)) { seen.add(s.id); targets.push(s); }
     }
-    for (const z of zeroSpectra) {
+    for (const z of zeroScores) {
       if (!seen.has(z.songId)) { seen.add(z.songId); targets.push(z.song); }
     }
     // Sort by band name then title

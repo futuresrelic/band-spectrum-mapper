@@ -64,6 +64,11 @@ export const analysisApi = {
   regenerateAiSpectrum: (songId: string) =>
     api.post<SongAiSpectrum>(`/api/analysis/ai/${songId}/spectrum/regenerate`, {}),
 
+  generateCoreScore: (songId: string) =>
+    api.post<{ aggression: number; complexity: number; atmosphere: number; emotion: number; psychedelic: number; concept: number; rationale: string }>(
+      `/api/analysis/ai/${songId}/core-score/generate`, {},
+    ),
+
   getSongResearch: (songId: string) =>
     api.get<SongResearch>(`/api/analysis/ai/${songId}/research`),
   regenerateSongResearch: (songId: string) =>

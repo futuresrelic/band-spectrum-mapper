@@ -59,8 +59,8 @@ async function runJob(songId: string, job: JobType, force: boolean): Promise<voi
     return;
   }
   if (job === 'coreScore') {
-    // Always regenerate — these songs are already known to be missing or zero-scored
-    await analysisApi.regenerateAiSpectrum(songId);
+    // Generates an emotionally-driven Core Score → SongAxisScore (NOT AI Spectrum)
+    await analysisApi.generateCoreScore(songId);
     return;
   }
   if (job === 'research') {

@@ -65,6 +65,13 @@ analysisRouter.post('/ai/:songId/regenerate', requireAuth, requireAdmin, async (
   } catch (e) { next(e); }
 });
 
+// Core Score — emotional human-listener scoring → SongAxisScore
+analysisRouter.post('/ai/:songId/core-score/generate', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await aiAnalysisService.generateCoreScore(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
 // AI spectrum scoring
 analysisRouter.get('/ai/:songId/spectrum', async (req, res, next) => {
   try {
