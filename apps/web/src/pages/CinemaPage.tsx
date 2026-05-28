@@ -347,6 +347,11 @@ export default function CinemaPage() {
   const lyricsMaxLinesRef = useRef(5);
   useEffect(() => { lyricsMaxLinesRef.current = lyricsMaxLines; }, [lyricsMaxLines]);
 
+  // Max number of simultaneous nodes showing lyrics — limits stacking when camera is near multiple nodes
+  const [lyricsMaxNodes, setLyricsMaxNodes] = useState(1);
+  const lyricsMaxNodesRef = useRef(1);
+  useEffect(() => { lyricsMaxNodesRef.current = lyricsMaxNodes; }, [lyricsMaxNodes]);
+
   // During Director / scene-cam playback, blend lookAt toward nearest lyric sprite
   const [stareLyrics, setStareLyrics] = useState(false);
   const stareLyricsRef = useRef(false);
@@ -842,16 +847,12 @@ export default function CinemaPage() {
     finally { setSetlistLoading(false); }
   }, []);
 
-  const loadSetlistAsTour = useCallback((setlist: SetlistEntry) => {
-    setSetlistLoadingTour(setlist.id);
-    // Flatten all songs across all sets in order
+  // Shared helper: match a setlist's song titles to Cinema graph nodes
+  const matchSetlistToNodes = useCallback((setlist: SetlistEntry): CinemaNode[] => {
     const songTitles: string[] = [];
     for (const s of setlist.sets.set) {
-      for (const song of s.song ?? []) {
-        if (song.name) songTitles.push(song.name);
-      }
+      for (const song of s.song ?? []) { if (song.name) songTitles.push(song.name); }
     }
-    // Match titles against Cinema graph song nodes
     const songNodes = simNodesRef.current.filter(n => n.type === 'song');
     const matched: CinemaNode[] = [];
     for (const title of songTitles) {
@@ -861,10 +862,13 @@ export default function CinemaPage() {
         ?? songNodes.find(n => lower.includes(n.label.toLowerCase()));
       if (found && !matched.find(m => m.id === found.id)) matched.push(found);
     }
-    if (matched.length === 0) {
-      setSetlistLoadingTour(null);
-      return;
-    }
+    return matched;
+  }, []);
+
+  const loadSetlistAsTour = useCallback((setlist: SetlistEntry) => {
+    setSetlistLoadingTour(setlist.id);
+    const matched = matchSetlistToNodes(setlist);
+    if (matched.length === 0) { setSetlistLoadingTour(null); return; }
     const steps: TourStep[] = matched.map((n, i) => ({
       id: `setlist-${i}-${n.id}`,
       nodeId: n.id, nodeLabel: n.label, nodeType: n.type,
@@ -878,7 +882,29 @@ export default function CinemaPage() {
     setShowTourPlanner(true);
     startTour();
     setSetlistLoadingTour(null);
-  }, [startTour]);
+  }, [startTour, matchSetlistToNodes]);
+
+  const loadSetlistAsPath = useCallback((setlist: SetlistEntry) => {
+    setSetlistLoadingTour(setlist.id);
+    const matched = matchSetlistToNodes(setlist);
+    if (matched.length === 0) { setSetlistLoadingTour(null); return; }
+    const nextPath = matched.map(n => ({
+      id: n.id, label: n.label, type: n.type,
+      dwellMs: DEFAULT_PATH_DWELL_MS, flyInMs: DEFAULT_PATH_FLY_IN_MS,
+    }));
+    selectedChainRef.current      = matched;
+    selectedNodeRef.current       = matched[matched.length - 1] ?? null;
+    setSelectedNode(matched[matched.length - 1] ?? null);
+    pathNodesRef.current          = nextPath;
+    pathNodeSetRef.current        = new Set(nextPath.map(p => p.id));
+    setPathNodes(nextPath);
+    setPathMode(true);
+    pathModeRef.current = true;
+    setShowSetlistPanel(false);
+    setShowPathPanel(true);
+    fgRef.current?.refresh();
+    setSetlistLoadingTour(null);
+  }, [matchSetlistToNodes]);
 
   // Tour step mutations
   const handleStepChange = useCallback((id: string, patch: Partial<TourStep>) => {
@@ -1251,16 +1277,38 @@ export default function CinemaPage() {
                 lyricsScrollOffsetRef.current.set(songId, (cur + 1) % Math.max(1, total));
               });
             }
-            const selectedOnly = lyricsSelectedOnlyRef.current;
-            const inProximity  = new Set<string>();
+            const selectedOnly  = lyricsSelectedOnlyRef.current;
+            const maxLyricNodes = lyricsMaxNodesRef.current;
+            const inProximity   = new Set<string>();
+
+            // Pre-pass: find the N node IDs whose owner nodes are closest to camera
+            // (prevents stacking when the camera flies through a dense cluster)
+            let eligibleLyricSet: Set<string> | null = null;
+            if (maxLyricNodes < 999) {
+              const inRange: { id: string; dSq: number }[] = [];
+              const seenIds = new Set<string>();
+              for (const sp of lyricsSpritesRef.current) {
+                const id = sp._songId as string;
+                if (seenIds.has(id)) continue;
+                seenIds.add(id);
+                const ownerNode = nodeMapRef.current.get(id);
+                if (!ownerNode || ownerNode.x == null) continue;
+                const dx = (ownerNode.x ?? 0) - cx, dy = (ownerNode.y ?? 0) - cy, dz = (ownerNode.z ?? 0) - cz;
+                const dSq = dx * dx + dy * dy + dz * dz;
+                if (dSq <= lyricDistSq) inRange.push({ id, dSq });
+              }
+              inRange.sort((a, b) => a.dSq - b.dSq);
+              eligibleLyricSet = new Set(inRange.slice(0, maxLyricNodes).map(n => n.id));
+            }
+
             for (const sp of lyricsSpritesRef.current) {
               const ownerNode = nodeMapRef.current.get(sp._songId as string);
               if (ownerNode && ownerNode.x != null) {
                 if (isRingMode) {
-                  // Saturn ring — distribute lyric lines evenly around the orbital ring
-                  const lineIdx    = sp._lineIdx as number;
-                  const totalLines = lyricsTotalLinesRef.current.get(sp._songId as string) ?? 1;
-                  const θ = (lineIdx / Math.max(1, totalLines))
+                  // Saturn ring — word sprites flow around the orbital ring
+                  const wordIdx  = (sp as any)._wordIdx  !== undefined ? (sp as any)._wordIdx  as number : sp._lineIdx as number;
+                  const totalWds = (sp as any)._totalWords !== undefined ? (sp as any)._totalWords as number : (lyricsTotalLinesRef.current.get(sp._songId as string) ?? 1);
+                  const θ = (wordIdx / Math.max(1, totalWds))
                     * 2 * Math.PI * (ringArcCoverageRef.current / 360) + ringAngle;
                   const r = ringRadiusRef.current;
                   sp.position.set(
@@ -1274,7 +1322,7 @@ export default function CinemaPage() {
                     (sp as any)._lastLyricTH  = rth;
                   }
                 } else {
-                  // Original scattered-cloud positioning
+                  // Normal mode: scattered cloud above the node
                   const lyricAngle = sp._lyricAngle as number;
                   const lyricLi   = sp._lyricLi   as number;
                   sp.position.set(
@@ -1298,11 +1346,16 @@ export default function CinemaPage() {
                 continue;
               }
               const songId = sp._songId as string;
+              // Nearest-N node limiter (prevents stacking when near multiple nodes)
+              if (eligibleLyricSet && !eligibleLyricSet.has(songId)) { sp.visible = false; continue; }
               // Per-mode selected-only filter (uses shared selectedChainSet)
               if (isRingMode  && ringSelectedOnlyRef.current && !selectedChainSet.has(songId)) { sp.visible = false; continue; }
               if (!isRingMode && selectedOnly                && !selectedChainSet.has(songId)) { sp.visible = false; continue; }
               inProximity.add(songId);
-              if (progressiveMode) {
+              if (isRingMode) {
+                // Ring rotation provides the "reveal" effect — always show all words
+                sp.visible = true;
+              } else if (progressiveMode) {
                 if (!lyricsProximitySinceRef.current.has(songId)) {
                   lyricsProximitySinceRef.current.set(songId, now);
                 }
@@ -1440,36 +1493,60 @@ export default function CinemaPage() {
         if (!threeScene) return;
 
         const maxLines = lyricsMaxLinesRef.current;
+        const isRingModeNow = ringLyricsModeRef.current;
         const newSprites: any[] = [];
         for (const [nodeId, allLines] of Object.entries(lyricMap)) {
           const node = nodeMapRef.current.get(nodeId);
           if (!node || node.x == null) continue;
-          const lines = allLines.slice(0, maxLines);
-          let visIdx = 0;
-          lines.forEach((line, li) => {
-            if (!line.trim()) return;
-            const sp = new SpriteText(line.slice(0, 60));
-            sp.color = 'rgba(199,210,254,0.65)';
-            sp.textHeight = lyricsTextSizeRef.current;
-            sp.fontFace = 'Georgia, serif';
-            sp.backgroundColor = 'rgba(3,7,18,0.5)';
-            sp.padding = 1;
-            const angle = li * 0.9 + nodeId.charCodeAt(5) * 0.1;
-            (sp as any).position.set(
-              (node.x ?? 0) + Math.sin(angle) * 18,
-              (node.y ?? 0) + 14 + li * 7,
-              (node.z ?? 0) + Math.cos(angle) * 18,
-            );
-            // Stored so the rAF loop can reposition sprites as nodes move
-            (sp as any)._songId      = nodeId;
-            (sp as any)._lineIdx     = visIdx++;
-            (sp as any)._lyricAngle  = angle;
-            (sp as any)._lyricLi     = li;
-            threeScene.add(sp as any);
-            newSprites.push(sp as any);
-          });
-          lyricsTotalLinesRef.current.set(nodeId, visIdx);
-          lyricsScrollOffsetRef.current.set(nodeId, 0);
+
+          if (isRingModeNow) {
+            // Ring mode: one sprite per WORD so text flows around the orbital ring
+            const words = allLines.slice(0, maxLines)
+              .flatMap(l => l.split(/\s+/).filter(w => w.length > 0));
+            const totalWords = words.length;
+            words.forEach((word, wordIdx) => {
+              const sp = new SpriteText(word);
+              sp.color = 'rgba(199,210,254,0.72)';
+              sp.textHeight = ringTextSizeRef.current;
+              sp.fontFace = 'Georgia, serif';
+              sp.backgroundColor = 'rgba(3,7,18,0.4)';
+              sp.padding = 1;
+              (sp as any).position.set(node.x ?? 0, node.y ?? 0, node.z ?? 0);
+              (sp as any)._songId     = nodeId;
+              (sp as any)._wordIdx    = wordIdx;
+              (sp as any)._totalWords = totalWords;
+              threeScene.add(sp as any);
+              newSprites.push(sp as any);
+            });
+            lyricsTotalLinesRef.current.set(nodeId, totalWords);
+          } else {
+            // Normal mode: one sprite per LINE
+            const lines = allLines.slice(0, maxLines);
+            let visIdx = 0;
+            lines.forEach((line, li) => {
+              if (!line.trim()) return;
+              const sp = new SpriteText(line.slice(0, 60));
+              sp.color = 'rgba(199,210,254,0.65)';
+              sp.textHeight = lyricsTextSizeRef.current;
+              sp.fontFace = 'Georgia, serif';
+              sp.backgroundColor = 'rgba(3,7,18,0.5)';
+              sp.padding = 1;
+              const angle = li * 0.9 + nodeId.charCodeAt(5) * 0.1;
+              (sp as any).position.set(
+                (node.x ?? 0) + Math.sin(angle) * 18,
+                (node.y ?? 0) + 14 + li * 7,
+                (node.z ?? 0) + Math.cos(angle) * 18,
+              );
+              (sp as any)._songId     = nodeId;
+              (sp as any)._lineIdx    = visIdx++;
+              (sp as any)._lyricAngle = angle;
+              (sp as any)._lyricLi    = li;
+              threeScene.add(sp as any);
+              newSprites.push(sp as any);
+            });
+            lyricsTotalLinesRef.current.set(nodeId, visIdx);
+            lyricsScrollOffsetRef.current.set(nodeId, 0);
+          }
         }
         lyricsSpritesRef.current = newSprites;
       } catch (_e) {
@@ -1483,7 +1560,7 @@ export default function CinemaPage() {
       cleanupLyricsSprites();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showLyrics, simNodes, lyricsMaxLines]);
+  }, [showLyrics, simNodes, lyricsMaxLines, ringLyricsMode]);
 
   // ── Social mode ───────────────────────────────────────────────────────────────
 
@@ -2472,13 +2549,26 @@ export default function CinemaPage() {
                         <div className="text-[11px] font-medium text-gray-200">{sl.eventDate}</div>
                         <div className="text-[10px] text-gray-400 truncate">{venue}</div>
                         <div className="text-[10px] text-gray-500">{songs.length} songs · {matched.length} matched in graph</div>
-                        <button
-                          onClick={() => loadSetlistAsTour(sl)}
-                          disabled={matched.length === 0 || setlistLoadingTour === sl.id}
-                          className="w-full text-xs py-1.5 rounded-lg bg-green-900/40 border border-green-700/50 text-green-300 hover:bg-green-800/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        >
-                          {setlistLoadingTour === sl.id ? 'Loading…' : matched.length === 0 ? 'No songs in graph' : `▶ Load as Tour (${matched.length} songs)`}
-                        </button>
+                        {setlistLoadingTour === sl.id ? (
+                          <div className="text-xs text-center text-gray-500 py-1">Loading…</div>
+                        ) : matched.length === 0 ? (
+                          <div className="text-[10px] text-gray-700 text-center py-1">No songs in graph — load a band first</div>
+                        ) : (
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => loadSetlistAsTour(sl)}
+                              className="flex-1 text-xs py-1.5 rounded-lg bg-green-900/40 border border-green-700/50 text-green-300 hover:bg-green-800/50 transition-colors"
+                            >
+                              ▶ Tour ({matched.length})
+                            </button>
+                            <button
+                              onClick={() => loadSetlistAsPath(sl)}
+                              className="flex-1 text-xs py-1.5 rounded-lg bg-amber-900/40 border border-amber-700/50 text-amber-300 hover:bg-amber-800/50 transition-colors"
+                            >
+                              🛤 Path ({matched.length})
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -2634,6 +2724,16 @@ export default function CinemaPage() {
                     onChange={e => setLyricsMaxLines(Number(e.target.value))}
                     className="w-full accent-indigo-500" />
                   <div className="text-[10px] text-gray-700">5 = first verse · 30 = full song (rebuilds sprites)</div>
+                </label>
+                <label className="block space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-400">
+                    <span>Max nodes showing lyrics</span>
+                    <span>{lyricsMaxNodes >= 99 ? 'all' : lyricsMaxNodes}</span>
+                  </div>
+                  <input type="range" min={1} max={10} step={1} value={lyricsMaxNodes}
+                    onChange={e => setLyricsMaxNodes(Number(e.target.value))}
+                    className="w-full accent-indigo-500" />
+                  <div className="text-[10px] text-gray-700">1 = closest node only · prevents text piling when flying near a cluster</div>
                 </label>
                 {/* Stare-at-lyrics: shift camera lookAt toward nearest lyric during Director / scene-cam playback */}
                 <button

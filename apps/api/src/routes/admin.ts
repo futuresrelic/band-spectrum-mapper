@@ -550,6 +550,55 @@ adminRouter.get('/ai-batch/scan', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/admin/ai-batch/spectrum-targets
+// Returns songs with null or all-zero aiSpectrum — the "Core Score" target list.
+// ---------------------------------------------------------------------------
+adminRouter.get('/ai-batch/spectrum-targets', async (req, res, next) => {
+  try {
+    const bandIdsParam = req.query['bandIds'];
+    const bandIds = typeof bandIdsParam === 'string' && bandIdsParam
+      ? bandIdsParam.split(',').filter(Boolean)
+      : [];
+    const where = bandIds.length > 0 ? { bandId: { in: bandIds } } : {};
+
+    const spectrumZeroWhere = bandIds.length > 0
+      ? { song: { bandId: { in: bandIds } }, aggression: 0, complexity: 0, atmosphere: 0, emotion: 0, psychedelic: 0, concept: 0 }
+      : { aggression: 0, complexity: 0, atmosphere: 0, emotion: 0, psychedelic: 0, concept: 0 };
+
+    // Songs with no spectrum record + songs with all-zero spectrum
+    const [songsNoSpectrum, zeroSpectra] = await Promise.all([
+      prisma.song.findMany({
+        where: { ...where, aiSpectrum: { is: null } },
+        select: { id: true, title: true, band: { select: { id: true, name: true } } },
+        orderBy: [{ band: { name: 'asc' } }, { title: 'asc' }],
+      }),
+      prisma.songAiSpectrum.findMany({
+        where: spectrumZeroWhere,
+        select: { songId: true, song: { select: { id: true, title: true, band: { select: { id: true, name: true } } } } },
+        orderBy: [{ song: { band: { name: 'asc' } } }, { song: { title: 'asc' } }],
+      }),
+    ]);
+
+    // Combine, de-duplicate by songId, shape like Song for the batch runner
+    const seen = new Set<string>();
+    const targets: { id: string; title: string; band: { id: string; name: string } }[] = [];
+    for (const s of songsNoSpectrum) {
+      if (!seen.has(s.id)) { seen.add(s.id); targets.push(s); }
+    }
+    for (const z of zeroSpectra) {
+      if (!seen.has(z.songId)) { seen.add(z.songId); targets.push(z.song); }
+    }
+    // Sort by band name then title
+    targets.sort((a, b) => {
+      const bCmp = a.band.name.localeCompare(b.band.name);
+      return bCmp !== 0 ? bCmp : a.title.localeCompare(b.title);
+    });
+
+    res.json(targets);
+  } catch (e) { next(e); }
+});
+
 // POST /api/admin/songs/:songId/fetch-metadata
 // Fetches track duration from MusicBrainz and saves it to the song record.
 adminRouter.post('/songs/:songId/fetch-metadata', async (req, res, next) => {

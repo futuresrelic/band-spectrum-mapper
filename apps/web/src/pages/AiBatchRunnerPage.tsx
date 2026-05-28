@@ -6,26 +6,28 @@ import { api } from '../lib/api';
 import PageHeader from '../components/layout/PageHeader';
 import type { Song } from '@band-spectrum-mapper/shared';
 
-type JobType = 'analysis' | 'spectrum' | 'research' | 'genre' | 'tags' | 'metadata' | 'context';
+type JobType = 'analysis' | 'spectrum' | 'coreScore' | 'research' | 'genre' | 'tags' | 'metadata' | 'context';
 
 const JOB_LABELS: Record<JobType, string> = {
-  analysis: 'AI Lyric Analysis',
-  spectrum: 'AI Spectrum Scoring',
-  research: 'Song Research',
-  genre: 'Genre Accessibility',
-  tags: 'Thematic Tags',
-  metadata: 'Track Duration',
-  context: 'Context Analysis',
+  analysis:  'AI Lyric Analysis',
+  spectrum:  'AI Spectrum Scoring',
+  coreScore: 'Core Score (fix zeros)',
+  research:  'Song Research',
+  genre:     'Genre Accessibility',
+  tags:      'Thematic Tags',
+  metadata:  'Track Duration',
+  context:   'Context Analysis',
 };
 
 const JOB_DESCRIPTIONS: Record<JobType, string> = {
-  analysis: 'Curated discovery tags + emotional register + notable craft elements + narrative voice (also writes tags to Song Cloud — runs one AI call for both)',
-  spectrum: 'Aggression, Complexity, Atmosphere, Emotion, Psychedelic, Concept (0–10)',
-  research: 'Music style summary and background context',
-  genre: 'How much each genre audience would enjoy it (Metal, Rock, Pop, Hip-Hop, Electronic, Folk/Indie)',
-  tags: 'Generate thematic tags separately — not needed if Analysis has already run (Analysis now includes tags)',
-  metadata: 'Fetch track length from MusicBrainz (rate-limited, ~1 req/sec)',
-  context: 'Deep synthesis of title meaning, lyrical interpretation, and historical context. Run after Research for best results. Output feeds into tag quality.',
+  analysis:  'Curated discovery tags + emotional register + notable craft elements + narrative voice (also writes tags to Song Cloud — runs one AI call for both)',
+  spectrum:  'Aggression, Complexity, Atmosphere, Emotion, Psychedelic, Concept (0–10)',
+  coreScore: 'Targets only songs with missing or all-zero spectrum scores. Click "Load targets" to load only those songs — then Run to fix them. Use instead of full Spectrum job when most songs are already scored.',
+  research:  'Music style summary and background context',
+  genre:     'How much each genre audience would enjoy it (Metal, Rock, Pop, Hip-Hop, Electronic, Folk/Indie)',
+  tags:      'Generate thematic tags separately — not needed if Analysis has already run (Analysis now includes tags)',
+  metadata:  'Fetch track length from MusicBrainz (rate-limited, ~1 req/sec)',
+  context:   'Deep synthesis of title meaning, lyrical interpretation, and historical context. Run after Research for best results. Output feeds into tag quality.',
 };
 
 interface ScanResult {
@@ -54,6 +56,11 @@ async function runJob(songId: string, job: JobType, force: boolean): Promise<voi
   }
   if (job === 'spectrum') {
     force ? await analysisApi.regenerateAiSpectrum(songId) : await analysisApi.getAiSpectrum(songId);
+    return;
+  }
+  if (job === 'coreScore') {
+    // Always regenerate — these songs are already known to be missing or zero-scored
+    await analysisApi.regenerateAiSpectrum(songId);
     return;
   }
   if (job === 'research') {
@@ -145,6 +152,13 @@ export default function AiBatchRunnerPage() {
     });
   };
 
+  const makeBlankRow = (song: Song, bandName: string): SongRow => ({
+    song,
+    bandName,
+    statuses: { analysis: 'pending', spectrum: 'pending', coreScore: 'pending', research: 'pending', genre: 'pending', tags: 'pending', metadata: 'pending', context: 'pending' },
+    errors:   { analysis: '', spectrum: '', coreScore: '', research: '', genre: '', tags: '', metadata: '', context: '' },
+  });
+
   const loadAllSongs = useCallback(async () => {
     if (!bands) return;
     const all: SongRow[] = [];
@@ -153,21 +167,29 @@ export default function AiBatchRunnerPage() {
       : bands;
     for (const band of bandsToLoad) {
       const songs = await bandsApi.listSongs(band.id);
-      for (const song of songs) {
-        const statuses: Record<JobType, RowStatus> = {
-          analysis: 'pending', spectrum: 'pending', research: 'pending', genre: 'pending', tags: 'pending', metadata: 'pending', context: 'pending',
-        };
-        const errors: Record<JobType, string> = {
-          analysis: '', spectrum: '', research: '', genre: '', tags: '', metadata: '', context: '',
-        };
-        all.push({ song, bandName: band.name, statuses, errors });
-      }
+      for (const song of songs) all.push(makeBlankRow(song, band.name));
     }
     setRows(all);
     setCurrentIdx(-1);
     setDoneCount(0);
     setErrorCount(0);
   }, [bands, filterBandIds]);
+
+  // Load only songs with missing or all-zero spectrum (Core Score targets)
+  const loadCoreScoreTargets = useCallback(async () => {
+    const bandParam = filterBandIds.size > 0 ? `?bandIds=${[...filterBandIds].join(',')}` : '';
+    const targets = await api.get<{ id: string; title: string; band: { id: string; name: string } }[]>(
+      `/api/admin/ai-batch/spectrum-targets${bandParam}`,
+    );
+    const all: SongRow[] = targets.map(t => makeBlankRow(
+      { id: t.id, title: t.title, bandId: t.band.id } as Song,
+      t.band.name,
+    ));
+    setRows(all);
+    setCurrentIdx(-1);
+    setDoneCount(0);
+    setErrorCount(0);
+  }, [filterBandIds]);
 
   const runScan = useCallback(async () => {
     setScanning(true);
@@ -490,9 +512,16 @@ export default function AiBatchRunnerPage() {
         {/* Buttons */}
         <div className="flex gap-3 flex-wrap items-center">
           {rows.length === 0 ? (
-            <button className="btn-secondary" onClick={() => void loadAllSongs()} disabled={bandsLoading || running}>
-              {bandsLoading ? 'Loading bands…' : 'Load songs'}
-            </button>
+            <>
+              <button className="btn-secondary" onClick={() => void loadAllSongs()} disabled={bandsLoading || running}>
+                {bandsLoading ? 'Loading bands…' : 'Load songs'}
+              </button>
+              {selectedJobs.has('coreScore') && (
+                <button className="btn-secondary text-orange-700 border-orange-300 hover:border-orange-500" onClick={() => void loadCoreScoreTargets()} disabled={running}>
+                  Load Core Score targets only
+                </button>
+              )}
+            </>
           ) : (
             <>
               {!running && (

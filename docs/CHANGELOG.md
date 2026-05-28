@@ -4,6 +4,22 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Cinema lyrics stacking fix, Saturn ring word-wrapping, Setlist path mode, Core Score batch job (2026-05-27)
+
+### Fixed
+
+- **Lyrics stacking when camera flies near multiple nodes** — New "Max nodes showing lyrics" slider (default: 1) in the lyrics config. A per-frame pre-pass computes the closest N nodes to the camera and hides all other nodes' lyrics, preventing text pile-ups when flying through a dense cluster in Breathing or Tour mode.
+
+- **Saturn ring text now flows word-by-word** — Ring mode rebuilds lyric sprites as one sprite per WORD (instead of one per line). Words are spaced evenly around the orbital arc, so the text genuinely wraps around the ring. Toggling ring mode on/off rebuilds the sprite pool at the appropriate granularity.
+
+### Added
+
+- **Setlist → Path mode** — The setlist panel now shows two buttons per concert: "▶ Tour" (plays the camera sequence) and "🛤 Path" (loads the song order as a clickable path with connecting lines). Path mode is shown immediately after loading.
+
+- **Core Score batch job** — New "Core Score (fix zeros)" job type in the AI Batch Runner. When selected, a "Load Core Score targets only" button appears that fetches only songs with missing or all-zero spectrum scores (via `/api/admin/ai-batch/spectrum-targets`). Running this job always calls `regenerateAiSpectrum` — no need to enable Force Regenerate.
+
+---
+
 ## Cinema themes, Core Score fix, Setlist.fm Cinema tours (2026-05-27)
 
 ### Added
