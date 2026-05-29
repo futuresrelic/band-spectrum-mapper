@@ -603,6 +603,44 @@ adminRouter.get('/ai-batch/spectrum-targets', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/admin/ai-batch/tags-missing-description
+// Returns songs that have at least one SongTag with description = null.
+// These are songs tagged by the analysis batch (no description) rather than
+// the dedicated tags batch (which writes descriptions). Running the tags
+// batch on these will clear old tags and regenerate with full descriptions.
+// ---------------------------------------------------------------------------
+adminRouter.get('/ai-batch/tags-missing-description', async (req, res, next) => {
+  try {
+    const bandIdsParam = req.query['bandIds'];
+    const bandIds = typeof bandIdsParam === 'string' && bandIdsParam
+      ? bandIdsParam.split(',').filter(Boolean)
+      : [];
+    const where = bandIds.length > 0 ? { bandId: { in: bandIds } } : {};
+
+    const songs = await prisma.song.findMany({
+      where: { ...where, songTags: { some: { description: null } } },
+      select: {
+        id: true,
+        title: true,
+        band: { select: { id: true, name: true } },
+        songTags: { select: { description: true } },
+      },
+      orderBy: [{ band: { name: 'asc' } }, { title: 'asc' }],
+    });
+
+    const targets = songs.map((s) => ({
+      id: s.id,
+      title: s.title,
+      band: { id: s.band.id, name: s.band.name },
+      tagsMissingDesc: s.songTags.filter((st) => st.description === null).length,
+      tagsTotal: s.songTags.length,
+    }));
+
+    res.json(targets);
+  } catch (e) { next(e); }
+});
+
 // POST /api/admin/songs/:songId/fetch-metadata
 // Fetches track duration from MusicBrainz and saves it to the song record.
 adminRouter.post('/songs/:songId/fetch-metadata', async (req, res, next) => {

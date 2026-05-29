@@ -150,7 +150,10 @@ Example: [{"name":"mortality","description":"The lyric circles a confrontation w
       throw new HttpError(502, 'AI returned invalid tag list');
     }
 
-    // Upsert each tag and link to the song with description
+    // Clear existing tags for this song so stale description-less entries don't survive
+    await prisma.songTag.deleteMany({ where: { songId } });
+
+    // Create fresh tags with descriptions
     for (const { name: tagName, description } of tagObjects) {
       const slug = slugify(tagName);
       if (!slug) continue;
@@ -159,10 +162,8 @@ Example: [{"name":"mortality","description":"The lyric circles a confrontation w
         create: { name: tagName, slug },
         update: {},
       });
-      await prisma.songTag.upsert({
-        where: { songId_tagId: { songId, tagId: tag.id } },
-        create: { songId, tagId: tag.id, description: description || null },
-        update: { description: description || null },
+      await prisma.songTag.create({
+        data: { songId, tagId: tag.id, description: description || null },
       });
     }
 

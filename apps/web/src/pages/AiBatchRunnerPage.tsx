@@ -175,6 +175,22 @@ export default function AiBatchRunnerPage() {
     setErrorCount(0);
   }, [bands, filterBandIds]);
 
+  // Load only songs that have tags missing descriptions
+  const loadTagsMissingDescriptionTargets = useCallback(async () => {
+    const bandParam = filterBandIds.size > 0 ? `?bandIds=${[...filterBandIds].join(',')}` : '';
+    const targets = await api.get<{ id: string; title: string; band: { id: string; name: string }; tagsMissingDesc: number; tagsTotal: number }[]>(
+      `/api/admin/ai-batch/tags-missing-description${bandParam}`,
+    );
+    const all: SongRow[] = targets.map(t => makeBlankRow(
+      { id: t.id, title: t.title, bandId: t.band.id } as Song,
+      t.band.name,
+    ));
+    setRows(all);
+    setCurrentIdx(-1);
+    setDoneCount(0);
+    setErrorCount(0);
+  }, [filterBandIds]);
+
   // Load only songs with missing or all-zero spectrum (Core Score targets)
   const loadCoreScoreTargets = useCallback(async () => {
     const bandParam = filterBandIds.size > 0 ? `?bandIds=${[...filterBandIds].join(',')}` : '';
@@ -519,6 +535,11 @@ export default function AiBatchRunnerPage() {
               {selectedJobs.has('coreScore') && (
                 <button className="btn-secondary text-orange-700 border-orange-300 hover:border-orange-500" onClick={() => void loadCoreScoreTargets()} disabled={running}>
                   Load Core Score targets only
+                </button>
+              )}
+              {selectedJobs.has('tags') && (
+                <button className="btn-secondary text-cyan-700 border-cyan-300 hover:border-cyan-500" onClick={() => void loadTagsMissingDescriptionTargets()} disabled={running}>
+                  Load tags missing description
                 </button>
               )}
             </>
