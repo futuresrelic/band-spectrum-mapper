@@ -8,6 +8,7 @@ import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
 import EmptyState from '../components/layout/EmptyState';
 import type { CreateSongInput } from '@band-spectrum-mapper/shared';
+import { ALBUM_TYPES } from '@band-spectrum-mapper/shared';
 
 export default function AlbumDetailPage() {
   const { albumId } = useParams<{ albumId: string }>();
@@ -26,6 +27,7 @@ export default function AlbumDetailPage() {
   const [editYear, setEditYear] = useState('');
   const [editArtworkUrl, setEditArtworkUrl] = useState('');
   const [editNotes, setEditNotes] = useState('');
+  const [editAlbumType, setEditAlbumType] = useState<string>('');
   const [editError, setEditError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState('');
 
@@ -109,6 +111,7 @@ export default function AlbumDetailPage() {
       year: editYear ? parseInt(editYear) : null,
       artworkUrl: editArtworkUrl.trim() || null,
       notes: editNotes.trim() || null,
+      ...(editAlbumType ? { albumType: editAlbumType as typeof ALBUM_TYPES[number] } : { albumType: null }),
     }),
     onSuccess: (saved) => {
       qc.invalidateQueries({ queryKey: ['album', albumId] });
@@ -156,6 +159,7 @@ export default function AlbumDetailPage() {
     setEditYear(album?.year ? String(album.year) : '');
     setEditArtworkUrl(album?.artworkUrl ?? '');
     setEditNotes(album?.notes ?? '');
+    setEditAlbumType(album?.albumType ?? '');
     setEditError('');
     setShowArtSearch(false);
     setArtResults([]);
@@ -171,7 +175,7 @@ export default function AlbumDetailPage() {
     <div>
       <PageHeader
         title={album.title}
-        subtitle={album.year ? String(album.year) : undefined}
+        subtitle={[album.year ? String(album.year) : null, album.albumType ? album.albumType.toUpperCase() : null].filter(Boolean).join(' · ') || undefined}
         actions={
           <div className="flex gap-2">
             <Link to={`/library/bands/${album.bandId}`} className="btn-secondary">← Band</Link>
@@ -316,6 +320,15 @@ export default function AlbumDetailPage() {
                   <p className="text-[9px] text-surface-400">iTunes · Cover Art Archive · Wikipedia · click a cover to select</p>
                 </div>
               )}
+            </div>
+            <div>
+              <label className="label">Album Type</label>
+              <select className="input" value={editAlbumType} onChange={(e) => setEditAlbumType(e.target.value)}>
+                <option value="">— unset —</option>
+                {ALBUM_TYPES.map((t) => (
+                  <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="label">Notes</label>

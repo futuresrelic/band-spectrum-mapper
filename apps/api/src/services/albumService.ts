@@ -70,6 +70,7 @@ export const albumService = {
         }),
         ...(data.artworkUrl !== undefined && { artworkUrl: data.artworkUrl }),
         ...(data.notes !== undefined && { notes: data.notes }),
+        ...(data.albumType !== undefined && { albumType: data.albumType }),
       },
     });
   },

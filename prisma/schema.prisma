@@ -33,8 +33,18 @@ model Band {
   @@map("bands")
 }
 
+enum AlbumType {
+  studio
+  ep
+  live
+  compilation
+  bootleg
+  single
+  demo
+}
+
 model Album {
-  id          String    @id @default(cuid())
+  id          String     @id @default(cuid())
   bandId      String
   title       String
   slug        String
@@ -42,8 +52,9 @@ model Album {
   releaseDate DateTime?
   artworkUrl  String?
   notes       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  albumType   AlbumType?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
   band            Band   @relation(fields: [bandId], references: [id], onDelete: Cascade)
   songs           Song[]

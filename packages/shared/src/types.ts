@@ -13,6 +13,8 @@ export interface Band {
   updatedAt: string;
 }
 
+export type AlbumType = 'studio' | 'ep' | 'live' | 'compilation' | 'bootleg' | 'single' | 'demo';
+
 export interface Album {
   id: string;
   bandId: string;
@@ -22,6 +24,7 @@ export interface Album {
   releaseDate: string | null;
   artworkUrl: string | null;
   notes: string | null;
+  albumType: AlbumType | null;
   createdAt: string;
   updatedAt: string;
 }

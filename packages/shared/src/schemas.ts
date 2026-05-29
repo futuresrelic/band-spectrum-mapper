@@ -40,6 +40,9 @@ export type UpdateBandInput = z.infer<typeof updateBandSchema>;
 // Album schemas
 // ---------------------------------------------------------------------------
 
+export const ALBUM_TYPES = ['studio', 'ep', 'live', 'compilation', 'bootleg', 'single', 'demo'] as const;
+export type AlbumTypeValue = typeof ALBUM_TYPES[number];
+
 export const createAlbumSchema = z.object({
   title: z.string().min(1).max(300),
   slug: slugSchema.optional(),
@@ -47,6 +50,7 @@ export const createAlbumSchema = z.object({
   releaseDate: z.string().datetime().optional().nullable(),
   artworkUrl: z.string().url().max(2000).optional().nullable(),
   notes: z.string().max(5000).optional().nullable(),
+  albumType: z.enum(ALBUM_TYPES).optional().nullable(),
 });
 
 export const updateAlbumSchema = createAlbumSchema.partial();

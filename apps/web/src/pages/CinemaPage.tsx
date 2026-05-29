@@ -210,8 +210,21 @@ export default function CinemaPage() {
   // ── Data ─────────────────────────────────────────────────────────────────────
   const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
   const [selectedNode, setSelectedNode]       = useState<CinemaNode | null>(null);
+  const [selectedNodeTags, setSelectedNodeTags] = useState<{ name: string; description: string }[]>([]);
   const [simNodes, setSimNodes]               = useState<CinemaNode[]>([]);
   const [simLinks, setSimLinks]               = useState<CinemaLink[]>([]);
+
+  // Fetch tags with descriptions when a song node is selected
+  useEffect(() => {
+    if (!selectedNode || !selectedNode.id.startsWith('song:')) {
+      setSelectedNodeTags([]);
+      return;
+    }
+    const songId = selectedNode.id.slice('song:'.length);
+    api.get<{ tags: { name: string; description: string }[] }>(`/api/analysis/ai/${songId}/tags`)
+      .then((res) => setSelectedNodeTags(res.tags))
+      .catch(() => setSelectedNodeTags([]));
+  }, [selectedNode]);
 
   // ── Cinema state ─────────────────────────────────────────────────────────────
   const [currentSceneIdx, setCurrentSceneIdx]     = useState(0);
@@ -3236,6 +3249,21 @@ export default function CinemaPage() {
                         <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${Math.min(100, val * 10)}%` }} />
                       </div>
                       <span className="text-[10px] text-gray-400 w-4 text-right">{val}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Tags with descriptions — song nodes only */}
+              {selectedNode.id.startsWith('song:') && selectedNodeTags.length > 0 && (
+                <div className="space-y-2 mb-3 border-t border-gray-800 pt-2">
+                  <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-1">Tags</div>
+                  {selectedNodeTags.map((t) => (
+                    <div key={t.name} className="space-y-0.5">
+                      <span className="inline-block text-[10px] font-medium text-cyan-400 bg-cyan-950/60 rounded px-1.5 py-0.5">{t.name}</span>
+                      {t.description && (
+                        <p className="text-[9px] text-gray-500 leading-snug pl-1">{t.description}</p>
+                      )}
                     </div>
                   ))}
                 </div>
