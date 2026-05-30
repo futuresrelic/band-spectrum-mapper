@@ -32,6 +32,7 @@ export default function BandDetailPage() {
   const [showEdit, setShowEdit] = useState(false);
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [editLogoUrl, setEditLogoUrl] = useState('');
   const [editError, setEditError] = useState('');
 
   const { data: band, isLoading, error } = useQuery({
@@ -50,6 +51,7 @@ export default function BandDetailPage() {
     mutationFn: () => bandsApi.update(bandId!, {
       name: editName.trim() || undefined,
       description: editDescription.trim() || null,
+      logoUrl: editLogoUrl.trim() || null,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['band', bandId] });
@@ -116,6 +118,7 @@ export default function BandDetailPage() {
   const openEdit = () => {
     setEditName(band?.name ?? '');
     setEditDescription(band?.description ?? '');
+    setEditLogoUrl(band?.logoUrl ?? '');
     setEditError('');
     setShowEdit(true);
   };
@@ -164,6 +167,10 @@ export default function BandDetailPage() {
             <div>
               <label className="label">Description</label>
               <input className="input" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder="Optional" />
+            </div>
+            <div>
+              <label className="label">Logo URL <span className="text-surface-400 font-normal">(shown in Cinema Visual Node Mode)</span></label>
+              <input className="input" type="url" value={editLogoUrl} onChange={(e) => setEditLogoUrl(e.target.value)} placeholder="https://… direct image URL" />
             </div>
             {editError && <p className="text-red-600 text-sm">{editError}</p>}
             <div className="flex gap-2">

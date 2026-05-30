@@ -68,6 +68,7 @@ export const bandService = {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.slug !== undefined && { slug: data.slug }),
         ...(data.description !== undefined && { description: data.description }),
+        ...(data.logoUrl !== undefined && { logoUrl: data.logoUrl }),
       },
     });
   },

@@ -144,8 +144,8 @@ async function fetchSongs(filter: {
       ...(albumId && { albumId }),
     },
     include: {
-      band: { select: { id: true, name: true } },
-      album: { select: { id: true, title: true } },
+      band: { select: { id: true, name: true, logoUrl: true } },
+      album: { select: { id: true, title: true, artworkUrl: true } },
       score: true,
       songTags: { include: { tag: true } },
       aiAnalysis: { select: { themes: true } },
@@ -170,8 +170,8 @@ async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
 
-  const bandSet = new Map<string, string>();         // bandId → name
-  const albumSet = new Map<string, string>();        // albumId → title
+  const bandSet   = new Map<string, { name: string; logoUrl?: string | null }>();  // bandId → info
+  const albumSet  = new Map<string, { title: string; artworkUrl?: string | null }>(); // albumId → info
   const albumBandMap = new Map<string, string>();    // albumId → bandId
   const tagSet = new Map<string, string>();          // tagId → name
   // Note: Theme nodes removed from artist-universe — Tags carry the same data
@@ -181,9 +181,9 @@ async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
 
   for (const s of songs) {
     nodes.push(songNode(s));
-    bandSet.set(s.band.id, s.band.name);
+    bandSet.set(s.band.id, { name: s.band.name, logoUrl: s.band.logoUrl });
     if (s.album) {
-      albumSet.set(s.album.id, s.album.title);
+      albumSet.set(s.album.id, { title: s.album.title, artworkUrl: s.album.artworkUrl });
       albumBandMap.set(s.album.id, s.band.id);
     }
 
@@ -214,16 +214,25 @@ async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
   }
 
   // Artist nodes
-  for (const [id, name] of bandSet) {
+  for (const [id, info] of bandSet) {
     const songCount = songs.filter((s) => s.band.id === id).length;
-    nodes.push({ id: `artist:${id}`, type: 'artist', label: name,
-      data: { color: NODE_COLORS.artist, size: Math.min(60, 20 + songCount * 3) } });
+    nodes.push({ id: `artist:${id}`, type: 'artist', label: info.name,
+      data: {
+        color: NODE_COLORS.artist,
+        size: Math.min(60, 20 + songCount * 3),
+        ...(info.logoUrl ? { imageUrl: info.logoUrl } : {}),
+      },
+    });
   }
 
   // Album nodes + album → artist edges (clean 3-tier hierarchy)
-  for (const [id, title] of albumSet) {
-    nodes.push({ id: `album:${id}`, type: 'album', label: title,
-      data: { color: NODE_COLORS.album } });
+  for (const [id, info] of albumSet) {
+    nodes.push({ id: `album:${id}`, type: 'album', label: info.title,
+      data: {
+        color: NODE_COLORS.album,
+        ...(info.artworkUrl ? { imageUrl: info.artworkUrl } : {}),
+      },
+    });
     const bandId = albumBandMap.get(id);
     if (bandId) {
       edges.push({
@@ -254,7 +263,7 @@ async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
     }
   }
 
-  const bandNames = [...bandSet.values()].join(', ');
+  const bandNames = [...bandSet.values()].map(b => b.name).join(', ');
   return { nodes, edges, preset: 'artist-universe', label: `Artist Universe: ${bandNames}` };
 }
 

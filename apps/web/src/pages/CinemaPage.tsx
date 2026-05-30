@@ -206,6 +206,48 @@ function stareLookAt(
   ];
 }
 
+// ── Texture cache (module-level so it survives re-renders) ───────────────────
+const _texCache = new Map<string, THREE.Texture>();
+function getCachedTexture(url: string, onLoad?: () => void): THREE.Texture {
+  if (_texCache.has(url)) return _texCache.get(url)!;
+  const tex = new THREE.TextureLoader().load(url, onLoad);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _texCache.set(url, tex);
+  return tex;
+}
+
+// Vinyl record canvas texture — drawn once, reused for all song nodes
+let _vinylTex: THREE.CanvasTexture | null = null;
+function getVinylTexture(): THREE.CanvasTexture {
+  if (_vinylTex) return _vinylTex;
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const cx = size / 2, cy = size / 2;
+  ctx.fillStyle = '#0a0a0a';
+  ctx.beginPath(); ctx.arc(cx, cy, cx, 0, Math.PI * 2); ctx.fill();
+  // Groove rings
+  for (let r = 12; r < cx - 8; r += 3.5) {
+    const alpha = 0.08 + 0.04 * Math.sin(r * 0.4);
+    ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+    ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  }
+  // Label area
+  const labelR = cx * 0.3;
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, labelR);
+  grad.addColorStop(0, '#4f46e5');
+  grad.addColorStop(1, '#1e1b4b');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(cx, cy, labelR, 0, Math.PI * 2); ctx.fill();
+  // Center hole
+  ctx.fillStyle = '#0a0a0a';
+  ctx.beginPath(); ctx.arc(cx, cy, cx * 0.04, 0, Math.PI * 2); ctx.fill();
+  _vinylTex = new THREE.CanvasTexture(canvas);
+  return _vinylTex;
+}
+
 export default function CinemaPage() {
   // ── Data ─────────────────────────────────────────────────────────────────────
   const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
@@ -224,6 +266,29 @@ export default function CinemaPage() {
     api.get<{ tags: { name: string; description: string }[] }>(`/api/analysis/ai/${songId}/tags`)
       .then((res) => setSelectedNodeTags(res.tags))
       .catch(() => setSelectedNodeTags([]));
+  }, [selectedNode]);
+
+  // Fetch lyrics for reader when a song node is selected
+  useEffect(() => {
+    if (!selectedNode?.id.startsWith('song:')) {
+      setShowLyricsReader(false);
+      return;
+    }
+    const songId = selectedNode.id.slice('song:'.length);
+    api.get<{ id: string; text: string; isPrimary: boolean }[]>(`/api/songs/${songId}/lyrics`)
+      .then((lyrics) => {
+        const primary = lyrics.find(l => l.isPrimary) ?? lyrics[0];
+        if (primary) {
+          setLyricsReaderText(primary.text.split('\n'));
+          setLyricsReaderSong(selectedNode.label);
+          const bandName = (selectedNode.data?.bandName as string | undefined) ?? '';
+          setLyricsReaderBand(bandName);
+          setLyricsReaderReveal(0);
+        } else {
+          setLyricsReaderText([]);
+        }
+      })
+      .catch(() => setLyricsReaderText([]));
   }, [selectedNode]);
 
   // ── Cinema state ─────────────────────────────────────────────────────────────
@@ -369,6 +434,20 @@ export default function CinemaPage() {
   const [stareLyrics, setStareLyrics] = useState(false);
   const stareLyricsRef = useRef(false);
   useEffect(() => { stareLyricsRef.current = stareLyrics; }, [stareLyrics]);
+
+  // ── Visual Node Mode ─────────────────────────────────────────────────────────
+  // Shows album artwork, band logos, and vinyl song nodes instead of plain spheres
+  const [visualNodeMode, setVisualNodeMode] = useState(false);
+  const visualNodeModeRef = useRef(false);
+  useEffect(() => { visualNodeModeRef.current = visualNodeMode; }, [visualNodeMode]);
+
+  // ── Lyrics Reader ────────────────────────────────────────────────────────────
+  // Full-screen readable lyrics overlay for the selected song node
+  const [showLyricsReader, setShowLyricsReader] = useState(false);
+  const [lyricsReaderText, setLyricsReaderText] = useState<string[]>([]);
+  const [lyricsReaderSong, setLyricsReaderSong] = useState('');
+  const [lyricsReaderBand, setLyricsReaderBand] = useState('');
+  const [lyricsReaderReveal, setLyricsReaderReveal] = useState(0);
 
   // Per-node visual overrides: custom color + size multiplier, persisted in localStorage
   const [nodeOverrides, setNodeOverridesRaw] = useState<Record<string, { color?: string; sizeMultiplier?: number }>>(() => {
@@ -1707,21 +1786,62 @@ export default function CinemaPage() {
   }, [tourMode, tourHighlightedId, tourNodeIds, currentTheme]);
 
   const nodeThreeObject = useCallback((node: object) => {
-    const n      = node as CinemaNode;
+    const n   = node as CinemaNode;
+    const r   = sphereR(nodeValFor(n.type));
+    const sz  = labelTextSizesRef.current;
+    const th  = (sz as Record<string, number>)[n.type] ?? sz.tag;
+
+    // Label sprite (shared between both modes)
     const sprite = new SpriteText(n.label);
     sprite.color = '#e2e8f000';
-    const sz = labelTextSizesRef.current;
-    sprite.textHeight = (sz as Record<string, number>)[n.type] ?? sz.tag;
+    sprite.textHeight = th;
     sprite.fontWeight = '600';
     sprite.backgroundColor = 'rgba(3,7,18,0.7)';
     sprite.padding = 1.5;
     sprite.borderRadius = 2;
-    const s = sprite as any;
-    s.position.y = sphereR(nodeValFor(n.type)) + sprite.textHeight * 0.6 + 3;
-    s.visible = false;
+    (sprite as any).visible = false;
     labelMapRef.current.set(n.id, sprite);
-    return sprite;
-  }, []);
+
+    if (!visualNodeModeRef.current) {
+      // Default mode: label sprite extends over the default sphere
+      (sprite as any).position.y = r + th * 0.6 + 3;
+      return sprite;
+    }
+
+    // ── Visual Node Mode ──────────────────────────────────────────────────────
+    // Return a full Group (nodeThreeObjectExtend=false when visualNodeMode=true)
+    const group = new THREE.Group();
+    const imageUrl = n.data?.imageUrl as string | undefined;
+
+    if (n.type === 'song') {
+      // Vinyl record disk
+      const diskR = r * 2.5;
+      const geo  = new THREE.CylinderGeometry(diskR, diskR, r * 0.25, 48);
+      const mat  = new THREE.MeshLambertMaterial({ map: getVinylTexture() });
+      const disk = new THREE.Mesh(geo, mat);
+      disk.rotation.x = Math.PI / 12; // slight tilt so grooves are visible
+      group.add(disk);
+    } else if ((n.type === 'album' || n.type === 'artist') && imageUrl) {
+      // Artwork / logo square sprite
+      const size = r * 3.2;
+      const tex = getCachedTexture(imageUrl, () => fgRef.current?.refresh());
+      const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false });
+      const art = new THREE.Sprite(mat);
+      art.scale.set(size, size, 1);
+      group.add(art);
+    } else {
+      // Fallback: recreate the default sphere so the node isn't invisible
+      const nColor = (n.data?.color as string | undefined) ?? '#4b5563';
+      const geo  = new THREE.SphereGeometry(r, 12, 12);
+      const mat  = new THREE.MeshLambertMaterial({ color: new THREE.Color(nColor) });
+      group.add(new THREE.Mesh(geo, mat));
+    }
+
+    // Label sits above the visual
+    (sprite as any).position.y = r * 3 + th * 0.6 + 2;
+    group.add(sprite);
+    return group;
+  }, [visualNodeMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onEngineStop = useCallback(() => {
     simNodes.forEach(n => {
@@ -2111,7 +2231,7 @@ export default function CinemaPage() {
           nodeRelSize={BASE_NODE_REL}
           nodeOpacity={nodeOpacityUser}
           nodeResolution={8}
-          nodeThreeObjectExtend
+          nodeThreeObjectExtend={!visualNodeMode}
           nodeThreeObject={nodeThreeObject}
           linkColor={linkColor}
           linkWidth={linkWidth}
@@ -2491,6 +2611,80 @@ export default function CinemaPage() {
               <p className="text-gray-600 text-[10px] leading-tight">
                 ✈ fly-in time · ◉ dwell time · Play converts path to a Tour sequence
               </p>
+            </div>
+          )}
+
+          {/* ── Lyrics Reader overlay ── */}
+          {showLyricsReader && lyricsReaderText.length > 0 && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md">
+              <div className="relative w-full max-w-xl mx-4 bg-gray-950/98 border border-indigo-900/50 rounded-2xl shadow-2xl flex flex-col" style={{ maxHeight: '88dvh' }}>
+                {/* Header */}
+                <div className="flex items-start justify-between px-6 pt-5 pb-3 border-b border-gray-800/60 shrink-0">
+                  <div>
+                    {lyricsReaderBand && <p className="text-[10px] text-indigo-400 uppercase tracking-widest mb-1">{lyricsReaderBand}</p>}
+                    <h2 className="text-white font-semibold text-base leading-tight">{lyricsReaderSong}</h2>
+                  </div>
+                  <button
+                    onClick={() => setShowLyricsReader(false)}
+                    className="text-gray-600 hover:text-white transition-colors ml-4 mt-0.5 shrink-0"
+                  >✕</button>
+                </div>
+
+                {/* Lyrics scroll area */}
+                <div className="overflow-y-auto px-6 py-5 space-y-0.5 flex-1">
+                  {lyricsReaderText.map((line, i) => {
+                    const isBlank = !line.trim();
+                    return (
+                      <div key={i}>
+                        {isBlank
+                          ? <div className="h-4" />
+                          : (
+                            <p
+                              className="text-gray-200 text-sm leading-relaxed font-light tracking-wide transition-all duration-300"
+                              style={{
+                                opacity: lyricsReaderReveal === 0 || i < lyricsReaderReveal ? 1 : 0.08,
+                                transform: lyricsReaderReveal > 0 && i === lyricsReaderReveal - 1 ? 'translateX(4px)' : 'none',
+                                color: lyricsReaderReveal > 0 && i === lyricsReaderReveal - 1 ? '#a5b4fc' : undefined,
+                              }}
+                            >
+                              {line}
+                            </p>
+                          )
+                        }
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Footer controls */}
+                <div className="shrink-0 border-t border-gray-800/60 px-6 py-3 flex items-center gap-3">
+                  <button
+                    onClick={() => setLyricsReaderReveal(0)}
+                    className={`text-[10px] rounded px-2 py-1 transition-colors ${lyricsReaderReveal === 0 ? 'bg-indigo-900 text-indigo-300' : 'text-gray-500 hover:text-gray-300'}`}
+                  >
+                    Show all
+                  </button>
+                  <button
+                    onClick={() => setLyricsReaderReveal(v => v === 0 ? 1 : Math.max(1, v - 1))}
+                    className="text-[10px] text-gray-500 hover:text-white rounded px-2 py-1 transition-colors"
+                    disabled={lyricsReaderReveal <= 1}
+                  >← Back</button>
+                  <div className="flex-1 text-center text-[10px] text-gray-600">
+                    {lyricsReaderReveal === 0 ? 'reading freely' : `line ${lyricsReaderReveal} of ${lyricsReaderText.filter(l => l.trim()).length}`}
+                  </div>
+                  <button
+                    onClick={() => setLyricsReaderReveal(v => {
+                      if (v === 0) return 1;
+                      const nonBlanks = lyricsReaderText.reduce((acc, l, i) => l.trim() ? [...acc, i] : acc, [] as number[]);
+                      const nextIdx = nonBlanks.findIndex(i => i >= v);
+                      return nextIdx >= 0 && nextIdx + 1 < nonBlanks.length ? (nonBlanks[nextIdx + 1] ?? v) + 1 : 0;
+                    })}
+                    className="text-[10px] bg-indigo-900/60 hover:bg-indigo-800 text-indigo-300 rounded px-3 py-1 transition-colors"
+                  >
+                    {lyricsReaderReveal === 0 ? 'Line by line →' : 'Next →'}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -2879,6 +3073,25 @@ export default function CinemaPage() {
                 )}
               </div>
 
+              {/* Visual Node Mode — album art, band logos, vinyl song disks */}
+              <div className="border-t border-gray-800 pt-3">
+                <button
+                  onClick={() => setVisualNodeMode(v => !v)}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                    visualNodeMode ? 'text-amber-300 hover:bg-gray-800' : 'text-gray-700 hover:text-gray-500'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${visualNodeMode ? 'bg-amber-400' : 'bg-gray-700'}`} />
+                  <span>Visual Node Mode</span>
+                  <span className="ml-auto text-[10px] text-gray-600">{visualNodeMode ? 'on' : 'off'}</span>
+                </button>
+                {visualNodeMode && (
+                  <p className="text-[9px] text-gray-600 px-2 mt-1 leading-snug">
+                    Album nodes show artwork · Song nodes become vinyl records · Band nodes show logo if set
+                  </p>
+                )}
+              </div>
+
               {/* Lyrics overlay (Lyrical DNA scene) */}
               <div className="border-t border-gray-800 pt-3">
                 <button
@@ -3243,7 +3456,7 @@ export default function CinemaPage() {
                   <span className="shrink-0">{TYPE_ICONS[selectedNode.type] ?? '•'}</span>
                   <span className="text-xs font-semibold text-white truncate">{selectedNode.label}</span>
                 </div>
-                <button onClick={() => { selectedNodeRef.current = null; setSelectedNode(null); fgRef.current?.refresh(); }} className="shrink-0 text-gray-600 hover:text-gray-400 ml-2">✕</button>
+                <button onClick={() => { selectedChainRef.current = []; selectedNodeRef.current = null; setSelectedNode(null); fgRef.current?.refresh(); }} className="shrink-0 text-gray-600 hover:text-gray-400 ml-2">✕</button>
               </div>
               <div className="text-[10px] text-gray-500 mb-2">{TYPE_LABELS[selectedNode.type] ?? selectedNode.type}</div>
 
@@ -3260,6 +3473,18 @@ export default function CinemaPage() {
                       <span className="text-[10px] text-gray-400 w-4 text-right">{val}</span>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Lyrics Reader button — song nodes with lyrics */}
+              {selectedNode.id.startsWith('song:') && lyricsReaderText.length > 0 && (
+                <div className="mb-3 border-t border-gray-800 pt-2">
+                  <button
+                    onClick={() => { setLyricsReaderReveal(0); setShowLyricsReader(true); }}
+                    className="w-full text-[10px] bg-indigo-900/60 hover:bg-indigo-800/70 text-indigo-300 rounded px-2 py-1.5 transition-colors text-center"
+                  >
+                    Read Lyrics
+                  </button>
                 </div>
               )}
 

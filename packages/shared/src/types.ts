@@ -9,6 +9,7 @@ export interface Band {
   name: string;
   slug: string;
   description: string | null;
+  logoUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }
