@@ -511,3 +511,24 @@ Scene changes use a CSS opacity overlay (not Three.js):
 
 `/cinema` — added to public routes in `App.tsx` (no auth required).
 Added to `SiteHeader` NAV (public site header) and admin `Nav` sidebar.
+
+### Depth of Field (DoF) — CSS Bokeh Overlay
+
+The DoF effect is a `backdrop-filter: blur(Npx)` div with a radial `maskImage` gradient, layered over the WebGL canvas (`z-index: 5`). The browser composites the WebGL output before applying the filter, so it works correctly on 3D content without touching Three.js post-processing.
+
+When DoF is enabled via the Controls panel:
+- Blur amount: 2–40 px (default 14)
+- Focal zone width: 10–80% of canvas width (default 44%)
+- The radial gradient produces a soft vignette: centre is sharp, edges are blurred
+
+The existing per-theme `bokehOverlay` still works; DoF overrides the blur and radius values when enabled but uses the same overlay element.
+
+### Final Cut Timeline
+
+`FinalCutClip` (type in `cinema/types.ts`) stores an assembled animation clip. Clip types:
+- `'director'` — CinemaKeyframe array from Director Mode
+- `'sequence'` — TourStep array from Node Sequence / Tour planner
+- `'scene'` — a named CinemaScene id
+- `'tour'` — (reserved for setlist-generated tours)
+
+Clips are added via "🎞 Add to Final Cut" buttons in Director Mode and Node Sequence panels, or by adding the current scene from inside the Final Cut panel. State is persisted to `localStorage` (`cinema-final-cut`). The panel supports: reorder, duration edit (per clip), remove individual, clear all, and displays total runtime.

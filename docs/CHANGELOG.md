@@ -4,6 +4,30 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Cinema: image depth fix, collapsible node panel, Depth of Field, Final Cut timeline (2026-05-30)
+
+### Fixed
+
+- **Album/band images now respect 3D depth** — Removed `depthTest: false` from the `SpriteMaterial` used for album artwork and band logo sprites in Visual Node Mode. Images behind closer vinyl disk song nodes no longer render on top of them.
+
+### Added
+
+- **Collapsible node info panel** — The selected-node detail panel now defaults to a small chip in the corner (icon + name + expand ↑ button). Click ↑ to expand the full details panel; click ⌄ to collapse back. Collapses automatically on each new node selection. Much cleaner on mobile/phone.
+
+- **Depth of Field (DoF) controls** — New "Depth of Field (DoF)" toggle in the Controls panel (⚙). When enabled, replaces the theme's static bokeh with fully configurable controls: blur amount (2–40 px) and focal zone width (10–80% of canvas width). Works independently of theme bokeh.
+
+- **Final Cut timeline editor** — New 🎞 button in the Cinema toolbar opens the Final Cut panel. Assemble an animation by adding clips from:
+  - Director Mode: "🎞 Add to Final Cut" button appears when keyframes exist
+  - Node Sequence: "🎞 Add to Final Cut" button appears when steps exist
+  - From inside the Final Cut panel: "+ Add current scene" button
+  - Clips show type, count, and duration; duration is directly editable
+  - Reorder clips with ▲/▼ arrows; remove individual clips or clear all
+  - Total runtime shown at the bottom
+  - Persisted to `localStorage` as `cinema-final-cut`
+  - New `FinalCutClip` and `FinalCutClipType` types added to `cinema/types.ts`
+
+---
+
 ## Cinema lyrics stacking fix, Saturn ring word-wrapping, Setlist path mode, Core Score batch job (2026-05-27)
 
 ### Fixed
