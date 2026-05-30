@@ -126,3 +126,31 @@ export interface CinemaKeyframe {
   /** Node IDs that should be selected when this keyframe activates. Undefined = no change. */
   selectedChain?: string[];
 }
+
+// ---------------------------------------------------------------------------
+// Final Cut timeline
+// ---------------------------------------------------------------------------
+
+export type FinalCutClipType = 'director' | 'sequence' | 'scene' | 'tour';
+
+/**
+ * A clip assembled into the Final Cut timeline from any Cinema mode.
+ * Stores enough data to replay the clip autonomously.
+ */
+export interface FinalCutClip {
+  id: string;
+  /** Display name for the clip */
+  label: string;
+  type: FinalCutClipType;
+  /** Total duration of this clip in ms */
+  durationMs: number;
+  /** Director keyframes (when type='director') */
+  keyframes?: CinemaKeyframe[];
+  /** Tour steps (when type='sequence' or 'tour') */
+  steps?: TourStep[];
+  /** Scene id (when type='scene') */
+  sceneId?: string;
+  /** Optional user notes */
+  notes?: string;
+  addedAt: string;
+}

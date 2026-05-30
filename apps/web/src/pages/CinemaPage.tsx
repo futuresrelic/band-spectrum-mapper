@@ -26,7 +26,7 @@ import type { GraphData } from '../api/songNodes';
 import { buildAdj, computeArrangeTargets, animateArrange, easeInOutQuad } from '../cinema/graphArrange';
 import { CINEMA_SCENES } from '../cinema/sceneDefinitions';
 import { initOrbitState, updateOrbitCamera, type OrbitCameraState } from '../cinema/orbitCamera';
-import type { CinemaNode, CinemaLink, CinemaControls, TourStep, CinemaKeyframe, NodeSequence } from '../cinema/types';
+import type { CinemaNode, CinemaLink, CinemaControls, TourStep, CinemaKeyframe, NodeSequence, FinalCutClip } from '../cinema/types';
 import { DEFAULT_CINEMA_CONTROLS } from '../cinema/types';
 import { CINEMA_THEMES, getTheme, DEFAULT_THEME_ID, type CinemaTheme } from '../cinema/themes';
 import TourPlanner from '../cinema/TourPlanner';
@@ -441,6 +441,18 @@ export default function CinemaPage() {
   const visualNodeModeRef = useRef(false);
   useEffect(() => { visualNodeModeRef.current = visualNodeMode; }, [visualNodeMode]);
 
+  // ── Depth of Field ───────────────────────────────────────────────────────────
+  // CSS-based bokeh: backdrop-filter blur with a radial mask (centre sharp, edges blurred)
+  const [dofEnabled, setDofEnabled]           = useState(false);
+  const [dofBlur, setDofBlur]                 = useState(14);       // px
+  const [dofFocalRadius, setDofFocalRadius]   = useState(44);       // % of canvas width
+
+  // ── Node info panel ──────────────────────────────────────────────────────────
+  // Collapsed by default: shows as a small chip; expands on demand
+  const [nodeInfoExpanded, setNodeInfoExpanded] = useState(false);
+  // Auto-collapse when selection changes so the chip appears fresh each time
+  useEffect(() => { setNodeInfoExpanded(false); }, [selectedNode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Lyrics Reader ────────────────────────────────────────────────────────────
   // Full-screen readable lyrics overlay for the selected song node
   const [showLyricsReader, setShowLyricsReader] = useState(false);
@@ -462,6 +474,27 @@ export default function CinemaPage() {
     setNodeOverridesRaw(overrides);
     try { localStorage.setItem('cinema-node-overrides', JSON.stringify(overrides)); } catch { /* ignore */ }
   }, []);
+
+  // ── Final Cut timeline ───────────────────────────────────────────────────────
+  // Assembled animation clips from any mode; persisted to localStorage
+  const [showFinalCut, setShowFinalCut] = useState(false);
+  const [finalCutClips, setFinalCutClipsRaw] = useState<FinalCutClip[]>(() => {
+    try {
+      const stored = localStorage.getItem('cinema-final-cut');
+      return stored ? (JSON.parse(stored) as FinalCutClip[]) : [];
+    } catch { return []; }
+  });
+  const setFinalCutClips = useCallback((updater: FinalCutClip[] | ((prev: FinalCutClip[]) => FinalCutClip[])) => {
+    setFinalCutClipsRaw(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      try { localStorage.setItem('cinema-final-cut', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+  const addToFinalCut = useCallback((clip: Omit<FinalCutClip, 'id' | 'addedAt'>) => {
+    const full: FinalCutClip = { ...clip, id: `fc-${Date.now()}`, addedAt: new Date().toISOString() };
+    setFinalCutClips(prev => [...prev, full]);
+  }, [setFinalCutClips]);
 
   // Genre source selector
   const [genreSource, setGenreSource] = useState<GenreSource>('priority');
@@ -1825,7 +1858,7 @@ export default function CinemaPage() {
       // Artwork / logo square sprite
       const size = r * 3.2;
       const tex = getCachedTexture(imageUrl, () => fgRef.current?.refresh());
-      const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false });
+      const mat = new THREE.SpriteMaterial({ map: tex });
       const art = new THREE.Sprite(mat);
       art.scale.set(size, size, 1);
       group.add(art);
@@ -2251,17 +2284,24 @@ export default function CinemaPage() {
       )}
 
       {/* Bokeh depth-of-field overlay — radial backdrop-blur, edges blurred centre sharp */}
-      {currentTheme.bokehOverlay && simNodes.length > 0 && (
-        <div
-          className="pointer-events-none absolute inset-0 z-[5]"
-          style={{
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
-            maskImage: 'radial-gradient(ellipse 44% 50% at center, transparent 36%, rgba(0,0,0,0.28) 54%, black 74%)',
-            WebkitMaskImage: 'radial-gradient(ellipse 44% 50% at center, transparent 36%, rgba(0,0,0,0.28) 54%, black 74%)',
-          } as React.CSSProperties}
-        />
-      )}
+      {(currentTheme.bokehOverlay || dofEnabled) && simNodes.length > 0 && (() => {
+        const blur   = dofEnabled ? dofBlur : 12;
+        const radius = dofEnabled ? dofFocalRadius : 44;
+        const inner  = Math.round(radius * 0.82);
+        const outer  = Math.round(radius * 1.68);
+        const grad   = `radial-gradient(ellipse ${radius}% 50% at center, transparent ${inner}%, rgba(0,0,0,0.28) ${radius}%, black ${outer}%)`;
+        return (
+          <div
+            className="pointer-events-none absolute inset-0 z-[5]"
+            style={{
+              backdropFilter: `blur(${blur}px)`,
+              WebkitBackdropFilter: `blur(${blur}px)`,
+              maskImage: grad,
+              WebkitMaskImage: grad,
+            } as React.CSSProperties}
+          />
+        );
+      })()}
 
       {/* Halftone dot-screen overlay — repeating radial dots in screen blend mode */}
       {currentTheme.dotOverlay && simNodes.length > 0 && (
@@ -2416,6 +2456,17 @@ export default function CinemaPage() {
               }`}
             >
               ⚙{hiddenTypes.size > 0 ? ` −${hiddenTypes.size}` : ''}
+            </button>
+            <button
+              onClick={() => setShowFinalCut(v => !v)}
+              title="Final Cut — assemble clips into a timeline"
+              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                showFinalCut
+                  ? 'bg-rose-900/60 border-rose-700 text-rose-300'
+                  : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+              }`}
+            >
+              🎞{finalCutClips.length > 0 ? ` ${finalCutClips.length}` : ''}
             </button>
             <button
               onClick={toggleSocialMode}
@@ -3445,18 +3496,57 @@ export default function CinemaPage() {
                   ))}
                 </div>
               </div>
+
+              {/* Depth of Field */}
+              <div className="border-t border-gray-800 pt-3 space-y-2">
+                <button
+                  onClick={() => setDofEnabled(v => !v)}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                    dofEnabled ? 'text-sky-300 hover:bg-gray-800' : 'text-gray-700 hover:text-gray-500'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${dofEnabled ? 'bg-sky-400' : 'bg-gray-700'}`} />
+                  <span>Depth of Field (DoF)</span>
+                  <span className="ml-auto text-[10px] text-gray-600">{dofEnabled ? 'on' : 'off'}</span>
+                </button>
+                {dofEnabled && (
+                  <div className="space-y-2 pl-1">
+                    <label className="block space-y-1">
+                      <div className="flex justify-between text-[10px] text-gray-400">
+                        <span>Blur amount</span><span>{dofBlur}px</span>
+                      </div>
+                      <input type="range" min={2} max={40} step={1} value={dofBlur}
+                        onChange={e => setDofBlur(Number(e.target.value))}
+                        className="w-full accent-sky-500" />
+                    </label>
+                    <label className="block space-y-1">
+                      <div className="flex justify-between text-[10px] text-gray-400">
+                        <span>Focal zone width</span><span>{dofFocalRadius}%</span>
+                      </div>
+                      <input type="range" min={10} max={80} step={2} value={dofFocalRadius}
+                        onChange={e => setDofFocalRadius(Number(e.target.value))}
+                        className="w-full accent-sky-500" />
+                      <div className="text-[10px] text-gray-700">Small = tight focus · large = wide sharp zone</div>
+                    </label>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
           {/* ── Selected node info ── */}
           {selectedNode && (
-            <div className="absolute bottom-20 left-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-3 backdrop-blur-sm w-60 shadow-2xl max-h-96 overflow-y-auto">
+            nodeInfoExpanded ? (
+            <div className="absolute bottom-20 left-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-3 backdrop-blur-sm w-60 shadow-2xl max-h-[70dvh] overflow-y-auto">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="shrink-0">{TYPE_ICONS[selectedNode.type] ?? '•'}</span>
                   <span className="text-xs font-semibold text-white truncate">{selectedNode.label}</span>
                 </div>
-                <button onClick={() => { selectedChainRef.current = []; selectedNodeRef.current = null; setSelectedNode(null); fgRef.current?.refresh(); }} className="shrink-0 text-gray-600 hover:text-gray-400 ml-2">✕</button>
+                <div className="flex items-center gap-1 shrink-0 ml-2">
+                  <button onClick={() => setNodeInfoExpanded(false)} title="Collapse" className="text-gray-600 hover:text-gray-400 text-sm leading-none">⌄</button>
+                  <button onClick={() => { selectedChainRef.current = []; selectedNodeRef.current = null; setSelectedNode(null); fgRef.current?.refresh(); }} className="text-gray-600 hover:text-gray-400">✕</button>
+                </div>
               </div>
               <div className="text-[10px] text-gray-500 mb-2">{TYPE_LABELS[selectedNode.type] ?? selectedNode.type}</div>
 
@@ -3595,6 +3685,26 @@ export default function CinemaPage() {
                 </div>
               </div>
             </div>
+            ) : (
+            /* Collapsed chip — small, stays out of the way */
+            <div className="absolute bottom-20 left-4 z-40 flex items-center gap-1.5 bg-gray-900/90 border border-gray-700 rounded-full px-2.5 py-1 shadow-xl backdrop-blur-sm">
+              <span className="text-sm leading-none">{TYPE_ICONS[selectedNode.type] ?? '•'}</span>
+              <span className="text-[11px] font-medium text-white max-w-[9rem] truncate">{selectedNode.label}</span>
+              <button
+                onClick={() => setNodeInfoExpanded(true)}
+                title="Show details"
+                className="text-[10px] text-gray-500 hover:text-gray-300 ml-0.5 leading-none"
+              >
+                ↑
+              </button>
+              <button
+                onClick={() => { selectedChainRef.current = []; selectedNodeRef.current = null; setSelectedNode(null); fgRef.current?.refresh(); }}
+                className="text-gray-600 hover:text-gray-300 leading-none"
+              >
+                ✕
+              </button>
+            </div>
+            )
           )}
         </>
       )}
@@ -3742,6 +3852,19 @@ export default function CinemaPage() {
             onSceneKeyframesChange={handleSceneKfChange}
             onCopyToSequence={handleCopySceneToSequence}
           />
+          {directorKeyframes.length > 0 && (
+            <button
+              onClick={() => addToFinalCut({
+                label: `Director shot (${directorKeyframes.length} kf)`,
+                type: 'director',
+                durationMs: directorKeyframes.reduce((s, k) => s + k.durationMs, 0),
+                keyframes: directorKeyframes,
+              })}
+              className="mt-2 w-full text-[10px] bg-rose-900/40 hover:bg-rose-800/60 border border-rose-800/40 text-rose-300 rounded-lg px-2 py-1.5 transition-colors text-center shrink-0"
+            >
+              🎞 Add to Final Cut
+            </button>
+          )}
         </div>
       )}
 
@@ -3782,6 +3905,154 @@ export default function CinemaPage() {
             onLoadSequence={handleLoadSequence}
             onDeleteSequence={handleDeleteSequence}
           />
+          {tourSteps.length > 0 && (
+            <button
+              onClick={() => addToFinalCut({
+                label: `Sequence (${tourSteps.length} stops)`,
+                type: 'sequence',
+                durationMs: tourSteps.reduce((s, t) => s + t.dwellMs + (t.flyInMs ?? 1800), 0),
+                steps: tourSteps,
+              })}
+              className="mt-2 w-full text-[10px] bg-rose-900/40 hover:bg-rose-800/60 border border-rose-800/40 text-rose-300 rounded-lg px-2 py-1.5 transition-colors text-center shrink-0"
+            >
+              🎞 Add to Final Cut
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Final Cut timeline ── */}
+      {showFinalCut && !socialMode && (
+        <div
+          className="absolute top-12 right-4 z-40 bg-gray-900/97 border border-rose-800/50 rounded-xl p-3 backdrop-blur-sm w-80 shadow-2xl flex flex-col overflow-hidden"
+          style={{ maxHeight: 'calc(100dvh - 80px)' }}
+        >
+          <div className="flex items-center justify-between mb-2 shrink-0">
+            <div className="text-[10px] font-semibold text-rose-400 uppercase tracking-wide">🎞 Final Cut Timeline</div>
+            <button onClick={() => setShowFinalCut(false)} className="text-gray-600 hover:text-gray-400 text-xs">✕</button>
+          </div>
+          <div className="text-[10px] text-gray-600 mb-3 shrink-0 leading-snug">
+            Assemble clips from Director, Sequences, and Scenes. Use "Add to Final Cut" from any tool.
+          </div>
+
+          {finalCutClips.length === 0 && (
+            <div className="text-[11px] text-gray-600 italic text-center py-4">
+              No clips yet. Open Director or Sequence tools and click "🎞 Add to Final Cut".
+            </div>
+          )}
+
+          <div className="flex-1 overflow-y-auto space-y-1 min-h-0">
+            {finalCutClips.map((clip, idx) => (
+              <div key={clip.id} className="bg-gray-800/60 rounded-lg p-2 border border-gray-700/50">
+                <div className="flex items-start justify-between gap-1">
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-medium text-white truncate">{clip.label}</div>
+                    <div className="text-[10px] text-gray-500 mt-0.5">
+                      {clip.type === 'director' && `📽️ Director · ${clip.keyframes?.length ?? 0} kf`}
+                      {clip.type === 'sequence' && `🗺 Sequence · ${clip.steps?.length ?? 0} stops`}
+                      {clip.type === 'scene'    && `✨ Scene`}
+                      {clip.type === 'tour'     && `🎤 Tour`}
+                      {' · '}{Math.round(clip.durationMs / 1000)}s
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {/* Move up */}
+                    {idx > 0 && (
+                      <button
+                        onClick={() => setFinalCutClips(prev => {
+                          const next = [...prev];
+                          const tmp = next[idx - 1]!;
+                          next[idx - 1] = next[idx]!;
+                          next[idx] = tmp;
+                          return next;
+                        })}
+                        className="text-gray-600 hover:text-gray-300 text-xs leading-none"
+                        title="Move up"
+                      >▲</button>
+                    )}
+                    {/* Move down */}
+                    {idx < finalCutClips.length - 1 && (
+                      <button
+                        onClick={() => setFinalCutClips(prev => {
+                          const next = [...prev];
+                          const tmp = next[idx + 1]!;
+                          next[idx + 1] = next[idx]!;
+                          next[idx] = tmp;
+                          return next;
+                        })}
+                        className="text-gray-600 hover:text-gray-300 text-xs leading-none"
+                        title="Move down"
+                      >▼</button>
+                    )}
+                    {/* Remove */}
+                    <button
+                      onClick={() => setFinalCutClips(prev => prev.filter(c => c.id !== clip.id))}
+                      className="text-red-800 hover:text-red-400 text-xs leading-none ml-0.5"
+                      title="Remove clip"
+                    >✕</button>
+                  </div>
+                </div>
+                {/* Duration edit */}
+                <div className="mt-1.5 flex items-center gap-2">
+                  <span className="text-[10px] text-gray-600">Duration</span>
+                  <input
+                    type="number"
+                    value={Math.round(clip.durationMs / 1000)}
+                    min={1}
+                    onChange={e => setFinalCutClips(prev => prev.map(c =>
+                      c.id === clip.id ? { ...c, durationMs: Number(e.target.value) * 1000 } : c
+                    ))}
+                    className="w-14 bg-gray-700 border border-gray-600 rounded text-[10px] text-white px-1.5 py-0.5 text-right"
+                  />
+                  <span className="text-[10px] text-gray-600">s</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {finalCutClips.length > 0 && (
+            <div className="border-t border-gray-800 pt-2 mt-2 shrink-0 space-y-1.5">
+              <div className="flex items-center justify-between text-[10px] text-gray-500">
+                <span>{finalCutClips.length} clip{finalCutClips.length !== 1 ? 's' : ''}</span>
+                <span>Total: {Math.round(finalCutClips.reduce((s, c) => s + c.durationMs, 0) / 1000)}s</span>
+              </div>
+              {/* Add current scene */}
+              {currentScene && (
+                <button
+                  onClick={() => addToFinalCut({
+                    label: `${currentScene.emoji} ${currentScene.name}`,
+                    type: 'scene',
+                    durationMs: currentScene.durationMs,
+                    sceneId: currentScene.id,
+                  })}
+                  className="w-full text-[10px] bg-indigo-900/40 hover:bg-indigo-800/60 border border-indigo-800/40 text-indigo-300 rounded px-2 py-1 transition-colors text-center"
+                >
+                  + Add current scene
+                </button>
+              )}
+              <button
+                onClick={() => { if (window.confirm('Clear all clips from the Final Cut timeline?')) setFinalCutClips([]); }}
+                className="w-full text-[10px] text-red-800 hover:text-red-500 transition-colors text-center"
+              >
+                Clear all clips
+              </button>
+            </div>
+          )}
+          {finalCutClips.length === 0 && currentScene && (
+            <div className="border-t border-gray-800 pt-2 mt-2 shrink-0">
+              <button
+                onClick={() => addToFinalCut({
+                  label: `${currentScene.emoji} ${currentScene.name}`,
+                  type: 'scene',
+                  durationMs: currentScene.durationMs,
+                  sceneId: currentScene.id,
+                })}
+                className="w-full text-[10px] bg-indigo-900/40 hover:bg-indigo-800/60 border border-indigo-800/40 text-indigo-300 rounded px-2 py-1 transition-colors text-center"
+              >
+                + Add current scene
+              </button>
+            </div>
+          )}
         </div>
       )}
 
