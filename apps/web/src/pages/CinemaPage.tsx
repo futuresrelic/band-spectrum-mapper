@@ -425,6 +425,11 @@ export default function CinemaPage() {
   const lyricsMaxLinesRef = useRef(5);
   useEffect(() => { lyricsMaxLinesRef.current = lyricsMaxLines; }, [lyricsMaxLines]);
 
+  // Global start line — new nodes begin showing lyrics from this offset instead of line 0
+  const [lyricsGlobalStartLine, setLyricsGlobalStartLine] = useState(0);
+  const lyricsGlobalStartLineRef = useRef(0);
+  useEffect(() => { lyricsGlobalStartLineRef.current = lyricsGlobalStartLine; }, [lyricsGlobalStartLine]);
+
   // Max number of simultaneous nodes showing lyrics — limits stacking when camera is near multiple nodes
   const [lyricsMaxNodes, setLyricsMaxNodes] = useState(1);
   const lyricsMaxNodesRef = useRef(1);
@@ -496,6 +501,12 @@ export default function CinemaPage() {
     setFinalCutClips(prev => [...prev, full]);
   }, [setFinalCutClips]);
 
+  // Final Cut playback state
+  const [finalCutPlaying, setFinalCutPlaying] = useState(false);
+  const [finalCutClipIdx, setFinalCutClipIdx] = useState(0);
+  const finalCutClipsRef = useRef<FinalCutClip[]>([]);
+  useEffect(() => { finalCutClipsRef.current = finalCutClips; }, [finalCutClips]);
+
   // Genre source selector
   const [genreSource, setGenreSource] = useState<GenreSource>('priority');
 
@@ -553,10 +564,18 @@ export default function CinemaPage() {
       return stored ? (JSON.parse(stored) as NodeSequence[]) : [];
     } catch { return []; }
   });
-  // Load sequences from the server on mount; replaces localStorage cache when logged in
+  // Load sequences from the server on mount; merges with any local-only ones
   useEffect(() => {
     api.get<NodeSequence[]>('/api/node-sequences')
-      .then(serverSeqs => { setSavedSequencesRaw(serverSeqs); })
+      .then(serverSeqs => {
+        setSavedSequencesRaw(prev => {
+          // Preserve any locally-saved sequences that the server hasn't seen
+          const localOnly = prev.filter(s => s.id.startsWith('local-'));
+          const merged = [...serverSeqs, ...localOnly];
+          try { localStorage.setItem('cinema-node-sequences', JSON.stringify(merged)); } catch { /* ignore */ }
+          return merged;
+        });
+      })
       .catch(() => { /* not logged in or API unavailable — keep localStorage sequences */ });
   }, []);
 
@@ -1052,7 +1071,14 @@ export default function CinemaPage() {
   const handleSaveSequence = useCallback((name: string) => {
     const steps = tourStepsRef.current;
     api.post<NodeSequence>('/api/node-sequences', { name, steps })
-      .then(saved => { setSavedSequencesRaw(prev => [...prev, saved]); })
+      .then(saved => {
+        // Mirror to localStorage on server success so refresh always has data
+        setSavedSequencesRaw(prev => {
+          const updated = [...prev, saved];
+          try { localStorage.setItem('cinema-node-sequences', JSON.stringify(updated)); } catch { /* ignore */ }
+          return updated;
+        });
+      })
       .catch(() => {
         // Not logged in or API down — persist locally only
         const seq: NodeSequence = {
@@ -1076,7 +1102,13 @@ export default function CinemaPage() {
 
   const handleDeleteSequence = useCallback((id: string) => {
     api.delete(`/api/node-sequences/${id}`)
-      .then(() => { setSavedSequencesRaw(prev => prev.filter(s => s.id !== id)); })
+      .then(() => {
+        setSavedSequencesRaw(prev => {
+          const updated = prev.filter(s => s.id !== id);
+          try { localStorage.setItem('cinema-node-sequences', JSON.stringify(updated)); } catch { /* ignore */ }
+          return updated;
+        });
+      })
       .catch(() => {
         setSavedSequencesRaw(prev => {
           const updated = prev.filter(s => s.id !== id);
@@ -1085,6 +1117,39 @@ export default function CinemaPage() {
         });
       });
   }, []);
+
+  // ── Final Cut playback ────────────────────────────────────────────────────────
+  // When playing, apply each clip then advance after its durationMs
+
+  useEffect(() => {
+    if (!finalCutPlaying) return;
+    const clip = finalCutClipsRef.current[finalCutClipIdx];
+    if (!clip) { setFinalCutPlaying(false); setFinalCutClipIdx(0); return; }
+
+    // Apply the clip to the appropriate Cinema mode
+    if (clip.type === 'scene' && clip.sceneId) {
+      const sceneIdx = CINEMA_SCENES.findIndex(s => s.id === clip.sceneId);
+      if (sceneIdx >= 0) transitionTo(sceneIdx);
+    } else if (clip.type === 'director' && clip.keyframes && clip.keyframes.length > 0) {
+      setDirectorKeyframes(clip.keyframes);
+      handleDirectorPlay();
+    } else if ((clip.type === 'sequence' || clip.type === 'tour') && clip.steps && clip.steps.length > 0) {
+      setTourSteps(clip.steps);
+      startTour();
+    }
+
+    const timer = setTimeout(() => {
+      const next = finalCutClipIdx + 1;
+      if (next < finalCutClipsRef.current.length) {
+        setFinalCutClipIdx(next);
+      } else {
+        setFinalCutPlaying(false);
+        setFinalCutClipIdx(0);
+      }
+    }, clip.durationMs);
+
+    return () => clearTimeout(timer);
+  }, [finalCutPlaying, finalCutClipIdx]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Scene timer ───────────────────────────────────────────────────────────────
 
@@ -1495,7 +1560,7 @@ export default function CinemaPage() {
                 const linesRevealed = Math.floor(timeNear / revealPaceMs) + 1;
                 sp.visible = (sp._lineIdx as number) < linesRevealed;
               } else if (scrollMode) {
-                const offset = lyricsScrollOffsetRef.current.get(songId) ?? 0;
+                const offset = lyricsScrollOffsetRef.current.get(songId) ?? lyricsGlobalStartLineRef.current;
                 sp.visible = (sp._lineIdx as number) >= offset && (sp._lineIdx as number) < offset + winSize;
               } else {
                 sp.visible = true;
@@ -2114,43 +2179,33 @@ export default function CinemaPage() {
       return;
     }
 
-    // Path mode: adjacency-constrained chain building (mirrors regular chain logic)
+    // Path mode: free-form ordered path — any node can be added; click existing to remove it
     if (pathModeRef.current) {
-      const chain = selectedChainRef.current;
-      const existingIdx = chain.findIndex(c => c.id === n.id);
-      let newChain: CinemaNode[];
+      const existing = pathNodesRef.current;
+      const existingIdx = existing.findIndex(p => p.id === n.id);
+      let nextPath: typeof existing;
       if (existingIdx >= 0) {
-        // Truncate to this node, or pop it if it is already the last
-        newChain = existingIdx === chain.length - 1
-          ? chain.slice(0, -1)
-          : chain.slice(0, existingIdx + 1);
+        // Already in path: remove it
+        nextPath = existing.filter((_, i) => i !== existingIdx);
       } else {
-        const lastNode = chain[chain.length - 1];
-        if (chain.length === 0) {
-          newChain = [n];
-        } else if (lastNode && adjRef.current.get(lastNode.id)?.has(n.id)) {
-          newChain = [...chain, n];
-        } else {
-          newChain = [n]; // not adjacent — start a fresh path
-        }
+        // Not in path: append at the end
+        nextPath = [...existing, {
+          id: n.id, label: n.label, type: n.type,
+          dwellMs: DEFAULT_PATH_DWELL_MS,
+          flyInMs: DEFAULT_PATH_FLY_IN_MS,
+        }];
       }
-      selectedChainRef.current = newChain;
-      const lastInChain = newChain[newChain.length - 1] ?? null;
-      selectedNodeRef.current  = lastInChain;
-      setSelectedNode(lastInChain);
-      // Sync pathNodes from chain, preserving timing for unchanged nodes
-      const timingMap = new Map(pathNodesRef.current.map(p => [p.id, { dwellMs: p.dwellMs, flyInMs: p.flyInMs }]));
-      const nextPath = newChain.map(cn => {
-        const timing = timingMap.get(cn.id);
-        return {
-          id: cn.id, label: cn.label, type: cn.type,
-          dwellMs: timing?.dwellMs ?? DEFAULT_PATH_DWELL_MS,
-          flyInMs: timing?.flyInMs ?? DEFAULT_PATH_FLY_IN_MS,
-        };
-      });
-      setPathNodes(nextPath);
       pathNodesRef.current   = nextPath;
       pathNodeSetRef.current = new Set(nextPath.map(p => p.id));
+      setPathNodes(nextPath);
+      // Keep the selected chain in sync so node highlights show the ordered path
+      const chain = nextPath
+        .map(p => nodeMapRef.current.get(p.id))
+        .filter((cn): cn is CinemaNode => cn !== undefined);
+      selectedChainRef.current = chain;
+      const lastInChain = chain[chain.length - 1] ?? null;
+      selectedNodeRef.current  = lastInChain;
+      setSelectedNode(lastInChain);
       fgRef.current?.refresh();
       return;
     }
@@ -2202,7 +2257,16 @@ export default function CinemaPage() {
   }, []);
 
   const onBackgroundClick = useCallback(() => {
-    if (pathModeRef.current) return; // don't clear path on background click
+    if (pathModeRef.current) {
+      // In path mode: clear the selection chip without clearing the path
+      if (selectedNodeRef.current) {
+        selectedNodeRef.current = null;
+        setSelectedNode(null);
+        // Keep selectedChainRef and pathNodes intact
+        fgRef.current?.refresh();
+      }
+      return;
+    }
     if (selectedChainRef.current.length === 0 && !selectedNodeRef.current) return;
     selectedChainRef.current = [];
     selectedNodeRef.current  = null;
@@ -3202,6 +3266,34 @@ export default function CinemaPage() {
                             onChange={e => setLyricsScrollSpeed(Number(e.target.value))}
                             className="w-full accent-indigo-500" />
                         </label>
+                        <label className="block space-y-1">
+                          <div className="flex justify-between text-[10px] text-gray-400">
+                            <span>Start at line</span>
+                            <span>{lyricsGlobalStartLine}</span>
+                          </div>
+                          <input type="range" min={0} max={120} step={1} value={lyricsGlobalStartLine}
+                            onChange={e => {
+                              const v = Number(e.target.value);
+                              setLyricsGlobalStartLine(v);
+                              // Apply immediately to all currently-tracked songs
+                              lyricsScrollOffsetRef.current.forEach((_, id) => {
+                                lyricsScrollOffsetRef.current.set(id, v);
+                              });
+                            }}
+                            className="w-full accent-indigo-500" />
+                          <div className="flex items-center justify-between">
+                            <div className="text-[10px] text-gray-700">0 = beginning · drag to skip intro</div>
+                            <button
+                              onClick={() => {
+                                setLyricsGlobalStartLine(0);
+                                lyricsScrollOffsetRef.current.clear();
+                              }}
+                              className="text-[10px] text-gray-700 hover:text-gray-400"
+                            >
+                              reset
+                            </button>
+                          </div>
+                        </label>
                       </>
                     )}
 
@@ -3928,11 +4020,16 @@ export default function CinemaPage() {
           style={{ maxHeight: 'calc(100dvh - 80px)' }}
         >
           <div className="flex items-center justify-between mb-2 shrink-0">
-            <div className="text-[10px] font-semibold text-rose-400 uppercase tracking-wide">🎞 Final Cut Timeline</div>
+            <div className="flex items-center gap-2">
+              <div className="text-[10px] font-semibold text-rose-400 uppercase tracking-wide">🎞 Final Cut</div>
+              {finalCutPlaying && (
+                <span className="text-[10px] text-red-400 animate-pulse font-medium">● Playing</span>
+              )}
+            </div>
             <button onClick={() => setShowFinalCut(false)} className="text-gray-600 hover:text-gray-400 text-xs">✕</button>
           </div>
-          <div className="text-[10px] text-gray-600 mb-3 shrink-0 leading-snug">
-            Assemble clips from Director, Sequences, and Scenes. Use "Add to Final Cut" from any tool.
+          <div className="text-[10px] text-gray-600 mb-2 shrink-0 leading-snug">
+            Assemble clips from Director, Sequences, and Scenes.
           </div>
 
           {finalCutClips.length === 0 && (
@@ -3943,7 +4040,11 @@ export default function CinemaPage() {
 
           <div className="flex-1 overflow-y-auto space-y-1 min-h-0">
             {finalCutClips.map((clip, idx) => (
-              <div key={clip.id} className="bg-gray-800/60 rounded-lg p-2 border border-gray-700/50">
+              <div key={clip.id} className={`rounded-lg p-2 border transition-colors ${
+                finalCutPlaying && idx === finalCutClipIdx
+                  ? 'bg-rose-900/40 border-rose-600/60'
+                  : 'bg-gray-800/60 border-gray-700/50'
+              }`}>
                 <div className="flex items-start justify-between gap-1">
                   <div className="min-w-0">
                     <div className="text-[11px] font-medium text-white truncate">{clip.label}</div>
@@ -4012,8 +4113,31 @@ export default function CinemaPage() {
 
           {finalCutClips.length > 0 && (
             <div className="border-t border-gray-800 pt-2 mt-2 shrink-0 space-y-1.5">
+              {/* Play / Stop */}
+              <button
+                onClick={() => {
+                  if (finalCutPlaying) {
+                    setFinalCutPlaying(false);
+                    setFinalCutClipIdx(0);
+                    if (directorPlaying) handleDirectorStop();
+                    if (tourMode) stopTour();
+                  } else {
+                    setFinalCutClipIdx(0);
+                    setFinalCutPlaying(true);
+                  }
+                }}
+                className={`w-full py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
+                  finalCutPlaying
+                    ? 'bg-red-900/60 hover:bg-red-800/70 border border-red-700/40 text-red-300'
+                    : 'bg-rose-700/60 hover:bg-rose-600/70 border border-rose-600/40 text-white'
+                }`}
+              >
+                {finalCutPlaying ? '⏹ Stop Final Cut' : '▶ Play Final Cut'}
+              </button>
               <div className="flex items-center justify-between text-[10px] text-gray-500">
-                <span>{finalCutClips.length} clip{finalCutClips.length !== 1 ? 's' : ''}</span>
+                <span>{finalCutClips.length} clip{finalCutClips.length !== 1 ? 's' : ''}
+                  {finalCutPlaying && ` · ${finalCutClipIdx + 1} / ${finalCutClips.length}`}
+                </span>
                 <span>Total: {Math.round(finalCutClips.reduce((s, c) => s + c.durationMs, 0) / 1000)}s</span>
               </div>
               {/* Add current scene */}
