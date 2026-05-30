@@ -4,6 +4,21 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Cinema: sequence persistence, path mode fix, Final Cut playback, lyrics start line (2026-05-30)
+
+### Fixed
+
+- **Node Sequence save/load**: Sequences now persist reliably across page refreshes. Server-saved sequences are mirrored to localStorage immediately on success. On-mount load merges server sequences with any local-only ones (instead of replacing them), so nothing is lost when the server responds.
+- **Path mode — any node is now clickable**: Removed the adjacency-only constraint. Clicking any node adds it to the path; clicking it again removes it. No longer limited to graph-adjacent hops.
+- **Path mode background click**: Clicking empty space in path mode now clears the selected-node chip without wiping the path (previously did nothing at all).
+
+### Added
+
+- **Final Cut playback**: "▶ Play Final Cut" button in the Final Cut panel plays all clips in order using their stored durations. Scene clips call `transitionTo`, director clips load keyframes and start playback, sequence/tour clips load steps and start the tour. The active clip highlights in red. "⏹ Stop" cancels playback and resets the index.
+- **Lyrics start line**: New "Start at line" slider under the Scroll mode lyrics controls. Drag to skip an intro or start mid-song; applies immediately to all visible nodes. Reset button returns all nodes to line 0.
+
+---
+
 ## Cinema: image depth fix, collapsible node panel, Depth of Field, Final Cut timeline (2026-05-30)
 
 ### Fixed
