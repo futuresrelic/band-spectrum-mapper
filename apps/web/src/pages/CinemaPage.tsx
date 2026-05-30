@@ -1352,12 +1352,19 @@ export default function CinemaPage() {
               }
 
               const pos = sp.position;
-              if (!pos) { sp.visible = false; continue; }
-              const ldx = pos.x - cx, ldy = pos.y - cy, ldz = pos.z - cz;
-              if (ldx * ldx + ldy * ldy + ldz * ldz > lyricDistSq) {
+              // Gate on node distance — NOT sprite offset position.
+              // Using sp.position causes the sprite to fail the range check
+              // when the camera is on the far side of the node (the offset
+              // adds distance), making lyrics flash in/out as the camera orbits.
+              if (!ownerNode || ownerNode.x == null) { sp.visible = false; continue; }
+              const ndx = (ownerNode.x ?? 0) - cx;
+              const ndy = (ownerNode.y ?? 0) - cy;
+              const ndz = (ownerNode.z ?? 0) - cz;
+              if (ndx * ndx + ndy * ndy + ndz * ndz > lyricDistSq) {
                 sp.visible = false;
                 continue;
               }
+              void pos; // position still used by Three.js for rendering
               const songId = sp._songId as string;
               // Nearest-N node limiter (prevents stacking when near multiple nodes)
               if (eligibleLyricSet && !eligibleLyricSet.has(songId)) { sp.visible = false; continue; }
@@ -1524,6 +1531,7 @@ export default function CinemaPage() {
               sp.fontFace = 'Georgia, serif';
               sp.backgroundColor = 'rgba(3,7,18,0.4)';
               sp.padding = 1;
+              if ((sp as any).material) (sp as any).material.depthTest = false;
               (sp as any).position.set(node.x ?? 0, node.y ?? 0, node.z ?? 0);
               (sp as any)._songId     = nodeId;
               (sp as any)._wordIdx    = wordIdx;
@@ -1544,6 +1552,7 @@ export default function CinemaPage() {
               sp.fontFace = 'Georgia, serif';
               sp.backgroundColor = 'rgba(3,7,18,0.5)';
               sp.padding = 1;
+              if ((sp as any).material) (sp as any).material.depthTest = false;
               const angle = li * 0.9 + nodeId.charCodeAt(5) * 0.1;
               (sp as any).position.set(
                 (node.x ?? 0) + Math.sin(angle) * 18,
