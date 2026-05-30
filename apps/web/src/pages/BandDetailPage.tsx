@@ -8,6 +8,8 @@ import ErrorMessage from '../components/layout/ErrorMessage';
 import EmptyState from '../components/layout/EmptyState';
 import type { CreateAlbumInput } from '@band-spectrum-mapper/shared';
 
+const CURRENT_YEAR = new Date().getFullYear();
+
 export default function BandDetailPage() {
   const { bandId } = useParams<{ bandId: string }>();
   const qc = useQueryClient();
@@ -18,6 +20,13 @@ export default function BandDetailPage() {
   const [albumYear, setAlbumYear] = useState('');
   const [formError, setFormError] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Quick Add Single state
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [quickTitle, setQuickTitle] = useState('');
+  const [quickYear, setQuickYear] = useState(String(CURRENT_YEAR));
+  const [quickError, setQuickError] = useState('');
+  const [quickAdding, setQuickAdding] = useState(false);
 
   // Edit band state
   const [showEdit, setShowEdit] = useState(false);
@@ -67,6 +76,30 @@ export default function BandDetailPage() {
     mutationFn: () => bandsApi.delete(bandId!),
     onSuccess: () => navigate('/library'),
   });
+
+  async function quickAddSingle(e: React.FormEvent) {
+    e.preventDefault();
+    if (!quickTitle.trim()) { setQuickError('Song title is required'); return; }
+    setQuickAdding(true);
+    setQuickError('');
+    try {
+      const album = await bandsApi.createAlbum(bandId!, {
+        title: `${quickTitle.trim()} (Single)`,
+        year: quickYear ? parseInt(quickYear) : null,
+        albumType: 'single',
+      });
+      const song = await bandsApi.createSong(bandId!, {
+        title: quickTitle.trim(),
+        albumId: album.id,
+        trackNumber: 1,
+      });
+      qc.invalidateQueries({ queryKey: ['albums', bandId] });
+      navigate(`/library/songs/${song.id}`);
+    } catch (err) {
+      setQuickError(err instanceof Error ? err.message : 'Failed to add single');
+      setQuickAdding(false);
+    }
+  }
 
   const { data: aiContext, isFetching: contextFetching, refetch: refetchContext } = useQuery({
     queryKey: ['band-context', bandId],
@@ -158,10 +191,57 @@ export default function BandDetailPage() {
 
       <div className="flex items-center justify-between mb-4">
         <h2>Albums</h2>
-        <button className="btn-primary" onClick={() => setShowAlbumForm(!showAlbumForm)}>
-          {showAlbumForm ? 'Cancel' : 'Add Album'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            className="btn-secondary text-sm"
+            onClick={() => { setShowQuickAdd(!showQuickAdd); setShowAlbumForm(false); setQuickError(''); }}
+          >
+            {showQuickAdd ? 'Cancel' : '+ Quick Add Single'}
+          </button>
+          <button className="btn-primary" onClick={() => { setShowAlbumForm(!showAlbumForm); setShowQuickAdd(false); }}>
+            {showAlbumForm ? 'Cancel' : 'Add Album'}
+          </button>
+        </div>
       </div>
+
+      {/* Quick Add Single — creates album (type=single) + song in one step, navigates to song page */}
+      {showQuickAdd && (
+        <div className="card mb-4 border-indigo-100 bg-indigo-50/40">
+          <p className="text-xs text-indigo-600 font-medium mb-3">
+            New single or release not in MusicBrainz yet? Add it here — creates the album and song in one step, then takes you straight to the song page to add lyrics and run analysis.
+          </p>
+          <form onSubmit={(e) => void quickAddSingle(e)} className="space-y-3">
+            <div>
+              <label className="label">Song Title *</label>
+              <input
+                className="input"
+                value={quickTitle}
+                onChange={(e) => setQuickTitle(e.target.value)}
+                placeholder="e.g. Starless"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="label">Year</label>
+              <input
+                className="input"
+                type="number"
+                value={quickYear}
+                onChange={(e) => setQuickYear(e.target.value)}
+                min="1900"
+                max="2100"
+              />
+            </div>
+            {quickError && <p className="text-red-600 text-sm">{quickError}</p>}
+            <div className="flex gap-2 items-center">
+              <button className="btn-primary" type="submit" disabled={quickAdding}>
+                {quickAdding ? 'Adding…' : 'Add Single & Analyze →'}
+              </button>
+              <span className="text-xs text-surface-500">Creates "{quickTitle.trim() || '…'} (Single)" album automatically</span>
+            </div>
+          </form>
+        </div>
+      )}
 
       {showAlbumForm && (
         <div className="card mb-4">
@@ -208,7 +288,12 @@ export default function BandDetailPage() {
                   <Link to={`/library/albums/${album.id}`} className="font-medium hover:underline">
                     {album.title}
                   </Link>
-                  {album.year && <span className="ml-2 text-xs text-surface-700">{album.year}</span>}
+                  {album.year && <span className="ml-2 text-xs text-surface-500">{album.year}</span>}
+                  {album.albumType && (
+                    <span className="ml-2 text-[10px] font-medium uppercase tracking-wide text-indigo-500 bg-indigo-50 rounded px-1.5 py-0.5">
+                      {album.albumType}
+                    </span>
+                  )}
                 </div>
               </li>
             ))}
