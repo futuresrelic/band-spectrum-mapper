@@ -144,10 +144,11 @@ async def analyze_youtube(body: YouTubeRequest):
             result = subprocess.run(
                 [
                     "yt-dlp",
-                    "-x",                     # extract audio only
-                    "--audio-format", "mp3",   # convert to mp3
-                    "--audio-quality", "0",    # best quality
-                    "--no-playlist",           # single video only
+                    "-x",                       # extract audio only
+                    "--audio-format", "mp3",     # convert to mp3
+                    "--audio-quality", "0",      # best quality
+                    "--no-playlist",             # single video only
+                    "--js-runtimes", "node",     # use nodejs for YouTube JS extraction
                     "-o", output_template,
                     url,
                 ],
