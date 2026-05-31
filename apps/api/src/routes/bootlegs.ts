@@ -75,13 +75,14 @@ bootlegsRouter.get('/item/:identifier', async (req, res, next): Promise<void> =>
  */
 bootlegsRouter.post('/import', async (req, res, next): Promise<void> => {
   try {
-    const { bandId, identifier, title, date, venue, city, tracks } = req.body as {
+    const { bandId, identifier, title, date, venue, city, artworkUrl, tracks } = req.body as {
       bandId: string;
       identifier: string;
       title: string;
       date?: string;
       venue?: string;
       city?: string;
+      artworkUrl?: string;
       tracks?: { title: string; trackNumber?: number }[];
     };
 
@@ -120,7 +121,10 @@ bootlegsRouter.post('/import', async (req, res, next): Promise<void> => {
     }
 
     const album = await prisma.album.create({
-      data: { bandId, title: title.trim(), slug: albumSlug, year, albumType: 'bootleg', notes },
+      data: {
+        bandId, title: title.trim(), slug: albumSlug, year, albumType: 'bootleg', notes,
+        ...(artworkUrl ? { artworkUrl } : {}),
+      },
     });
 
     // Import tracks as songs
