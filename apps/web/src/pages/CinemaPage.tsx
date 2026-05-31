@@ -137,9 +137,10 @@ const GENRE_SOURCE_LABELS: Record<GenreSource, string> = {
   ai:        '🤖 AI',
 };
 
-function fetchCinemaGraph(bandIds: string[], genreSource: GenreSource = 'priority'): Promise<GraphData> {
+function fetchCinemaGraph(bandIds: string[], genreSource: GenreSource = 'priority', albumTypes: string[] = []): Promise<GraphData> {
   const qs = new URLSearchParams({ preset: 'artist-universe', genreSource });
   if (bandIds.length) qs.set('bandIds', bandIds.join(','));
+  if (albumTypes.length) qs.set('albumTypes', albumTypes.join(','));
   return api.get(`/api/public/graph?${qs}`);
 }
 function fetchScopes(): Promise<{ bands: { id: string; name: string }[] }> {
@@ -510,6 +511,19 @@ export default function CinemaPage() {
   // Genre source selector
   const [genreSource, setGenreSource] = useState<GenreSource>('priority');
 
+  // Album type filter — empty = all types
+  const ALL_ALBUM_TYPES = ['studio', 'ep', 'live', 'compilation', 'bootleg', 'single', 'demo'] as const;
+  const ALBUM_TYPE_LABELS: Record<string, string> = {
+    studio: 'Studio', ep: 'EP', live: 'Live', compilation: 'Compilation',
+    bootleg: 'Bootleg', single: 'Single', demo: 'Demo',
+  };
+  const [selectedAlbumTypes, setSelectedAlbumTypes] = useState<string[]>([]);
+  const toggleAlbumType = (type: string) => {
+    setSelectedAlbumTypes(prev =>
+      prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
+    );
+  };
+
   // Director mode — global sequence
   const [showDirector, setShowDirector] = useState(false);
   const [directorPlaying, setDirectorPlaying] = useState(false);
@@ -810,8 +824,8 @@ export default function CinemaPage() {
   const { data: scopes } = useQuery({ queryKey: ['cinema-scopes'], queryFn: fetchScopes });
 
   const { data: graphData, isFetching } = useQuery({
-    queryKey: ['cinema-graph', selectedBandIds.join(','), genreSource],
-    queryFn: () => fetchCinemaGraph(selectedBandIds, genreSource),
+    queryKey: ['cinema-graph', selectedBandIds.join(','), genreSource, selectedAlbumTypes.join(',')],
+    queryFn: () => fetchCinemaGraph(selectedBandIds, genreSource, selectedAlbumTypes),
   });
 
   useEffect(() => {
@@ -3108,6 +3122,45 @@ export default function CinemaPage() {
                         />
                         <span className={hidden ? 'line-through' : ''}>{TYPE_LABELS[type] ?? type}</span>
                         <span className="ml-auto text-[10px] text-gray-700">{hidden ? 'hidden' : '✓'}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Album type filter */}
+              <div className="border-t border-gray-800 pt-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Album types</div>
+                  {selectedAlbumTypes.length > 0 && (
+                    <button onClick={() => setSelectedAlbumTypes([])}
+                      className="text-[10px] text-indigo-500 hover:text-indigo-300 transition-colors">
+                      Show all
+                    </button>
+                  )}
+                </div>
+                <div className="text-[10px] text-gray-600 leading-snug px-1">
+                  Select types to include. Empty = all.
+                </div>
+                <div className="space-y-1">
+                  {ALL_ALBUM_TYPES.map(type => {
+                    const active = selectedAlbumTypes.length === 0 || selectedAlbumTypes.includes(type);
+                    return (
+                      <button key={type}
+                        onClick={() => toggleAlbumType(type)}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                          active
+                            ? 'text-gray-300 hover:bg-gray-800'
+                            : 'text-gray-700 hover:text-gray-500'
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${
+                          active ? (type === 'bootleg' ? 'bg-amber-500' : type === 'live' ? 'bg-sky-500' : 'bg-indigo-500') : 'bg-gray-700'
+                        }`} />
+                        <span className={active ? '' : 'line-through'}>{ALBUM_TYPE_LABELS[type] ?? type}</span>
+                        <span className="ml-auto text-[10px] text-gray-700">
+                          {selectedAlbumTypes.length === 0 ? '✓' : selectedAlbumTypes.includes(type) ? '✓' : 'off'}
+                        </span>
                       </button>
                     );
                   })}

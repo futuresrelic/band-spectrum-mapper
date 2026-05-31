@@ -47,10 +47,12 @@ export interface GraphNode {
     albumId?: string;
     bandName?: string;
     albumTitle?: string;
+    albumType?: string;
     scores?: Record<string, number>;
     color?: string;
     size?: number;
     count?: number;
+    imageUrl?: string;
   };
 }
 
@@ -135,17 +137,25 @@ function songNode(s: {
 async function fetchSongs(filter: {
   bandIds?: string[];
   albumId?: string;
+  albumTypes?: string[];
   limit?: number;
 }) {
-  const { bandIds, albumId, limit = 200 } = filter;
+  const { bandIds, albumId, albumTypes, limit = 200 } = filter;
   return prisma.song.findMany({
     where: {
       ...(bandIds?.length && { bandId: { in: bandIds } }),
       ...(albumId && { albumId }),
+      ...(albumTypes?.length && {
+        OR: [
+          { album: { albumType: { in: albumTypes as any[] } } },
+          // Songs with no album are always included
+          { albumId: null },
+        ],
+      }),
     },
     include: {
       band: { select: { id: true, name: true, logoUrl: true } },
-      album: { select: { id: true, title: true, artworkUrl: true } },
+      album: { select: { id: true, title: true, artworkUrl: true, albumType: true } },
       score: true,
       songTags: { include: { tag: true } },
       aiAnalysis: { select: { themes: true } },
@@ -160,8 +170,8 @@ async function fetchSongs(filter: {
 // Layout: artist-universe
 // ---------------------------------------------------------------------------
 
-async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
-  const songs = await fetchSongs({ bandIds, limit: 300 });
+async function buildArtistUniverse(bandIds: string[], albumTypes?: string[]): Promise<GraphData> {
+  const songs = await fetchSongs({ bandIds, limit: 600, ...(albumTypes?.length ? { albumTypes } : {}) });
 
   if (!songs.length) {
     return { nodes: [], edges: [], preset: 'artist-universe', label: 'Artist Universe' };
@@ -171,7 +181,7 @@ async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
   const edges: GraphEdge[] = [];
 
   const bandSet   = new Map<string, { name: string; logoUrl?: string | null }>();  // bandId → info
-  const albumSet  = new Map<string, { title: string; artworkUrl?: string | null }>(); // albumId → info
+  const albumSet  = new Map<string, { title: string; artworkUrl?: string | null; albumType?: string | null }>(); // albumId → info
   const albumBandMap = new Map<string, string>();    // albumId → bandId
   const tagSet = new Map<string, string>();          // tagId → name
   // Note: Theme nodes removed from artist-universe — Tags carry the same data
@@ -183,7 +193,7 @@ async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
     nodes.push(songNode(s));
     bandSet.set(s.band.id, { name: s.band.name, logoUrl: s.band.logoUrl });
     if (s.album) {
-      albumSet.set(s.album.id, { title: s.album.title, artworkUrl: s.album.artworkUrl });
+      albumSet.set(s.album.id, { title: s.album.title, artworkUrl: s.album.artworkUrl, albumType: s.album.albumType });
       albumBandMap.set(s.album.id, s.band.id);
     }
 
@@ -231,6 +241,7 @@ async function buildArtistUniverse(bandIds: string[]): Promise<GraphData> {
       data: {
         color: NODE_COLORS.album,
         ...(info.artworkUrl ? { imageUrl: info.artworkUrl } : {}),
+        ...(info.albumType ? { albumType: info.albumType } : {}),
       },
     });
     const bandId = albumBandMap.get(id);
@@ -532,13 +543,13 @@ async function buildLyricalDna(bandIds: string[]): Promise<GraphData> {
 
 export async function buildGraph(
   preset: GraphLayoutPreset,
-  params: { bandIds?: string[]; albumId?: string; genreSource?: GenreSource },
+  params: { bandIds?: string[]; albumId?: string; genreSource?: GenreSource; albumTypes?: string[] },
 ): Promise<GraphData> {
-  const { bandIds = [], albumId } = params;
+  const { bandIds = [], albumId, albumTypes } = params;
 
   switch (preset) {
     case 'artist-universe':
-      return buildArtistUniverse(bandIds);
+      return buildArtistUniverse(bandIds, albumTypes);
 
     case 'album-cluster':
       if (!albumId) throw Object.assign(new Error('albumId required for album-cluster'), { statusCode: 400 });

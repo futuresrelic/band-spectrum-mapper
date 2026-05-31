@@ -35,6 +35,7 @@ const adminLinks = [
   { to: '/admin/data-grid',      label: 'Data Grid' },
   { to: '/admin/game',           label: 'Album Art Quiz' },
   { to: '/admin/missing-artwork',label: 'Missing Artwork' },
+  { to: '/admin/bootlegs',       label: 'Bootleg Importer' },
   { to: '/settings?tab=icons', label: 'App Icons & Branding' },
   { to: '/view',               label: 'Public Site ↗', newTab: true },
 ];

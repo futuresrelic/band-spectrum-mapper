@@ -4,6 +4,31 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Bootleg Importer + Cinema album type filter (2026-05-31)
+
+### Added
+
+- **Bootleg Importer** (`/admin/bootlegs`) — New admin page for importing official live bootlegs from Archive.org (e.g. King Gizzard's bootlegger collection, Pearl Jam vault, etc.).
+  - Search Archive.org's public API by band name or any free-text query
+  - Auto-fills search query for any band from your library
+  - Expand any result to preview the full tracklist before importing
+  - One-click import creates an Album (type: `bootleg`) with all tracks as Songs
+  - Idempotent: re-importing an already-imported show is a no-op (detected via `notes` field)
+  - Linked from nav under Admin tools and wired into the React router
+
+- **Cinema album type filter** — New "Album types" section in the Cinema Controls (⚙) panel. Select any combination of studio / EP / live / compilation / bootleg / single / demo to include only those album types in the graph. Empty selection shows all types. Bootleg nodes shown in amber, live in sky blue, all others in indigo. Changing the selection re-fetches the graph instantly.
+
+- **`albumTypes` filter on public graph endpoint** (`GET /api/public/graph`) — Accepts optional `?albumTypes=studio,bootleg` comma-separated list and passes it through to `buildGraph`. Cinema, Explore, and other public-facing graph consumers can now filter by album type without an API key.
+
+- **`albumTypes` filter on admin song-nodes endpoint** (`GET /api/song-nodes`) — Already wired via the prior session; confirmed passing correctly.
+
+### Changed
+
+- **`songNodesService.fetchSongs`** now selects `albumType` from the album relation and filters on it when `albumTypes` is specified. Album nodes in the graph carry the `albumType` property.
+- **Nav** — Added "Bootleg Importer" link to the Admin section.
+
+---
+
 ## Cinema: sequence persistence, path mode fix, Final Cut playback, lyrics start line (2026-05-30)
 
 ### Fixed

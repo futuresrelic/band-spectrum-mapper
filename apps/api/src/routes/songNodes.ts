@@ -28,10 +28,13 @@ songNodesRouter.get('/', async (req, res, next): Promise<void> => {
       return;
     }
 
+    const albumTypesRaw = (req.query['albumTypes'] as string) ?? '';
+    const albumTypes = albumTypesRaw ? albumTypesRaw.split(',').filter(Boolean) : [];
     const bandIds = bandIdsRaw ? bandIdsRaw.split(',').filter(Boolean) : [];
     const data = await buildGraph(preset as GraphLayoutPreset, {
       bandIds,
       ...(albumId ? { albumId } : {}),
+      ...(albumTypes.length ? { albumTypes } : {}),
     });
 
     res.json(data);

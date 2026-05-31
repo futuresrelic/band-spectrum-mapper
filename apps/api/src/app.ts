@@ -36,6 +36,7 @@ import { spectrumStudioRouter } from './routes/spectrumStudio.js';
 import { nodeSequencesRouter } from './routes/nodeSequences.js';
 import { dataGridRouter } from './routes/dataGrid.js';
 import { setlistsRouter } from './routes/setlists.js';
+import { bootlegsRouter } from './routes/bootlegs.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -129,6 +130,9 @@ export function createApp() {
 
   // Setlist.fm proxy — concert setlists for Cinema Tour generation (auth required)
   app.use('/api/setlists', setlistsRouter);
+
+  // Archive.org bootleg import (auth + admin required)
+  app.use('/api/admin/bootlegs', bootlegsRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.
