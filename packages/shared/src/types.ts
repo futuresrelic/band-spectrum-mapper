@@ -420,6 +420,34 @@ export interface CommunityScore {
   scores: AxisScoreMap;
 }
 
+export interface MusicScoreMap {
+  rhythmicComplexity: number;
+  harmonicDepth: number;
+  structuralComplexity: number;
+  sonicDensity: number;
+  tempoEnergy: number;
+  tonalDarkness: number;
+}
+
+export interface CommunityMusicScore {
+  count: number;
+  scores: MusicScoreMap;
+}
+
+export interface UserMusicRating {
+  id: string;
+  userId: string;
+  songId: string;
+  rhythmicComplexity: number;
+  harmonicDepth: number;
+  structuralComplexity: number;
+  sonicDensity: number;
+  tempoEnergy: number;
+  tonalDarkness: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AlbumContextAnalysis {
   id: string;
   albumId: string;

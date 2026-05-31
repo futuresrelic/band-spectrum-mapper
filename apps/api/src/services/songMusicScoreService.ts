@@ -46,6 +46,45 @@ interface MusicScoreResult {
   contextJson: string;
 }
 
+interface AudioFeatureSnapshot {
+  bpm?: number;
+  bpmConfidence?: number;
+  key?: string;
+  keyConfidence?: number;
+  timeSignature?: string;
+  polyrhythmic?: boolean;
+  loudnessMeanDb?: number;
+  dynamicRange?: number;
+  rhythmicDensity?: number;
+  spectralCentroid?: number;
+  spectralContrast?: number;
+  sectionCount?: number;
+}
+
+function extractAudioFeatures(raw: unknown): AudioFeatureSnapshot | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const a = raw as Record<string, unknown>;
+  const features = (a['features'] as Record<string, unknown> | undefined) ?? {};
+  const loudness = (a['loudness'] as Record<string, unknown> | undefined) ?? {};
+  const sections = Array.isArray(a['sections']) ? a['sections'] as unknown[] : [];
+
+  const snapshot: AudioFeatureSnapshot = {};
+  if (typeof a['bpm'] === 'number')            snapshot.bpm           = Math.round(a['bpm'] * 10) / 10;
+  if (typeof a['bpmConfidence'] === 'number')  snapshot.bpmConfidence = a['bpmConfidence'];
+  if (typeof a['key'] === 'string')            snapshot.key           = a['key'];
+  if (typeof a['keyConfidence'] === 'number')  snapshot.keyConfidence = a['keyConfidence'];
+  if (typeof a['timeSignature'] === 'string')  snapshot.timeSignature = a['timeSignature'];
+  if (typeof a['polyrhythmic'] === 'boolean')  snapshot.polyrhythmic  = a['polyrhythmic'];
+  if (typeof loudness['meanDb'] === 'number')  snapshot.loudnessMeanDb  = Math.round(loudness['meanDb'] * 10) / 10;
+  if (typeof loudness['dynamicRange'] === 'number') snapshot.dynamicRange = Math.round(loudness['dynamicRange'] * 10) / 10;
+  if (typeof features['rhythmicDensity'] === 'number')   snapshot.rhythmicDensity   = Math.round(features['rhythmicDensity'] * 100) / 100;
+  if (typeof features['spectralCentroid'] === 'number')  snapshot.spectralCentroid  = Math.round(features['spectralCentroid']);
+  if (typeof features['spectralContrast'] === 'number')  snapshot.spectralContrast  = Math.round(features['spectralContrast'] * 10) / 10;
+  if (sections.length > 0) snapshot.sectionCount = sections.length;
+
+  return Object.keys(snapshot).length > 0 ? snapshot : null;
+}
+
 async function buildContext(songId: string): Promise<{
   contextLines: string[];
   contextJson: string;
@@ -63,6 +102,11 @@ async function buildContext(songId: string): Promise<{
       songTags: { select: { tag: { select: { name: true } } }, take: 20 },
       research: { select: { summary: true } },
       aiSpectrum: { select: { aggression: true, atmosphere: true, psychedelic: true, concept: true, rationale: true } },
+      spectrumAnalyses: {
+        select: { audioAnalysis: true },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      },
     },
   });
   if (!song) throw new HttpError(404, 'Song not found');
@@ -112,6 +156,25 @@ async function buildContext(songId: string): Promise<{
 
   if (song.aiSpectrum) {
     lines.push(`\nEmotional/lyrical spectrum (for reference): aggression=${song.aiSpectrum.aggression} atmosphere=${song.aiSpectrum.atmosphere} psychedelic=${song.aiSpectrum.psychedelic} concept=${song.aiSpectrum.concept}`);
+  }
+
+  // Audio analysis from the Python worker (if this song has been run through Song Spectrum Analyzer)
+  const audioRaw = song.spectrumAnalyses[0]?.audioAnalysis ?? null;
+  const audio = extractAudioFeatures(audioRaw);
+  if (audio) {
+    const audioLines: string[] = [];
+    if (audio.bpm !== undefined)          audioLines.push(`BPM: ${audio.bpm}${audio.bpmConfidence !== undefined ? ` (confidence ${(audio.bpmConfidence * 100).toFixed(0)}%)` : ''}`);
+    if (audio.key !== undefined)          audioLines.push(`Key: ${audio.key}${audio.keyConfidence !== undefined ? ` (confidence ${(audio.keyConfidence * 100).toFixed(0)}%)` : ''}`);
+    if (audio.timeSignature !== undefined) audioLines.push(`Time signature: ${audio.timeSignature}`);
+    if (audio.polyrhythmic !== undefined)  audioLines.push(`Polyrhythmic: ${audio.polyrhythmic ? 'yes' : 'no'}`);
+    if (audio.loudnessMeanDb !== undefined) audioLines.push(`Loudness mean: ${audio.loudnessMeanDb} dB`);
+    if (audio.dynamicRange !== undefined)  audioLines.push(`Dynamic range: ${audio.dynamicRange} dB`);
+    if (audio.rhythmicDensity !== undefined) audioLines.push(`Rhythmic density (onsets/s): ${audio.rhythmicDensity}`);
+    if (audio.spectralCentroid !== undefined) audioLines.push(`Spectral centroid: ${audio.spectralCentroid} Hz`);
+    if (audio.spectralContrast !== undefined) audioLines.push(`Spectral contrast: ${audio.spectralContrast} dB`);
+    if (audio.sectionCount !== undefined)  audioLines.push(`Detected sections: ${audio.sectionCount}`);
+    lines.push(`\nAudio analysis (from Python worker):\n${audioLines.join('\n')}`);
+    ctx['audioFeatures'] = audio;
   }
 
   return { contextLines: lines, contextJson: JSON.stringify(ctx) };

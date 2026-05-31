@@ -9,6 +9,35 @@ export const SCORE_AXES = [
 
 export type ScoreAxis = (typeof SCORE_AXES)[number];
 
+export const MUSIC_SCORE_AXES = [
+  'rhythmicComplexity',
+  'harmonicDepth',
+  'structuralComplexity',
+  'sonicDensity',
+  'tempoEnergy',
+  'tonalDarkness',
+] as const;
+
+export type MusicScoreAxis = (typeof MUSIC_SCORE_AXES)[number];
+
+export const MUSIC_AXIS_LABELS: Record<MusicScoreAxis, string> = {
+  rhythmicComplexity:   'Rhythmic Complexity',
+  harmonicDepth:        'Harmonic Depth',
+  structuralComplexity: 'Structural Complexity',
+  sonicDensity:         'Sonic Density',
+  tempoEnergy:          'Tempo Energy',
+  tonalDarkness:        'Tonal Darkness',
+};
+
+export const MUSIC_AXIS_INFO: Record<MusicScoreAxis, { lo: string; hi: string }> = {
+  rhythmicComplexity:   { lo: 'Steady 4/4 pulse',          hi: 'Polymetric / polyrhythmic / constantly shifting' },
+  harmonicDepth:        { lo: 'Simple triads / power chords', hi: 'Jazz harmony / microtonality / atonality' },
+  structuralComplexity: { lo: 'Standard verse-chorus-verse', hi: 'Through-composed / prog suite / no repeated sections' },
+  sonicDensity:         { lo: 'Sparse / single instrument', hi: 'Dense / heavily layered / orchestral' },
+  tempoEnergy:          { lo: 'Slow / meditative / drone',  hi: 'Extremely fast / relentless / high-octane' },
+  tonalDarkness:        { lo: 'Bright / major / uplifting', hi: 'Dark / dissonant / atonal / foreboding' },
+};
+
 export const AXIS_COLORS: Record<ScoreAxis, string> = {
   aggression:  '#E5484D',
   complexity:  '#8B5CF6',

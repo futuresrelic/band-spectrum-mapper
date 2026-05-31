@@ -87,6 +87,7 @@ model Song {
   score           SongAxisScore?
   songTags        SongTag[]
   ratings         UserSongRating[]
+  musicRatings    UserMusicRating[]
   comments        SongComment[]
   aiAnalysis      SongAiAnalysis?
   aiSpectrum      SongAiSpectrum?
@@ -382,6 +383,7 @@ model User {
   updatedAt           DateTime @updatedAt
 
   ratings              UserSongRating[]
+  musicRatings         UserMusicRating[]
   comments             SongComment[]
   genreRatings         SongGenreRating[]
   analysisRatings      SongAnalysisRating[]
@@ -473,6 +475,31 @@ model UserSongRating {
 
   @@unique([userId, songId])
   @@map("user_song_ratings")
+}
+
+// ---------------------------------------------------------------------------
+// User music structure ratings — one row per (user, song), integers 0-10
+// Parallel to UserSongRating but for musical characteristics.
+// ---------------------------------------------------------------------------
+
+model UserMusicRating {
+  id                   String   @id @default(cuid())
+  userId               String
+  songId               String
+  rhythmicComplexity   Int      @default(5)
+  harmonicDepth        Int      @default(5)
+  structuralComplexity Int      @default(5)
+  sonicDensity         Int      @default(5)
+  tempoEnergy          Int      @default(5)
+  tonalDarkness        Int      @default(5)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, songId])
+  @@map("user_music_ratings")
 }
 
 // ---------------------------------------------------------------------------

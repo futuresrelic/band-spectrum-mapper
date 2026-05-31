@@ -181,6 +181,17 @@ export const upsertUserRatingSchema = z.object({
 
 export type UpsertUserRatingInput = z.infer<typeof upsertUserRatingSchema>;
 
+export const upsertUserMusicRatingSchema = z.object({
+  rhythmicComplexity:   intAxis,
+  harmonicDepth:        intAxis,
+  structuralComplexity: intAxis,
+  sonicDensity:         intAxis,
+  tempoEnergy:          intAxis,
+  tonalDarkness:        intAxis,
+});
+
+export type UpsertUserMusicRatingInput = z.infer<typeof upsertUserMusicRatingSchema>;
+
 // ---------------------------------------------------------------------------
 // Settings schemas
 // ---------------------------------------------------------------------------

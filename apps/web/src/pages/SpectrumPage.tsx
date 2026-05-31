@@ -7,10 +7,11 @@ import { analysisApi } from '../api/analysis';
 import { ratingsApi } from '../api/ratings';
 import { useAuth } from '../contexts/AuthContext';
 import RadarChart from '../components/charts/RadarChart';
+import GenericRadarChart from '../components/charts/GenericRadarChart';
 import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
 import SignInPrompt from '../components/auth/SignInPrompt';
-import { SCORE_AXES, SCORE_MAX } from '@band-spectrum-mapper/shared';
+import { SCORE_AXES, SCORE_MAX, MUSIC_SCORE_AXES, MUSIC_AXIS_LABELS } from '@band-spectrum-mapper/shared';
 import type { UpsertScoreInput, AxisScoreMap, SongMusicScore } from '@band-spectrum-mapper/shared';
 
 const MUSIC_AXES: { key: keyof SongMusicScore; label: string; desc: string }[] = [
@@ -101,6 +102,13 @@ export default function SpectrumPage() {
     enabled: !!selectedSongId && viewMode === 'song' && (scoreMode === 'community' || scoreMode === 'mine'),
   });
 
+  // Community music ratings — always fetched in song mode to show on music radar
+  const { data: songMusicRatings } = useQuery({
+    queryKey: ['song-music-ratings', selectedSongId],
+    queryFn: () => ratingsApi.getSongMusicRatings(selectedSongId),
+    enabled: !!selectedSongId && viewMode === 'song',
+  });
+
   // AI spectrum scores — lazy, fetched when tab is selected
   const {
     data: aiSpectrum,
@@ -166,6 +174,8 @@ export default function SpectrumPage() {
 
   const communityScoreMap: AxisScoreMap | null = songRatings?.communityRating?.scores ?? null;
   const communityCount = songRatings?.communityRating?.count ?? 0;
+  const communityMusicScoreMap = (songMusicRatings?.communityRating?.scores ?? null) as Record<string, number> | null;
+  const communityMusicCount = songMusicRatings?.communityRating?.count ?? 0;
 
   const mineScoreMap: AxisScoreMap | null = songRatings?.myRating
     ? {
@@ -480,7 +490,7 @@ export default function SpectrumPage() {
           {viewMode === 'song' && selectedSongId && activeScoreMap && (
             <div className="card">
               <div className="flex items-baseline justify-between mb-4">
-                <h3>Song Radar</h3>
+                <h3>Lyric / Artistic Spectrum</h3>
                 <span className="text-xs text-surface-500">{SCORE_MODE_LABELS[scoreMode]} scores</span>
               </div>
               <RadarChart
@@ -496,6 +506,52 @@ export default function SpectrumPage() {
               </div>
             </div>
           )}
+
+          {/* Music Structure Spectrum radar — shown when AI score or community music score exists */}
+          {viewMode === 'song' && selectedSongId && (musicScore || communityMusicScoreMap) && (() => {
+            const musicAxes = MUSIC_SCORE_AXES.map((key) => ({ key, label: MUSIC_AXIS_LABELS[key] }));
+            const datasets: { label: string; scores: Record<string, number>; color: string }[] = [];
+            if (musicScore) {
+              datasets.push({
+                label: 'AI Score',
+                scores: {
+                  rhythmicComplexity:   musicScore.rhythmicComplexity,
+                  harmonicDepth:        musicScore.harmonicDepth,
+                  structuralComplexity: musicScore.structuralComplexity,
+                  sonicDensity:         musicScore.sonicDensity,
+                  tempoEnergy:          musicScore.tempoEnergy,
+                  tonalDarkness:        musicScore.tonalDarkness,
+                },
+                color: '#6366f1',
+              });
+            }
+            if (communityMusicScoreMap) {
+              datasets.push({
+                label: `Community (${communityMusicCount})`,
+                scores: communityMusicScoreMap,
+                color: '#10b981',
+              });
+            }
+            return (
+              <div className="card">
+                <div className="flex items-baseline justify-between mb-4">
+                  <h3>Music Structure Spectrum</h3>
+                  <span className="text-xs text-surface-500">How the music is built</span>
+                </div>
+                <GenericRadarChart axes={musicAxes} datasets={datasets} />
+                <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 mt-3">
+                  {MUSIC_SCORE_AXES.map((axis) => (
+                    <div key={axis} className="flex justify-between text-xs">
+                      <span className="text-surface-600">{MUSIC_AXIS_LABELS[axis]}</span>
+                      <span className="font-mono font-medium">
+                        {musicScore ? (musicScore[axis as keyof SongMusicScore] as number).toFixed(1) : '—'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {viewMode === 'band' && bandAvgMap && (
             <div className="card">

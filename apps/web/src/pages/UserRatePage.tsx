@@ -7,8 +7,8 @@ import { ratingsApi } from '../api/ratings';
 import { songsApi } from '../api/songs';
 import { AxisDescription, AxisHelpPanel, DISCLAIMER } from '../components/spectrum/AxisHelp';
 import GenreSpectrumWidget from '../components/GenreSpectrumWidget';
-import type { ScoreAxis, AxisScoreMap } from '@band-spectrum-mapper/shared';
-import { SCORE_AXES, AXIS_INFO } from '@band-spectrum-mapper/shared';
+import type { ScoreAxis, AxisScoreMap, MusicScoreAxis } from '@band-spectrum-mapper/shared';
+import { SCORE_AXES, AXIS_INFO, MUSIC_SCORE_AXES, MUSIC_AXIS_LABELS, MUSIC_AXIS_INFO } from '@band-spectrum-mapper/shared';
 import InfoTooltip from '../components/ui/InfoTooltip';
 
 const AXIS_LABELS: Record<string, string> = {
@@ -20,16 +20,26 @@ const DEFAULT_SCORES: Record<ScoreAxis, number> = {
   aggression: 5, complexity: 5, atmosphere: 5, emotion: 5, psychedelic: 5, concept: 5,
 };
 
-function ScoreDisplay({ label, scores }: { label: string; scores: AxisScoreMap | null | undefined }) {
+const DEFAULT_MUSIC_SCORES: Record<MusicScoreAxis, number> = {
+  rhythmicComplexity: 5, harmonicDepth: 5, structuralComplexity: 5,
+  sonicDensity: 5, tempoEnergy: 5, tonalDarkness: 5,
+};
+
+function ScoreDisplay({ label, scores, axes }: {
+  label: string;
+  scores: object | null | undefined;
+  axes: readonly string[];
+}) {
   if (!scores) return null;
+  const s = scores as Record<string, number>;
   return (
     <div className="rounded border border-surface-200 bg-surface-50 px-3 py-2">
       <p className="text-xs font-medium text-surface-600 mb-1.5">{label}</p>
       <div className="grid grid-cols-3 gap-x-4 gap-y-0.5">
-        {SCORE_AXES.map((axis) => (
+        {axes.map((axis) => (
           <div key={axis} className="flex justify-between text-xs">
             <span className="text-surface-600 capitalize">{axis.slice(0, 4)}</span>
-            <span className="font-mono font-medium">{scores[axis]}</span>
+            <span className="font-mono font-medium">{s[axis]}</span>
           </div>
         ))}
       </div>
@@ -47,7 +57,9 @@ export default function UserRatePage() {
   const [selectedAlbumId, setSelectedAlbumId] = useState('');
   const [selectedSongId, setSelectedSongId] = useState(searchParams.get('songId') ?? '');
   const [myScores, setMyScores] = useState<Record<ScoreAxis, number>>({ ...DEFAULT_SCORES });
+  const [myMusicScores, setMyMusicScores] = useState<Record<MusicScoreAxis, number>>({ ...DEFAULT_MUSIC_SCORES });
   const [saved, setSaved] = useState(false);
+  const [musicSaved, setMusicSaved] = useState(false);
 
   const { data: bands } = useQuery({
     queryKey: ['bands'],
@@ -81,6 +93,12 @@ export default function UserRatePage() {
     enabled: !!selectedSongId && !!user,
   });
 
+  const { data: songMusicRatings } = useQuery({
+    queryKey: ['song-music-ratings', selectedSongId],
+    queryFn: () => ratingsApi.getSongMusicRatings(selectedSongId),
+    enabled: !!selectedSongId && !!user,
+  });
+
   useEffect(() => {
     if (songRatings?.myRating) {
       const r = songRatings.myRating;
@@ -93,6 +111,20 @@ export default function UserRatePage() {
     }
     setSaved(false);
   }, [songRatings, selectedSongId]);
+
+  useEffect(() => {
+    if (songMusicRatings?.myRating) {
+      const r = songMusicRatings.myRating;
+      setMyMusicScores({
+        rhythmicComplexity: r.rhythmicComplexity, harmonicDepth: r.harmonicDepth,
+        structuralComplexity: r.structuralComplexity, sonicDensity: r.sonicDensity,
+        tempoEnergy: r.tempoEnergy, tonalDarkness: r.tonalDarkness,
+      });
+    } else {
+      setMyMusicScores({ ...DEFAULT_MUSIC_SCORES });
+    }
+    setMusicSaved(false);
+  }, [songMusicRatings, selectedSongId]);
 
   useEffect(() => {
     if (songDetail && selectedSongId) {
@@ -109,10 +141,20 @@ export default function UserRatePage() {
     },
   });
 
+  const saveMusicMutation = useMutation({
+    mutationFn: () => ratingsApi.upsertMyMusicRating(selectedSongId, myMusicScores),
+    onSuccess: () => {
+      setMusicSaved(true);
+      qc.invalidateQueries({ queryKey: ['song-music-ratings', selectedSongId] });
+    },
+  });
+
   const handleSongSelect = (songId: string) => {
     setSelectedSongId(songId);
     setSaved(false);
+    setMusicSaved(false);
     setMyScores({ ...DEFAULT_SCORES });
+    setMyMusicScores({ ...DEFAULT_MUSIC_SCORES });
     // Keep URL in sync so the page is bookmarkable and shareable
     navigate(songId ? `/my/rate?songId=${encodeURIComponent(songId)}` : '/my/rate', { replace: true });
   };
@@ -126,6 +168,7 @@ export default function UserRatePage() {
 
   const coreScores: AxisScoreMap | null = songDetail?.score ?? null;
   const communityScores = songRatings?.communityRating ?? null;
+  const communityMusicScores = songMusicRatings?.communityRating ?? null;
   const bandSlug = songDetail?.band?.slug ?? null;
 
   // Not signed in — prompt, preserving the songId so they land back here after auth
@@ -270,14 +313,22 @@ export default function UserRatePage() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <ScoreDisplay label="Core (baseline)" scores={coreScores} />
+                  <ScoreDisplay label="Core (baseline)" scores={coreScores} axes={SCORE_AXES} />
                   <ScoreDisplay
-                    label={`Community (${communityScores?.count ?? 0} ratings)`}
+                    label={`Community Lyric (${communityScores?.count ?? 0})`}
                     scores={communityScores?.scores ?? null}
+                    axes={SCORE_AXES}
                   />
                 </div>
+                {communityMusicScores && (
+                  <ScoreDisplay
+                    label={`Community Music (${communityMusicScores.count})`}
+                    scores={communityMusicScores.scores}
+                    axes={MUSIC_SCORE_AXES}
+                  />
+                )}
 
-                {!coreScores && !communityScores && (
+                {!coreScores && !communityScores && !communityMusicScores && (
                   <p className="text-xs text-surface-400">No reference scores yet for this song.</p>
                 )}
               </div>
@@ -383,6 +434,60 @@ export default function UserRatePage() {
                 </div>
                 {saveMutation.isError && (
                   <p className="text-red-600 text-sm">{(saveMutation.error as Error).message}</p>
+                )}
+              </div>
+
+              {/* Music structure rating sliders */}
+              <div className="card space-y-5">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <h3 className="font-semibold">Music Structure Rating</h3>
+                    <p className="text-xs text-surface-500 mt-0.5">
+                      How the music is built — works for instrumentals
+                    </p>
+                    {songMusicRatings?.myRating && (
+                      <p className="text-xs text-surface-400 mt-0.5">Previously saved — editing</p>
+                    )}
+                  </div>
+                </div>
+
+                {MUSIC_SCORE_AXES.map((axis) => (
+                  <div key={axis}>
+                    <div className="flex justify-between items-baseline mb-0.5">
+                      <label className="label mb-0 font-medium">
+                        {MUSIC_AXIS_LABELS[axis]}
+                      </label>
+                      <span className="text-sm font-mono font-semibold">{myMusicScores[axis]} / 10</span>
+                    </div>
+                    <p className="text-xs text-surface-500 mb-1">
+                      {MUSIC_AXIS_INFO[axis].lo} → {MUSIC_AXIS_INFO[axis].hi}
+                    </p>
+                    <input
+                      type="range"
+                      min="0" max="10" step="1"
+                      value={myMusicScores[axis]}
+                      onChange={(e) =>
+                        setMyMusicScores((prev) => ({ ...prev, [axis]: parseInt(e.target.value, 10) }))
+                      }
+                      className="w-full mt-0.5 accent-indigo-600"
+                    />
+                  </div>
+                ))}
+
+                <div className="flex items-center gap-3 pt-1 flex-wrap">
+                  <button
+                    className="btn-primary"
+                    onClick={() => saveMusicMutation.mutate()}
+                    disabled={saveMusicMutation.isPending}
+                  >
+                    {saveMusicMutation.isPending ? 'Saving...' : 'Save Music Rating'}
+                  </button>
+                  {musicSaved && (
+                    <span className="text-green-700 text-sm font-medium">Saved!</span>
+                  )}
+                </div>
+                {saveMusicMutation.isError && (
+                  <p className="text-red-600 text-sm">{(saveMusicMutation.error as Error).message}</p>
                 )}
               </div>
 
