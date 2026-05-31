@@ -58,11 +58,13 @@ interface Props {
   actionDone?: boolean;
   /** Pre-fill the search box and auto-trigger search on mount */
   initialSearch?: string;
+  /** When set, shows per-track checkboxes and limits submission to this many songs */
+  maxSongs?: number;
 }
 
 type Step = 'search' | 'albums' | 'release-picker' | 'tracks';
 
-export default function MusicBrainzLookup({ actionLabel, onAction, actionPending, actionDone, initialSearch }: Props) {
+export default function MusicBrainzLookup({ actionLabel, onAction, actionPending, actionDone, initialSearch, maxSongs }: Props) {
   const [query, setQuery] = useState(initialSearch ?? '');
   const autoSearched = useRef(false);
   const [artists, setArtists] = useState<MbArtist[]>([]);
@@ -73,6 +75,8 @@ export default function MusicBrainzLookup({ actionLabel, onAction, actionPending
   const [chosenReleaseId, setChosenReleaseId] = useState<Record<string, string>>({});
   const [tracks, setTracks] = useState<Record<string, MbRelease | null>>({});
   const [step, setStep] = useState<Step>('search');
+  // Per-track selection — key is `${releaseGroupId}:${trackNumber}`
+  const [selectedTrackKeys, setSelectedTrackKeys] = useState<Set<string>>(new Set());
 
   const searchMutation = useMutation({
     mutationFn: (q: string) => musicBrainzApi.searchArtists(q),
@@ -102,7 +106,16 @@ export default function MusicBrainzLookup({ actionLabel, onAction, actionPending
   const tracksMutation = useMutation({
     mutationFn: (items: { releaseGroupId: string; releaseId: string }[]) =>
       musicBrainzApi.getTracksByRelease(items),
-    onSuccess: (data) => { setTracks(data); setStep('tracks'); },
+    onSuccess: (data) => {
+      setTracks(data);
+      // Pre-select every track so nothing is lost by default
+      const allKeys = new Set<string>();
+      for (const [rgId, rel] of Object.entries(data)) {
+        if (rel) for (const t of rel.tracks) allKeys.add(`${rgId}:${t.number}`);
+      }
+      setSelectedTrackKeys(allKeys);
+      setStep('tracks');
+    },
   });
 
   const handleSearch = () => {
@@ -149,24 +162,46 @@ export default function MusicBrainzLookup({ actionLabel, onAction, actionPending
     tracksMutation.mutate(items);
   };
 
+  const toggleTrack = useCallback((rgId: string, trackNum: number) => {
+    setSelectedTrackKeys(prev => {
+      const next = new Set(prev);
+      const key = `${rgId}:${trackNum}`;
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }, []);
+
+  const toggleAlbumTracks = useCallback((rgId: string, trackNums: number[], selectAll: boolean) => {
+    setSelectedTrackKeys(prev => {
+      const next = new Set(prev);
+      for (const n of trackNums) {
+        selectAll ? next.add(`${rgId}:${n}`) : next.delete(`${rgId}:${n}`);
+      }
+      return next;
+    });
+  }, []);
+
   const handleAction = () => {
     if (!selectedArtist) return;
     const albumData = albums
       .filter((a) => selectedIds.has(a.id))
       .map((a) => {
         const rel = tracks[a.id];
-        const trackList = (rel?.tracks ?? []).map((t) => ({
-          track_number: t.number,
-          song_title: t.title,
-          song_slug: slugify(t.title),
-        }));
+        const trackList = (rel?.tracks ?? [])
+          .filter(t => maxSongs === undefined || selectedTrackKeys.has(`${a.id}:${t.number}`))
+          .map((t) => ({
+            track_number: t.number,
+            song_title: t.title,
+            song_slug: slugify(t.title),
+          }));
         return {
           album_title: rel?.title ?? a.title,
           album_slug: slugify(rel?.title ?? a.title),
           year: rel?.year ?? a.year,
           tracks: trackList,
         };
-      });
+      })
+      .filter(a => a.tracks.length > 0);
 
     onAction({
       artistName: selectedArtist.name,
@@ -366,58 +401,118 @@ export default function MusicBrainzLookup({ actionLabel, onAction, actionPending
         </div>
       )}
 
-      {/* Track preview */}
-      {step === 'tracks' && allTracksLoaded && selectedAlbums.length > 0 && (
-        <div className="space-y-4">
-          {selectedAlbums.map((a) => {
-            const rel = tracks[a.id];
-            return (
-              <div key={a.id} className="card p-0 overflow-hidden">
-                <div className="px-3 py-2 bg-surface-50 border-b border-surface-100 flex items-baseline gap-2">
-                  <p className="text-sm font-semibold">{rel?.title ?? a.title}</p>
-                  <p className="text-xs text-surface-500">{rel?.year ?? a.year ?? '—'}</p>
-                  <button
-                    className="ml-auto text-xs text-indigo-600 hover:underline"
-                    onClick={() => setStep('release-picker')}
-                  >
-                    Change release
-                  </button>
-                </div>
-                {rel ? (
-                  <ul className="divide-y divide-surface-100">
-                    {rel.tracks.map((t) => (
-                      <li key={t.number} className="flex items-center gap-3 px-3 py-1.5 text-sm">
-                        <span className="text-xs text-surface-400 w-5 text-right shrink-0">{t.number}</span>
-                        <span className="flex-1">{t.title}</span>
-                        {t.durationMs && (
-                          <span className="text-xs text-surface-400">{fmtDuration(t.durationMs)}</span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="px-3 py-2 text-xs text-surface-400 italic">No tracklist found.</p>
-                )}
-              </div>
-            );
-          })}
+      {/* Track preview + selection */}
+      {step === 'tracks' && allTracksLoaded && selectedAlbums.length > 0 && (() => {
+        const totalSelected = maxSongs !== undefined
+          ? selectedAlbums.reduce((s, a) => s + (tracks[a.id]?.tracks.filter(t => selectedTrackKeys.has(`${a.id}:${t.number}`)).length ?? 0), 0)
+          : selectedAlbums.reduce((s, a) => s + (tracks[a.id]?.tracks.length ?? 0), 0);
+        const overLimit = maxSongs !== undefined && totalSelected > maxSongs;
+        const noneSelected = maxSongs !== undefined && totalSelected === 0;
 
-          <div className="flex items-center gap-3">
-            <button
-              className="btn-primary"
-              onClick={handleAction}
-              disabled={actionPending || actionDone}
-            >
-              {actionDone ? '✓ Done!' : actionPending ? 'Working…' : actionLabel}
-            </button>
-            <p className="text-xs text-surface-500">
-              {selectedAlbums.length} album{selectedAlbums.length !== 1 ? 's' : ''} ·{' '}
-              {selectedAlbums.reduce((s, a) => s + (tracks[a.id]?.tracks.length ?? 0), 0)} songs ·
-              Lyrics not included — add manually after import.
-            </p>
+        return (
+          <div className="space-y-4">
+            {/* Token / selection summary */}
+            {maxSongs !== undefined && (
+              <div className={`rounded-lg border px-4 py-3 flex items-center justify-between ${
+                overLimit ? 'border-red-300 bg-red-50' : noneSelected ? 'border-amber-300 bg-amber-50' : 'border-surface-200 bg-surface-50'
+              }`}>
+                <p className={`text-sm font-medium ${overLimit ? 'text-red-700' : noneSelected ? 'text-amber-700' : 'text-surface-700'}`}>
+                  {totalSelected} song{totalSelected !== 1 ? 's' : ''} selected
+                  {overLimit && ` — ${totalSelected - maxSongs} over your ${maxSongs}-token limit`}
+                  {noneSelected && ' — select at least one song'}
+                </p>
+                <span className={`text-xl font-bold tabular-nums ${overLimit ? 'text-red-600' : noneSelected ? 'text-amber-500' : 'text-green-600'}`}>
+                  {totalSelected}/{maxSongs}
+                </span>
+              </div>
+            )}
+
+            {selectedAlbums.map((a) => {
+              const rel = tracks[a.id];
+              const trackNums = rel?.tracks.map(t => t.number) ?? [];
+              const albumSelected = trackNums.filter(n => selectedTrackKeys.has(`${a.id}:${n}`));
+              const allAlbumSelected = albumSelected.length === trackNums.length;
+
+              return (
+                <div key={a.id} className="card p-0 overflow-hidden">
+                  <div className="px-3 py-2 bg-surface-50 border-b border-surface-100 flex items-center gap-2">
+                    <p className="text-sm font-semibold flex-1">{rel?.title ?? a.title}</p>
+                    <p className="text-xs text-surface-500">{rel?.year ?? a.year ?? '—'}</p>
+                    {maxSongs !== undefined && (
+                      <span className="text-xs text-surface-400">
+                        {albumSelected.length}/{trackNums.length} selected
+                      </span>
+                    )}
+                    {maxSongs !== undefined && (
+                      <button
+                        className="text-xs text-indigo-600 hover:underline ml-1"
+                        onClick={() => toggleAlbumTracks(a.id, trackNums, !allAlbumSelected)}
+                      >
+                        {allAlbumSelected ? 'None' : 'All'}
+                      </button>
+                    )}
+                    <button
+                      className="text-xs text-surface-400 hover:text-indigo-600 ml-2"
+                      onClick={() => setStep('release-picker')}
+                    >
+                      Change release
+                    </button>
+                  </div>
+                  {rel ? (
+                    <ul className="divide-y divide-surface-100">
+                      {rel.tracks.map((t) => {
+                        const key = `${a.id}:${t.number}`;
+                        const checked = maxSongs === undefined || selectedTrackKeys.has(key);
+                        return (
+                          <li
+                            key={t.number}
+                            className={`flex items-center gap-3 px-3 py-1.5 text-sm transition-colors ${
+                              maxSongs !== undefined ? (checked ? 'hover:bg-surface-50 cursor-pointer' : 'opacity-40 hover:opacity-70 cursor-pointer') : ''
+                            }`}
+                            onClick={maxSongs !== undefined ? () => toggleTrack(a.id, t.number) : undefined}
+                          >
+                            {maxSongs !== undefined && (
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleTrack(a.id, t.number)}
+                                onClick={e => e.stopPropagation()}
+                                className="rounded shrink-0"
+                              />
+                            )}
+                            <span className="text-xs text-surface-400 w-5 text-right shrink-0">{t.number}</span>
+                            <span className="flex-1">{t.title}</span>
+                            {t.durationMs && (
+                              <span className="text-xs text-surface-400">{fmtDuration(t.durationMs)}</span>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="px-3 py-2 text-xs text-surface-400 italic">No tracklist found.</p>
+                  )}
+                </div>
+              );
+            })}
+
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                className="btn-primary"
+                onClick={handleAction}
+                disabled={actionPending || actionDone || overLimit || noneSelected}
+              >
+                {actionDone ? '✓ Done!' : actionPending ? 'Working…' : actionLabel}
+              </button>
+              <p className="text-xs text-surface-500">
+                {selectedAlbums.length} album{selectedAlbums.length !== 1 ? 's' : ''} ·{' '}
+                {totalSelected} song{totalSelected !== 1 ? 's' : ''} ·
+                Lyrics not included — add manually after import.
+              </p>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

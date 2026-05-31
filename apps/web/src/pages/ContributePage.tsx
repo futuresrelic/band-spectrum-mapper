@@ -113,6 +113,7 @@ export default function ContributePage() {
             }}
             actionPending={submitMutation.isPending}
             actionDone={done}
+            maxSongs={tokenData?.tokens ?? 3}
           />
           {submitMutation.isError && (
             <p className="text-red-600 text-sm mt-3">
