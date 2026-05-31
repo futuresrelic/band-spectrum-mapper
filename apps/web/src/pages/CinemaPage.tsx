@@ -23,7 +23,7 @@ import SpriteText from 'three-spritetext';
 import * as THREE from 'three';
 import { api } from '../lib/api';
 import type { GraphData } from '../api/songNodes';
-import { buildAdj, computeArrangeTargets, animateArrange, easeInOutQuad } from '../cinema/graphArrange';
+import { buildAdj, computeArrangeTargets, animateArrange, easeInOutQuad, easeInOutCubic } from '../cinema/graphArrange';
 import { CINEMA_SCENES } from '../cinema/sceneDefinitions';
 import { initOrbitState, updateOrbitCamera, type OrbitCameraState } from '../cinema/orbitCamera';
 import type { CinemaNode, CinemaLink, CinemaControls, TourStep, CinemaKeyframe, NodeSequence, FinalCutClip } from '../cinema/types';
@@ -702,7 +702,13 @@ export default function CinemaPage() {
   const [cursorHidden, setCursorHidden] = useState(false);
 
   // Sync refs ↔ state
-  useEffect(() => { isPlayingRef.current  = isPlaying;       }, [isPlaying]);
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+    // When stopping playback, re-apply selection dim/size if a chain is active
+    if (!isPlaying && selectedChainRef.current.length > 0) {
+      fgRef.current?.refresh();
+    }
+  }, [isPlaying]);
   useEffect(() => { currentIdxRef.current = currentSceneIdx; }, [currentSceneIdx]);
   useEffect(() => {
     simNodesRef.current = simNodes;
@@ -1203,7 +1209,7 @@ export default function CinemaPage() {
             setDirectorPlaying(false);
           } else {
             const elapsed = Date.now() - dp.startMs;
-            const t = easeInOutQuad(Math.min(1, elapsed / kf.durationMs));
+            const t = easeInOutCubic(Math.min(1, elapsed / kf.durationMs));
             camera.position.set(
               dp.fromPos.x + (kf.position.x - dp.fromPos.x) * t,
               dp.fromPos.y + (kf.position.y - dp.fromPos.y) * t,
@@ -1244,7 +1250,7 @@ export default function CinemaPage() {
           const kf  = skf.keyframes[skf.idx];
           ctrl.enabled = false;
           if (kf) {
-            const t = easeInOutQuad(Math.min(1, (Date.now() - skf.startMs) / kf.durationMs));
+            const t = easeInOutCubic(Math.min(1, (Date.now() - skf.startMs) / kf.durationMs));
             camera.position.set(
               skf.fromPos.x + (kf.position.x - skf.fromPos.x) * t,
               skf.fromPos.y + (kf.position.y - skf.fromPos.y) * t,
@@ -1840,8 +1846,14 @@ export default function CinemaPage() {
     if (tourMode && n.id === tourHighlightedId) return 12 * sizeMult;
     const chain = selectedChainRef.current;
     if (chain.length > 0 && !isPlayingRef.current) {
+      // Chain nodes (selected path): biggest
       const inChain = chain.some(c => c.id === n.id);
-      if (inChain) return nodeValFor(n.type) * 1.6 * sizeMult;
+      if (inChain) return nodeValFor(n.type) * 2.8 * sizeMult;
+      // Directly connected to the last chain node: also big
+      const lastId = chain[chain.length - 1]!.id;
+      if (adjRef.current.get(lastId)?.has(n.id)) return nodeValFor(n.type) * 2.0 * sizeMult;
+      // Everything else: shrink so the highlighted nodes stand out
+      return nodeValFor(n.type) * 0.55 * currentTheme.nodeValMultiplier * sizeMult;
     }
     return nodeValFor(n.type) * currentTheme.nodeValMultiplier * sizeMult;
   }, [tourMode, tourHighlightedId, currentTheme]);

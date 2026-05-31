@@ -20,6 +20,10 @@ export function easeInOutQuad(t: number): number {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 }
 
+export function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
 export function buildAdj(
   links: Array<{ source: LinkEnd; target: LinkEnd }>,
 ): Map<string, Set<string>> {
