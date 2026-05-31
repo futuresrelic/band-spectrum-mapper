@@ -518,6 +518,26 @@ export default function SongSpectrumPage() {
     onError: (e: Error) => setError(e.message),
   });
 
+  // YouTube audio analysis mutation (yt-dlp, local only)
+  const ytAudioMutation = useMutation({
+    mutationFn: () =>
+      songSpectrumApi.analyzeFromYouTube({
+        youtubeUrl: youtubeUrl.trim(),
+        songTitle: songTitle.trim(),
+        artistName: artistName.trim(),
+        ...(selectedSongId ? { songId: selectedSongId } : {}),
+        ...(reAnalysisId ? { analysisId: reAnalysisId } : {}),
+        ...(analysisNotes.trim() ? { analysisNotes: analysisNotes.trim() } : {}),
+      }),
+    onSuccess: (result) => {
+      setActiveAnalysis(result);
+      setStep('results');
+      qc.invalidateQueries({ queryKey: ['song-spectrum-analyses'] });
+      setError(null);
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: songSpectrumApi.delete,
@@ -769,7 +789,7 @@ export default function SongSpectrumPage() {
                   setAudioFile(f);
                   analyzeMutation.mutate(f);
                 }}
-                disabled={analyzeMutation.isPending || !status?.audioWorker}
+                disabled={analyzeMutation.isPending || ytAudioMutation.isPending || !status?.audioWorker}
               />
 
               {audioFile && analyzeMutation.isPending && (
@@ -789,6 +809,59 @@ export default function SongSpectrumPage() {
                       This may take 10–30 seconds for a full-length song.
                     </span>
                   </div>
+                </div>
+              )}
+
+              {/* YouTube audio analysis — local / personal use */}
+              {(status?.youtubeAudio || youtubeUrl.trim()) && (
+                <div className="border border-dashed border-surface-700 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-white">Analyze from YouTube</span>
+                    <span className="text-xs bg-amber-900/40 text-amber-400 border border-amber-700/50 rounded px-1.5 py-0.5">
+                      local only
+                    </span>
+                  </div>
+
+                  {!status?.youtubeAudio && (
+                    <p className="text-xs text-surface-500">
+                      Set <code className="text-amber-400">ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT=true</code> on
+                      both the API and the audio worker to download audio directly from YouTube for analysis.
+                      Requires <code className="text-amber-400">yt-dlp</code> installed in the Python worker.
+                      <span className="block mt-1 text-surface-600">Never enable in production.</span>
+                    </p>
+                  )}
+
+                  {status?.youtubeAudio && (
+                    <>
+                      {!youtubeUrl.trim() && (
+                        <p className="text-xs text-surface-500">
+                          Go back and paste a YouTube URL to enable this option.
+                        </p>
+                      )}
+                      {youtubeUrl.trim() && (
+                        <>
+                          <p className="text-xs text-surface-400">
+                            Downloads audio via yt-dlp and runs the full analysis pipeline.
+                            Takes 30–120 s depending on song length and download speed.
+                          </p>
+                          <button
+                            className="px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white text-sm font-medium rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            disabled={ytAudioMutation.isPending || analyzeMutation.isPending}
+                            onClick={() => ytAudioMutation.mutate()}
+                          >
+                            {ytAudioMutation.isPending
+                              ? 'Downloading & analyzing…'
+                              : 'Analyze from YouTube ↓'}
+                          </button>
+                          {ytAudioMutation.isPending && (
+                            <p className="text-xs text-surface-400 animate-pulse">
+                              Downloading audio from YouTube… this may take a minute.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
 

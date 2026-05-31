@@ -5,3 +5,6 @@ librosa==0.10.2
 numpy==1.26.4
 scipy==1.13.1
 soundfile==0.12.1
+# yt-dlp is optional — only needed when ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT=true
+# Install separately if using local YouTube audio: pip install yt-dlp
+yt-dlp

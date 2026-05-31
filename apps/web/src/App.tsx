@@ -57,6 +57,7 @@ import LyricsFlowPage from './pages/LyricsFlowPage';
 import AdminDataGridPage from './pages/AdminDataGridPage';
 import AdminHubPage from './pages/AdminHubPage';
 import AdminBootlegsPage from './pages/AdminBootlegsPage';
+import DataHealthPage from './pages/DataHealthPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -164,6 +165,7 @@ export default function App() {
           <Route path="admin/data-grid" element={<AdminDataGridPage />} />
           <Route path="admin/hub" element={<AdminHubPage />} />
           <Route path="admin/bootlegs" element={<AdminBootlegsPage />} />
+          <Route path="admin/data-health" element={<DataHealthPage />} />
         </Route>
       </Routes>
     </AuthProvider>

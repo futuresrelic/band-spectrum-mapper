@@ -5,7 +5,7 @@ import type {
 } from '@band-spectrum-mapper/shared';
 
 export const songSpectrumApi = {
-  status(): Promise<{ audioWorker: boolean; youtubeApi: boolean }> {
+  status(): Promise<{ audioWorker: boolean; youtubeApi: boolean; youtubeAudio: boolean }> {
     return api.get('/api/song-spectrum/status');
   },
 
@@ -33,6 +33,18 @@ export const songSpectrumApi = {
     if (params.analysisNotes) fd.append('analysisNotes', params.analysisNotes);
     if (params.songId) fd.append('songId', params.songId);
     return api.postForm('/api/song-spectrum/analyze-audio', fd);
+  },
+
+  analyzeFromYouTube(params: {
+    youtubeUrl: string;
+    songTitle: string;
+    artistName: string;
+    analysisId?: string;
+    lyricsContext?: string;
+    analysisNotes?: string;
+    songId?: string;
+  }): Promise<SongSpectrumAnalysis> {
+    return api.post('/api/song-spectrum/analyze-youtube-audio', params);
   },
 
   createStub(params: {

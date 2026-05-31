@@ -808,3 +808,75 @@ adminRouter.post('/db-push', async (_req, res, next): Promise<void> => {
     res.json({ success: false, output });
   }
 });
+
+
+// ---------------------------------------------------------------------------
+// Data Health — per-song status of all AI analysis types
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/data-health', async (req, res, next) => {
+  try {
+    const bandId = typeof req.query['bandId'] === 'string' ? req.query['bandId'] : undefined;
+
+    const songs = await prisma.song.findMany({
+      where: bandId ? { bandId } : {},
+      select: {
+        id: true,
+        title: true,
+        bandId: true,
+        isInstrumental: true,
+        band:   { select: { name: true } },
+        album:  { select: { title: true } },
+        lyrics:         { where: { isPrimary: true }, select: { id: true }, take: 1 },
+        aiAnalysis:     { select: { id: true } },
+        aiSpectrum:     { select: { id: true } },
+        musicScore:     { select: { id: true } },
+        research:       { select: { id: true } },
+        contextAnalysis:{ select: { id: true } },
+        aiGenreSpectrum:{ select: { id: true } },
+        themeScores:    { select: { id: true }, take: 1 },
+        spectrumAnalyses: {
+          select: { id: true, audioAnalysis: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+      orderBy: [{ band: { name: 'asc' } }, { title: 'asc' }],
+    });
+
+    const rows = songs.map((s) => ({
+      songId:          s.id,
+      title:           s.title,
+      bandId:          s.bandId,
+      bandName:        s.band.name,
+      albumTitle:      s.album?.title ?? null,
+      isInstrumental:  s.isInstrumental,
+      hasLyrics:       s.lyrics.length > 0,
+      hasAiAnalysis:   Boolean(s.aiAnalysis),
+      hasAiSpectrum:   Boolean(s.aiSpectrum),
+      hasMusicScore:   Boolean(s.musicScore),
+      hasResearch:     Boolean(s.research),
+      hasContext:      Boolean(s.contextAnalysis),
+      hasGenreSpectrum:Boolean(s.aiGenreSpectrum),
+      hasThemes:       s.themeScores.length > 0,
+      hasAudioAnalysis:Boolean(s.spectrumAnalyses[0]?.audioAnalysis),
+    }));
+
+    // Compute summary totals
+    const total = rows.length;
+    const summary = {
+      total,
+      hasLyrics:        rows.filter((r) => r.hasLyrics).length,
+      hasAiAnalysis:    rows.filter((r) => r.hasAiAnalysis).length,
+      hasAiSpectrum:    rows.filter((r) => r.hasAiSpectrum).length,
+      hasMusicScore:    rows.filter((r) => r.hasMusicScore).length,
+      hasResearch:      rows.filter((r) => r.hasResearch).length,
+      hasContext:       rows.filter((r) => r.hasContext).length,
+      hasGenreSpectrum: rows.filter((r) => r.hasGenreSpectrum).length,
+      hasThemes:        rows.filter((r) => r.hasThemes).length,
+      hasAudioAnalysis: rows.filter((r) => r.hasAudioAnalysis).length,
+    };
+
+    res.json({ summary, songs: rows });
+  } catch (e) { next(e); }
+});

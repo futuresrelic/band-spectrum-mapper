@@ -17,6 +17,7 @@ import type { YouTubeMetadata } from '@band-spectrum-mapper/shared';
 import {
   fetchYouTubeMetadata,
   analyzeAudio,
+  analyzeAudioFromYouTube,
   fetchMusicBrainzData,
   fetchRhythmResearch,
   createAnalysis,
@@ -27,6 +28,7 @@ import {
   computeFinalScore,
   isAudioWorkerConfigured,
   isYouTubeConfigured,
+  isYouTubeAudioEnabled,
 } from '../services/songSpectrumService.js';
 
 export const songSpectrumRouter = Router();
@@ -49,6 +51,7 @@ songSpectrumRouter.get('/status', (_req, res): void => {
   res.json({
     audioWorker: isAudioWorkerConfigured(),
     youtubeApi: isYouTubeConfigured(),
+    youtubeAudio: isYouTubeAudioEnabled(),
   });
 });
 
@@ -166,6 +169,93 @@ songSpectrumRouter.post(
     }
   },
 );
+
+// ---------------------------------------------------------------------------
+// YouTube audio analysis — download via yt-dlp + run analysis pipeline.
+// Gate: ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT=true (local / personal use only).
+// ---------------------------------------------------------------------------
+
+songSpectrumRouter.post('/analyze-youtube-audio', async (req, res, next): Promise<void> => {
+  try {
+    const { youtubeUrl, songTitle, artistName, analysisId, lyricsContext, analysisNotes, songId } =
+      req.body as {
+        youtubeUrl?: string;
+        songTitle?: string;
+        artistName?: string;
+        analysisId?: string;
+        lyricsContext?: string;
+        analysisNotes?: string;
+        songId?: string;
+      };
+
+    if (!youtubeUrl?.trim()) {
+      res.status(400).json({ error: 'youtubeUrl is required' });
+      return;
+    }
+    if (!songTitle?.trim()) {
+      res.status(400).json({ error: 'songTitle is required' });
+      return;
+    }
+    if (!artistName?.trim()) {
+      res.status(400).json({ error: 'artistName is required' });
+      return;
+    }
+
+    const combinedContext = [analysisNotes ?? '', lyricsContext ?? '']
+      .filter(Boolean).join('\n\n');
+
+    const artist = artistName.trim();
+    const title  = songTitle.trim();
+
+    const [{ analysis: rawAnalysis, scores }, mbData, rhythmData] = await Promise.all([
+      analyzeAudioFromYouTube(youtubeUrl.trim(), combinedContext),
+      fetchMusicBrainzData(artist, title),
+      fetchRhythmResearch(artist, title),
+    ]);
+
+    const analysis = {
+      ...rawAnalysis,
+      ...(analysisNotes?.trim() ? { userNotes: analysisNotes.trim() } : {}),
+      ...(mbData ? { musicBrainzData: mbData } : {}),
+      ...(rhythmData ? { rhythmResearch: rhythmData } : {}),
+    };
+
+    const flatScores: Record<string, number> = {};
+    for (const [axis, detail] of Object.entries(scores)) {
+      flatScores[axis] = detail.score;
+    }
+
+    if (analysisId) {
+      const updated = await updateAnalysis(analysisId, {
+        audioFileName: `youtube:${youtubeUrl.trim()}`,
+        audioAnalysis: analysis,
+        scores: flatScores,
+        scoreBreakdown: scores,
+      });
+      res.json(updated);
+      return;
+    }
+
+    const created = await createAnalysis({
+      songTitle: title,
+      artistName: artist,
+      youtubeUrl: youtubeUrl.trim(),
+      ...(songId?.trim() ? { songId: songId.trim() } : {}),
+      audioFileName: `youtube:${youtubeUrl.trim()}`,
+      audioAnalysis: analysis,
+      scores: flatScores,
+      scoreBreakdown: scores,
+    });
+
+    res.status(201).json(created);
+  } catch (err: unknown) {
+    if (err instanceof Error && 'statusCode' in err) {
+      res.status((err as Error & { statusCode: number }).statusCode).json({ error: err.message });
+      return;
+    }
+    next(err);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Create analysis stub (e.g. after YT fetch, before audio upload)
