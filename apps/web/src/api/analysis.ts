@@ -5,6 +5,7 @@ import type {
   CompareQueryInput,
   SongAiAnalysis,
   SongAiSpectrum,
+  SongMusicScore,
   SongResearch,
   SongContextAnalysis,
   SongAiGenreSpectrum,
@@ -83,6 +84,11 @@ export const analysisApi = {
     api.get<SongAiGenreSpectrum>(`/api/analysis/ai/${songId}/genre-spectrum`),
   regenerateAiGenreSpectrum: (songId: string) =>
     api.post<SongAiGenreSpectrum>(`/api/analysis/ai/${songId}/genre-spectrum/regenerate`, {}),
+
+  getMusicScore: (songId: string) =>
+    api.get<SongMusicScore>(`/api/analysis/ai/${songId}/music-score`),
+  regenerateMusicScore: (songId: string) =>
+    api.post<SongMusicScore>(`/api/analysis/ai/${songId}/music-score/regenerate`, {}),
 
   getAiTags: (songId: string) =>
     api.get<{ tags: { name: string; description: string }[] }>(`/api/analysis/ai/${songId}/tags`),

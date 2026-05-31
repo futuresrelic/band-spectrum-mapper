@@ -11,7 +11,16 @@ import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
 import SignInPrompt from '../components/auth/SignInPrompt';
 import { SCORE_AXES, SCORE_MAX } from '@band-spectrum-mapper/shared';
-import type { UpsertScoreInput, AxisScoreMap } from '@band-spectrum-mapper/shared';
+import type { UpsertScoreInput, AxisScoreMap, SongMusicScore } from '@band-spectrum-mapper/shared';
+
+const MUSIC_AXES: { key: keyof SongMusicScore; label: string; desc: string }[] = [
+  { key: 'rhythmicComplexity',   label: 'Rhythmic Complexity',   desc: 'Steady 4/4 → polymetric / polyrhythmic' },
+  { key: 'harmonicDepth',        label: 'Harmonic Depth',        desc: 'Simple triads → jazz / microtonal / chromatic' },
+  { key: 'structuralComplexity', label: 'Structural Complexity', desc: 'Verse-chorus pop → through-composed prog suite' },
+  { key: 'sonicDensity',         label: 'Sonic Density',         desc: 'Sparse / minimal → dense / orchestral' },
+  { key: 'tempoEnergy',          label: 'Tempo Energy',          desc: 'Slow / meditative → fast / relentless' },
+  { key: 'tonalDarkness',        label: 'Tonal Darkness',        desc: 'Bright / major / uplifting → dark / dissonant' },
+];
 
 const AXIS_LABELS: Record<string, string> = {
   aggression: 'Aggression',
@@ -108,6 +117,23 @@ export default function SpectrumPage() {
   const regenAiSpectrum = useMutation({
     mutationFn: () => analysisApi.regenerateAiSpectrum(selectedSongId),
     onSuccess: () => refetchAiSpectrum(),
+  });
+
+  // Music Structure Spectrum — separate axes, always shown in song mode
+  const {
+    data: musicScore,
+    isLoading: musicScoreLoading,
+    refetch: refetchMusicScore,
+  } = useQuery({
+    queryKey: ['music-score', selectedSongId],
+    queryFn: () => analysisApi.getMusicScore(selectedSongId),
+    enabled: !!selectedSongId && viewMode === 'song',
+    retry: false,
+  });
+
+  const regenMusicScore = useMutation({
+    mutationFn: () => analysisApi.regenerateMusicScore(selectedSongId),
+    onSuccess: () => refetchMusicScore(),
   });
 
   const saveMutation = useMutation({
@@ -372,6 +398,66 @@ export default function SpectrumPage() {
               )}
               {!aiSpectrumLoading && !aiSpectrum && !aiSpectrumError && (
                 <p className="text-xs text-surface-500">Scores will be generated automatically from the song's primary lyrics.</p>
+              )}
+              {aiSpectrum?.contextInferred && (
+                <p className="text-xs text-amber-600 border-t border-surface-200 pt-2">
+                  ⚠ Inferred from context — no lyrics available. Score based on song title, album, tags, and research.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Music Structure Spectrum */}
+          {viewMode === 'song' && selectedSongId && (
+            <div className="card space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-medium">Music Structure Spectrum</h3>
+                  <p className="text-xs text-surface-500 mt-0.5">How the music is built — works for instrumentals</p>
+                </div>
+                {user?.isAdmin && (
+                  <button
+                    className="btn-ghost text-xs"
+                    disabled={regenMusicScore.isPending}
+                    onClick={() => regenMusicScore.mutate()}
+                  >
+                    {regenMusicScore.isPending ? 'Generating…' : musicScore ? 'Regenerate' : 'Generate'}
+                  </button>
+                )}
+              </div>
+              {musicScoreLoading && <p className="text-sm text-surface-600">Scoring musical structure…</p>}
+              {musicScore && (
+                <>
+                  <div className="space-y-2">
+                    {MUSIC_AXES.map(({ key, label, desc }) => {
+                      const val = musicScore[key] as number;
+                      const pct = Math.round((val / 10) * 100);
+                      return (
+                        <div key={key} className="space-y-0.5">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-surface-700 font-medium">{label}</span>
+                            <span className="font-mono text-surface-500">{val.toFixed(1)}</span>
+                          </div>
+                          <div className="h-1.5 bg-surface-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-indigo-500 transition-all"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <p className="text-[10px] text-surface-400">{desc}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-surface-600 italic border-t border-surface-200 pt-2">{musicScore.rationale}</p>
+                  <p className="text-xs text-surface-400">Model: {musicScore.model} · {new Date(musicScore.updatedAt).toLocaleDateString()}</p>
+                </>
+              )}
+              {!musicScoreLoading && !musicScore && (
+                <p className="text-xs text-surface-500">
+                  Click Generate to score the musical structure with AI.{' '}
+                  Works for instrumental tracks — uses song title, album, tags, and research context.
+                </p>
               )}
             </div>
           )}

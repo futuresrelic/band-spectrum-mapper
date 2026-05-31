@@ -233,6 +233,24 @@ export interface SongAiSpectrum {
   psychedelic: number;
   concept: number;
   rationale: string;
+  contextInferred: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Musical Structure Spectrum — 6 axes describing HOW the music is built */
+export interface SongMusicScore {
+  id: string;
+  songId: string;
+  model: string;
+  rhythmicComplexity: number;
+  harmonicDepth: number;
+  structuralComplexity: number;
+  sonicDensity: number;
+  tempoEnergy: number;
+  tonalDarkness: number;
+  rationale: string;
+  contextJson: string;
   createdAt: string;
   updatedAt: string;
 }

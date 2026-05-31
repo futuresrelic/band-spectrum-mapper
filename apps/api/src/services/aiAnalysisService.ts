@@ -104,13 +104,19 @@ export const aiAnalysisService = {
     const song = await prisma.song.findUnique({
       where: { id: songId },
       select: {
-        id: true, title: true,
+        id: true, title: true, isInstrumental: true,
+        band: { select: { name: true } },
+        album: { select: { title: true, year: true } },
         lyrics: { where: { isPrimary: true }, select: { text: true }, take: 1 },
+        songTags: { select: { tag: { select: { name: true } } }, take: 15 },
+        research: { select: { summary: true } },
       },
     });
     if (!song) throw new HttpError(404, 'Song not found');
+
     const lyric = song.lyrics[0] ?? null;
-    if (!lyric) throw new HttpError(404, 'No primary lyrics found for this song');
+    const hasLyrics = (lyric?.text?.trim().length ?? 0) > 20;
+    const contextInferred = !hasLyrics;
 
     const client = getClient();
     const axisDescriptions = [
@@ -122,7 +128,12 @@ export const aiAnalysisService = {
       'concept (0=personal/narrative, 10=philosophical/abstract/conceptual)',
     ];
 
-    const prompt = `You are a music analyst. Score the following song lyrics on 6 axes (0–10 integers each) and give a one-sentence rationale.
+    const tagStr = song.songTags.map(st => st.tag.name).join(', ');
+    const albumStr = song.album ? `Album: ${song.album.title}${song.album.year ? ` (${song.album.year})` : ''}` : '';
+
+    let prompt: string;
+    if (hasLyrics) {
+      prompt = `You are a music analyst. Score the following song on 6 axes (0–10 integers each) and give a one-sentence rationale.
 
 Axes:
 ${axisDescriptions.map((a) => `- ${a}`).join('\n')}
@@ -130,10 +141,29 @@ ${axisDescriptions.map((a) => `- ${a}`).join('\n')}
 Return only valid JSON with keys: aggression, complexity, atmosphere, emotion, psychedelic, concept, rationale.
 No markdown. No extra text.
 
+Artist: ${song.band.name}
 Song: "${song.title}"
+${albumStr}${tagStr ? `\nTags: ${tagStr}` : ''}
 
 Lyrics:
-${lyric.text.slice(0, 4000)}`;
+${lyric!.text.slice(0, 4000)}`;
+    } else {
+      // Contextual inference mode — no lyrics available (instrumental or missing)
+      const researchStr = song.research?.summary ? `\nResearch notes: ${song.research.summary.slice(0, 600)}` : '';
+      prompt = `You are a music analyst. Score this song on 6 emotional/artistic axes (0–10 integers each).
+This is an instrumental track or one with no available lyrics. Infer the scores from the song title, album context, artist style, tags, and any research notes — read between the lines as an art critic would.
+
+Axes:
+${axisDescriptions.map((a) => `- ${a}`).join('\n')}
+
+Return only valid JSON with keys: aggression, complexity, atmosphere, emotion, psychedelic, concept, rationale.
+No markdown. No extra text.
+Note in the rationale that the score was inferred from context (no lyrics available).
+
+Artist: ${song.band.name}
+Song: "${song.title}"
+${albumStr}${song.isInstrumental ? '\nThis is flagged as instrumental.' : ''}${tagStr ? `\nTags: ${tagStr}` : ''}${researchStr}`;
+    }
 
     const completion = await client.chat.completions.create({
       model: MODEL,
@@ -151,28 +181,22 @@ ${lyric.text.slice(0, 4000)}`;
     const toScore = (v: unknown) => Math.min(10, Math.max(0, Math.round(Number(v) || 0)));
     const rationale = typeof parsed['rationale'] === 'string' ? parsed['rationale'] : '';
 
+    const axisData = {
+      model: MODEL,
+      aggression:  toScore(parsed['aggression']),
+      complexity:  toScore(parsed['complexity']),
+      atmosphere:  toScore(parsed['atmosphere']),
+      emotion:     toScore(parsed['emotion']),
+      psychedelic: toScore(parsed['psychedelic']),
+      concept:     toScore(parsed['concept']),
+      rationale,
+      contextInferred,
+    };
+
     const record = await prisma.songAiSpectrum.upsert({
       where: { songId },
-      create: {
-        songId, model: MODEL,
-        aggression: toScore(parsed['aggression']),
-        complexity: toScore(parsed['complexity']),
-        atmosphere: toScore(parsed['atmosphere']),
-        emotion: toScore(parsed['emotion']),
-        psychedelic: toScore(parsed['psychedelic']),
-        concept: toScore(parsed['concept']),
-        rationale,
-      },
-      update: {
-        model: MODEL,
-        aggression: toScore(parsed['aggression']),
-        complexity: toScore(parsed['complexity']),
-        atmosphere: toScore(parsed['atmosphere']),
-        emotion: toScore(parsed['emotion']),
-        psychedelic: toScore(parsed['psychedelic']),
-        concept: toScore(parsed['concept']),
-        rationale,
-      },
+      create: { songId, ...axisData },
+      update: { ...axisData },
     });
 
     return { ...record, createdAt: record.createdAt.toISOString(), updatedAt: record.updatedAt.toISOString() };
@@ -189,16 +213,18 @@ ${lyric.text.slice(0, 4000)}`;
     const song = await prisma.song.findUnique({
       where: { id: songId },
       select: {
-        id: true, title: true, bandId: true,
+        id: true, title: true, bandId: true, isInstrumental: true,
         band: { select: { name: true } },
+        album: { select: { title: true, year: true } },
         lyrics:    { where: { isPrimary: true }, select: { text: true }, take: 1 },
         aiSpectrum: true,
         research:   { select: { summary: true } },
+        songTags:   { select: { tag: { select: { name: true } } }, take: 15 },
       },
     });
     if (!song) throw new HttpError(404, 'Song not found');
     const lyric = song.lyrics[0] ?? null;
-    if (!lyric) throw new HttpError(404, 'No primary lyrics found for this song');
+    const hasLyrics = (lyric?.text?.trim().length ?? 0) > 20;
 
     // Gather context to inform the emotional perspective
     const aiBlock = song.aiSpectrum
@@ -208,12 +234,20 @@ ${lyric.text.slice(0, 4000)}`;
       ? `Research / context: ${song.research.summary.slice(0, 600)}`
       : '';
 
+    const tagStr = song.songTags.map(st => st.tag.name).join(', ');
+    const albumStr = song.album ? `Album: ${song.album.title}${song.album.year ? ` (${song.album.year})` : ''}` : '';
+    const noLyricsNote = !hasLyrics
+      ? `\nNote: No lyrics available for this song${song.isInstrumental ? ' (instrumental)' : ''}. Score based on the artist's style, song/album titles, tags, and context — read artistically, as a devoted fan would intuit the emotional character of the music itself.`
+      : '';
+
     const prompt = `You are filling the "Core Score" for Band Spectrum Mapper (BSM). The Core Score represents how a deeply invested, passionate human listener EMOTIONALLY experiences this song — it is NOT an analyst's measurement. Think like the most devoted fan of this artist: someone who has listened hundreds of times and feels these songs physically.
 
 Artist: ${song.band.name}
 Song: "${song.title}"
+${albumStr}${tagStr ? `\nTags: ${tagStr}` : ''}${noLyricsNote}
 ${aiBlock ? `\n${aiBlock}` : ''}
 ${researchBlock ? `\n${researchBlock}` : ''}
+${hasLyrics ? `\nLyrics:\n${lyric!.text.slice(0, 3000)}` : ''}
 
 Score on 6 axes (0.0–10.0, one decimal place). Each axis is about emotional FEELING, not technical observation:
 

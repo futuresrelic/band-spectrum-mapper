@@ -95,6 +95,7 @@ model Song {
   genreRatings    SongGenreRating[]
   analysisRatings SongAnalysisRating[]
   aiGenreSpectrum SongAiGenreSpectrum?
+  musicScore      SongMusicScore?
   themeScores        SongThemeScore[]
   spectrumAnalyses   SongSpectrumAnalysis[]
   socialPosts        SocialPost[]
@@ -255,18 +256,19 @@ model Comparison {
 // ---------------------------------------------------------------------------
 
 model SongAiSpectrum {
-  id          String   @id @default(cuid())
-  songId      String   @unique
-  model       String
-  aggression  Float
-  complexity  Float
-  atmosphere  Float
-  emotion     Float
-  psychedelic Float
-  concept     Float
-  rationale   String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                String   @id @default(cuid())
+  songId            String   @unique
+  model             String
+  aggression        Float
+  complexity        Float
+  atmosphere        Float
+  emotion           Float
+  psychedelic       Float
+  concept           Float
+  rationale         String
+  contextInferred   Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
 
@@ -841,6 +843,32 @@ model WordHuntScore {
   @@index([score])
   @@index([userId])
   @@map("word_hunt_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Musical Structure Spectrum — parallel to the lyric/emotional spectrum.
+// Scores how the MUSIC ITSELF is built (independent of lyrics or emotional content).
+// Works well for instrumental bands; also adds depth to lyrical songs.
+// ---------------------------------------------------------------------------
+
+model SongMusicScore {
+  id                   String   @id @default(cuid())
+  songId               String   @unique
+  model                String
+  rhythmicComplexity   Float    @default(0)  // 0=steady 4/4, 10=polymetric/polyrhythmic
+  harmonicDepth        Float    @default(0)  // 0=power chords/triads, 10=microtonal/jazz chromatic
+  structuralComplexity Float    @default(0)  // 0=verse-chorus pop, 10=through-composed prog suite
+  sonicDensity         Float    @default(0)  // 0=sparse/minimal, 10=dense/orchestral/layered
+  tempoEnergy          Float    @default(0)  // 0=slow/meditative/ambient, 10=fast/relentless
+  tonalDarkness        Float    @default(0)  // 0=bright/major/uplifting, 10=dark/dissonant/atonal
+  rationale            String
+  contextJson          String   @default("{}")  // sources used: lyrics?, audioFeatures?, researchSummary?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@map("song_music_scores")
 }
 
 model PromptTemplate {

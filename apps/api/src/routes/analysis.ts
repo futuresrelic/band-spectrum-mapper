@@ -9,6 +9,7 @@ import { genreSpectrumService } from '../services/genreSpectrumService.js';
 import { themeAnalysisService } from '../services/themeAnalysisService.js';
 import { aiTagService } from '../services/aiTagService.js';
 import { scoreService } from '../services/scoreService.js';
+import { songMusicScoreService } from '../services/songMusicScoreService.js';
 import { analysisQuerySchema, compareQuerySchema } from '@band-spectrum-mapper/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
@@ -185,5 +186,20 @@ analysisRouter.get('/ai/:songId/themes/similar', async (req, res, next) => {
   try {
     const bandId = typeof req.query['bandId'] === 'string' ? req.query['bandId'] : undefined;
     res.json(await themeAnalysisService.getSimilar(req.params['songId']!, bandId));
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// Musical Structure Spectrum — GET/regenerate
+// ---------------------------------------------------------------------------
+analysisRouter.get('/ai/:songId/music-score', async (req, res, next) => {
+  try {
+    res.json(await songMusicScoreService.getOrCreate(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+analysisRouter.post('/ai/:songId/music-score/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await songMusicScoreService.regenerate(req.params['songId']!));
   } catch (e) { next(e); }
 });

@@ -6,28 +6,30 @@ import { api } from '../lib/api';
 import PageHeader from '../components/layout/PageHeader';
 import type { Song } from '@band-spectrum-mapper/shared';
 
-type JobType = 'analysis' | 'spectrum' | 'coreScore' | 'research' | 'genre' | 'tags' | 'metadata' | 'context';
+type JobType = 'analysis' | 'spectrum' | 'coreScore' | 'musicScore' | 'research' | 'genre' | 'tags' | 'metadata' | 'context';
 
 const JOB_LABELS: Record<JobType, string> = {
-  analysis:  'AI Lyric Analysis',
-  spectrum:  'AI Spectrum Scoring',
-  coreScore: 'Core Score (fix zeros)',
-  research:  'Song Research',
-  genre:     'Genre Accessibility',
-  tags:      'Thematic Tags',
-  metadata:  'Track Duration',
-  context:   'Context Analysis',
+  analysis:   'AI Lyric Analysis',
+  spectrum:   'AI Spectrum (lyrics/artistic)',
+  coreScore:  'Core Score (fix zeros)',
+  musicScore: 'Music Structure Spectrum',
+  research:   'Song Research',
+  genre:      'Genre Accessibility',
+  tags:       'Thematic Tags',
+  metadata:   'Track Duration',
+  context:    'Context Analysis',
 };
 
 const JOB_DESCRIPTIONS: Record<JobType, string> = {
-  analysis:  'Curated discovery tags + emotional register + notable craft elements + narrative voice (also writes tags to Song Cloud — runs one AI call for both)',
-  spectrum:  'Aggression, Complexity, Atmosphere, Emotion, Psychedelic, Concept (0–10)',
-  coreScore: 'Targets only songs with missing or all-zero spectrum scores. Click "Load targets" to load only those songs — then Run to fix them. Use instead of full Spectrum job when most songs are already scored.',
-  research:  'Music style summary and background context',
-  genre:     'How much each genre audience would enjoy it (Metal, Rock, Pop, Hip-Hop, Electronic, Folk/Indie)',
-  tags:      'Generate thematic tags separately — not needed if Analysis has already run (Analysis now includes tags)',
-  metadata:  'Fetch track length from MusicBrainz (rate-limited, ~1 req/sec)',
-  context:   'Deep synthesis of title meaning, lyrical interpretation, and historical context. Run after Research for best results. Output feeds into tag quality.',
+  analysis:   'Curated discovery tags + emotional register + notable craft elements + narrative voice (also writes tags to Song Cloud — runs one AI call for both)',
+  spectrum:   'Aggression, Complexity, Atmosphere, Emotion, Psychedelic, Concept (0–10). For songs with no lyrics, now infers from song/album titles, tags, and research context instead of failing.',
+  coreScore:  'Targets only songs with missing or all-zero spectrum scores. Click "Load targets" to load only those songs — then Run to fix them. Use instead of full Spectrum job when most songs are already scored.',
+  musicScore: 'Musical Structure Spectrum — 6 new axes scored from HOW the music is built: Rhythmic Complexity, Harmonic Depth, Structural Complexity, Sonic Density, Tempo Energy, Tonal Darkness (0–10). Works for instrumental bands — uses song/album context, tags, research, and audio features.',
+  research:   'Music style summary and background context',
+  genre:      'How much each genre audience would enjoy it (Metal, Rock, Pop, Hip-Hop, Electronic, Folk/Indie)',
+  tags:       'Generate thematic tags separately — not needed if Analysis has already run (Analysis now includes tags)',
+  metadata:   'Fetch track length from MusicBrainz (rate-limited, ~1 req/sec)',
+  context:    'Deep synthesis of title meaning, lyrical interpretation, and historical context. Run after Research for best results. Output feeds into tag quality.',
 };
 
 interface ScanResult {
@@ -81,6 +83,10 @@ async function runJob(songId: string, job: JobType, force: boolean): Promise<voi
   }
   if (job === 'context') {
     force ? await analysisApi.regenerateSongContext(songId) : await analysisApi.getSongContext(songId);
+    return;
+  }
+  if (job === 'musicScore') {
+    force ? await analysisApi.regenerateMusicScore(songId) : await analysisApi.getMusicScore(songId);
   }
 }
 
@@ -155,8 +161,8 @@ export default function AiBatchRunnerPage() {
   const makeBlankRow = (song: Song, bandName: string): SongRow => ({
     song,
     bandName,
-    statuses: { analysis: 'pending', spectrum: 'pending', coreScore: 'pending', research: 'pending', genre: 'pending', tags: 'pending', metadata: 'pending', context: 'pending' },
-    errors:   { analysis: '', spectrum: '', coreScore: '', research: '', genre: '', tags: '', metadata: '', context: '' },
+    statuses: { analysis: 'pending', spectrum: 'pending', coreScore: 'pending', musicScore: 'pending', research: 'pending', genre: 'pending', tags: 'pending', metadata: 'pending', context: 'pending' },
+    errors:   { analysis: '', spectrum: '', coreScore: '', musicScore: '', research: '', genre: '', tags: '', metadata: '', context: '' },
   });
 
   const loadAllSongs = useCallback(async () => {
