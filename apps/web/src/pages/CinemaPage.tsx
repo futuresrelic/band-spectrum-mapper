@@ -308,7 +308,11 @@ export default function CinemaPage() {
   const [selectedThemeId, setSelectedThemeId] = useState(DEFAULT_THEME_ID);
   const currentTheme  = useMemo(() => getTheme(selectedThemeId), [selectedThemeId]);
   const currentThemeRef = useRef<CinemaTheme>(getTheme(DEFAULT_THEME_ID));
-  useEffect(() => { currentThemeRef.current = currentTheme; }, [currentTheme]);
+  useEffect(() => {
+    currentThemeRef.current = currentTheme;
+    // Force sphere color/material rebuild when theme changes
+    fgRef.current?.refresh();
+  }, [currentTheme]);
 
   // ── Controls ─────────────────────────────────────────────────────────────────
   const [showControls, setShowControls]     = useState(false);
@@ -420,7 +424,14 @@ export default function CinemaPage() {
 
   // Node sphere opacity override (user-adjustable, reset to theme default when theme changes)
   const [nodeOpacityUser, setNodeOpacityUser] = useState(() => 0.92);
+  const nodeOpacityUserRef = useRef(0.92);
   useEffect(() => { setNodeOpacityUser(currentTheme.nodeOpacity); }, [currentTheme]);
+  useEffect(() => {
+    nodeOpacityUserRef.current = nodeOpacityUser;
+    // Rebuild custom visual-node objects so they pick up new opacity.
+    // Also ensures library sphere materials update even if animation loop is idle.
+    fgRef.current?.refresh();
+  }, [nodeOpacityUser]);
 
   // Per-type label text sizes — full set of node types
   const [labelTextSizes, setLabelTextSizes] = useState<LabelTextSizes>({ ...DEFAULT_LABEL_TEXT_SIZES });
@@ -760,7 +771,8 @@ export default function CinemaPage() {
   }, [setSelectedNode]);
   useEffect(() => {
     selectionDimRef.current = selectionDim;
-    if (selectedNodeRef.current) fgRef.current?.refresh();
+    // Always refresh so sphere colors update even when no node is selected
+    fgRef.current?.refresh();
   }, [selectionDim]);
 
   // Update existing label sprites when per-type sizes or label-state scales change
@@ -1924,11 +1936,17 @@ export default function CinemaPage() {
     const group = new THREE.Group();
     const imageUrl = n.data?.imageUrl as string | undefined;
 
+    const chain = selectedChainRef.current;
+    const isInChain = chain.length > 0 && chain.some(c => c.id === n.id);
+    const dimFactor = (chain.length > 0 && !isInChain && !isPlayingRef.current)
+      ? Math.max(0, 1 - selectionDimRef.current)
+      : 1;
+    const opacity = nodeOpacityUserRef.current * dimFactor;
     if (n.type === 'song') {
       // Vinyl record disk
       const diskR = r * 2.5;
       const geo  = new THREE.CylinderGeometry(diskR, diskR, r * 0.25, 48);
-      const mat  = new THREE.MeshLambertMaterial({ map: getVinylTexture() });
+      const mat  = new THREE.MeshLambertMaterial({ map: getVinylTexture(), transparent: opacity < 1, opacity });
       const disk = new THREE.Mesh(geo, mat);
       disk.rotation.x = Math.PI / 12; // slight tilt so grooves are visible
       group.add(disk);
@@ -1936,7 +1954,7 @@ export default function CinemaPage() {
       // Artwork / logo square sprite
       const size = r * 3.2;
       const tex = getCachedTexture(imageUrl, () => fgRef.current?.refresh());
-      const mat = new THREE.SpriteMaterial({ map: tex });
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity });
       const art = new THREE.Sprite(mat);
       art.scale.set(size, size, 1);
       group.add(art);
@@ -1944,7 +1962,7 @@ export default function CinemaPage() {
       // Fallback: recreate the default sphere so the node isn't invisible
       const nColor = (n.data?.color as string | undefined) ?? '#4b5563';
       const geo  = new THREE.SphereGeometry(r, 12, 12);
-      const mat  = new THREE.MeshLambertMaterial({ color: new THREE.Color(nColor) });
+      const mat  = new THREE.MeshLambertMaterial({ color: new THREE.Color(nColor), transparent: opacity < 1, opacity });
       group.add(new THREE.Mesh(geo, mat));
     }
 
@@ -3487,7 +3505,23 @@ export default function CinemaPage() {
 
               {/* Label styling */}
               <div className="border-t border-gray-800 pt-3 space-y-2">
-                <div className="flex items-center justify-between">
+                {/* Label vertical offset — first so it's easy to find */}
+                <label className="block space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-400">
+                    <span>Label vertical offset</span>
+                    <span className="flex items-center gap-1">
+                      {labelYOffset > 0 ? '+' : ''}{labelYOffset}
+                      {labelYOffset !== 0 && (
+                        <button onClick={() => setLabelYOffset(0)} className="text-gray-700 hover:text-gray-400 leading-none">↺</button>
+                      )}
+                    </span>
+                  </div>
+                  <input type="range" min={-60} max={60} step={1} value={labelYOffset}
+                    onChange={e => setLabelYOffset(Number(e.target.value))}
+                    className="w-full accent-indigo-500" />
+                  <div className="text-[10px] text-gray-700">Shift labels up (+) or down (−) to avoid artwork overlap</div>
+                </label>
+                <div className="flex items-center justify-between pt-1">
                   <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Label Text Sizes</div>
                   <button onClick={() => setLabelTextSizes({ ...DEFAULT_LABEL_TEXT_SIZES })}
                     className="text-[10px] text-gray-700 hover:text-gray-500">reset</button>
@@ -3546,21 +3580,6 @@ export default function CinemaPage() {
                     onChange={e => setLabelTextColor(e.target.value)}
                     className="w-8 h-5 rounded cursor-pointer border-0 bg-transparent" />
                 </div>
-                <label className="block space-y-1">
-                  <div className="flex justify-between text-[10px] text-gray-400">
-                    <span>Label vertical offset</span>
-                    <span className="flex items-center gap-1">
-                      {labelYOffset > 0 ? '+' : ''}{labelYOffset}
-                      {labelYOffset !== 0 && (
-                        <button onClick={() => setLabelYOffset(0)} className="text-gray-700 hover:text-gray-400 leading-none">↺</button>
-                      )}
-                    </span>
-                  </div>
-                  <input type="range" min={-60} max={60} step={1} value={labelYOffset}
-                    onChange={e => setLabelYOffset(Number(e.target.value))}
-                    className="w-full accent-indigo-500" />
-                  <div className="text-[10px] text-gray-700">Shift labels up (+) or down (−) to avoid artwork overlap</div>
-                </label>
               </div>
 
               {/* Label states: selected vs unselected appearance */}
