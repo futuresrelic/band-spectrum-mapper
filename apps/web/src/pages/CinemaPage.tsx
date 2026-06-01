@@ -3402,11 +3402,12 @@ export default function CinemaPage() {
                           <label className="block space-y-1">
                             <div className="flex justify-between text-[10px] text-gray-400">
                               <span>Rotation speed</span>
-                              <span>{ringRotSpeed === 0 ? 'static' : `${ringRotSpeed.toFixed(2)} r/s`}</span>
+                              <span>{ringRotSpeed === 0 ? 'static' : `${ringRotSpeed > 0 ? '+' : ''}${ringRotSpeed.toFixed(2)} r/s`}</span>
                             </div>
-                            <input type="range" min={0} max={1.5} step={0.01} value={ringRotSpeed}
+                            <input type="range" min={-1.5} max={1.5} step={0.01} value={ringRotSpeed}
                               onChange={e => setRingRotSpeed(Number(e.target.value))}
                               className="w-full accent-cyan-500" />
+                            <div className="text-[10px] text-gray-700">Negative = reverse direction · 0 = static</div>
                           </label>
                           <label className="block space-y-1">
                             <div className="flex justify-between text-[10px] text-gray-400">
