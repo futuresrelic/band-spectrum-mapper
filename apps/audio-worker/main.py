@@ -140,18 +140,31 @@ async def analyze_youtube(body: YouTubeRequest):
         output_template = os.path.join(tmpdir, "audio.%(ext)s")
         log.info("Downloading YouTube audio from %s", url)
 
+        # Build yt-dlp command.
+        # --extractor-args "youtube:player_client=ios" avoids the bot-detection
+        # challenge that Railway/server IPs trigger when using the default web client.
+        cmd = [
+            "yt-dlp",
+            "-x",                                        # extract audio only
+            "--audio-format", "mp3",                     # convert to mp3
+            "--audio-quality", "0",                      # best quality
+            "--no-playlist",                             # single video only
+            "--js-runtimes", "node",                     # nodejs JS runtime
+            "--extractor-args", "youtube:player_client=ios",  # bypass bot check
+            "-o", output_template,
+        ]
+
+        # Optional: cookies file path from env (set YTDLP_COOKIES_FILE on Railway
+        # if the iOS client alone is not enough — unlikely but possible).
+        cookies_file = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
+        if cookies_file and os.path.isfile(cookies_file):
+            cmd += ["--cookies", cookies_file]
+
+        cmd.append(url)
+
         try:
             result = subprocess.run(
-                [
-                    "yt-dlp",
-                    "-x",                       # extract audio only
-                    "--audio-format", "mp3",     # convert to mp3
-                    "--audio-quality", "0",      # best quality
-                    "--no-playlist",             # single video only
-                    "--js-runtimes", "node",     # use nodejs for YouTube JS extraction
-                    "-o", output_template,
-                    url,
-                ],
+                cmd,
                 capture_output=True,
                 timeout=180,
                 text=True,
