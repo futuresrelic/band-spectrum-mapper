@@ -55,15 +55,22 @@ const ALL_TYPES = ['artist', 'album', 'song', 'keyword', 'theme', 'tag', 'emotio
 const HIGHLIGHT_COLOR = '#ffffff';
 
 const QUICK_ARRANGE_MODES = [
-  { mode: 'sphere',           emoji: '🌐', label: 'Sphere'   },
-  { mode: 'galaxy',           emoji: '🌌', label: 'Galaxy'   },
-  { mode: 'helix',            emoji: '🧬', label: 'Helix'    },
-  { mode: 'wave',             emoji: '🌊', label: 'Wave'     },
-  { mode: 'mandala',          emoji: '🔵', label: 'Mandala'  },
-  { mode: 'crystal',          emoji: '💎', label: 'Crystal'  },
-  { mode: 'radial',           emoji: '🎯', label: 'Radial'   },
-  { mode: 'fibonacci-spiral', emoji: '🌀', label: 'Spiral'   },
-  { mode: 'natural',          emoji: '🌿', label: 'Natural'  },
+  { mode: 'sphere',            emoji: '🌐', label: 'Sphere'    },
+  { mode: 'galaxy',            emoji: '🌌', label: 'Galaxy'    },
+  { mode: 'helix',             emoji: '🧬', label: 'Helix'     },
+  { mode: 'wave',              emoji: '🌊', label: 'Wave'      },
+  { mode: 'mandala',           emoji: '🔵', label: 'Mandala'   },
+  { mode: 'crystal',           emoji: '💎', label: 'Crystal'   },
+  { mode: 'radial',            emoji: '🎯', label: 'Radial'    },
+  { mode: 'fibonacci-spiral',  emoji: '🌀', label: 'Spiral'    },
+  { mode: 'star-3',            emoji: '🔺', label: 'Star 3pt'  },
+  { mode: 'star-4',            emoji: '✦',  label: 'Star 4pt'  },
+  { mode: 'star-5',            emoji: '⭐', label: 'Star 5pt'  },
+  { mode: 'star-6',            emoji: '✡',  label: 'Star 6pt'  },
+  { mode: 'star-7',            emoji: '🌟', label: 'Star 7pt'  },
+  { mode: 'star-8',            emoji: '✴',  label: 'Star 8pt'  },
+  { mode: 'nonagon-infinity',  emoji: '🔯', label: 'Nonagon'   },
+  { mode: 'natural',           emoji: '🌿', label: 'Natural'   },
 ] as const;
 
 const BASE_NODE_REL = 4;

@@ -4,7 +4,7 @@
  * without duplicating ~200 lines of pure math.
  */
 
-export type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system' | 'helix' | 'emotional-spectrum' | 'genre-web' | 'fibonacci-torus' | 'fractal-tree' | 'mandala' | 'wave' | 'lissajous' | 'crystal' | 'fibonacci-spiral' | 'genre-radar';
+export type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system' | 'helix' | 'emotional-spectrum' | 'genre-web' | 'fibonacci-torus' | 'fractal-tree' | 'mandala' | 'wave' | 'lissajous' | 'crystal' | 'fibonacci-spiral' | 'genre-radar' | 'star-3' | 'star-4' | 'star-5' | 'star-6' | 'star-7' | 'star-8' | 'nonagon-infinity';
 
 /** Minimal shape required for layout computation. */
 export interface ArrangeNode {
@@ -42,6 +42,139 @@ export function buildAdj(
 }
 
 type RawEdge = { source: string | { id: string }; target: string | { id: string }; type?: string; weight?: number };
+
+// ── Star layout helper ────────────────────────────────────────────────────────
+// Artists → center cluster; Albums → N star-tip fans; Songs → orbit albums;
+// Others → outer belt. Works for any N from 3 to 8.
+function computeStarLayout<N extends ArrangeNode>(
+  nodes: N[],
+  nPoints: number,
+  adj: Map<string, Set<string>>,
+  out: Map<string, { x: number; y: number; z: number }>,
+): void {
+  const TWO_PI  = 2 * Math.PI;
+  const artists = nodes.filter(n => n.type === 'artist');
+  const albums  = nodes.filter(n => n.type === 'album');
+  const songs   = nodes.filter(n => n.type === 'song');
+  const others  = nodes.filter(n => !['artist', 'album', 'song'].includes(n.type));
+  const R_OUTER = 330;
+
+  // Artists at center (tiny ring)
+  const artistR = Math.max(20, Math.min(50, artists.length * 12));
+  artists.forEach((a, i) => {
+    const phi = (i / Math.max(1, artists.length)) * TWO_PI;
+    out.set(a.id, { x: artistR * Math.cos(phi), y: 0, z: artistR * Math.sin(phi) });
+  });
+
+  // Distribute albums across N tips, round-robin
+  const albumsByTip: N[][] = Array.from({ length: nPoints }, () => []);
+  albums.forEach((alb, i) => albumsByTip[i % nPoints]!.push(alb));
+
+  const albumPositions = new Map<string, { x: number; y: number; z: number }>();
+  albumsByTip.forEach((group, tipIdx) => {
+    const basePhi = (tipIdx / nPoints) * TWO_PI - Math.PI / 2; // start at top
+    group.forEach((alb, j) => {
+      // Fan spread: albums at the same tip form a small arc
+      const halfW  = (group.length - 1) * 0.13;
+      const angle  = basePhi + (j * 0.26 - halfW);
+      const ringR  = R_OUTER + Math.floor(j / Math.max(1, nPoints)) * 52;
+      const pos = {
+        x: ringR * Math.cos(angle),
+        y: Math.sin(j * 1.618 + tipIdx * 0.9) * 18,
+        z: ringR * Math.sin(angle),
+      };
+      albumPositions.set(alb.id, pos);
+      out.set(alb.id, pos);
+    });
+  });
+
+  // Songs orbit their parent album
+  songs.forEach((song) => {
+    const pa = albums.find(a => adj.get(a.id)?.has(song.id) || adj.get(song.id)?.has(a.id));
+    const siblings = songs.filter(s => {
+      const p = albums.find(a => adj.get(a.id)?.has(s.id) || adj.get(s.id)?.has(a.id));
+      return p?.id === pa?.id;
+    });
+    const idx  = siblings.indexOf(song);
+    const phi  = (idx / Math.max(1, siblings.length)) * TWO_PI;
+    const r    = 30;
+    const base = pa ? (albumPositions.get(pa.id) ?? { x: R_OUTER * 0.42, y: 0, z: 0 }) : { x: R_OUTER * 0.42, y: 0, z: 0 };
+    out.set(song.id, {
+      x: base.x + r * Math.cos(phi),
+      y: base.y + r * 0.5 * Math.sin(phi * 2),
+      z: base.z + r * Math.sin(phi),
+    });
+  });
+
+  // Others in outer belt
+  const beltR = R_OUTER * 1.6;
+  others.forEach((n, i) => {
+    const phi = (i / Math.max(1, others.length)) * TWO_PI;
+    out.set(n.id, { x: beltR * Math.cos(phi), y: Math.sin(i * 0.618) * 45, z: beltR * Math.sin(phi) });
+  });
+}
+
+// ── Nonagon Infinity layout helper ────────────────────────────────────────────
+// 9-sided regular polygon — albums placed at nonagon vertices cycling outward,
+// songs orbit their album, artists at center.
+function computeNonagonLayout<N extends ArrangeNode>(
+  nodes: N[],
+  adj: Map<string, Set<string>>,
+  out: Map<string, { x: number; y: number; z: number }>,
+): void {
+  const TWO_PI  = 2 * Math.PI;
+  const N_SIDES = 9;
+  const artists = nodes.filter(n => n.type === 'artist');
+  const albums  = nodes.filter(n => n.type === 'album');
+  const songs   = nodes.filter(n => n.type === 'song');
+  const others  = nodes.filter(n => !['artist', 'album', 'song'].includes(n.type));
+  const R_MAIN  = 340;
+
+  // Artists at center
+  const artistR = Math.max(20, Math.min(55, artists.length * 14));
+  artists.forEach((a, i) => {
+    const phi = (i / Math.max(1, artists.length)) * TWO_PI;
+    out.set(a.id, { x: artistR * Math.cos(phi), y: 0, z: artistR * Math.sin(phi) });
+  });
+
+  // Albums: place on successive nonagon rings
+  const albumPositions = new Map<string, { x: number; y: number; z: number }>();
+  albums.forEach((alb, i) => {
+    const vertexIdx = i % N_SIDES;
+    const ring = Math.floor(i / N_SIDES);
+    const r    = R_MAIN + ring * 110;
+    // Start at top (−π/2) and rotate; small angular jitter per ring for depth
+    const phi  = (vertexIdx / N_SIDES) * TWO_PI - Math.PI / 2 + ring * 0.18;
+    const pos  = { x: r * Math.cos(phi), y: ring * 28, z: r * Math.sin(phi) };
+    albumPositions.set(alb.id, pos);
+    out.set(alb.id, pos);
+  });
+
+  // Songs orbit their album
+  songs.forEach((song) => {
+    const pa = albums.find(a => adj.get(a.id)?.has(song.id) || adj.get(song.id)?.has(a.id));
+    const siblings = songs.filter(s => {
+      const p = albums.find(a => adj.get(a.id)?.has(s.id) || adj.get(s.id)?.has(a.id));
+      return p?.id === pa?.id;
+    });
+    const idx  = siblings.indexOf(song);
+    const phi  = (idx / Math.max(1, siblings.length)) * TWO_PI;
+    const r    = 30;
+    const base = pa ? (albumPositions.get(pa.id) ?? { x: R_MAIN * 0.45, y: 0, z: 0 }) : { x: R_MAIN * 0.45, y: 0, z: 0 };
+    out.set(song.id, {
+      x: base.x + r * Math.cos(phi),
+      y: base.y + r * 0.45 * Math.sin(phi * 2),
+      z: base.z + r * Math.sin(phi),
+    });
+  });
+
+  // Others: outer belt
+  const beltR = R_MAIN * 1.65;
+  others.forEach((n, i) => {
+    const phi = (i / Math.max(1, others.length)) * TWO_PI;
+    out.set(n.id, { x: beltR * Math.cos(phi), y: Math.sin(i * 0.618) * 48, z: beltR * Math.sin(phi) });
+  });
+}
 
 export function computeArrangeTargets<N extends ArrangeNode>(
   nodes: N[],
@@ -603,6 +736,16 @@ export function computeArrangeTargets<N extends ArrangeNode>(
       const phi = (i / Math.max(1, others.length)) * 2 * Math.PI;
       out.set(n.id, { x: POLE_R * 1.75 * Math.cos(phi), y: Math.sin(i * 0.618) * 45, z: POLE_R * 1.75 * Math.sin(phi) });
     });
+
+  } else if (
+    mode === 'star-3' || mode === 'star-4' || mode === 'star-5' ||
+    mode === 'star-6' || mode === 'star-7' || mode === 'star-8'
+  ) {
+    const nPoints = parseInt(mode.split('-')[1]!, 10);
+    computeStarLayout(nodes, nPoints, adj, out);
+
+  } else if (mode === 'nonagon-infinity') {
+    computeNonagonLayout(nodes, adj, out);
   }
 
   return out;

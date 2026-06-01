@@ -562,6 +562,242 @@ export const CINEMA_SCENES: CinemaScene[] = [
       camera.lookAt(0, 0, 0);
     },
   },
+  // ── 17. Triangle of Power ────────────────────────────────────────────────────
+  {
+    id: 'star-3',
+    name: 'Triangle of Power',
+    description: 'Three stellar pillars — albums radiate from each point of the sacred triangle',
+    emoji: '🔺',
+    durationMs: 30_000,
+    arrangeMode: 'star-3',
+    enter(fg) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (camera) { camera.position.x = 80; camera.position.y = 720; camera.position.z = 80; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      if (camera) camera.lookAt(0, 0, 0);
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      const t     = Math.min(1, elapsedMs / 18_000);
+      const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const angle = elapsedMs * 0.00005 * controls.orbitSpeed;
+      const dist  = 620 - eased * 180;
+      const yPos  = 720 - eased * 480;
+      camera.position.x = Math.sin(angle) * dist;
+      camera.position.y = yPos;
+      camera.position.z = Math.cos(angle) * dist;
+      ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
+    },
+  },
+
+  // ── 18. Four Pillars ─────────────────────────────────────────────────────────
+  {
+    id: 'star-4',
+    name: 'Four Pillars',
+    description: 'A cardinal compass of sound — four points anchoring the musical universe',
+    emoji: '✦',
+    durationMs: 32_000,
+    arrangeMode: 'star-4',
+    enter(fg) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (camera) { camera.position.x = 0; camera.position.y = 680; camera.position.z = 60; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      if (camera) camera.lookAt(0, 0, 0);
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      const angle = elapsedMs * 0.000055 * controls.orbitSpeed;
+      const t     = Math.min(1, elapsedMs / 20_000);
+      const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const dist  = 580 - eased * 160;
+      const yPos  = 680 - eased * 430;
+      camera.position.x = Math.sin(angle) * dist;
+      camera.position.y = yPos;
+      camera.position.z = Math.cos(angle) * dist;
+      ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
+    },
+  },
+
+  // ── 19. Five-Pointed Star ────────────────────────────────────────────────────
+  {
+    id: 'star-5',
+    name: 'Five-Pointed Star',
+    description: 'The classic pentagram — five constellations of music orbit a shared center',
+    emoji: '⭐',
+    durationMs: 36_000,
+    arrangeMode: 'star-5',
+    enter(fg) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (camera) { camera.position.x = 140; camera.position.y = 740; camera.position.z = 0; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      if (camera) camera.lookAt(0, 0, 0);
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      const t     = Math.min(1, elapsedMs / 22_000);
+      const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const angle = elapsedMs * 0.000045 * controls.orbitSpeed;
+      const dist  = 620 - eased * 200;
+      const yPos  = 740 - eased * 530;
+      camera.position.x = Math.sin(angle) * dist;
+      camera.position.y = yPos;
+      camera.position.z = Math.cos(angle) * dist;
+      ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
+    },
+  },
+
+  // ── 20. Star of David ────────────────────────────────────────────────────────
+  {
+    id: 'star-6',
+    name: 'Star of David',
+    description: 'The hexagram — two interleaved triangles, six arms radiating perfect symmetry',
+    emoji: '✡',
+    durationMs: 34_000,
+    arrangeMode: 'star-6',
+    enter(fg) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (camera) { camera.position.x = 0; camera.position.y = 760; camera.position.z = 30; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      if (camera) camera.lookAt(0, 0, 0);
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      const t     = Math.min(1, elapsedMs / 20_000);
+      const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const angle = elapsedMs * 0.000038 * controls.orbitSpeed;
+      const dist  = 640 - eased * 210;
+      const yPos  = 760 - eased * 540;
+      camera.position.x = Math.sin(angle) * dist;
+      camera.position.y = yPos;
+      camera.position.z = Math.cos(angle) * dist;
+      ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
+    },
+  },
+
+  // ── 21. Seven-Pointed Star ───────────────────────────────────────────────────
+  {
+    id: 'star-7',
+    name: 'Seven-Pointed Star',
+    description: 'The heptagram — seven arms of sound reaching into the void, perfect and indivisible',
+    emoji: '🌟',
+    durationMs: 38_000,
+    arrangeMode: 'star-7',
+    enter(fg) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (camera) { camera.position.x = 200; camera.position.y = 700; camera.position.z = 200; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      if (camera) camera.lookAt(0, 0, 0);
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      const t     = Math.min(1, elapsedMs / 24_000);
+      const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const angle = elapsedMs * 0.000042 * controls.orbitSpeed;
+      // Breathe between overhead and oblique — the 7-fold symmetry reveals itself slowly
+      const breathe = Math.sin(elapsedMs * 0.000055) * 60;
+      const dist  = 600 - eased * 175 + breathe;
+      const yPos  = 700 - eased * 490;
+      camera.position.x = Math.sin(angle) * dist;
+      camera.position.y = yPos;
+      camera.position.z = Math.cos(angle) * dist;
+      ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
+    },
+  },
+
+  // ── 22. Octagram Gate ────────────────────────────────────────────────────────
+  {
+    id: 'star-8',
+    name: 'Octagram Gate',
+    description: 'Eight rays of precision — the double-square star opens into infinite symmetry',
+    emoji: '✴',
+    durationMs: 34_000,
+    arrangeMode: 'star-8',
+    enter(fg) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (camera) { camera.position.x = 0; camera.position.y = 720; camera.position.z = 0; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      if (camera) camera.lookAt(0, 0, 0);
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      const t     = Math.min(1, elapsedMs / 18_000);
+      const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const angle = elapsedMs * 0.000048 * controls.orbitSpeed;
+      const dist  = 600 - eased * 190;
+      const yPos  = 720 - eased * 510;
+      camera.position.x = Math.sin(angle) * dist;
+      camera.position.y = yPos;
+      camera.position.z = Math.cos(angle) * dist;
+      ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
+    },
+  },
+
+  // ── 23. Nonagon Infinity ─────────────────────────────────────────────────────
+  {
+    id: 'nonagon-infinity',
+    name: 'Nonagon Infinity',
+    description: 'Nine vertices, one infinite loop — albums locked in the eternal cyclic polygon',
+    emoji: '🔯',
+    durationMs: 40_000,
+    arrangeMode: 'nonagon-infinity',
+    enter(fg) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      // Enter directly overhead revealing the 9-fold symmetry — then descend
+      if (camera) { camera.position.x = 0; camera.position.y = 780; camera.position.z = 40; }
+      if (ctrl)   { ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0; }
+      if (camera) camera.lookAt(0, 0, 0);
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      // Phase 1 (0–20s): descend from top-down into an oblique sweep
+      // Phase 2 (20s+): slow orbit at mid-altitude, matching the cyclic nature of the album
+      const t     = Math.min(1, elapsedMs / 20_000);
+      const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const angle = elapsedMs * 0.000032 * controls.orbitSpeed;
+      const dist  = 660 - eased * 230;
+      const yPos  = 780 - eased * 560;
+      camera.position.x = Math.sin(angle) * dist;
+      camera.position.y = yPos;
+      camera.position.z = Math.cos(angle) * dist;
+      ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
+    },
+  },
+
   {
     id: 'genre-radar',
     name: 'Genre Radar',
