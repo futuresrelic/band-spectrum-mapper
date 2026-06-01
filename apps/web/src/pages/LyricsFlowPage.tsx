@@ -41,18 +41,23 @@ interface ScopeData    { bands: { id: string; name: string }[] }
 
 interface FlowEntry {
   id:   string;
-  type: 'title' | 'lyric';
+  type: 'title' | 'lyric' | 'gap';
   text: string;
 }
+
+type FlowDirection = 'z-forward' | 'y-tower';
 
 interface FlowConfig {
   textSize:     number;  // lyric line textHeight
   titleSize:    number;  // song title card textHeight
-  stepZ:        number;  // units between consecutive lines (primary Z spacing)
-  wobble:       number;  // horizontal X-axis oscillation amplitude
-  visibleRange: number;  // sprites beyond this distance are culled (hidden)
+  stepZ:        number;  // units between consecutive lines (primary axis spacing)
+  wobble:       number;  // horizontal oscillation amplitude
+  visibleRange: number;  // sprites beyond this distance are culled
   lookBehind:   number;  // lines camera position trails behind current index
   lookAhead:    number;  // lines camera looks ahead of current index
+  songGap:      number;  // extra blank steps inserted between songs
+  maxLineLen:   number;  // truncate lines longer than this (characters)
+  direction:    FlowDirection;
 }
 
 const DEFAULT_CONFIG: FlowConfig = {
@@ -60,6 +65,9 @@ const DEFAULT_CONFIG: FlowConfig = {
   stepZ: 24, wobble: 55,
   visibleRange: 420,
   lookBehind: 5, lookAhead: 4,
+  songGap: 4,
+  maxLineLen: 80,
+  direction: 'z-forward',
 };
 
 const MAX_LINES_PER_SONG = 15;
@@ -67,8 +75,15 @@ const WOBBLE_FREQ        = 0.07;  // radians per step (fixed, controls path curv
 
 // ── Path math ──────────────────────────────────────────────────────────────────
 
-/** Raw (uncentred) position for step i along the forward S-curve path. */
+/** Raw (uncentred) position for step i. Direction determines primary axis. */
 function rawPos(i: number, cfg: FlowConfig) {
+  if (cfg.direction === 'y-tower') {
+    return {
+      x: Math.sin(i * WOBBLE_FREQ) * cfg.wobble,
+      y: i * cfg.stepZ,
+      z: Math.cos(i * WOBBLE_FREQ * 0.6) * 8,
+    };
+  }
   return {
     x: Math.sin(i * WOBBLE_FREQ) * cfg.wobble,
     y: Math.cos(i * WOBBLE_FREQ * 0.6) * 8,
@@ -76,10 +91,14 @@ function rawPos(i: number, cfg: FlowConfig) {
   };
 }
 
-/** Centred world position: z=0 is midway through the lyric stream. */
+/** Centred world position: primary axis midpoint is at 0. */
 function worldPos(i: number, total: number, cfg: FlowConfig) {
-  const r = rawPos(i, cfg);
-  return { x: r.x, y: r.y, z: r.z - (total / 2) * cfg.stepZ };
+  const r  = rawPos(i, cfg);
+  const half = (total / 2) * cfg.stepZ;
+  if (cfg.direction === 'y-tower') {
+    return { x: r.x, y: r.y - half, z: r.z };
+  }
+  return { x: r.x, y: r.y, z: r.z - half };
 }
 
 // ── API ────────────────────────────────────────────────────────────────────────
@@ -97,8 +116,9 @@ function fetchUniverse(bandIds: string[]): Promise<UniverseData> {
 
 // ── Data processing ───────────────────────────────────────────────────────────
 
-function buildEntries(albums: LyricAlbum[]): FlowEntry[] {
+function buildEntries(albums: LyricAlbum[], cfg: FlowConfig): FlowEntry[] {
   const out: FlowEntry[] = [];
+  let songIdx = 0;
   for (const album of albums) {
     for (const song of album.songs) {
       if (!song.lyricText) continue;
@@ -106,11 +126,24 @@ function buildEntries(albums: LyricAlbum[]): FlowEntry[] {
         .map(l => l.trim()).filter(l => l.length >= 3)
         .slice(0, MAX_LINES_PER_SONG);
       if (!lines.length) continue;
+
+      // Insert gap before every song except the first
+      if (songIdx > 0) {
+        const gapCount = Math.max(1, Math.round(cfg.songGap));
+        for (let g = 0; g < gapCount; g++) {
+          out.push({ id: `gap:${song.id}:${g}`, type: 'gap', text: '' });
+        }
+      }
+
       const yr = album.year ? ` (${album.year})` : '';
       out.push({ id: `title:${song.id}`, type: 'title', text: `♪  ${song.title}  —  ${album.title}${yr}` });
-      lines.forEach((line, li) =>
-        out.push({ id: `lyric:${song.id}:${li}`, type: 'lyric', text: line }),
-      );
+      lines.forEach((line, li) => {
+        const txt = cfg.maxLineLen > 0 && line.length > cfg.maxLineLen
+          ? line.slice(0, cfg.maxLineLen) + '…'
+          : line;
+        out.push({ id: `lyric:${song.id}:${li}`, type: 'lyric', text: txt });
+      });
+      songIdx++;
     }
   }
   return out;
@@ -163,7 +196,11 @@ export default function LyricsFlowPage() {
     queryFn: () => fetchUniverse(selectedBandIds),
   });
 
-  const entries = useMemo(() => data ? buildEntries(data.albums) : [], [data]);
+  const entries = useMemo(
+    () => data ? buildEntries(data.albums, config) : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, config.songGap, config.maxLineLen],
+  );
 
   // ForceGraph3D graphData — always empty; we add sprites directly to the scene
   const emptyGraph = useMemo(() => ({ nodes: [] as object[], links: [] as object[] }), []);
@@ -194,10 +231,15 @@ export default function LyricsFlowPage() {
 
     ents.forEach((entry, i) => {
       const pos = worldPos(i, total, cfg);
+      positionsRef.current.set(entry.id, pos);
+
+      // Gap entries occupy index space but have no visible sprite
+      if (entry.type === 'gap') return;
+
       const sp  = new SpriteText(entry.text.slice(0, 80));
       sp.fontFace       = 'Georgia, serif';
       sp.backgroundColor = 'rgba(0,0,0,0)';
-      (sp as any).visible = false;         // rAF enables when in range
+      (sp as any).visible = false;
       sp.color          = entry.type === 'title' ? '#fbbf2400' : '#e2e8f000';
       sp.textHeight     = entry.type === 'title' ? cfg.titleSize : cfg.textSize;
       if (entry.type === 'title') sp.fontWeight = '700';
@@ -205,7 +247,6 @@ export default function LyricsFlowPage() {
       (sp as any).position.set(pos.x, pos.y, pos.z);
       scene.add(sp);
       spriteMapRef.current.set(entry.id, sp);
-      positionsRef.current.set(entry.id, pos);
     });
     return true;
   }
@@ -245,7 +286,7 @@ export default function LyricsFlowPage() {
       if (sp) (sp as any).position.set(pos.x, pos.y, pos.z);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.stepZ, config.wobble]);
+  }, [config.stepZ, config.wobble, config.direction]);
 
   // Update text sizes without repositioning
   useEffect(() => {
@@ -392,6 +433,8 @@ export default function LyricsFlowPage() {
     { key: 'titleSize',    label: 'Title size',          min: 3,   max: 12,  step: 0.5 },
     { key: 'stepZ',        label: 'Line spacing',        min: 8,   max: 60,  step: 2   },
     { key: 'wobble',       label: 'Path wobble',         min: 0,   max: 200, step: 5   },
+    { key: 'songGap',      label: 'Song gap (steps)',    min: 0,   max: 16,  step: 1   },
+    { key: 'maxLineLen',   label: 'Max line length',     min: 20,  max: 120, step: 5   },
     { key: 'visibleRange', label: 'Visible range',       min: 100, max: 900, step: 25  },
     { key: 'lookBehind',   label: 'Camera lag (lines)',  min: 1,   max: 16,  step: 1   },
     { key: 'lookAhead',    label: 'Look-ahead (lines)',  min: 1,   max: 16,  step: 1   },
@@ -467,6 +510,26 @@ export default function LyricsFlowPage() {
           {showSettings && (
             <div className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-4 backdrop-blur-sm w-64 shadow-2xl space-y-3 overflow-y-auto"
               style={{ maxHeight: 'calc(100dvh - 80px)' }}>
+              {/* Flow direction */}
+              <div>
+                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Flow direction</div>
+                <div className="grid grid-cols-2 gap-1">
+                  {(['z-forward', 'y-tower'] as FlowDirection[]).map(d => (
+                    <button
+                      key={d}
+                      onClick={() => updateConfig('direction', d)}
+                      className={`py-1.5 rounded text-[10px] font-medium transition-colors ${
+                        config.direction === d
+                          ? 'bg-indigo-900/70 border border-indigo-600 text-indigo-300'
+                          : 'bg-gray-800 border border-gray-700 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      {d === 'z-forward' ? '→ Forward' : '↑ Tower'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Display &amp; Layout</div>
               {SLIDERS.map(({ key, label, min, max, step }) => (
                 <label key={key} className="block space-y-1">

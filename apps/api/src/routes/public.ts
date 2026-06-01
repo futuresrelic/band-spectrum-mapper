@@ -421,6 +421,11 @@ publicRouter.get('/lyrics-universe', async (req, res, next) => {
     const bandIdsRaw = ((req.query['bandIds'] as string) ?? '');
     const bandIds    = bandIdsRaw ? bandIdsRaw.split(',').filter(Boolean) : [];
 
+    // Scale album limit with number of bands so multi-band views show all content
+    const takeAlbums = bandIds.length > 0
+      ? Math.min(60, bandIds.length * 10)
+      : 20;
+
     const albums = await prisma.album.findMany({
       where: {
         ...(bandIds.length ? { bandId: { in: bandIds } } : {}),
@@ -430,7 +435,7 @@ publicRouter.get('/lyrics-universe', async (req, res, next) => {
         band: { select: { name: true } },
         songs: {
           where: { lyrics: { some: { isPrimary: true } } },
-          take: 12,
+          take: 20,
           orderBy: { trackNumber: 'asc' },
           include: {
             lyrics: { where: { isPrimary: true }, select: { text: true }, take: 1 },
@@ -438,7 +443,7 @@ publicRouter.get('/lyrics-universe', async (req, res, next) => {
         },
       },
       orderBy: { year: 'asc' },
-      take: 8,
+      take: takeAlbums,
     });
 
     const result = albums.map(a => ({

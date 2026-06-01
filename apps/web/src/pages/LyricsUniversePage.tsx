@@ -3,11 +3,15 @@
  * LyricsUniversePage — a 3D immersive view where lyrics float in space.
  *
  * Albums are arranged in a ring.  Each album has songs in a smaller ring.
- * Each song's lyrics are split into lines and stacked in a gentle spiral above
- * their song node.  The camera can fly through the text for social media reels.
+ * Each song's lyrics are placed using the chosen layout mode:
+ *   tower  — lines spiral upward above the song node (good spread)
+ *   ribbon — lines march outward from the song along the album radius
+ *   cloud  — lines scatter in a sphere around the song node
  *
- * Uses ForceGraph3D with all nodes pinned (warmupTicks=0, cooldownTicks=0) so
- * physics is disabled and we have full control over layout.
+ * Camera keyframes: record any number of positions, then play through them
+ * with smooth cubic-eased interpolation.
+ *
+ * Uses ForceGraph3D with all nodes pinned (warmupTicks=0, cooldownTicks=0).
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -16,7 +20,7 @@ import { useQuery } from '@tanstack/react-query';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
 import { api } from '../lib/api';
-import { easeInOutQuad } from '../cinema/graphArrange';
+import { easeInOutQuad, easeInOutCubic } from '../cinema/graphArrange';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -41,27 +45,27 @@ interface LyricNode {
   fx: number; fy: number; fz: number;
 }
 
+// ── Layout types ──────────────────────────────────────────────────────────────
+
+type LyricLayout = 'tower' | 'ribbon' | 'cloud';
+
 // ── Layout constants ──────────────────────────────────────────────────────────
 
-const ALBUM_RING_R  = 600;   // radius of album ring in XZ
-const SONG_RING_R   = 180;   // radius of songs around their album
-const LINE_STEP_Y   = 20;    // vertical spacing between lyric lines
-const LINE_SPIRAL_R = 0.35;  // spiral radius per line
-const LINE_SPIRAL_A = 0.22;  // angle step per line (radians)
-const MAX_LINES     = 40;    // lyric lines shown per song
+const ALBUM_RING_R = 600;  // radius of album ring in XZ
+const SONG_RING_R  = 180;  // radius of songs around their album
 
 // ── Color / size ──────────────────────────────────────────────────────────────
 
 function kindColor(kind: LyricNode['kind']): string {
   if (kind === 'album') return '#f59e0b';
   if (kind === 'song')  return '#8b5cf6';
-  return '#1e293b'; // lyric nodes are invisible spheres — text is the SpriteText
+  return '#1e293b';
 }
 
 function kindSize(kind: LyricNode['kind']): number {
   if (kind === 'album') return 6;
   if (kind === 'song')  return 3;
-  return 0.1; // lyric lines: near-invisible sphere, SpriteText carries the label
+  return 0.1;
 }
 
 // ── API ───────────────────────────────────────────────────────────────────────
@@ -80,37 +84,73 @@ function fetchUniverse(bandIds: string[]): Promise<UniverseData> {
 
 // ── Build 3D layout ───────────────────────────────────────────────────────────
 
-function buildNodes(albums: LyricAlbum[]): LyricNode[] {
+function buildNodes(
+  albums: LyricAlbum[],
+  layout: LyricLayout,
+  lineStep: number,
+  maxLines: number,
+): LyricNode[] {
   const nodes: LyricNode[] = [];
 
   albums.forEach((album, ai) => {
     const albumAngle = (ai / Math.max(1, albums.length)) * 2 * Math.PI;
     const ax = ALBUM_RING_R * Math.cos(albumAngle);
     const az = ALBUM_RING_R * Math.sin(albumAngle);
-    const ay = 0;
 
-    nodes.push({ id: `album:${album.id}`, label: `${album.title}${album.year ? ` (${album.year})` : ''}`, kind: 'album', fx: ax, fy: ay, fz: az });
+    nodes.push({
+      id: `album:${album.id}`,
+      label: `${album.title}${album.year ? ` (${album.year})` : ''}`,
+      kind: 'album',
+      fx: ax, fy: 0, fz: az,
+    });
 
     album.songs.forEach((song, si) => {
       const songAngle = (si / Math.max(1, album.songs.length)) * 2 * Math.PI;
       const sx = ax + SONG_RING_R * Math.cos(songAngle);
       const sz = az + SONG_RING_R * Math.sin(songAngle);
-      const sy = 0;
 
-      nodes.push({ id: `song:${song.id}`, label: song.title, kind: 'song', fx: sx, fy: sy, fz: sz });
+      nodes.push({ id: `song:${song.id}`, label: song.title, kind: 'song', fx: sx, fy: 0, fz: sz });
 
       if (!song.lyricText) return;
       const lines = song.lyricText
         .split('\n')
         .map(l => l.trim())
         .filter(l => l.length > 1 && !l.startsWith('['))
-        .slice(0, MAX_LINES);
+        .slice(0, maxLines);
 
       lines.forEach((line, li) => {
-        const k   = li + 1;
-        const lx  = sx + Math.sin(k * LINE_SPIRAL_A) * k * LINE_SPIRAL_R;
-        const ly  = sy + k * LINE_STEP_Y;
-        const lz  = sz + Math.cos(k * LINE_SPIRAL_A) * k * LINE_SPIRAL_R;
+        let lx: number, ly: number, lz: number;
+
+        if (layout === 'tower') {
+          // Spiral upward — large radius so lines visibly separate in XZ
+          const k   = li + 1;
+          const A   = 0.28;  // angle step per line
+          const R   = 6;     // spiral radius per line
+          lx  = sx + Math.sin(k * A) * k * R;
+          ly  = li * lineStep;
+          lz  = sz + Math.cos(k * A) * k * R;
+
+        } else if (layout === 'ribbon') {
+          // Lines march outward from album center along the song's radial direction
+          const dirX = sx - ax;
+          const dirZ = sz - az;
+          const len  = Math.sqrt(dirX * dirX + dirZ * dirZ) || 1;
+          const perp = { x: -dirZ / len, z: dirX / len }; // perpendicular
+          const step = lineStep * 1.8;
+          lx = sx + (dirX / len) * li * step + perp.x * Math.sin(li * 0.4) * 18;
+          ly = Math.sin(li * 0.25) * 30;
+          lz = sz + (dirZ / len) * li * step + perp.z * Math.sin(li * 0.4) * 18;
+
+        } else {
+          // cloud — Fibonacci sphere scatter around the song
+          const phi   = Math.acos(1 - 2 * (li + 0.5) / Math.max(1, lines.length));
+          const theta = li * 2.399963; // golden angle radians
+          const r     = 40 + (li / Math.max(1, lines.length)) * 70;
+          lx  = sx + r * Math.sin(phi) * Math.cos(theta);
+          ly  = r * Math.cos(phi) * 0.8;
+          lz  = sz + r * Math.sin(phi) * Math.sin(theta);
+        }
+
         nodes.push({
           id:    `lyric:${song.id}:${li}`,
           label: line,
@@ -124,12 +164,25 @@ function buildNodes(albums: LyricAlbum[]): LyricNode[] {
   return nodes;
 }
 
-// ── Fly-through state ─────────────────────────────────────────────────────────
+// ── Camera keyframe types ─────────────────────────────────────────────────────
 
-interface FlyTarget {
+interface CamKF {
+  id: string;
   x: number; y: number; z: number;
-  label: string;
+  tx: number; ty: number; tz: number;
+  durationMs: number;
 }
+
+interface KFPlayState {
+  isPlaying: boolean;
+  frames: CamKF[];
+  startTime: number;
+  loop: boolean;
+}
+
+// ── Fly target ────────────────────────────────────────────────────────────────
+
+interface FlyTarget { x: number; y: number; z: number; label: string; }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -139,9 +192,23 @@ export default function LyricsUniversePage() {
   const [socialMode, setSocialMode]           = useState(false);
   const [isFlying, setIsFlying]               = useState(false);
   const [cursorHidden, setCursorHidden]       = useState(false);
-  const [orbitSpeed, setOrbitSpeed]           = useState(1);
   const [showControls, setShowControls]       = useState(false);
   const [flyLabel, setFlyLabel]               = useState('');
+
+  // Layout controls
+  const [layout, setLayout]     = useState<LyricLayout>('tower');
+  const [lineStep, setLineStep]  = useState(22);
+  const [maxLines, setMaxLines]  = useState(30);
+  const [orbitSpeed, setOrbitSpeed]   = useState(1);
+  const [approachDist, setApproachDist] = useState(220);
+  const [albumFlyMs, setAlbumFlyMs]     = useState(12000);
+
+  // Camera keyframes
+  const [camKFs, setCamKFs]                 = useState<CamKF[]>([]);
+  const [kfPlaying, setKfPlaying]           = useState(false);
+  const [kfLoop, setKfLoop]                 = useState(true);
+  const [kfDefaultDur, setKfDefaultDur]     = useState(4000);
+  const [showKfPanel, setShowKfPanel]       = useState(false);
 
   const fgRef        = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -150,10 +217,27 @@ export default function LyricsUniversePage() {
   const flyIdx       = useRef(0);
   const flyOrbit     = useRef<{ startAngle: number; startTime: number; targetX: number; targetY: number; targetZ: number } | null>(null);
   const orbitSpeedR  = useRef(1);
-  const lastMoveRef  = useRef(Date.now());
+  const approachDistR = useRef(220);
+  const albumFlyMsR   = useRef(12000);
+  const lastMoveRef   = useRef(Date.now());
+  const kfPlayRef     = useRef<KFPlayState>({ isPlaying: false, frames: [], startTime: 0, loop: true });
+  const layoutRef     = useRef<LyricLayout>('tower');
+  const lineStepRef   = useRef(22);
+  const maxLinesRef   = useRef(30);
 
-  useEffect(() => { isFlying_.current  = isFlying; },   [isFlying]);
-  useEffect(() => { orbitSpeedR.current = orbitSpeed; }, [orbitSpeed]);
+  useEffect(() => { isFlying_.current    = isFlying;    }, [isFlying]);
+  useEffect(() => { orbitSpeedR.current  = orbitSpeed;  }, [orbitSpeed]);
+  useEffect(() => { approachDistR.current = approachDist; }, [approachDist]);
+  useEffect(() => { albumFlyMsR.current  = albumFlyMs;  }, [albumFlyMs]);
+  useEffect(() => { layoutRef.current    = layout;      }, [layout]);
+  useEffect(() => { lineStepRef.current  = lineStep;    }, [lineStep]);
+  useEffect(() => { maxLinesRef.current  = maxLines;    }, [maxLines]);
+  useEffect(() => {
+    kfPlayRef.current = { ...kfPlayRef.current, frames: camKFs };
+  }, [camKFs]);
+  useEffect(() => {
+    kfPlayRef.current = { ...kfPlayRef.current, loop: kfLoop };
+  }, [kfLoop]);
 
   const { data: scopes } = useQuery({ queryKey: ['lyric-scopes'], queryFn: fetchScopes });
 
@@ -162,12 +246,12 @@ export default function LyricsUniversePage() {
     queryFn:  () => fetchUniverse(selectedBandIds),
   });
 
-  const nodes = data ? buildNodes(data.albums) : [];
+  const nodes = data ? buildNodes(data.albums, layout, lineStep, maxLines) : [];
 
-  // Build fly targets from album positions
+  // Rebuild fly targets from album positions whenever data changes
   useEffect(() => {
     if (!data?.albums.length) return;
-    const targets: FlyTarget[] = data.albums.map((album, ai) => {
+    flyTargets.current = data.albums.map((album, ai) => {
       const angle = (ai / Math.max(1, data.albums.length)) * 2 * Math.PI;
       return {
         x: ALBUM_RING_R * Math.cos(angle),
@@ -176,10 +260,9 @@ export default function LyricsUniversePage() {
         label: album.title,
       };
     });
-    flyTargets.current = targets;
   }, [data]);
 
-  // ── rAF: fly-through orbit loop ─────────────────────────────────────────────
+  // ── rAF: fly-through + camera keyframe playback ──────────────────────────────
 
   useEffect(() => {
     if (!nodes.length) return;
@@ -188,12 +271,59 @@ export default function LyricsUniversePage() {
 
     const tick = (now: number) => {
       const fg = fgRef.current;
-      if (fg && isFlying_.current) {
-        const camera  = fg.camera?.();
-        const ctrl    = fg.controls?.();
-        if (camera && ctrl) {
+      if (fg) {
+        const camera = fg.camera?.();
+        const ctrl   = fg.controls?.();
+
+        // ── Keyframe playback (overrides fly-through) ─────────────────────────
+        const kfState = kfPlayRef.current;
+        if (kfState.isPlaying && kfState.frames.length >= 2 && camera && ctrl) {
+          const elapsed = now - kfState.startTime;
+          const totalMs = kfState.frames.slice(1).reduce((s, f) => s + f.durationMs, 0);
+
+          let t = elapsed;
+          if (t >= totalMs) {
+            if (kfState.loop) {
+              kfPlayRef.current = { ...kfState, startTime: now };
+              t = 0;
+            } else {
+              kfPlayRef.current = { ...kfState, isPlaying: false };
+              setKfPlaying(false);
+            }
+          }
+
+          // Find current segment
+          let accumulated = 0;
+          let segIdx = 0;
+          for (let i = 0; i < kfState.frames.length - 1; i++) {
+            const dur = kfState.frames[i + 1]!.durationMs;
+            if (t < accumulated + dur) { segIdx = i; break; }
+            accumulated += dur;
+          }
+          const from = kfState.frames[segIdx]!;
+          const to   = kfState.frames[segIdx + 1] ?? kfState.frames[segIdx]!;
+          const segDur = to.durationMs;
+          const segT   = segDur > 0 ? Math.min(1, (t - accumulated) / segDur) : 1;
+          const ease   = easeInOutCubic(segT);
+
+          camera.position.set(
+            from.x + (to.x - from.x) * ease,
+            from.y + (to.y - from.y) * ease,
+            from.z + (to.z - from.z) * ease,
+          );
+          ctrl.target.set(
+            from.tx + (to.tx - from.tx) * ease,
+            from.ty + (to.ty - from.ty) * ease,
+            from.tz + (to.tz - from.tz) * ease,
+          );
+
+          rafId = requestAnimationFrame(tick);
+          return;
+        }
+
+        // ── Album fly-through orbit ───────────────────────────────────────────
+        if (isFlying_.current && camera && ctrl) {
           if (!flyOrbit.current) {
-            // Pick next target
             const targets = flyTargets.current;
             if (!targets.length) { rafId = requestAnimationFrame(tick); return; }
             const t     = targets[flyIdx.current % targets.length]!;
@@ -203,14 +333,13 @@ export default function LyricsUniversePage() {
             lastAdvance = now;
           }
 
-          const fo    = flyOrbit.current;
-          const speed = orbitSpeedR.current;
-          const dist  = 220;
+          const fo      = flyOrbit.current;
+          const speed   = orbitSpeedR.current;
+          const dist    = approachDistR.current;
           const elapsed = now - fo.startTime;
 
-          // Fly in for first 2s, then orbit
-          const flyRaw = Math.min(1, elapsed / 2000);
-          const flyT   = easeInOutQuad(flyRaw);
+          const flyRaw    = Math.min(1, elapsed / 2000);
+          const flyT      = easeInOutQuad(flyRaw);
           const orbitAngle = fo.startAngle + (elapsed - 2000) * 0.001 * speed;
           const orbitX     = fo.targetX + Math.sin(orbitAngle) * dist;
           const orbitZ     = fo.targetZ + Math.cos(orbitAngle) * dist;
@@ -219,9 +348,9 @@ export default function LyricsUniversePage() {
           if (flyRaw < 1) {
             const destX = fo.targetX + Math.sin(fo.startAngle) * dist;
             const destZ = fo.targetZ + Math.cos(fo.startAngle) * dist;
-            camera.position.x = camera.position.x + (destX - camera.position.x) * flyT * 0.05;
-            camera.position.y = camera.position.y + (orbitY   - camera.position.y) * flyT * 0.05;
-            camera.position.z = camera.position.z + (destZ - camera.position.z) * flyT * 0.05;
+            camera.position.x += (destX - camera.position.x) * flyT * 0.05;
+            camera.position.y += (orbitY - camera.position.y) * flyT * 0.05;
+            camera.position.z += (destZ - camera.position.z) * flyT * 0.05;
           } else {
             camera.position.x = orbitX;
             camera.position.y = orbitY;
@@ -232,11 +361,10 @@ export default function LyricsUniversePage() {
           ctrl.target.y = fo.targetY - 20;
           ctrl.target.z = fo.targetZ;
 
-          // Advance to next album every 12s
-          if (now - lastAdvance > 12000) {
-            flyIdx.current = (flyIdx.current + 1) % Math.max(1, flyTargets.current.length);
+          if (now - lastAdvance > albumFlyMsR.current) {
+            flyIdx.current   = (flyIdx.current + 1) % Math.max(1, flyTargets.current.length);
             flyOrbit.current = null;
-            lastAdvance = now;
+            lastAdvance      = now;
           }
         }
       }
@@ -248,7 +376,7 @@ export default function LyricsUniversePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes.length]);
 
-  // ── Cursor auto-hide (social mode) ───────────────────────────────────────────
+  // ── Cursor auto-hide ─────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!socialMode) { setCursorHidden(false); return; }
@@ -282,19 +410,58 @@ export default function LyricsUniversePage() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       if (e.key === ' ' || e.key === 'k') {
         e.preventDefault();
         setIsFlying(v => {
-          if (v) { flyOrbit.current = null; }
+          if (v) flyOrbit.current = null;
           return !v;
         });
       }
+      if (e.key === 'm' || e.key === 'M') recordKF();
       if (e.key === 'f' || e.key === 'F') toggleSocialMode();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toggleSocialMode]);
+
+  // ── Camera keyframe helpers ───────────────────────────────────────────────────
+
+  const recordKF = useCallback(() => {
+    const fg     = fgRef.current;
+    const camera = fg?.camera?.();
+    const ctrl   = fg?.controls?.();
+    if (!camera || !ctrl) return;
+    setCamKFs(prev => [...prev, {
+      id:         Math.random().toString(36).slice(2),
+      x: camera.position.x, y: camera.position.y, z: camera.position.z,
+      tx: ctrl.target.x,    ty: ctrl.target.y,    tz: ctrl.target.z,
+      durationMs: kfDefaultDur,
+    }]);
+  }, [kfDefaultDur]);
+
+  const playKFs = useCallback(() => {
+    if (camKFs.length < 2) return;
+    kfPlayRef.current = { isPlaying: true, frames: camKFs, startTime: performance.now(), loop: kfLoop };
+    setKfPlaying(true);
+    setIsFlying(false);
+    flyOrbit.current = null;
+  }, [camKFs, kfLoop]);
+
+  const stopKFs = useCallback(() => {
+    kfPlayRef.current = { ...kfPlayRef.current, isPlaying: false };
+    setKfPlaying(false);
+  }, []);
+
+  const jumpToKF = useCallback((kf: CamKF) => {
+    const fg     = fgRef.current;
+    const camera = fg?.camera?.();
+    const ctrl   = fg?.controls?.();
+    if (!camera || !ctrl) return;
+    camera.position.set(kf.x, kf.y, kf.z);
+    ctrl.target.set(kf.tx, kf.ty, kf.tz);
+  }, []);
 
   // ── ForceGraph3D callbacks ────────────────────────────────────────────────────
 
@@ -304,35 +471,36 @@ export default function LyricsUniversePage() {
   const nodeThreeObject = useCallback((node: object) => {
     const n = node as LyricNode;
     if (n.kind === 'lyric') {
-      const sprite = new SpriteText(n.label);
-      sprite.color = '#e2e8f0cc';
-      sprite.textHeight = 4;
-      sprite.fontFace  = 'Georgia, serif';
-      sprite.backgroundColor = 'transparent';
-      return sprite;
+      const sp = new SpriteText(n.label.slice(0, 72));
+      sp.color          = '#e2e8f0cc';
+      sp.textHeight     = 4;
+      sp.fontFace       = 'Georgia, serif';
+      sp.backgroundColor = 'transparent';
+      return sp;
     }
     if (n.kind === 'song') {
-      const sprite = new SpriteText(n.label);
-      sprite.color = '#c4b5fd';
-      sprite.textHeight = 6;
-      sprite.fontWeight = '700';
-      sprite.backgroundColor = 'rgba(3,7,18,0.6)';
-      sprite.padding = 2;
-      sprite.borderRadius = 3;
-      return sprite;
+      const sp = new SpriteText(n.label);
+      sp.color           = '#c4b5fd';
+      sp.textHeight      = 6;
+      sp.fontWeight      = '700';
+      sp.backgroundColor = 'rgba(3,7,18,0.6)';
+      sp.padding         = 2;
+      sp.borderRadius    = 3;
+      return sp;
     }
-    // album
-    const sprite = new SpriteText(n.label);
-    sprite.color = '#fbbf24';
-    sprite.textHeight = 9;
-    sprite.fontWeight = '800';
-    sprite.backgroundColor = 'rgba(3,7,18,0.7)';
-    sprite.padding = 3;
-    sprite.borderRadius = 4;
-    return sprite;
+    const sp = new SpriteText(n.label);
+    sp.color           = '#fbbf24';
+    sp.textHeight      = 9;
+    sp.fontWeight      = '800';
+    sp.backgroundColor = 'rgba(3,7,18,0.7)';
+    sp.padding         = 3;
+    sp.borderRadius    = 4;
+    return sp;
   }, []);
 
   const isEmpty = !isFetching && nodes.length === 0;
+
+  const formatMs = (ms: number) => ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
 
   return (
     <div
@@ -363,14 +531,12 @@ export default function LyricsUniversePage() {
         />
       )}
 
-      {/* Loading */}
       {isFetching && (
         <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
           <div className="text-gray-600 text-sm tracking-widest uppercase">Loading lyrics…</div>
         </div>
       )}
 
-      {/* Empty */}
       {isEmpty && (
         <div className="absolute inset-0 flex flex-col items-center justify-center z-30 gap-3">
           <p className="text-gray-500 text-sm">No lyrics found.</p>
@@ -390,23 +556,40 @@ export default function LyricsUniversePage() {
             <span className="text-xs font-bold text-gray-500 tracking-wide">Lyrics Universe</span>
           </div>
 
-          {/* Flying label */}
+          {/* Album label during fly-through */}
           {isFlying && flyLabel && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 pointer-events-none text-center">
               <div className="text-xs text-yellow-400/70 font-semibold">{flyLabel}</div>
             </div>
           )}
 
-          {/* Top-right: buttons */}
+          {/* Keyframe playback indicator */}
+          {kfPlaying && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+              <div className="text-xs text-indigo-400/80 font-semibold">⏵ Camera playback</div>
+            </div>
+          )}
+
+          {/* Top-right buttons */}
           <div className="absolute top-4 right-4 z-30 flex gap-2">
             <button
-              onClick={() => { setShowBandPicker(v => !v); setShowControls(false); }}
+              onClick={() => { setShowBandPicker(v => !v); setShowControls(false); setShowKfPanel(false); }}
               className="text-xs bg-gray-900/80 border border-gray-700 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors"
             >
               Bands{selectedBandIds.length > 0 ? ` (${selectedBandIds.length})` : ''}
             </button>
             <button
-              onClick={() => { setShowControls(v => !v); setShowBandPicker(false); }}
+              onClick={() => { setShowKfPanel(v => !v); setShowControls(false); setShowBandPicker(false); }}
+              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                showKfPanel
+                  ? 'bg-indigo-900/60 border-indigo-700 text-indigo-300'
+                  : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+              }`}
+            >
+              🎞 KF{camKFs.length > 0 ? ` (${camKFs.length})` : ''}
+            </button>
+            <button
+              onClick={() => { setShowControls(v => !v); setShowBandPicker(false); setShowKfPanel(false); }}
               className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
                 showControls
                   ? 'bg-indigo-900/60 border-indigo-700 text-indigo-300'
@@ -423,7 +606,7 @@ export default function LyricsUniversePage() {
             </button>
           </div>
 
-          {/* Band picker */}
+          {/* ── Band picker ── */}
           {showBandPicker && scopes && (
             <div className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-3 backdrop-blur-sm w-56 shadow-2xl max-h-72 overflow-y-auto">
               <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Filter by band</div>
@@ -450,21 +633,182 @@ export default function LyricsUniversePage() {
             </div>
           )}
 
-          {/* Controls panel */}
-          {showControls && (
-            <div className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-4 backdrop-blur-sm w-56 shadow-2xl space-y-3">
-              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Fly Controls</div>
+          {/* ── Camera Keyframe panel ── */}
+          {showKfPanel && (
+            <div
+              className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-4 backdrop-blur-sm w-72 shadow-2xl space-y-3 overflow-y-auto"
+              style={{ maxHeight: 'calc(100dvh - 80px)' }}
+            >
+              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Camera Keyframes</div>
+              <p className="text-[10px] text-gray-600 leading-snug">
+                Navigate to a position, press <kbd className="bg-gray-800 px-1 rounded text-gray-300">M</kbd> or click Record.
+                Add 2+ keyframes, then Play.
+              </p>
+
+              {/* Default duration */}
               <label className="block space-y-1">
                 <div className="flex justify-between text-[10px] text-gray-400">
-                  <span>Orbit speed</span>
-                  <span>{orbitSpeed.toFixed(1)}×</span>
+                  <span>Travel time for new KF</span>
+                  <span>{formatMs(kfDefaultDur)}</span>
                 </div>
-                <input type="range" min="0.1" max="5" step="0.1"
-                  value={orbitSpeed}
-                  onChange={e => setOrbitSpeed(Number(e.target.value))}
-                  className="w-full accent-indigo-500"
-                />
+                <input type="range" min={500} max={15000} step={500}
+                  value={kfDefaultDur}
+                  onChange={e => setKfDefaultDur(Number(e.target.value))}
+                  className="w-full accent-indigo-500" />
               </label>
+
+              {/* Record button */}
+              <button
+                onClick={recordKF}
+                className="w-full py-2 rounded-lg text-xs font-medium bg-gray-800 hover:bg-gray-700 border border-gray-600 text-white transition-colors"
+              >
+                ⦿ Record position
+              </button>
+
+              {/* Keyframe list */}
+              {camKFs.length > 0 && (
+                <div className="space-y-1.5">
+                  {camKFs.map((kf, i) => (
+                    <div key={kf.id} className="flex items-center gap-2 bg-gray-800/60 rounded-lg px-2 py-1.5">
+                      <button
+                        onClick={() => jumpToKF(kf)}
+                        className="text-[10px] text-indigo-400 hover:text-indigo-200 font-mono shrink-0"
+                        title="Jump to this position"
+                      >
+                        KF{i + 1}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <input
+                          type="number"
+                          value={Math.round(kf.durationMs / 1000)}
+                          min={0.5}
+                          step={0.5}
+                          onChange={e => setCamKFs(prev => prev.map(k =>
+                            k.id === kf.id ? { ...k, durationMs: Number(e.target.value) * 1000 } : k
+                          ))}
+                          className="w-full bg-gray-700 border border-gray-600 rounded text-[10px] text-white px-1.5 py-0.5 text-right"
+                          title="Travel time in seconds"
+                        />
+                        <span className="text-[9px] text-gray-600 ml-1">s travel</span>
+                      </div>
+                      <button
+                        onClick={() => setCamKFs(prev => prev.filter(k => k.id !== kf.id))}
+                        className="text-red-800 hover:text-red-400 text-xs shrink-0"
+                        title="Remove"
+                      >✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Playback controls */}
+              <div className="flex gap-2 items-center">
+                <button
+                  onClick={kfPlaying ? stopKFs : playKFs}
+                  disabled={camKFs.length < 2}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    camKFs.length < 2
+                      ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
+                      : kfPlaying
+                        ? 'bg-red-900/60 border border-red-700/50 text-red-300 hover:bg-red-800/70'
+                        : 'bg-indigo-900/60 border border-indigo-700/50 text-indigo-300 hover:bg-indigo-800/70'
+                  }`}
+                >
+                  {kfPlaying ? '⏹ Stop' : '▶ Play camera'}
+                </button>
+                <button
+                  onClick={() => setKfLoop(v => !v)}
+                  title="Loop"
+                  className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+                    kfLoop ? 'bg-indigo-900/60 border-indigo-700/50 text-indigo-300' : 'bg-gray-800 border-gray-700 text-gray-500'
+                  }`}
+                >↺</button>
+              </div>
+
+              {camKFs.length > 0 && (
+                <button
+                  onClick={() => { setCamKFs([]); stopKFs(); }}
+                  className="w-full text-[10px] text-red-800 hover:text-red-500 transition-colors"
+                >
+                  Clear all keyframes
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* ── Settings panel ── */}
+          {showControls && (
+            <div
+              className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-4 backdrop-blur-sm w-64 shadow-2xl space-y-3 overflow-y-auto"
+              style={{ maxHeight: 'calc(100dvh - 80px)' }}
+            >
+              {/* Layout mode */}
+              <div>
+                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Lyric layout</div>
+                <div className="grid grid-cols-3 gap-1">
+                  {(['tower', 'ribbon', 'cloud'] as LyricLayout[]).map(m => (
+                    <button
+                      key={m}
+                      onClick={() => setLayout(m)}
+                      className={`py-1.5 rounded text-[10px] capitalize font-medium transition-colors ${
+                        layout === m
+                          ? 'bg-indigo-900/70 border border-indigo-600 text-indigo-300'
+                          : 'bg-gray-800 border border-gray-700 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      {m === 'tower' ? '🗼' : m === 'ribbon' ? '🎀' : '☁'} {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-gray-800 pt-3 space-y-3">
+                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Lyrics</div>
+                <label className="block space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-400">
+                    <span>Line spacing</span><span>{lineStep}</span>
+                  </div>
+                  <input type="range" min={8} max={60} step={2} value={lineStep}
+                    onChange={e => setLineStep(Number(e.target.value))}
+                    className="w-full accent-indigo-500" />
+                </label>
+                <label className="block space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-400">
+                    <span>Max lines per song</span><span>{maxLines}</span>
+                  </div>
+                  <input type="range" min={5} max={60} step={5} value={maxLines}
+                    onChange={e => setMaxLines(Number(e.target.value))}
+                    className="w-full accent-indigo-500" />
+                </label>
+              </div>
+
+              <div className="border-t border-gray-800 pt-3 space-y-3">
+                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Fly-through</div>
+                <label className="block space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-400">
+                    <span>Orbit speed</span><span>{orbitSpeed.toFixed(1)}×</span>
+                  </div>
+                  <input type="range" min={0.1} max={5} step={0.1} value={orbitSpeed}
+                    onChange={e => setOrbitSpeed(Number(e.target.value))}
+                    className="w-full accent-indigo-500" />
+                </label>
+                <label className="block space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-400">
+                    <span>Approach distance</span><span>{approachDist}</span>
+                  </div>
+                  <input type="range" min={60} max={600} step={10} value={approachDist}
+                    onChange={e => setApproachDist(Number(e.target.value))}
+                    className="w-full accent-indigo-500" />
+                </label>
+                <label className="block space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-400">
+                    <span>Album dwell time</span><span>{formatMs(albumFlyMs)}</span>
+                  </div>
+                  <input type="range" min={3000} max={30000} step={1000} value={albumFlyMs}
+                    onChange={e => setAlbumFlyMs(Number(e.target.value))}
+                    className="w-full accent-indigo-500" />
+                </label>
+              </div>
             </div>
           )}
         </>
@@ -478,9 +822,14 @@ export default function LyricsUniversePage() {
               {data ? `${data.albums.length} albums · ${nodes.length.toLocaleString()} nodes` : 'Lyrics Universe'}
             </div>
             <div className="flex items-center gap-3">
+              {/* Fly-through toggle */}
               <button
                 onClick={() => {
-                  setIsFlying(v => { if (v) flyOrbit.current = null; return !v; });
+                  setIsFlying(v => {
+                    if (v) flyOrbit.current = null;
+                    return !v;
+                  });
+                  if (kfPlaying) stopKFs();
                 }}
                 disabled={nodes.length === 0}
                 className={`w-10 h-10 rounded-full flex items-center justify-center text-lg transition-colors ${
@@ -488,13 +837,13 @@ export default function LyricsUniversePage() {
                     ? 'bg-white/10 hover:bg-white/20 text-white'
                     : 'bg-white/5 text-gray-700 cursor-not-allowed'
                 }`}
-                title="Fly through (Space)"
+                title="Album fly-through (Space)"
               >
                 {isFlying ? '⏸' : '▶'}
               </button>
             </div>
             <div className="flex items-center gap-2">
-              <span className="hidden md:inline text-[10px] text-gray-700">Space · F</span>
+              <span className="hidden md:inline text-[10px] text-gray-700">Space · M · F</span>
               <button onClick={toggleSocialMode} className="text-xs text-gray-600 hover:text-gray-300 transition-colors">🎬</button>
             </div>
           </div>

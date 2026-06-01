@@ -303,6 +303,17 @@ export default function CinemaPage() {
   const [showWatermark, setShowWatermark]         = useState(true);
   const [simReady, setSimReady]                   = useState(false);
 
+  // ── Quick Setup Wizard ───────────────────────────────────────────────────────
+  const [showWizard, setShowWizard]           = useState(false);
+  const [wizardStep, setWizardStep]           = useState(0);
+  const [wizardFocus, setWizardFocus]         = useState<'universe' | 'artist' | 'song'>('universe');
+  const [wizardBandId, setWizardBandId]       = useState('');
+  const [wizardSongId, setWizardSongId]       = useState('');
+  const [wizardLayout, setWizardLayout]       = useState('galaxy');
+  const [wizardHideExtra, setWizardHideExtra] = useState(true);
+  const [wizardMotion, setWizardMotion]       = useState<'cinematic' | 'orbit' | 'static'>('cinematic');
+  const [wizardLyrics, setWizardLyrics]       = useState(false);
+
   // ── Visual theme ─────────────────────────────────────────────────────────────
   const [selectedThemeId, setSelectedThemeId] = useState(DEFAULT_THEME_ID);
   const currentTheme  = useMemo(() => getTheme(selectedThemeId), [selectedThemeId]);
@@ -1996,6 +2007,51 @@ export default function CinemaPage() {
     }
   }, []);
 
+  // ── Quick Setup Wizard apply ──────────────────────────────────────────────────
+
+  const applyWizard = useCallback(() => {
+    // 1. Band filter
+    if (wizardFocus !== 'universe' && wizardBandId) {
+      setSelectedBandIds([wizardBandId]);
+    } else if (wizardFocus === 'universe') {
+      setSelectedBandIds([]);
+    }
+
+    // 2. Hidden types
+    if (wizardHideExtra) {
+      const next = new Set(['keyword', 'tag', 'theme', 'emotion', 'genre']);
+      setHiddenTypes(next);
+      hiddenTypesRef.current = next;
+    } else {
+      setHiddenTypes(new Set<string>());
+      hiddenTypesRef.current = new Set<string>();
+    }
+
+    // 3. Layout — delay a tick so band filter takes effect first
+    setActiveArrangeMode(wizardLayout);
+    setTimeout(() => reArrange(wizardLayout), 200);
+
+    // 4. Song spotlight — select the node
+    if (wizardFocus === 'song' && wizardSongId) {
+      const node = simNodesRef.current.find(n => n.id === `song:${wizardSongId}`);
+      if (node) {
+        setSelectedNode(node);
+        setShowLyrics(wizardLyrics);
+        showLyricsRef.current = wizardLyrics;
+      }
+    }
+
+    // 5. Motion
+    if (wizardMotion === 'cinematic') {
+      setTimeout(() => startPlayback(), 300);
+    } else if (wizardMotion === 'static') {
+      setIsPlaying(false);
+    }
+
+    setShowWizard(false);
+    setWizardStep(0);
+  }, [wizardFocus, wizardBandId, wizardSongId, wizardLayout, wizardHideExtra, wizardMotion, wizardLyrics, reArrange, startPlayback]);
+
   // ── Director callbacks ────────────────────────────────────────────────────────
 
   const handleDirectorCapture = useCallback(() => {
@@ -2463,6 +2519,17 @@ export default function CinemaPage() {
 
           {/* Top-right */}
           <div className="absolute top-4 right-4 z-30 flex gap-2">
+            <button
+              onClick={() => { setShowWizard(v => !v); setWizardStep(0); }}
+              title="Quick Setup Wizard — guided scene configuration"
+              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                showWizard
+                  ? 'bg-emerald-900/60 border-emerald-700 text-emerald-300'
+                  : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+              }`}
+            >
+              ✦ Setup
+            </button>
             <button
               onClick={() => reArrange()}
               disabled={!simReady}
@@ -4242,6 +4309,254 @@ export default function CinemaPage() {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ══ QUICK SETUP WIZARD ═══════════════════════════════════════════════════ */}
+      {showWizard && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md">
+          <div className="relative w-full max-w-md mx-4 bg-gray-950/98 border border-emerald-900/40 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+            style={{ maxHeight: '90dvh' }}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-800/60 shrink-0">
+              <div>
+                <div className="text-[10px] text-emerald-500 uppercase tracking-widest mb-1">
+                  Step {wizardStep + 1} of 3
+                </div>
+                <h2 className="text-white font-semibold text-base leading-tight">
+                  {wizardStep === 0 && 'What do you want to showcase?'}
+                  {wizardStep === 1 && 'Choose your focus'}
+                  {wizardStep === 2 && 'Visual style & motion'}
+                </h2>
+              </div>
+              <button onClick={() => setShowWizard(false)} className="text-gray-600 hover:text-white transition-colors ml-4 mt-0.5 shrink-0">✕</button>
+            </div>
+
+            {/* Body */}
+            <div className="overflow-y-auto px-6 py-5 flex-1 space-y-4">
+
+              {/* ── Step 0: Focus ── */}
+              {wizardStep === 0 && (
+                <div className="space-y-2">
+                  {([
+                    { id: 'universe' as const, label: 'Full Universe',    desc: 'Explore the entire graph — all bands, all connections.',    emoji: '🌌' },
+                    { id: 'artist'   as const, label: 'Artist Focus',     desc: 'Zoom into one band and hide everything else.',              emoji: '🎸' },
+                    { id: 'song'     as const, label: 'Song Spotlight',   desc: 'Select a song, show its lyrics, and dim the rest.',         emoji: '🎵' },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.id}
+                      onClick={() => setWizardFocus(opt.id)}
+                      className={`w-full text-left px-4 py-3 rounded-xl border transition-colors ${
+                        wizardFocus === opt.id
+                          ? 'bg-emerald-900/40 border-emerald-600/60 text-white'
+                          : 'bg-gray-900/60 border-gray-700/60 text-gray-400 hover:text-white hover:border-gray-500'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-xl shrink-0">{opt.emoji}</span>
+                        <div>
+                          <div className="text-sm font-medium">{opt.label}</div>
+                          <div className="text-[11px] text-gray-500 mt-0.5">{opt.desc}</div>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* ── Step 1: Selection ── */}
+              {wizardStep === 1 && (
+                <div className="space-y-4">
+                  {wizardFocus === 'universe' && (
+                    <p className="text-sm text-gray-400">
+                      The full universe shows all bands and connections. No selection needed.
+                    </p>
+                  )}
+
+                  {(wizardFocus === 'artist' || wizardFocus === 'song') && scopes && (
+                    <div>
+                      <label className="block text-[11px] text-gray-500 uppercase tracking-wide mb-2">Band</label>
+                      <div className="space-y-1 max-h-40 overflow-y-auto">
+                        {scopes.bands.map(b => (
+                          <button
+                            key={b.id}
+                            onClick={() => { setWizardBandId(b.id); setWizardSongId(''); }}
+                            className={`w-full text-left text-sm px-3 py-2 rounded-lg transition-colors ${
+                              wizardBandId === b.id
+                                ? 'bg-emerald-900/50 border border-emerald-700/50 text-emerald-200'
+                                : 'bg-gray-800/60 border border-gray-700/40 text-gray-300 hover:text-white hover:bg-gray-800'
+                            }`}
+                          >
+                            {b.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {wizardFocus === 'song' && wizardBandId && (
+                    <div>
+                      <label className="block text-[11px] text-gray-500 uppercase tracking-wide mb-2">Song</label>
+                      <div className="space-y-1 max-h-52 overflow-y-auto">
+                        {simNodes
+                          .filter(n => n.type === 'song' && (n.data?.bandId as string | undefined) === wizardBandId)
+                          .map(n => {
+                            const songId = n.id.replace('song:', '');
+                            return (
+                              <button
+                                key={n.id}
+                                onClick={() => setWizardSongId(songId)}
+                                className={`w-full text-left text-sm px-3 py-2 rounded-lg transition-colors ${
+                                  wizardSongId === songId
+                                    ? 'bg-emerald-900/50 border border-emerald-700/50 text-emerald-200'
+                                    : 'bg-gray-800/60 border border-gray-700/40 text-gray-300 hover:text-white hover:bg-gray-800'
+                                }`}
+                              >
+                                {n.label}
+                              </button>
+                            );
+                          })
+                        }
+                        {simNodes.filter(n => n.type === 'song' && (n.data?.bandId as string | undefined) === wizardBandId).length === 0 && (
+                          <p className="text-xs text-gray-600 italic px-3 py-2">
+                            No songs loaded yet. Make sure the graph is loaded first.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Step 2: Visual style ── */}
+              {wizardStep === 2 && (
+                <div className="space-y-5">
+                  {/* Layout */}
+                  <div>
+                    <label className="block text-[11px] text-gray-500 uppercase tracking-wide mb-2">Layout shape</label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {QUICK_ARRANGE_MODES.slice(0, 6).map(({ mode, emoji, label }) => (
+                        <button
+                          key={mode}
+                          onClick={() => setWizardLayout(mode)}
+                          className={`py-2 rounded-lg text-xs font-medium transition-colors ${
+                            wizardLayout === mode
+                              ? 'bg-emerald-900/50 border border-emerald-700/50 text-emerald-200'
+                              : 'bg-gray-800/60 border border-gray-700/40 text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          {emoji} {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Node visibility */}
+                  <div>
+                    <label className="block text-[11px] text-gray-500 uppercase tracking-wide mb-2">Node visibility</label>
+                    <div className="space-y-1.5">
+                      <button
+                        onClick={() => setWizardHideExtra(true)}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                          wizardHideExtra
+                            ? 'bg-emerald-900/50 border border-emerald-700/50 text-emerald-200'
+                            : 'bg-gray-800/60 border border-gray-700/40 text-gray-300 hover:text-white'
+                        }`}
+                      >
+                        <div className="font-medium">Core only</div>
+                        <div className="text-[11px] text-gray-500 mt-0.5">Artists, Albums, Songs — clean and focused</div>
+                      </button>
+                      <button
+                        onClick={() => setWizardHideExtra(false)}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                          !wizardHideExtra
+                            ? 'bg-emerald-900/50 border border-emerald-700/50 text-emerald-200'
+                            : 'bg-gray-800/60 border border-gray-700/40 text-gray-300 hover:text-white'
+                        }`}
+                      >
+                        <div className="font-medium">Full network</div>
+                        <div className="text-[11px] text-gray-500 mt-0.5">Show tags, themes, keywords, emotions, genres</div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Motion */}
+                  <div>
+                    <label className="block text-[11px] text-gray-500 uppercase tracking-wide mb-2">Motion</label>
+                    <div className="space-y-1.5">
+                      {([
+                        { id: 'cinematic' as const, label: 'Cinematic auto-play', desc: 'Scenes cycle automatically with camera motion' },
+                        { id: 'orbit'     as const, label: 'Manual orbit',        desc: 'Camera is yours to control freely' },
+                        { id: 'static'    as const, label: 'Static',              desc: 'No automatic motion — pause and explore' },
+                      ] as const).map(opt => (
+                        <button
+                          key={opt.id}
+                          onClick={() => setWizardMotion(opt.id)}
+                          className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                            wizardMotion === opt.id
+                              ? 'bg-emerald-900/50 border border-emerald-700/50 text-emerald-200'
+                              : 'bg-gray-800/60 border border-gray-700/40 text-gray-300 hover:text-white'
+                          }`}
+                        >
+                          <div className="font-medium">{opt.label}</div>
+                          <div className="text-[11px] text-gray-500 mt-0.5">{opt.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Lyrics (song spotlight only) */}
+                  {wizardFocus === 'song' && (
+                    <div>
+                      <label className="block text-[11px] text-gray-500 uppercase tracking-wide mb-2">Lyrics</label>
+                      <button
+                        onClick={() => setWizardLyrics(v => !v)}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                          wizardLyrics
+                            ? 'bg-emerald-900/50 border border-emerald-700/50 text-emerald-200'
+                            : 'bg-gray-800/60 border border-gray-700/40 text-gray-300 hover:text-white'
+                        }`}
+                      >
+                        <div className="font-medium">{wizardLyrics ? '✓ Show lyrics overlay' : 'Show lyrics overlay'}</div>
+                        <div className="text-[11px] text-gray-500 mt-0.5">Display floating lyric text around the song</div>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer nav */}
+            <div className="shrink-0 border-t border-gray-800/60 px-6 py-4 flex items-center justify-between gap-3">
+              <button
+                onClick={() => setWizardStep(s => Math.max(0, s - 1))}
+                disabled={wizardStep === 0}
+                className="text-sm text-gray-500 hover:text-white transition-colors disabled:opacity-30"
+              >
+                ← Back
+              </button>
+              <div className="flex gap-1">
+                {[0, 1, 2].map(i => (
+                  <div key={i} className={`w-1.5 h-1.5 rounded-full transition-colors ${wizardStep === i ? 'bg-emerald-500' : 'bg-gray-700'}`} />
+                ))}
+              </div>
+              {wizardStep < 2 ? (
+                <button
+                  onClick={() => setWizardStep(s => s + 1)}
+                  className="text-sm text-emerald-400 hover:text-emerald-200 font-medium transition-colors"
+                >
+                  Next →
+                </button>
+              ) : (
+                <button
+                  onClick={applyWizard}
+                  className="px-4 py-2 rounded-lg bg-emerald-700/80 hover:bg-emerald-600/90 border border-emerald-600/50 text-white text-sm font-semibold transition-colors"
+                >
+                  ✦ Apply
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
