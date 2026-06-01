@@ -363,10 +363,12 @@ export default function CinemaPage() {
   const [labelBgOpacity, setLabelBgOpacity]     = useState(0.7);
   const [labelTextColor, setLabelTextColor]     = useState('#e2e8f0');
   const [labelAlwaysOnTop, setLabelAlwaysOnTop] = useState(false);
+  const [labelYOffset, setLabelYOffset]         = useState(0);
   const labelShowBgRef      = useRef(true);
   const labelBgOpacityRef   = useRef(0.7);
   const labelTextColorRef   = useRef('#e2e8f0');
   const labelAlwaysOnTopRef = useRef(false);
+  const labelYOffsetRef     = useRef(0);
 
   // Selection dim strength (0 = keep theme colour, 1 = fully dark)
   const [selectionDim, setSelectionDim] = useState(1.0);
@@ -708,6 +710,7 @@ export default function CinemaPage() {
   useEffect(() => { labelBgOpacityRef.current   = labelBgOpacity;   }, [labelBgOpacity]);
   useEffect(() => { labelTextColorRef.current   = labelTextColor;   }, [labelTextColor]);
   useEffect(() => { labelAlwaysOnTopRef.current = labelAlwaysOnTop; }, [labelAlwaysOnTop]);
+  useEffect(() => { labelYOffsetRef.current     = labelYOffset;     }, [labelYOffset]);
   useEffect(() => { freeCamRef.current              = freeCam;              }, [freeCam]);
   useEffect(() => { pathModeRef.current = pathMode; }, [pathMode]);
   useEffect(() => {
@@ -1394,7 +1397,7 @@ export default function CinemaPage() {
               const offset = r + desiredTH * 0.6 + 3;
               (sprite as any).position.set(
                 (tcx / camLen) * offset,
-                (tcy / camLen) * offset,
+                (tcy / camLen) * offset + labelYOffsetRef.current,
                 (tcz / camLen) * offset,
               );
             }
@@ -1521,6 +1524,15 @@ export default function CinemaPage() {
                     (sp as any)._lastLyricTH = cth;
                   }
                 }
+              }
+
+              // In Visual Node Mode, enable depth testing so lyrics go behind the
+              // disc/artwork geometry instead of always rendering on top.
+              const wantDepth = visualNodeModeRef.current;
+              const spMat = (sp as any).material;
+              if (spMat && (sp as any)._lastLyricDepth !== wantDepth) {
+                spMat.depthTest = wantDepth;
+                (sp as any)._lastLyricDepth = wantDepth;
               }
 
               const pos = sp.position;
@@ -3534,6 +3546,21 @@ export default function CinemaPage() {
                     onChange={e => setLabelTextColor(e.target.value)}
                     className="w-8 h-5 rounded cursor-pointer border-0 bg-transparent" />
                 </div>
+                <label className="block space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-400">
+                    <span>Label vertical offset</span>
+                    <span className="flex items-center gap-1">
+                      {labelYOffset > 0 ? '+' : ''}{labelYOffset}
+                      {labelYOffset !== 0 && (
+                        <button onClick={() => setLabelYOffset(0)} className="text-gray-700 hover:text-gray-400 leading-none">↺</button>
+                      )}
+                    </span>
+                  </div>
+                  <input type="range" min={-60} max={60} step={1} value={labelYOffset}
+                    onChange={e => setLabelYOffset(Number(e.target.value))}
+                    className="w-full accent-indigo-500" />
+                  <div className="text-[10px] text-gray-700">Shift labels up (+) or down (−) to avoid artwork overlap</div>
+                </label>
               </div>
 
               {/* Label states: selected vs unselected appearance */}
