@@ -26,7 +26,7 @@ import type { GraphData } from '../api/songNodes';
 import { buildAdj, computeArrangeTargets, animateArrange, easeInOutQuad, easeInOutCubic } from '../cinema/graphArrange';
 import { CINEMA_SCENES } from '../cinema/sceneDefinitions';
 import { initOrbitState, updateOrbitCamera, type OrbitCameraState } from '../cinema/orbitCamera';
-import type { CinemaNode, CinemaLink, CinemaControls, TourStep, CinemaKeyframe, NodeSequence, FinalCutClip } from '../cinema/types';
+import type { CinemaNode, CinemaLink, CinemaControls, TourStep, CinemaKeyframe, NodeSequence } from '../cinema/types';
 import { DEFAULT_CINEMA_CONTROLS } from '../cinema/types';
 import { CINEMA_THEMES, getTheme, DEFAULT_THEME_ID, type CinemaTheme } from '../cinema/themes';
 import TourPlanner from '../cinema/TourPlanner';
@@ -303,16 +303,6 @@ export default function CinemaPage() {
   const [showWatermark, setShowWatermark]         = useState(true);
   const [simReady, setSimReady]                   = useState(false);
 
-  // ── Quick Setup Wizard ───────────────────────────────────────────────────────
-  const [showWizard, setShowWizard]           = useState(false);
-  const [wizardStep, setWizardStep]           = useState(0);
-  const [wizardFocus, setWizardFocus]         = useState<'universe' | 'artist' | 'song'>('universe');
-  const [wizardBandId, setWizardBandId]       = useState('');
-  const [wizardSongId, setWizardSongId]       = useState('');
-  const [wizardLayout, setWizardLayout]       = useState('galaxy');
-  const [wizardHideExtra, setWizardHideExtra] = useState(true);
-  const [wizardMotion, setWizardMotion]       = useState<'cinematic' | 'orbit' | 'static'>('cinematic');
-  const [wizardLyrics, setWizardLyrics]       = useState(false);
 
   // ── Visual theme ─────────────────────────────────────────────────────────────
   const [selectedThemeId, setSelectedThemeId] = useState(DEFAULT_THEME_ID);
@@ -415,6 +405,17 @@ export default function CinemaPage() {
   const ringSelectedOnlyRef = useRef(false);
   const ringStartTimeRef    = useRef(performance.now());
 
+  // Universe spread lyrics: Tower-spiral layout, always visible (no distance culling)
+  const [lyricsUniverseMode, setLyricsUniverseMode]   = useState(false);
+  const [universeSpread, setUniverseSpread]           = useState(5);
+  const [universeLineStep, setUniverseLineStep]       = useState(8);
+  const lyricsUniverseModeRef  = useRef(false);
+  const universeSpreadRef      = useRef(5);
+  const universeLineStepRef    = useRef(8);
+  useEffect(() => { lyricsUniverseModeRef.current = lyricsUniverseMode; }, [lyricsUniverseMode]);
+  useEffect(() => { universeSpreadRef.current     = universeSpread;     }, [universeSpread]);
+  useEffect(() => { universeLineStepRef.current   = universeLineStep;   }, [universeLineStep]);
+
   // Node sphere opacity override (user-adjustable, reset to theme default when theme changes)
   const [nodeOpacityUser, setNodeOpacityUser] = useState(() => 0.92);
   useEffect(() => { setNodeOpacityUser(currentTheme.nodeOpacity); }, [currentTheme]);
@@ -491,33 +492,6 @@ export default function CinemaPage() {
     setNodeOverridesRaw(overrides);
     try { localStorage.setItem('cinema-node-overrides', JSON.stringify(overrides)); } catch { /* ignore */ }
   }, []);
-
-  // ── Final Cut timeline ───────────────────────────────────────────────────────
-  // Assembled animation clips from any mode; persisted to localStorage
-  const [showFinalCut, setShowFinalCut] = useState(false);
-  const [finalCutClips, setFinalCutClipsRaw] = useState<FinalCutClip[]>(() => {
-    try {
-      const stored = localStorage.getItem('cinema-final-cut');
-      return stored ? (JSON.parse(stored) as FinalCutClip[]) : [];
-    } catch { return []; }
-  });
-  const setFinalCutClips = useCallback((updater: FinalCutClip[] | ((prev: FinalCutClip[]) => FinalCutClip[])) => {
-    setFinalCutClipsRaw(prev => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      try { localStorage.setItem('cinema-final-cut', JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
-  }, []);
-  const addToFinalCut = useCallback((clip: Omit<FinalCutClip, 'id' | 'addedAt'>) => {
-    const full: FinalCutClip = { ...clip, id: `fc-${Date.now()}`, addedAt: new Date().toISOString() };
-    setFinalCutClips(prev => [...prev, full]);
-  }, [setFinalCutClips]);
-
-  // Final Cut playback state
-  const [finalCutPlaying, setFinalCutPlaying] = useState(false);
-  const [finalCutClipIdx, setFinalCutClipIdx] = useState(0);
-  const finalCutClipsRef = useRef<FinalCutClip[]>([]);
-  useEffect(() => { finalCutClipsRef.current = finalCutClips; }, [finalCutClips]);
 
   // Genre source selector
   const [genreSource, setGenreSource] = useState<GenreSource>('priority');
@@ -1149,39 +1123,6 @@ export default function CinemaPage() {
       });
   }, []);
 
-  // ── Final Cut playback ────────────────────────────────────────────────────────
-  // When playing, apply each clip then advance after its durationMs
-
-  useEffect(() => {
-    if (!finalCutPlaying) return;
-    const clip = finalCutClipsRef.current[finalCutClipIdx];
-    if (!clip) { setFinalCutPlaying(false); setFinalCutClipIdx(0); return; }
-
-    // Apply the clip to the appropriate Cinema mode
-    if (clip.type === 'scene' && clip.sceneId) {
-      const sceneIdx = CINEMA_SCENES.findIndex(s => s.id === clip.sceneId);
-      if (sceneIdx >= 0) transitionTo(sceneIdx);
-    } else if (clip.type === 'director' && clip.keyframes && clip.keyframes.length > 0) {
-      setDirectorKeyframes(clip.keyframes);
-      handleDirectorPlay();
-    } else if ((clip.type === 'sequence' || clip.type === 'tour') && clip.steps && clip.steps.length > 0) {
-      setTourSteps(clip.steps);
-      startTour();
-    }
-
-    const timer = setTimeout(() => {
-      const next = finalCutClipIdx + 1;
-      if (next < finalCutClipsRef.current.length) {
-        setFinalCutClipIdx(next);
-      } else {
-        setFinalCutPlaying(false);
-        setFinalCutClipIdx(0);
-      }
-    }, clip.durationMs);
-
-    return () => clearTimeout(timer);
-  }, [finalCutPlaying, finalCutClipIdx]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── Scene timer ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -1426,7 +1367,13 @@ export default function CinemaPage() {
             } else {
               const range = Math.max(1, showDist - fullDist);
               opacity = Math.max(0, Math.min(1, 1 - (dist - fullDist) / range));
-              if (!isSelected) opacity *= unselectedLabelOpacityRef.current;
+              if (!isSelected) {
+                opacity *= unselectedLabelOpacityRef.current;
+                // When something is selected, selectionDim also fades unselected labels
+                if (selectedChainSet.size > 0 && !isPlayingRef.current) {
+                  opacity *= Math.max(0, 1 - selectionDimRef.current);
+                }
+              }
             }
             const a         = Math.round(opacity * 255).toString(16).padStart(2, '0');
             const baseColor = isSelected
@@ -1485,7 +1432,8 @@ export default function CinemaPage() {
               ringAngle = (performance.now() - ringStartTimeRef.current) / 1000 * ringRotSpeedRef.current;
             }
 
-            const lyricDistSq       = lyricsShowDistRef.current ** 2;
+            const isUniverseMode    = lyricsUniverseModeRef.current;
+            const lyricDistSq       = isUniverseMode ? Infinity : lyricsShowDistRef.current ** 2;
             const scrollMode        = lyricsScrollModeRef.current;
             const progressiveMode   = lyricsProgressiveModeRef.current;
             const revealPaceMs      = lyricsRevealPaceRef.current * 1000;
@@ -1499,7 +1447,8 @@ export default function CinemaPage() {
               });
             }
             const selectedOnly  = lyricsSelectedOnlyRef.current;
-            const maxLyricNodes = lyricsMaxNodesRef.current;
+            // Universe mode ignores the maxLyricNodes cap — all songs show their lyrics
+            const maxLyricNodes = isUniverseMode ? 9999 : lyricsMaxNodesRef.current;
             const inProximity   = new Set<string>();
 
             // Pre-pass: find the N node IDs whose owner nodes are closest to camera
@@ -1541,6 +1490,21 @@ export default function CinemaPage() {
                   if ((sp as any)._lastLyricTH !== rth) {
                     (sp as any).textHeight    = rth;
                     (sp as any)._lastLyricTH  = rth;
+                  }
+                } else if (isUniverseMode) {
+                  // Universe spread — Tower-spiral layout, all songs visible at once
+                  const li = sp._lineIdx as number;
+                  const k  = li + 1;
+                  const R  = universeSpreadRef.current;
+                  sp.position.set(
+                    (ownerNode.x ?? 0) + Math.sin(k * 0.28) * k * R,
+                    (ownerNode.y ?? 0) + li * universeLineStepRef.current,
+                    (ownerNode.z ?? 0) + Math.cos(k * 0.28) * k * R,
+                  );
+                  const uth = lyricsTextSizeRef.current;
+                  if ((sp as any)._lastLyricTH !== uth) {
+                    (sp as any).textHeight   = uth;
+                    (sp as any)._lastLyricTH = uth;
                   }
                 } else {
                   // Normal mode: scattered cloud above the node
@@ -1790,7 +1754,7 @@ export default function CinemaPage() {
       cleanupLyricsSprites();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showLyrics, simNodes, lyricsMaxLines, ringLyricsMode]);
+  }, [showLyrics, simNodes, lyricsMaxLines, ringLyricsMode, lyricsUniverseMode]);
 
   // ── Social mode ───────────────────────────────────────────────────────────────
 
@@ -2007,50 +1971,6 @@ export default function CinemaPage() {
     }
   }, []);
 
-  // ── Quick Setup Wizard apply ──────────────────────────────────────────────────
-
-  const applyWizard = useCallback(() => {
-    // 1. Band filter
-    if (wizardFocus !== 'universe' && wizardBandId) {
-      setSelectedBandIds([wizardBandId]);
-    } else if (wizardFocus === 'universe') {
-      setSelectedBandIds([]);
-    }
-
-    // 2. Hidden types
-    if (wizardHideExtra) {
-      const next = new Set(['keyword', 'tag', 'theme', 'emotion', 'genre']);
-      setHiddenTypes(next);
-      hiddenTypesRef.current = next;
-    } else {
-      setHiddenTypes(new Set<string>());
-      hiddenTypesRef.current = new Set<string>();
-    }
-
-    // 3. Layout — delay a tick so band filter takes effect first
-    setActiveArrangeMode(wizardLayout);
-    setTimeout(() => reArrange(wizardLayout), 200);
-
-    // 4. Song spotlight — select the node
-    if (wizardFocus === 'song' && wizardSongId) {
-      const node = simNodesRef.current.find(n => n.id === `song:${wizardSongId}`);
-      if (node) {
-        setSelectedNode(node);
-        setShowLyrics(wizardLyrics);
-        showLyricsRef.current = wizardLyrics;
-      }
-    }
-
-    // 5. Motion
-    if (wizardMotion === 'cinematic') {
-      setTimeout(() => startPlayback(), 300);
-    } else if (wizardMotion === 'static') {
-      setIsPlaying(false);
-    }
-
-    setShowWizard(false);
-    setWizardStep(0);
-  }, [wizardFocus, wizardBandId, wizardSongId, wizardLayout, wizardHideExtra, wizardMotion, wizardLyrics, reArrange, startPlayback]);
 
   // ── Director callbacks ────────────────────────────────────────────────────────
 
@@ -2520,17 +2440,6 @@ export default function CinemaPage() {
           {/* Top-right */}
           <div className="absolute top-4 right-4 z-30 flex gap-2">
             <button
-              onClick={() => { setShowWizard(v => !v); setWizardStep(0); }}
-              title="Quick Setup Wizard — guided scene configuration"
-              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
-                showWizard
-                  ? 'bg-emerald-900/60 border-emerald-700 text-emerald-300'
-                  : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
-              }`}
-            >
-              ✦ Setup
-            </button>
-            <button
               onClick={() => reArrange()}
               disabled={!simReady}
               title={`Re-apply ${currentScene?.name ?? ''} arrangement`}
@@ -2613,17 +2522,6 @@ export default function CinemaPage() {
               }`}
             >
               ⚙{hiddenTypes.size > 0 ? ` −${hiddenTypes.size}` : ''}
-            </button>
-            <button
-              onClick={() => setShowFinalCut(v => !v)}
-              title="Final Cut — assemble clips into a timeline"
-              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
-                showFinalCut
-                  ? 'bg-rose-900/60 border-rose-700 text-rose-300'
-                  : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
-              }`}
-            >
-              🎞{finalCutClips.length > 0 ? ` ${finalCutClips.length}` : ''}
             </button>
             <button
               onClick={toggleSocialMode}
@@ -3531,6 +3429,45 @@ export default function CinemaPage() {
                         </div>
                       )}
                     </div>
+
+                    {/* Universe spread lyrics */}
+                    <div className="border-t border-gray-800/60 pt-2 space-y-1">
+                      <button
+                        onClick={() => setLyricsUniverseMode(v => !v)}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                          lyricsUniverseMode ? 'text-violet-300 bg-violet-900/20' : 'text-gray-500 hover:text-gray-300'
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${lyricsUniverseMode ? 'bg-violet-400' : 'bg-gray-700'}`} />
+                        <span>🌌 Universe spread</span>
+                        <span className="ml-auto text-[10px] text-gray-600">{lyricsUniverseMode ? 'on' : 'off'}</span>
+                      </button>
+                      {lyricsUniverseMode && (
+                        <div className="space-y-2 pl-1 pt-1">
+                          <div className="text-[10px] text-gray-600 leading-snug">
+                            Lines spiral outward from each song. Lower node opacity to let lyrics fill the space.
+                          </div>
+                          <label className="block space-y-1">
+                            <div className="flex justify-between text-[10px] text-gray-400">
+                              <span>Spread radius</span><span>{universeSpread}</span>
+                            </div>
+                            <input type="range" min={1} max={20} step={0.5} value={universeSpread}
+                              onChange={e => setUniverseSpread(Number(e.target.value))}
+                              className="w-full accent-violet-500" />
+                            <div className="text-[10px] text-gray-700">Higher = lines fan further from the song node</div>
+                          </label>
+                          <label className="block space-y-1">
+                            <div className="flex justify-between text-[10px] text-gray-400">
+                              <span>Vertical step</span><span>{universeLineStep}</span>
+                            </div>
+                            <input type="range" min={2} max={30} step={1} value={universeLineStep}
+                              onChange={e => setUniverseLineStep(Number(e.target.value))}
+                              className="w-full accent-violet-500" />
+                            <div className="text-[10px] text-gray-700">Gap between successive lyric lines vertically</div>
+                          </label>
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
               </div>
@@ -4076,19 +4013,6 @@ export default function CinemaPage() {
             onSceneKeyframesChange={handleSceneKfChange}
             onCopyToSequence={handleCopySceneToSequence}
           />
-          {directorKeyframes.length > 0 && (
-            <button
-              onClick={() => addToFinalCut({
-                label: `Director shot (${directorKeyframes.length} kf)`,
-                type: 'director',
-                durationMs: directorKeyframes.reduce((s, k) => s + k.durationMs, 0),
-                keyframes: directorKeyframes,
-              })}
-              className="mt-2 w-full text-[10px] bg-rose-900/40 hover:bg-rose-800/60 border border-rose-800/40 text-rose-300 rounded-lg px-2 py-1.5 transition-colors text-center shrink-0"
-            >
-              🎞 Add to Final Cut
-            </button>
-          )}
         </div>
       )}
 
@@ -4129,434 +4053,6 @@ export default function CinemaPage() {
             onLoadSequence={handleLoadSequence}
             onDeleteSequence={handleDeleteSequence}
           />
-          {tourSteps.length > 0 && (
-            <button
-              onClick={() => addToFinalCut({
-                label: `Sequence (${tourSteps.length} stops)`,
-                type: 'sequence',
-                durationMs: tourSteps.reduce((s, t) => s + t.dwellMs + (t.flyInMs ?? 1800), 0),
-                steps: tourSteps,
-              })}
-              className="mt-2 w-full text-[10px] bg-rose-900/40 hover:bg-rose-800/60 border border-rose-800/40 text-rose-300 rounded-lg px-2 py-1.5 transition-colors text-center shrink-0"
-            >
-              🎞 Add to Final Cut
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* ── Final Cut timeline ── */}
-      {showFinalCut && !socialMode && (
-        <div
-          className="absolute top-12 right-4 z-40 bg-gray-900/97 border border-rose-800/50 rounded-xl p-3 backdrop-blur-sm w-80 shadow-2xl flex flex-col overflow-hidden"
-          style={{ maxHeight: 'calc(100dvh - 80px)' }}
-        >
-          <div className="flex items-center justify-between mb-2 shrink-0">
-            <div className="flex items-center gap-2">
-              <div className="text-[10px] font-semibold text-rose-400 uppercase tracking-wide">🎞 Final Cut</div>
-              {finalCutPlaying && (
-                <span className="text-[10px] text-red-400 animate-pulse font-medium">● Playing</span>
-              )}
-            </div>
-            <button onClick={() => setShowFinalCut(false)} className="text-gray-600 hover:text-gray-400 text-xs">✕</button>
-          </div>
-          <div className="text-[10px] text-gray-600 mb-2 shrink-0 leading-snug">
-            Assemble clips from Director, Sequences, and Scenes.
-          </div>
-
-          {finalCutClips.length === 0 && (
-            <div className="text-[11px] text-gray-600 italic text-center py-4">
-              No clips yet. Open Director or Sequence tools and click "🎞 Add to Final Cut".
-            </div>
-          )}
-
-          <div className="flex-1 overflow-y-auto space-y-1 min-h-0">
-            {finalCutClips.map((clip, idx) => (
-              <div key={clip.id} className={`rounded-lg p-2 border transition-colors ${
-                finalCutPlaying && idx === finalCutClipIdx
-                  ? 'bg-rose-900/40 border-rose-600/60'
-                  : 'bg-gray-800/60 border-gray-700/50'
-              }`}>
-                <div className="flex items-start justify-between gap-1">
-                  <div className="min-w-0">
-                    <div className="text-[11px] font-medium text-white truncate">{clip.label}</div>
-                    <div className="text-[10px] text-gray-500 mt-0.5">
-                      {clip.type === 'director' && `📽️ Director · ${clip.keyframes?.length ?? 0} kf`}
-                      {clip.type === 'sequence' && `🗺 Sequence · ${clip.steps?.length ?? 0} stops`}
-                      {clip.type === 'scene'    && `✨ Scene`}
-                      {clip.type === 'tour'     && `🎤 Tour`}
-                      {' · '}{Math.round(clip.durationMs / 1000)}s
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {/* Move up */}
-                    {idx > 0 && (
-                      <button
-                        onClick={() => setFinalCutClips(prev => {
-                          const next = [...prev];
-                          const tmp = next[idx - 1]!;
-                          next[idx - 1] = next[idx]!;
-                          next[idx] = tmp;
-                          return next;
-                        })}
-                        className="text-gray-600 hover:text-gray-300 text-xs leading-none"
-                        title="Move up"
-                      >▲</button>
-                    )}
-                    {/* Move down */}
-                    {idx < finalCutClips.length - 1 && (
-                      <button
-                        onClick={() => setFinalCutClips(prev => {
-                          const next = [...prev];
-                          const tmp = next[idx + 1]!;
-                          next[idx + 1] = next[idx]!;
-                          next[idx] = tmp;
-                          return next;
-                        })}
-                        className="text-gray-600 hover:text-gray-300 text-xs leading-none"
-                        title="Move down"
-                      >▼</button>
-                    )}
-                    {/* Remove */}
-                    <button
-                      onClick={() => setFinalCutClips(prev => prev.filter(c => c.id !== clip.id))}
-                      className="text-red-800 hover:text-red-400 text-xs leading-none ml-0.5"
-                      title="Remove clip"
-                    >✕</button>
-                  </div>
-                </div>
-                {/* Duration edit */}
-                <div className="mt-1.5 flex items-center gap-2">
-                  <span className="text-[10px] text-gray-600">Duration</span>
-                  <input
-                    type="number"
-                    value={Math.round(clip.durationMs / 1000)}
-                    min={1}
-                    onChange={e => setFinalCutClips(prev => prev.map(c =>
-                      c.id === clip.id ? { ...c, durationMs: Number(e.target.value) * 1000 } : c
-                    ))}
-                    className="w-14 bg-gray-700 border border-gray-600 rounded text-[10px] text-white px-1.5 py-0.5 text-right"
-                  />
-                  <span className="text-[10px] text-gray-600">s</span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {finalCutClips.length > 0 && (
-            <div className="border-t border-gray-800 pt-2 mt-2 shrink-0 space-y-1.5">
-              {/* Play / Stop */}
-              <button
-                onClick={() => {
-                  if (finalCutPlaying) {
-                    setFinalCutPlaying(false);
-                    setFinalCutClipIdx(0);
-                    if (directorPlaying) handleDirectorStop();
-                    if (tourMode) stopTour();
-                  } else {
-                    setFinalCutClipIdx(0);
-                    setFinalCutPlaying(true);
-                  }
-                }}
-                className={`w-full py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
-                  finalCutPlaying
-                    ? 'bg-red-900/60 hover:bg-red-800/70 border border-red-700/40 text-red-300'
-                    : 'bg-rose-700/60 hover:bg-rose-600/70 border border-rose-600/40 text-white'
-                }`}
-              >
-                {finalCutPlaying ? '⏹ Stop Final Cut' : '▶ Play Final Cut'}
-              </button>
-              <div className="flex items-center justify-between text-[10px] text-gray-500">
-                <span>{finalCutClips.length} clip{finalCutClips.length !== 1 ? 's' : ''}
-                  {finalCutPlaying && ` · ${finalCutClipIdx + 1} / ${finalCutClips.length}`}
-                </span>
-                <span>Total: {Math.round(finalCutClips.reduce((s, c) => s + c.durationMs, 0) / 1000)}s</span>
-              </div>
-              {/* Add current scene */}
-              {currentScene && (
-                <button
-                  onClick={() => addToFinalCut({
-                    label: `${currentScene.emoji} ${currentScene.name}`,
-                    type: 'scene',
-                    durationMs: currentScene.durationMs,
-                    sceneId: currentScene.id,
-                  })}
-                  className="w-full text-[10px] bg-indigo-900/40 hover:bg-indigo-800/60 border border-indigo-800/40 text-indigo-300 rounded px-2 py-1 transition-colors text-center"
-                >
-                  + Add current scene
-                </button>
-              )}
-              <button
-                onClick={() => { if (window.confirm('Clear all clips from the Final Cut timeline?')) setFinalCutClips([]); }}
-                className="w-full text-[10px] text-red-800 hover:text-red-500 transition-colors text-center"
-              >
-                Clear all clips
-              </button>
-            </div>
-          )}
-          {finalCutClips.length === 0 && currentScene && (
-            <div className="border-t border-gray-800 pt-2 mt-2 shrink-0">
-              <button
-                onClick={() => addToFinalCut({
-                  label: `${currentScene.emoji} ${currentScene.name}`,
-                  type: 'scene',
-                  durationMs: currentScene.durationMs,
-                  sceneId: currentScene.id,
-                })}
-                className="w-full text-[10px] bg-indigo-900/40 hover:bg-indigo-800/60 border border-indigo-800/40 text-indigo-300 rounded px-2 py-1 transition-colors text-center"
-              >
-                + Add current scene
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ══ QUICK SETUP WIZARD ═══════════════════════════════════════════════════ */}
-      {showWizard && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md">
-          <div className="relative w-full max-w-md mx-4 bg-gray-950/98 border border-emerald-900/40 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-            style={{ maxHeight: '90dvh' }}>
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-800/60 shrink-0">
-              <div>
-                <div className="text-[10px] text-emerald-500 uppercase tracking-widest mb-1">
-                  Step {wizardStep + 1} of 3
-                </div>
-                <h2 className="text-white font-semibold text-base leading-tight">
-                  {wizardStep === 0 && 'What do you want to showcase?'}
-                  {wizardStep === 1 && 'Choose your focus'}
-                  {wizardStep === 2 && 'Visual style & motion'}
-                </h2>
-              </div>
-              <button onClick={() => setShowWizard(false)} className="text-gray-600 hover:text-white transition-colors ml-4 mt-0.5 shrink-0">✕</button>
-            </div>
-
-            {/* Body */}
-            <div className="overflow-y-auto px-6 py-5 flex-1 space-y-4">
-
-              {/* ── Step 0: Focus ── */}
-              {wizardStep === 0 && (
-                <div className="space-y-2">
-                  {([
-                    { id: 'universe' as const, label: 'Full Universe',    desc: 'Explore the entire graph — all bands, all connections.',    emoji: '🌌' },
-                    { id: 'artist'   as const, label: 'Artist Focus',     desc: 'Zoom into one band and hide everything else.',              emoji: '🎸' },
-                    { id: 'song'     as const, label: 'Song Spotlight',   desc: 'Select a song, show its lyrics, and dim the rest.',         emoji: '🎵' },
-                  ] as const).map(opt => (
-                    <button
-                      key={opt.id}
-                      onClick={() => setWizardFocus(opt.id)}
-                      className={`w-full text-left px-4 py-3 rounded-xl border transition-colors ${
-                        wizardFocus === opt.id
-                          ? 'bg-emerald-900/40 border-emerald-600/60 text-white'
-                          : 'bg-gray-900/60 border-gray-700/60 text-gray-400 hover:text-white hover:border-gray-500'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-xl shrink-0">{opt.emoji}</span>
-                        <div>
-                          <div className="text-sm font-medium">{opt.label}</div>
-                          <div className="text-[11px] text-gray-500 mt-0.5">{opt.desc}</div>
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* ── Step 1: Selection ── */}
-              {wizardStep === 1 && (
-                <div className="space-y-4">
-                  {wizardFocus === 'universe' && (
-                    <p className="text-sm text-gray-400">
-                      The full universe shows all bands and connections. No selection needed.
-                    </p>
-                  )}
-
-                  {(wizardFocus === 'artist' || wizardFocus === 'song') && scopes && (
-                    <div>
-                      <label className="block text-[11px] text-gray-500 uppercase tracking-wide mb-2">Band</label>
-                      <div className="space-y-1 max-h-40 overflow-y-auto">
-                        {scopes.bands.map(b => (
-                          <button
-                            key={b.id}
-                            onClick={() => { setWizardBandId(b.id); setWizardSongId(''); }}
-                            className={`w-full text-left text-sm px-3 py-2 rounded-lg transition-colors ${
-                              wizardBandId === b.id
-                                ? 'bg-emerald-900/50 border border-emerald-700/50 text-emerald-200'
-                                : 'bg-gray-800/60 border border-gray-700/40 text-gray-300 hover:text-white hover:bg-gray-800'
-                            }`}
-                          >
-                            {b.name}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {wizardFocus === 'song' && wizardBandId && (
-                    <div>
-                      <label className="block text-[11px] text-gray-500 uppercase tracking-wide mb-2">Song</label>
-                      <div className="space-y-1 max-h-52 overflow-y-auto">
-                        {simNodes
-                          .filter(n => n.type === 'song' && (n.data?.bandId as string | undefined) === wizardBandId)
-                          .map(n => {
-                            const songId = n.id.replace('song:', '');
-                            return (
-                              <button
-                                key={n.id}
-                                onClick={() => setWizardSongId(songId)}
-                                className={`w-full text-left text-sm px-3 py-2 rounded-lg transition-colors ${
-                                  wizardSongId === songId
-                                    ? 'bg-emerald-900/50 border border-emerald-700/50 text-emerald-200'
-                                    : 'bg-gray-800/60 border border-gray-700/40 text-gray-300 hover:text-white hover:bg-gray-800'
-                                }`}
-                              >
-                                {n.label}
-                              </button>
-                            );
-                          })
-                        }
-                        {simNodes.filter(n => n.type === 'song' && (n.data?.bandId as string | undefined) === wizardBandId).length === 0 && (
-                          <p className="text-xs text-gray-600 italic px-3 py-2">
-                            No songs loaded yet. Make sure the graph is loaded first.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ── Step 2: Visual style ── */}
-              {wizardStep === 2 && (
-                <div className="space-y-5">
-                  {/* Layout */}
-                  <div>
-                    <label className="block text-[11px] text-gray-500 uppercase tracking-wide mb-2">Layout shape</label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {QUICK_ARRANGE_MODES.slice(0, 6).map(({ mode, emoji, label }) => (
-                        <button
-                          key={mode}
-                          onClick={() => setWizardLayout(mode)}
-                          className={`py-2 rounded-lg text-xs font-medium transition-colors ${
-                            wizardLayout === mode
-                              ? 'bg-emerald-900/50 border border-emerald-700/50 text-emerald-200'
-                              : 'bg-gray-800/60 border border-gray-700/40 text-gray-400 hover:text-white'
-                          }`}
-                        >
-                          {emoji} {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Node visibility */}
-                  <div>
-                    <label className="block text-[11px] text-gray-500 uppercase tracking-wide mb-2">Node visibility</label>
-                    <div className="space-y-1.5">
-                      <button
-                        onClick={() => setWizardHideExtra(true)}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                          wizardHideExtra
-                            ? 'bg-emerald-900/50 border border-emerald-700/50 text-emerald-200'
-                            : 'bg-gray-800/60 border border-gray-700/40 text-gray-300 hover:text-white'
-                        }`}
-                      >
-                        <div className="font-medium">Core only</div>
-                        <div className="text-[11px] text-gray-500 mt-0.5">Artists, Albums, Songs — clean and focused</div>
-                      </button>
-                      <button
-                        onClick={() => setWizardHideExtra(false)}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                          !wizardHideExtra
-                            ? 'bg-emerald-900/50 border border-emerald-700/50 text-emerald-200'
-                            : 'bg-gray-800/60 border border-gray-700/40 text-gray-300 hover:text-white'
-                        }`}
-                      >
-                        <div className="font-medium">Full network</div>
-                        <div className="text-[11px] text-gray-500 mt-0.5">Show tags, themes, keywords, emotions, genres</div>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Motion */}
-                  <div>
-                    <label className="block text-[11px] text-gray-500 uppercase tracking-wide mb-2">Motion</label>
-                    <div className="space-y-1.5">
-                      {([
-                        { id: 'cinematic' as const, label: 'Cinematic auto-play', desc: 'Scenes cycle automatically with camera motion' },
-                        { id: 'orbit'     as const, label: 'Manual orbit',        desc: 'Camera is yours to control freely' },
-                        { id: 'static'    as const, label: 'Static',              desc: 'No automatic motion — pause and explore' },
-                      ] as const).map(opt => (
-                        <button
-                          key={opt.id}
-                          onClick={() => setWizardMotion(opt.id)}
-                          className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                            wizardMotion === opt.id
-                              ? 'bg-emerald-900/50 border border-emerald-700/50 text-emerald-200'
-                              : 'bg-gray-800/60 border border-gray-700/40 text-gray-300 hover:text-white'
-                          }`}
-                        >
-                          <div className="font-medium">{opt.label}</div>
-                          <div className="text-[11px] text-gray-500 mt-0.5">{opt.desc}</div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Lyrics (song spotlight only) */}
-                  {wizardFocus === 'song' && (
-                    <div>
-                      <label className="block text-[11px] text-gray-500 uppercase tracking-wide mb-2">Lyrics</label>
-                      <button
-                        onClick={() => setWizardLyrics(v => !v)}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                          wizardLyrics
-                            ? 'bg-emerald-900/50 border border-emerald-700/50 text-emerald-200'
-                            : 'bg-gray-800/60 border border-gray-700/40 text-gray-300 hover:text-white'
-                        }`}
-                      >
-                        <div className="font-medium">{wizardLyrics ? '✓ Show lyrics overlay' : 'Show lyrics overlay'}</div>
-                        <div className="text-[11px] text-gray-500 mt-0.5">Display floating lyric text around the song</div>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Footer nav */}
-            <div className="shrink-0 border-t border-gray-800/60 px-6 py-4 flex items-center justify-between gap-3">
-              <button
-                onClick={() => setWizardStep(s => Math.max(0, s - 1))}
-                disabled={wizardStep === 0}
-                className="text-sm text-gray-500 hover:text-white transition-colors disabled:opacity-30"
-              >
-                ← Back
-              </button>
-              <div className="flex gap-1">
-                {[0, 1, 2].map(i => (
-                  <div key={i} className={`w-1.5 h-1.5 rounded-full transition-colors ${wizardStep === i ? 'bg-emerald-500' : 'bg-gray-700'}`} />
-                ))}
-              </div>
-              {wizardStep < 2 ? (
-                <button
-                  onClick={() => setWizardStep(s => s + 1)}
-                  className="text-sm text-emerald-400 hover:text-emerald-200 font-medium transition-colors"
-                >
-                  Next →
-                </button>
-              ) : (
-                <button
-                  onClick={applyWizard}
-                  className="px-4 py-2 rounded-lg bg-emerald-700/80 hover:bg-emerald-600/90 border border-emerald-600/50 text-white text-sm font-semibold transition-colors"
-                >
-                  ✦ Apply
-                </button>
-              )}
-            </div>
-          </div>
         </div>
       )}
 

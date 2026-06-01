@@ -55,7 +55,7 @@ wordCloudRouter.get('/scopes', async (_req, res, next): Promise<void> => {
         orderBy: { name: 'asc' },
       }),
       prisma.album.findMany({
-        select: { id: true, title: true, band: { select: { name: true } } },
+        select: { id: true, title: true, band: { select: { id: true, name: true } } },
         orderBy: [{ band: { name: 'asc' } }, { year: 'asc' }],
       }),
     ]);
@@ -64,7 +64,7 @@ wordCloudRouter.get('/scopes', async (_req, res, next): Promise<void> => {
       where: { lyrics: { some: { isPrimary: true } } },
       select: {
         id: true, title: true,
-        band: { select: { name: true } },
+        band: { select: { id: true, name: true } },
         album: { select: { title: true } },
       },
       orderBy: [{ band: { name: 'asc' } }, { title: 'asc' }],

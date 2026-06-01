@@ -14,7 +14,7 @@
  * Uses ForceGraph3D with all nodes pinned (warmupTicks=0, cooldownTicks=0).
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import ForceGraph3D from 'react-force-graph-3d';
@@ -246,7 +246,10 @@ export default function LyricsUniversePage() {
     queryFn:  () => fetchUniverse(selectedBandIds),
   });
 
-  const nodes = data ? buildNodes(data.albums, layout, lineStep, maxLines) : [];
+  const nodes = useMemo(
+    () => (data ? buildNodes(data.albums, layout, lineStep, maxLines) : []),
+    [data, layout, lineStep, maxLines],
+  );
 
   // Rebuild fly targets from album positions whenever data changes
   useEffect(() => {

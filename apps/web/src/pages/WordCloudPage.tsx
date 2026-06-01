@@ -264,6 +264,10 @@ function ScopeSelector({
     queryFn: wordCloudApi.getScopes,
   });
 
+  // Internal band-filter for song/album pickers
+  const [songBandFilter, setSongBandFilter] = useState('');
+  const [albumBandFilter, setAlbumBandFilter] = useState('');
+
   function toggleBand(id: string) {
     setSelectedBandIds(
       selectedBandIds.includes(id)
@@ -271,6 +275,9 @@ function ScopeSelector({
         : [...selectedBandIds, id],
     );
   }
+
+  const filteredSongs  = scopes?.songs.filter(s  => !songBandFilter  || s.band.id === songBandFilter)  ?? [];
+  const filteredAlbums = scopes?.albums.filter(a => !albumBandFilter || a.band.id === albumBandFilter) ?? [];
 
   return (
     <div className="space-y-3">
@@ -284,7 +291,7 @@ function ScopeSelector({
                 ${scope === s
                   ? 'bg-indigo-600 text-white'
                   : 'bg-surface-800 text-surface-300 hover:bg-surface-700'}`}
-              onClick={() => { setScope(s); setScopeId(''); setSelectedBandIds([]); }}
+              onClick={() => { setScope(s); setScopeId(''); setSelectedBandIds([]); setSongBandFilter(''); setAlbumBandFilter(''); }}
             >
               {s === 'universe' ? 'All Songs' : s}
             </button>
@@ -328,17 +335,27 @@ function ScopeSelector({
       )}
 
       {scope === 'album' && scopes && (
-        <div>
-          <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-1.5">Album</div>
+        <div className="space-y-2">
+          <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Album</div>
+          {scopes.bands.length > 1 && (
+            <select
+              className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white"
+              value={albumBandFilter}
+              onChange={e => { setAlbumBandFilter(e.target.value); setScopeId(''); }}
+            >
+              <option value="">— all artists —</option>
+              {scopes.bands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          )}
           <select
             className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white"
             value={scopeId}
             onChange={(e) => setScopeId(e.target.value)}
           >
             <option value="">— pick album —</option>
-            {scopes.albums.map((a) => (
+            {filteredAlbums.map((a) => (
               <option key={a.id} value={a.id}>
-                {a.band.name} / {a.title}
+                {albumBandFilter ? a.title : `${a.band.name} / ${a.title}`}
               </option>
             ))}
           </select>
@@ -346,20 +363,36 @@ function ScopeSelector({
       )}
 
       {scope === 'song' && scopes && (
-        <div>
-          <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-1.5">Song</div>
+        <div className="space-y-2">
+          <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Song</div>
+          {/* Band filter first — essential when there are many songs */}
+          {scopes.bands.length > 1 && (
+            <select
+              className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white"
+              value={songBandFilter}
+              onChange={e => { setSongBandFilter(e.target.value); setScopeId(''); }}
+            >
+              <option value="">— all artists —</option>
+              {scopes.bands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          )}
           <select
             className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white"
             value={scopeId}
             onChange={(e) => setScopeId(e.target.value)}
           >
-            <option value="">— pick song —</option>
-            {scopes.songs.map((s) => (
+            <option value="">— pick song{songBandFilter ? '' : ' (filter by artist first)'} —</option>
+            {filteredSongs.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.band.name} / {s.title}
+                {songBandFilter ? s.title : `${s.band.name} / ${s.title}`}
               </option>
             ))}
           </select>
+          {!songBandFilter && scopes.bands.length > 1 && (
+            <p className="text-[10px] text-surface-600 leading-tight">
+              Select an artist above to filter the song list.
+            </p>
+          )}
         </div>
       )}
     </div>

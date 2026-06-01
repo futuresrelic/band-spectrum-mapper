@@ -19,10 +19,10 @@ export interface WordCloudData {
 
 export interface CloudScopes {
   bands: { id: string; name: string }[];
-  albums: { id: string; title: string; band: { name: string } }[];
+  albums: { id: string; title: string; band: { id: string; name: string } }[];
   songs: {
     id: string; title: string;
-    band: { name: string };
+    band: { id: string; name: string };
     album: { title: string } | null;
   }[];
 }
