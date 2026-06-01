@@ -20,11 +20,12 @@ export interface WordCloudData {
 export interface CloudScopes {
   bands: { id: string; name: string }[];
   albums: { id: string; title: string; band: { id: string; name: string } }[];
-  songs: {
-    id: string; title: string;
-    band: { id: string; name: string };
-    album: { title: string } | null;
-  }[];
+}
+
+export interface BandSong {
+  id: string;
+  title: string;
+  album: { title: string } | null;
 }
 
 export const wordCloudApi = {
@@ -51,5 +52,9 @@ export const wordCloudApi = {
 
   getScopes(): Promise<CloudScopes> {
     return api.get('/api/word-cloud/scopes');
+  },
+
+  getSongsByBand(bandId: string): Promise<BandSong[]> {
+    return api.get(`/api/word-cloud/songs?bandId=${encodeURIComponent(bandId)}`);
   },
 };

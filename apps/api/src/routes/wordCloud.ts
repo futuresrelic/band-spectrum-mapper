@@ -59,18 +59,30 @@ wordCloudRouter.get('/scopes', async (_req, res, next): Promise<void> => {
         orderBy: [{ band: { name: 'asc' } }, { year: 'asc' }],
       }),
     ]);
-    // Get songs with lyrics for song scope
-    const songsWithLyrics = await prisma.song.findMany({
-      where: { lyrics: { some: { isPrimary: true } } },
+    res.json({ bands, albums });
+  } catch (err) { next(err); }
+});
+
+// GET /api/word-cloud/songs?bandId=xxx — songs with lyrics for a specific band
+wordCloudRouter.get('/songs', async (req, res, next): Promise<void> => {
+  try {
+    const bandId = (req.query['bandId'] as string) ?? '';
+    if (!bandId) {
+      res.status(400).json({ error: 'bandId is required' });
+      return;
+    }
+    const { prisma } = await import('../lib/prisma.js');
+    const songs = await prisma.song.findMany({
+      where: {
+        bandId,
+        lyrics: { some: { isPrimary: true } },
+      },
       select: {
         id: true, title: true,
-        band: { select: { id: true, name: true } },
         album: { select: { title: true } },
       },
-      orderBy: [{ band: { name: 'asc' } }, { title: 'asc' }],
-      take: 500,
+      orderBy: { title: 'asc' },
     });
-
-    res.json({ bands, albums, songs: songsWithLyrics });
+    res.json(songs);
   } catch (err) { next(err); }
 });

@@ -268,6 +268,13 @@ function ScopeSelector({
   const [songBandFilter, setSongBandFilter] = useState('');
   const [albumBandFilter, setAlbumBandFilter] = useState('');
 
+  // Lazy-load songs for the selected band — avoids the 500-song truncation problem
+  const { data: bandSongs, isFetching: songsFetching } = useQuery({
+    queryKey: ['word-cloud-songs', songBandFilter],
+    queryFn: () => wordCloudApi.getSongsByBand(songBandFilter),
+    enabled: scope === 'song' && songBandFilter !== '',
+  });
+
   function toggleBand(id: string) {
     setSelectedBandIds(
       selectedBandIds.includes(id)
@@ -276,7 +283,6 @@ function ScopeSelector({
     );
   }
 
-  const filteredSongs  = scopes?.songs.filter(s  => !songBandFilter  || s.band.id === songBandFilter)  ?? [];
   const filteredAlbums = scopes?.albums.filter(a => !albumBandFilter || a.band.id === albumBandFilter) ?? [];
 
   return (
@@ -365,32 +371,32 @@ function ScopeSelector({
       {scope === 'song' && scopes && (
         <div className="space-y-2">
           <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Song</div>
-          {/* Band filter first — essential when there are many songs */}
-          {scopes.bands.length > 1 && (
-            <select
-              className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white"
-              value={songBandFilter}
-              onChange={e => { setSongBandFilter(e.target.value); setScopeId(''); }}
-            >
-              <option value="">— all artists —</option>
-              {scopes.bands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          )}
           <select
             className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white"
-            value={scopeId}
-            onChange={(e) => setScopeId(e.target.value)}
+            value={songBandFilter}
+            onChange={e => { setSongBandFilter(e.target.value); setScopeId(''); }}
           >
-            <option value="">— pick song{songBandFilter ? '' : ' (filter by artist first)'} —</option>
-            {filteredSongs.map((s) => (
-              <option key={s.id} value={s.id}>
-                {songBandFilter ? s.title : `${s.band.name} / ${s.title}`}
-              </option>
-            ))}
+            <option value="">— pick an artist first —</option>
+            {scopes.bands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
-          {!songBandFilter && scopes.bands.length > 1 && (
+          {songBandFilter && (
+            <select
+              className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white"
+              value={scopeId}
+              onChange={(e) => setScopeId(e.target.value)}
+              disabled={songsFetching}
+            >
+              <option value="">{songsFetching ? 'Loading…' : '— pick a song —'}</option>
+              {(bandSongs ?? []).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.album ? `${s.album.title} / ${s.title}` : s.title}
+                </option>
+              ))}
+            </select>
+          )}
+          {!songBandFilter && (
             <p className="text-[10px] text-surface-600 leading-tight">
-              Select an artist above to filter the song list.
+              Select an artist to load their songs.
             </p>
           )}
         </div>
