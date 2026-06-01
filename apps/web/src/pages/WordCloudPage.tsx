@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { wordCloudApi, type CloudWord, type WordCloudData } from '../api/wordCloud';
 import SocialChatPanel from '../components/social/SocialChatPanel';
@@ -456,7 +456,13 @@ export default function WordCloudPage() {
   const [includeTags, setIncludeTags] = useState(true);
   const [selectedWord, setSelectedWord] = useState<CloudWord | null>(null);
   const [highlightWord, setHighlightWord] = useState<string | null>(null);
+  const [ignoreWords, setIgnoreWords] = useState('');
   const svgRef = useRef<SVGSVGElement>(null);
+
+  // Case-insensitive set of words to exclude from display
+  const ignoreSet = useMemo(() => new Set(
+    ignoreWords.split(/[\s,]+/).map(w => w.trim().toLowerCase()).filter(Boolean),
+  ), [ignoreWords]);
 
   // Derive effective id and canQuery based on scope
   const effectiveId = scope === 'artist' ? selectedBandIds.join(',') : scopeId;
@@ -500,7 +506,13 @@ export default function WordCloudPage() {
     );
   }
 
-  const words = data?.words ?? [];
+  const rawWords = data?.words ?? [];
+  const words = useMemo(
+    () => ignoreSet.size > 0
+      ? rawWords.filter(w => !ignoreSet.has(w.text.toLowerCase()))
+      : rawWords,
+    [rawWords, ignoreSet],
+  );
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -582,6 +594,35 @@ export default function WordCloudPage() {
               onChange={(e) => setLimit(Number(e.target.value))}
               className="w-full accent-indigo-500"
             />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider">
+                Ignore words
+              </div>
+              {ignoreWords.trim() && (
+                <button
+                  className="text-xs text-surface-500 hover:text-surface-200 transition-colors"
+                  onClick={() => setIgnoreWords('')}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <textarea
+              rows={3}
+              value={ignoreWords}
+              onChange={(e) => setIgnoreWords(e.target.value)}
+              placeholder="the, and, i, it, to…"
+              className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white placeholder-surface-600 resize-none focus:outline-none focus:border-indigo-500"
+            />
+            <p className="text-[10px] text-surface-600 mt-0.5 leading-tight">
+              Comma or space separated · not case-sensitive
+              {ignoreSet.size > 0 && rawWords.length > words.length && (
+                <span className="text-indigo-400"> · {rawWords.length - words.length} word{rawWords.length - words.length !== 1 ? 's' : ''} hidden</span>
+              )}
+            </p>
           </div>
 
           {data && (
