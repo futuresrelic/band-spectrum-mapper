@@ -4,6 +4,22 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Star + Nonagon Infinity arrangements (2026-06-01)
+
+### Added
+
+- **Star arrangement modes** (`star-3` through `star-8`) — New graph layouts that distribute albums in fan clusters at each tip of an N-pointed star. Artists anchor the center, songs orbit their parent album in small rings, other node types fill an outer belt. Works for any collection size: albums overflow to additional angular rings when there are more albums than star points.
+- **Nonagon Infinity arrangement** (`nonagon-infinity`) — A 9-sided regular polygon layout inspired by King Gizzard and the Lizard Wizard's *Nonagon Infinity*. Albums cycle through the nine vertices; additional albums extend to outer rings with a slight angular jitter for depth; songs orbit their albums.
+- **Seven new Cinema scenes** (scenes 17–23): Triangle of Power (3-pt), Four Pillars (4-pt), Five-Pointed Star (5-pt), Star of David (6-pt), Seven-Pointed Star (7-pt), Octagram Gate (8-pt), Nonagon Infinity. Each opens with a top-down reveal of the polygon shape then descends into an oblique orbital sweep.
+- **Quick Arrange buttons** — All seven new modes appear as quick-select buttons in the Cinema Controls arrange panel alongside existing modes.
+
+### Changed
+
+- `ArrangeMode` union type extended with `star-3 | star-4 | star-5 | star-6 | star-7 | star-8 | nonagon-infinity`.
+- Two pure-math helpers added to `graphArrange.ts`: `computeStarLayout` (shared for all star modes) and `computeNonagonLayout`.
+
+---
+
 ## Bootleg Importer + Cinema album type filter (2026-05-31)
 
 ### Added
