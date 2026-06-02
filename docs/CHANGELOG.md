@@ -13,6 +13,13 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 - **Seven new Cinema scenes** (scenes 17–23): Triangle of Power (3-pt), Four Pillars (4-pt), Five-Pointed Star (5-pt), Star of David (6-pt), Seven-Pointed Star (7-pt), Octagram Gate (8-pt), Nonagon Infinity. Each opens with a top-down reveal of the polygon shape then descends into an oblique orbital sweep.
 - **Quick Arrange buttons** — All seven new modes appear as quick-select buttons in the Cinema Controls arrange panel alongside existing modes.
 
+### Fixed
+
+- **Star/Nonagon arrangements reverted to radial after apply** — Two root causes fixed:
+  1. React Query's default `staleTime: 0` + `refetchOnWindowFocus: true` triggered a background refetch whenever the user clicked away from and back to the Cinema window. The refetch rebuilt all graph nodes without pinned positions, causing the force simulation to re-run and overwrite the star layout. Fixed by setting `staleTime: Infinity, refetchOnWindowFocus: false` on the cinema-graph query.
+  2. The star layout was flat (all tips at Y≈0), making it look identical to a radial ring from any non-overhead camera angle. Fixed by giving each star tip a distinct Y height (`±110 units` following a sine wave), so the star shape is visible from any camera position. Camera is also repositioned to an overhead view `(0, 720, 60)` after the arrange animation completes.
+- **Word Cloud ignore-words filter** — New textarea in the Word Cloud sidebar accepts any number of words (comma- or space-separated, case-insensitive) to hide from the cloud. Filtered words are excluded client-side from the layout without changing the API. Shows a live count of how many words are currently hidden.
+
 ### Changed
 
 - `ArrangeMode` union type extended with `star-3 | star-4 | star-5 | star-6 | star-7 | star-8 | nonagon-infinity`.

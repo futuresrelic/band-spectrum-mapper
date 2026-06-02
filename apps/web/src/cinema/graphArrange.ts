@@ -73,6 +73,8 @@ function computeStarLayout<N extends ArrangeNode>(
   const albumPositions = new Map<string, { x: number; y: number; z: number }>();
   albumsByTip.forEach((group, tipIdx) => {
     const basePhi = (tipIdx / nPoints) * TWO_PI - Math.PI / 2; // start at top
+    // Each tip sits at a distinct height — makes the star legible from any camera angle
+    const tipY = Math.sin((tipIdx / nPoints) * TWO_PI) * 110;
     group.forEach((alb, j) => {
       // Fan spread: albums at the same tip form a small arc
       const halfW  = (group.length - 1) * 0.13;
@@ -80,7 +82,7 @@ function computeStarLayout<N extends ArrangeNode>(
       const ringR  = R_OUTER + Math.floor(j / Math.max(1, nPoints)) * 52;
       const pos = {
         x: ringR * Math.cos(angle),
-        y: Math.sin(j * 1.618 + tipIdx * 0.9) * 18,
+        y: tipY + Math.sin(j * 1.618) * 22,
         z: ringR * Math.sin(angle),
       };
       albumPositions.set(alb.id, pos);
@@ -97,16 +99,16 @@ function computeStarLayout<N extends ArrangeNode>(
     });
     const idx  = siblings.indexOf(song);
     const phi  = (idx / Math.max(1, siblings.length)) * TWO_PI;
-    const r    = 30;
+    const r    = 32;
     const base = pa ? (albumPositions.get(pa.id) ?? { x: R_OUTER * 0.42, y: 0, z: 0 }) : { x: R_OUTER * 0.42, y: 0, z: 0 };
     out.set(song.id, {
       x: base.x + r * Math.cos(phi),
-      y: base.y + r * 0.5 * Math.sin(phi * 2),
+      y: base.y + r * 0.6 * Math.sin(phi * 2.5),
       z: base.z + r * Math.sin(phi),
     });
   });
 
-  // Others in outer belt
+  // Others in outer belt — staggered Y so they're not confused with the star tips
   const beltR = R_OUTER * 1.6;
   others.forEach((n, i) => {
     const phi = (i / Math.max(1, others.length)) * TWO_PI;
@@ -145,7 +147,9 @@ function computeNonagonLayout<N extends ArrangeNode>(
     const r    = R_MAIN + ring * 110;
     // Start at top (−π/2) and rotate; small angular jitter per ring for depth
     const phi  = (vertexIdx / N_SIDES) * TWO_PI - Math.PI / 2 + ring * 0.18;
-    const pos  = { x: r * Math.cos(phi), y: ring * 28, z: r * Math.sin(phi) };
+    // Each vertex at a distinct height — makes the nonagon visually distinct from any angle
+    const vertexY = Math.sin((vertexIdx / N_SIDES) * TWO_PI) * 110;
+    const pos  = { x: r * Math.cos(phi), y: vertexY + ring * 30, z: r * Math.sin(phi) };
     albumPositions.set(alb.id, pos);
     out.set(alb.id, pos);
   });

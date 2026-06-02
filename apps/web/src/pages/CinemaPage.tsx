@@ -839,6 +839,8 @@ export default function CinemaPage() {
   const { data: graphData, isFetching } = useQuery({
     queryKey: ['cinema-graph', selectedBandIds.join(','), genreSource, selectedAlbumTypes.join(',')],
     queryFn: () => fetchCinemaGraph(selectedBandIds, genreSource, selectedAlbumTypes),
+    staleTime: Infinity,        // never auto-stale in Cinema — prevents background refetches
+    refetchOnWindowFocus: false, // clicking browser/devtools and back must not reset node positions
   });
 
   useEffect(() => {
@@ -2005,6 +2007,18 @@ export default function CinemaPage() {
       fgRef.current.d3ReheatSimulation?.();
     } else {
       animateArrange(visNodes, computeArrangeTargets(visNodes, mode, adj, simLinksRef.current), fgRef.current);
+      // Star/nonagon layouts are 3D but need an overhead view to look their best.
+      // Reposition the camera after the 1.4 s animation so the shape is immediately legible.
+      if (mode.startsWith('star-') || mode === 'nonagon-infinity') {
+        setTimeout(() => {
+          const cam  = fgRef.current?.camera?.();
+          const ctrl = fgRef.current?.controls?.();
+          if (!cam || !ctrl) return;
+          cam.position.set(0, 720, 60);
+          ctrl.target.set(0, 0, 0);
+          cam.lookAt(0, 0, 0);
+        }, 1450);
+      }
     }
   }, []);
 
