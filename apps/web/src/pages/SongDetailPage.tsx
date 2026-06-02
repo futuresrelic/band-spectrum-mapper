@@ -441,6 +441,11 @@ export default function SongDetailPage() {
   const [editTrack, setEditTrack] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [editError, setEditError] = useState('');
+  const [editIsRemix, setEditIsRemix] = useState(false);
+  const [editRemixOfId, setEditRemixOfId] = useState<string | null>(null);
+  const [remixSearch, setRemixSearch] = useState('');
+  const [remixSearchResults, setRemixSearchResults] = useState<import('@band-spectrum-mapper/shared').Song[]>([]);
+  const [remixSearching, setRemixSearching] = useState(false);
 
   const { data: song, isLoading, error } = useQuery({
     queryKey: ['song', songId],
@@ -452,6 +457,12 @@ export default function SongDetailPage() {
     queryKey: ['album-songs', song?.albumId],
     queryFn: () => albumsApi.getSongs(song!.albumId!),
     enabled: !!song?.albumId,
+  });
+
+  const { data: remixOfSong } = useQuery({
+    queryKey: ['song', song?.remixOfSongId],
+    queryFn: () => songsApi.getById(song!.remixOfSongId!),
+    enabled: !!song?.remixOfSongId,
   });
 
   const sortedAlbumSongs: Song[] = albumSongs
@@ -472,6 +483,8 @@ export default function SongDetailPage() {
       title: editTitle.trim() || undefined,
       trackNumber: editTrack ? parseInt(editTrack) : null,
       notes: editNotes.trim() || null,
+      isRemix: editIsRemix,
+      remixOfSongId: editIsRemix ? editRemixOfId : null,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['song', songId] });
@@ -541,9 +554,24 @@ export default function SongDetailPage() {
     setEditTitle(song?.title ?? '');
     setEditTrack(song?.trackNumber ? String(song.trackNumber) : '');
     setEditNotes(song?.notes ?? '');
+    setEditIsRemix(song?.isRemix ?? false);
+    setEditRemixOfId(song?.remixOfSongId ?? null);
+    setRemixSearch('');
+    setRemixSearchResults([]);
     setEditError('');
     setShowEdit(true);
   };
+
+  async function searchRemixOriginal(q: string) {
+    if (!q.trim()) { setRemixSearchResults([]); return; }
+    setRemixSearching(true);
+    try {
+      const results = await songsApi.search(q.trim());
+      setRemixSearchResults(results.filter(s => s.id !== songId));
+    } catch { /* ignore */ } finally {
+      setRemixSearching(false);
+    }
+  }
 
   if (isLoading) return <p className="text-surface-700 text-sm">Loading...</p>;
   if (error) return <ErrorMessage error={error} />;
@@ -596,6 +624,18 @@ export default function SongDetailPage() {
         }
       />
 
+      {/* Remix badge */}
+      {song.isRemix && (
+        <div className="mb-3">
+          <span className="badge badge-indigo text-xs">
+            Remix
+            {remixOfSong && (
+              <> of <Link to={`/library/songs/${remixOfSong.id}`} className="underline ml-1">{remixOfSong.title}</Link></>
+            )}
+          </span>
+        </div>
+      )}
+
       {/* Tags */}
       {tags.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-4">
@@ -637,6 +677,70 @@ export default function SongDetailPage() {
             <div>
               <label className="label">Notes</label>
               <textarea className="textarea w-full" rows={2} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Optional notes" />
+            </div>
+            <div className="border-t border-surface-200 pt-3">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={editIsRemix}
+                  onChange={(e) => {
+                    setEditIsRemix(e.target.checked);
+                    if (!e.target.checked) { setEditRemixOfId(null); setRemixSearch(''); setRemixSearchResults([]); }
+                  }}
+                />
+                <span className="text-sm font-medium">This is a remix</span>
+              </label>
+              {editIsRemix && (
+                <div className="mt-2 space-y-2">
+                  <label className="label">Original song</label>
+                  {editRemixOfId ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-surface-700">
+                        {remixSearchResults.find(s => s.id === editRemixOfId)?.title
+                          ?? (song.remixOfSongId === editRemixOfId ? remixOfSong?.title : null)
+                          ?? editRemixOfId}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs text-red-600"
+                        onClick={() => { setEditRemixOfId(null); setRemixSearch(''); setRemixSearchResults([]); }}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <div className="flex gap-2">
+                        <input
+                          className="input flex-1"
+                          placeholder="Search for original song..."
+                          value={remixSearch}
+                          onChange={(e) => setRemixSearch(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void searchRemixOriginal(remixSearch); } }}
+                        />
+                        <button type="button" className="btn-secondary" onClick={() => void searchRemixOriginal(remixSearch)} disabled={remixSearching}>
+                          {remixSearching ? '…' : 'Search'}
+                        </button>
+                      </div>
+                      {remixSearchResults.length > 0 && (
+                        <ul className="border border-surface-200 rounded text-sm max-h-40 overflow-y-auto">
+                          {remixSearchResults.map(s => (
+                            <li key={s.id}>
+                              <button
+                                type="button"
+                                className="w-full text-left px-3 py-1.5 hover:bg-surface-100"
+                                onClick={() => { setEditRemixOfId(s.id); setRemixSearchResults([]); setRemixSearch(''); }}
+                              >
+                                {s.title}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             {editError && <p className="text-red-600 text-sm">{editError}</p>}
             <div className="flex gap-2">

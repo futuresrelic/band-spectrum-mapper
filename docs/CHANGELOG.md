@@ -4,6 +4,34 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Remix data model + Galactic Cinema mode + AI Batch song selection (2026-06-02)
+
+### Added
+
+- **Remix data model** — Songs can now be marked as remixes with a pointer to the original song.
+  - New DB fields on `songs`: `isRemix BOOLEAN NOT NULL DEFAULT false`, `remixOfSongId TEXT` (self-referential FK with `SET NULL` on delete).
+  - Prisma schema updated with `remixOf`/`remixes` self-relation (`SongRemixes`).
+  - Song edit form (Song Detail page) now has a "This is a remix" checkbox. When checked, a search field appears to find and link the original song.
+  - Song Detail page shows a "Remix" badge (with a link to the original song) when `isRemix = true`.
+  - Cinema graph includes `remix_of` edges between remix songs and their originals.
+  - Migration: `prisma/migrations/20260602000000_add_song_remix/migration.sql` — applied automatically on Railway deploy.
+
+- **Galactic Cinema mode** (`🪐 Galactic`) — New arrangement mode in Cinema that organises the graph as a cosmic hierarchy:
+  - **Black hole** (artist node) at the origin — deep indigo, large.
+  - **Stars** (album nodes) spiral outward from the black hole on a golden-angle pattern — amber/gold.
+  - **Planets** (regular song nodes) orbit their parent album in rings — blue.
+  - **Moons** (remix song nodes) orbit their original song planet — grey, smaller.
+  - Camera auto-repositions to an elevated view after the 1.4 s animation so the disc structure is immediately legible.
+  - Tag/keyword nodes placed in an outer asteroid belt.
+
+- **AI Batch Runner song selection** — Individual rows in the song table can now be checked to limit a run to selected songs only.
+  - Checkbox column in the song table; header checkbox selects/deselects all (with indeterminate state).
+  - When songs are selected, the Run button reads "Run on N selected songs" and only those rows are processed.
+  - Progress bar, job counts, and checkpoint detection all respect the active selection.
+  - Selection resets when songs are reloaded or the batch is reset.
+
+---
+
 ## AI Batch Runner — Compound mode (2026-06-02)
 
 ### Added

@@ -83,6 +83,8 @@ export const songService = {
         ...(data.trackNumber !== undefined && { trackNumber: data.trackNumber }),
         ...(data.durationSeconds !== undefined && { durationSeconds: data.durationSeconds }),
         ...(data.notes !== undefined && { notes: data.notes }),
+        ...(data.isRemix !== undefined && { isRemix: data.isRemix }),
+        ...(data.remixOfSongId !== undefined && { remixOfSongId: data.remixOfSongId }),
       },
     });
   },

@@ -51,4 +51,7 @@
   .badge-gray {
     @apply badge bg-surface-100 text-surface-700;
   }
+  .badge-indigo {
+    @apply badge bg-indigo-100 text-indigo-700;
+  }
 }

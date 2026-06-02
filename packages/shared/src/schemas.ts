@@ -70,6 +70,8 @@ export const createSongSchema = z.object({
   trackNumber: z.number().int().min(1).optional().nullable(),
   durationSeconds: z.number().int().min(0).optional().nullable(),
   notes: z.string().max(5000).optional().nullable(),
+  isRemix: z.boolean().optional(),
+  remixOfSongId: z.string().cuid().nullable().optional(),
 });
 
 export const updateSongSchema = createSongSchema.partial();

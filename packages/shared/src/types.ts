@@ -39,6 +39,8 @@ export interface Song {
   trackNumber: number | null;
   durationSeconds: number | null;
   notes: string | null;
+  isRemix: boolean;
+  remixOfSongId: string | null;
   createdAt: string;
   updatedAt: string;
 }

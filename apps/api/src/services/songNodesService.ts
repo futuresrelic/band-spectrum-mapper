@@ -24,7 +24,8 @@ export type EdgeType =
   | 'shared_tag'
   | 'similar_radar'
   | 'conceptual'
-  | 'shared_word';
+  | 'shared_word'
+  | 'remix_of';
 
 export type GraphLayoutPreset =
   | 'artist-universe'
@@ -111,6 +112,8 @@ function songNode(s: {
   album: { id: string; title: string } | null;
   score: { aggression: number; complexity: number; atmosphere: number;
            emotion: number; psychedelic: number; concept: number } | null;
+  isRemix?: boolean;
+  remixOfSongId?: string | null;
 }): GraphNode {
   return {
     id: `song:${s.id}`,
@@ -126,6 +129,8 @@ function songNode(s: {
         psychedelic: s.score.psychedelic, concept: s.score.concept,
       } } : {}),
       color: NODE_COLORS.song,
+      ...(s.isRemix ? { isRemix: true } : {}),
+      ...(s.remixOfSongId ? { remixOfSongId: s.remixOfSongId } : {}),
     },
   };
 }
@@ -218,6 +223,14 @@ async function buildArtistUniverse(bandIds: string[], albumTypes?: string[]): Pr
         id: `e${edgeIdx++}`, source: `song:${s.id}`,
         target: `tag:${st.tag.id}`, type: 'shared_tag', weight: 0.6,
         ...(st.description ? { description: st.description } : {}),
+      });
+    }
+
+    // remix → original song
+    if (s.isRemix && s.remixOfSongId) {
+      edges.push({
+        id: `e${edgeIdx++}`, source: `song:${s.id}`,
+        target: `song:${s.remixOfSongId}`, type: 'remix_of', weight: 0.8,
       });
     }
 

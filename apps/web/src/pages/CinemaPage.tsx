@@ -57,6 +57,7 @@ const HIGHLIGHT_COLOR = '#ffffff';
 const QUICK_ARRANGE_MODES = [
   { mode: 'sphere',            emoji: '🌐', label: 'Sphere'    },
   { mode: 'galaxy',            emoji: '🌌', label: 'Galaxy'    },
+  { mode: 'galactic-cinema',   emoji: '🪐', label: 'Galactic'  },
   { mode: 'helix',             emoji: '🧬', label: 'Helix'     },
   { mode: 'wave',              emoji: '🌊', label: 'Wave'      },
   { mode: 'mandala',           emoji: '🔵', label: 'Mandala'   },
@@ -485,6 +486,8 @@ export default function CinemaPage() {
 
   // Active arrangement mode (tracked so the quick-switcher can highlight the active one)
   const [activeArrangeMode, setActiveArrangeMode] = useState<string>(CINEMA_SCENES[0]?.arrangeMode ?? 'sphere');
+  const activeArrangeModeRef = useRef<string>(CINEMA_SCENES[0]?.arrangeMode ?? 'sphere');
+  useEffect(() => { activeArrangeModeRef.current = activeArrangeMode; }, [activeArrangeMode]);
 
   // Lyric sprite text size
   const [lyricsTextSize, setLyricsTextSize] = useState(2.8);
@@ -1875,9 +1878,14 @@ export default function CinemaPage() {
     if (tourMode && n.id === tourHighlightedId) return HIGHLIGHT_COLOR;
     const override = nodeOverridesRef.current[n.id];
     const isBootleg = n.type === 'album' && (n.data?.['albumType'] as string | undefined) === 'bootleg';
-    const baseColor = override?.color
+    let baseColor = override?.color
       ?? (isBootleg ? bootlegNodeColorRef.current : undefined)
       ?? (currentTheme.nodeColors[n.type] ?? '#4b5563');
+    if (activeArrangeModeRef.current === 'galactic-cinema') {
+      if (n.type === 'artist') baseColor = override?.color ?? '#1e1b4b';
+      else if (n.type === 'album') baseColor = override?.color ?? (isBootleg ? bootlegNodeColorRef.current : '#d97706');
+      else if (n.type === 'song') baseColor = override?.color ?? (n.data?.isRemix ? '#9ca3af' : '#3b82f6');
+    }
     const chain = selectedChainRef.current;
     if (chain.length > 0 && !isPlayingRef.current) {
       const chainIdx = chain.findIndex(c => c.id === n.id);
@@ -1896,6 +1904,11 @@ export default function CinemaPage() {
     const sizeMult = nodeOverridesRef.current[n.id]?.sizeMultiplier ?? 1;
     if (tourMode && n.id === tourHighlightedId) return 12 * sizeMult;
     const chain = selectedChainRef.current;
+    if (activeArrangeModeRef.current === 'galactic-cinema') {
+      if (n.type === 'artist') return 14 * sizeMult;
+      if (n.type === 'album')  return 5 * sizeMult;
+      if (n.type === 'song')   return (n.data?.isRemix ? 1.2 : 2) * sizeMult;
+    }
     if (chain.length > 0 && !isPlayingRef.current) {
       // Chain nodes (selected path): biggest
       const inChain = chain.some(c => c.id === n.id);
@@ -2061,6 +2074,16 @@ export default function CinemaPage() {
           const ctrl = fgRef.current?.controls?.();
           if (!cam || !ctrl) return;
           cam.position.set(0, 720, 60);
+          ctrl.target.set(0, 0, 0);
+          cam.lookAt(0, 0, 0);
+        }, 1450);
+      }
+      if (mode === 'galactic-cinema') {
+        setTimeout(() => {
+          const cam  = fgRef.current?.camera?.();
+          const ctrl = fgRef.current?.controls?.();
+          if (!cam || !ctrl) return;
+          cam.position.set(0, 900, 400);
           ctrl.target.set(0, 0, 0);
           cam.lookAt(0, 0, 0);
         }, 1450);

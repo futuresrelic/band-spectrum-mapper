@@ -4,7 +4,7 @@
  * without duplicating ~200 lines of pure math.
  */
 
-export type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system' | 'helix' | 'emotional-spectrum' | 'genre-web' | 'fibonacci-torus' | 'fractal-tree' | 'mandala' | 'wave' | 'lissajous' | 'crystal' | 'fibonacci-spiral' | 'genre-radar' | 'star-3' | 'star-4' | 'star-5' | 'star-6' | 'star-7' | 'star-8' | 'nonagon-infinity';
+export type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system' | 'galactic-cinema' | 'helix' | 'emotional-spectrum' | 'genre-web' | 'fibonacci-torus' | 'fractal-tree' | 'mandala' | 'wave' | 'lissajous' | 'crystal' | 'fibonacci-spiral' | 'genre-radar' | 'star-3' | 'star-4' | 'star-5' | 'star-6' | 'star-7' | 'star-8' | 'nonagon-infinity';
 
 /** Minimal shape required for layout computation. */
 export interface ArrangeNode {
@@ -304,6 +304,99 @@ export function computeArrangeTargets<N extends ArrangeNode>(
     others.forEach((n, i) => {
       const phi = (i / Math.max(1, others.length)) * 2 * Math.PI;
       out.set(n.id, { x: beltR * Math.cos(phi), y: Math.sin(i * 0.618) * 45, z: beltR * Math.sin(phi) });
+    });
+
+  } else if (mode === 'galactic-cinema') {
+    const GA = 2.399; // golden angle (radians)
+    const artists = nodes.filter(n => n.type === 'artist');
+    const albums  = nodes.filter(n => n.type === 'album');
+    const allSongs = nodes.filter(n => n.type === 'song');
+    const remixes = allSongs.filter(n => (n as { data?: { isRemix?: boolean } }).data?.isRemix === true);
+    const planets = allSongs.filter(n => (n as { data?: { isRemix?: boolean } }).data?.isRemix !== true);
+    const others  = nodes.filter(n => !['artist', 'album', 'song'].includes(n.type));
+
+    // Black hole(s) at origin (or spread if multiple artists)
+    const artistR = Math.max(0, (artists.length - 1) * 120);
+    artists.forEach((a, i) => {
+      const phi = artists.length > 1 ? (i / artists.length) * 2 * Math.PI : 0;
+      out.set(a.id, { x: artistR * Math.cos(phi), y: 0, z: artistR * Math.sin(phi) });
+    });
+
+    // Stars (albums) — golden angle spiral around their artist
+    albums.forEach((alb) => {
+      const pa = artists.find(a => adj.get(a.id)?.has(alb.id) || adj.get(alb.id)?.has(a.id));
+      const base = pa ? (out.get(pa.id) ?? { x: 0, y: 0, z: 0 }) : { x: 0, y: 0, z: 0 };
+      const siblingAlbums = albums.filter(b => {
+        const p = artists.find(a => adj.get(a.id)?.has(b.id) || adj.get(b.id)?.has(a.id));
+        return p?.id === pa?.id;
+      });
+      const idx = siblingAlbums.indexOf(alb);
+      const r = 90 + Math.sqrt(idx + 1) * 28;
+      const phi = idx * GA;
+      out.set(alb.id, {
+        x: base.x + r * Math.cos(phi),
+        y: Math.sin(idx * 0.4) * 10,
+        z: base.z + r * Math.sin(phi),
+      });
+    });
+
+    // Planets (regular songs) — rings around their parent album star
+    const planetPositions = new Map<string, { x: number; y: number; z: number }>();
+    planets.forEach((planet) => {
+      const pa = albums.find(a => adj.get(a.id)?.has(planet.id) || adj.get(planet.id)?.has(a.id));
+      const siblings = planets.filter(s => {
+        const p = albums.find(a => adj.get(a.id)?.has(s.id) || adj.get(s.id)?.has(a.id));
+        return p?.id === pa?.id;
+      });
+      const idx = siblings.indexOf(planet);
+      const phi = (idx / Math.max(1, siblings.length)) * 2 * Math.PI;
+      const ringIdx = Math.floor(idx / 12);
+      const orbitR = 48 + ringIdx * 40;
+      const base = pa ? (out.get(pa.id) ?? { x: 0, y: 0, z: 0 }) : { x: 0, y: 0, z: 0 };
+      const pos = {
+        x: base.x + orbitR * Math.cos(phi),
+        y: base.y + orbitR * 0.2 * Math.sin(phi * 2),
+        z: base.z + orbitR * Math.sin(phi),
+      };
+      out.set(planet.id, pos);
+      planetPositions.set(planet.id, pos);
+    });
+
+    // Moons (remix songs) — orbiting their original song planet
+    remixes.forEach((remix) => {
+      const remixOfRawId = (remix as { data?: { remixOfSongId?: string } }).data?.remixOfSongId;
+      const parentNodeId = remixOfRawId ? `song:${remixOfRawId}` : undefined;
+      const parentPos = parentNodeId ? planetPositions.get(parentNodeId) : undefined;
+      if (parentPos) {
+        const moonSiblings = remixes.filter(r =>
+          (r as { data?: { remixOfSongId?: string } }).data?.remixOfSongId === remixOfRawId,
+        );
+        const idx = moonSiblings.indexOf(remix);
+        const phi = (idx / Math.max(1, moonSiblings.length)) * 2 * Math.PI;
+        const moonR = 26;
+        out.set(remix.id, {
+          x: parentPos.x + moonR * Math.cos(phi),
+          y: parentPos.y + moonR * 0.5 * Math.sin(phi * 3),
+          z: parentPos.z + moonR * Math.sin(phi),
+        });
+      } else {
+        // Orphaned remix: orbit the album it belongs to (same as a planet)
+        const pa = albums.find(a => adj.get(a.id)?.has(remix.id) || adj.get(remix.id)?.has(a.id));
+        const base = pa ? (out.get(pa.id) ?? { x: 0, y: 0, z: 0 }) : { x: 0, y: 0, z: 0 };
+        const phi = remix.id.charCodeAt(5) * 0.1; // deterministic scatter
+        out.set(remix.id, {
+          x: base.x + 62 * Math.cos(phi),
+          y: base.y + 8,
+          z: base.z + 62 * Math.sin(phi),
+        });
+      }
+    });
+
+    // Others (tags, keywords) — outer asteroid belt
+    const outerR = 400 + albums.length * 15;
+    others.forEach((n, i) => {
+      const phi = (i / Math.max(1, others.length)) * 2 * Math.PI;
+      out.set(n.id, { x: outerR * Math.cos(phi), y: Math.sin(i * 0.618) * 45, z: outerR * Math.sin(phi) });
     });
 
   } else if (mode === 'helix') {

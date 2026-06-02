@@ -135,6 +135,7 @@ export default function AiBatchRunnerPage() {
   const [delayMs, setDelayMs] = useState(2000);
   const [forceRegenerate, setForceRegenerate] = useState(false);
   const [rows, setRows] = useState<SongRow[]>([]);
+  const [selectedSongIds, setSelectedSongIds] = useState<Set<string>>(new Set());
   const [running, setRunning] = useState(false);
   const [currentIdx, setCurrentIdx] = useState(-1);
   const [doneCount, setDoneCount] = useState(0);
@@ -198,6 +199,7 @@ export default function AiBatchRunnerPage() {
     setCurrentIdx(-1);
     setDoneCount(0);
     setErrorCount(0);
+    setSelectedSongIds(new Set());
   }, [bands, filterBandIds]);
 
   // Load only songs that have tags missing descriptions
@@ -272,6 +274,9 @@ export default function AiBatchRunnerPage() {
       if (abortRef.current) break;
       const row = rows[i]!;
 
+      // Skip rows not in the manual selection (when a selection exists)
+      if (selectedSongIds.size > 0 && !selectedSongIds.has(row.song.id)) continue;
+
       // Skip rows that are already fully done when continuing
       if (continueFromCheckpoint && isRowDone(row, jobs)) continue;
 
@@ -343,25 +348,26 @@ export default function AiBatchRunnerPage() {
 
     setCurrentIdx(-1);
     setRunning(false);
-  }, [rows, selectedJobs, delayMs, forceRegenerate, loadAllSongs]);
+  }, [rows, selectedJobs, selectedSongIds, delayMs, forceRegenerate, loadAllSongs]);
 
   const stop = () => { abortRef.current = true; setRetryInfo(null); };
-  const reset = () => { setRows([]); setCurrentIdx(-1); setDoneCount(0); setErrorCount(0); setRetryInfo(null); };
+  const reset = () => { setRows([]); setCurrentIdx(-1); setDoneCount(0); setErrorCount(0); setRetryInfo(null); setSelectedSongIds(new Set()); };
 
   const jobs = [...selectedJobs];
-  const totalJobs = rows.length * jobs.length;
-  const skippedCount = rows.reduce(
+  const activeRows = selectedSongIds.size > 0 ? rows.filter(r => selectedSongIds.has(r.song.id)) : rows;
+  const totalJobs = activeRows.length * jobs.length;
+  const skippedCount = activeRows.reduce(
     (n, r) => n + jobs.filter((j) => r.statuses[j] === 'skipped').length, 0,
   );
   const processedCount = doneCount + errorCount + skippedCount;
   const progress = totalJobs > 0 ? Math.round((processedCount / totalJobs) * 100) : 0;
 
   // Detect checkpoint: some rows done, some still pending
-  const hasCheckpoint = rows.length > 0 && !running &&
-    rows.some((r) => jobs.some((j) => r.statuses[j] === 'done' || r.statuses[j] === 'skipped')) &&
-    rows.some((r) => jobs.some((j) => r.statuses[j] === 'pending' || r.statuses[j] === 'error'));
+  const hasCheckpoint = activeRows.length > 0 && !running &&
+    activeRows.some((r) => jobs.some((j) => r.statuses[j] === 'done' || r.statuses[j] === 'skipped')) &&
+    activeRows.some((r) => jobs.some((j) => r.statuses[j] === 'pending' || r.statuses[j] === 'error'));
 
-  const pendingCount = rows.filter((r) => !isRowDone(r, jobs)).length;
+  const pendingCount = activeRows.filter((r) => !isRowDone(r, jobs)).length;
 
   const statusCls: Record<RowStatus, string> = {
     pending: 'text-surface-300',
@@ -572,7 +578,9 @@ export default function AiBatchRunnerPage() {
             <>
               {!running && (
                 <button className="btn-primary" onClick={() => void start(false)} disabled={selectedJobs.size === 0}>
-                  {forceRegenerate ? 'Regenerate all' : `Run on ${rows.length} songs`}
+                  {forceRegenerate
+                    ? `Regenerate ${selectedSongIds.size > 0 ? `${selectedSongIds.size} selected` : 'all'}`
+                    : `Run on ${selectedSongIds.size > 0 ? `${selectedSongIds.size} selected` : `${rows.length}`} song${activeRows.length !== 1 ? 's' : ''}`}
                 </button>
               )}
               {hasCheckpoint && !running && (
@@ -603,6 +611,7 @@ export default function AiBatchRunnerPage() {
             <span className="text-xs text-surface-500 ml-auto">
               {bands.length} band{bands.length !== 1 ? 's' : ''}
               {rows.length > 0 && ` · ${rows.length} songs loaded`}
+              {selectedSongIds.size > 0 && ` · ${selectedSongIds.size} selected`}
             </span>
           )}
         </div>
@@ -665,6 +674,18 @@ export default function AiBatchRunnerPage() {
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-surface-50 z-10">
                 <tr className="border-b border-surface-200 text-left">
+                  <th className="py-2 px-2">
+                    <input
+                      type="checkbox"
+                      title="Select all / deselect all"
+                      checked={selectedSongIds.size === rows.length && rows.length > 0}
+                      ref={(el) => { if (el) el.indeterminate = selectedSongIds.size > 0 && selectedSongIds.size < rows.length; }}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedSongIds(new Set(rows.map(r => r.song.id)));
+                        else setSelectedSongIds(new Set());
+                      }}
+                    />
+                  </th>
                   <th className="py-2 px-3 font-medium">#</th>
                   <th className="py-2 px-3 font-medium">Song</th>
                   <th className="py-2 px-3 font-medium">Band</th>
@@ -679,8 +700,22 @@ export default function AiBatchRunnerPage() {
                 {rows.map((row, i) => (
                   <tr
                     key={row.song.id}
-                    className={`border-b border-surface-100 ${i === currentIdx ? 'bg-blue-50' : 'hover:bg-surface-50'}`}
+                    className={`border-b border-surface-100 ${i === currentIdx ? 'bg-blue-50' : selectedSongIds.has(row.song.id) ? 'bg-indigo-50' : 'hover:bg-surface-50'}`}
                   >
+                    <td className="py-1.5 px-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedSongIds.has(row.song.id)}
+                        onChange={(e) => {
+                          setSelectedSongIds((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(row.song.id);
+                            else next.delete(row.song.id);
+                            return next;
+                          });
+                        }}
+                      />
+                    </td>
                     <td className="py-1.5 px-3 text-surface-400 tabular-nums">{i + 1}</td>
                     <td className="py-1.5 px-3 font-medium whitespace-nowrap max-w-[200px] truncate">{row.song.title}</td>
                     <td className="py-1.5 px-3 text-surface-500 whitespace-nowrap">{row.bandName}</td>
