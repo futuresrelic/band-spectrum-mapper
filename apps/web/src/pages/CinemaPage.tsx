@@ -214,6 +214,23 @@ function stareLookAt(
   ];
 }
 
+// ── Label word-wrap helper ────────────────────────────────────────────────────
+// Splits text at word boundaries so no line exceeds maxLen characters.
+// SpriteText renders \n as a real newline, giving multi-line node labels.
+function wrapLabel(text: string, maxLen: number): string {
+  if (!maxLen || text.length <= maxLen) return text;
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let cur = '';
+  for (const word of words) {
+    const next = cur ? `${cur} ${word}` : word;
+    if (next.length > maxLen && cur) { lines.push(cur); cur = word; }
+    else { cur = next; }
+  }
+  if (cur) lines.push(cur);
+  return lines.join('\n');
+}
+
 // ── Image proxy helper ────────────────────────────────────────────────────────
 // THREE.js TextureLoader sends crossOrigin:'anonymous', requiring the server to
 // return Access-Control-Allow-Origin. Apple Music CDN (mzstatic.com) does this;
@@ -390,11 +407,17 @@ export default function CinemaPage() {
   const [labelTextColor, setLabelTextColor]     = useState('#e2e8f0');
   const [labelAlwaysOnTop, setLabelAlwaysOnTop] = useState(false);
   const [labelYOffset, setLabelYOffset]         = useState(0);
+  const [labelWrapWidth, setLabelWrapWidth]     = useState(0); // 0 = off; N = max chars per line
   const labelShowBgRef      = useRef(true);
   const labelBgOpacityRef   = useRef(0.7);
   const labelTextColorRef   = useRef('#e2e8f0');
   const labelAlwaysOnTopRef = useRef(false);
   const labelYOffsetRef     = useRef(0);
+  const labelWrapWidthRef   = useRef(0);
+
+  // Bootleg node colour — configurable in Cinema config panel
+  const [bootlegNodeColor, setBootlegNodeColor] = useState('#f97316');
+  const bootlegNodeColorRef = useRef('#f97316');
 
   // Selection dim strength (0 = keep theme colour, 1 = fully dark)
   const [selectionDim, setSelectionDim] = useState(1.0);
@@ -744,6 +767,8 @@ export default function CinemaPage() {
   useEffect(() => { labelTextColorRef.current   = labelTextColor;   }, [labelTextColor]);
   useEffect(() => { labelAlwaysOnTopRef.current = labelAlwaysOnTop; }, [labelAlwaysOnTop]);
   useEffect(() => { labelYOffsetRef.current     = labelYOffset;     }, [labelYOffset]);
+  useEffect(() => { labelWrapWidthRef.current   = labelWrapWidth;   }, [labelWrapWidth]);
+  useEffect(() => { bootlegNodeColorRef.current = bootlegNodeColor; }, [bootlegNodeColor]);
   useEffect(() => { freeCamRef.current              = freeCam;              }, [freeCam]);
   useEffect(() => { pathModeRef.current = pathMode; }, [pathMode]);
   useEffect(() => {
@@ -1849,7 +1874,10 @@ export default function CinemaPage() {
     const n = node as CinemaNode;
     if (tourMode && n.id === tourHighlightedId) return HIGHLIGHT_COLOR;
     const override = nodeOverridesRef.current[n.id];
-    const baseColor = override?.color ?? (currentTheme.nodeColors[n.type] ?? '#4b5563');
+    const isBootleg = n.type === 'album' && (n.data?.['albumType'] as string | undefined) === 'bootleg';
+    const baseColor = override?.color
+      ?? (isBootleg ? bootlegNodeColorRef.current : undefined)
+      ?? (currentTheme.nodeColors[n.type] ?? '#4b5563');
     const chain = selectedChainRef.current;
     if (chain.length > 0 && !isPlayingRef.current) {
       const chainIdx = chain.findIndex(c => c.id === n.id);
@@ -1861,7 +1889,7 @@ export default function CinemaPage() {
       return blendHex(baseColor, '#0d1117', selectionDimRef.current);
     }
     return baseColor;
-  }, [tourMode, tourHighlightedId, currentTheme]);
+  }, [tourMode, tourHighlightedId, currentTheme, bootlegNodeColor]);
 
   const nodeVal = useCallback((node: object) => {
     const n = node as CinemaNode;
@@ -1939,7 +1967,8 @@ export default function CinemaPage() {
     const th  = (sz as Record<string, number>)[n.type] ?? sz.tag;
 
     // Label sprite (shared between both modes)
-    const sprite = new SpriteText(n.label);
+    const displayLabel = labelWrapWidth > 0 ? wrapLabel(n.label, labelWrapWidth) : n.label;
+    const sprite = new SpriteText(displayLabel);
     sprite.color = '#e2e8f000';
     sprite.textHeight = th;
     sprite.fontWeight = '600';
@@ -1996,7 +2025,7 @@ export default function CinemaPage() {
     (sprite as any).position.y = r * 3 + th * 0.6 + 2;
     group.add(sprite);
     return group;
-  }, [visualNodeMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visualNodeMode, labelWrapWidth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onEngineStop = useCallback(() => {
     simNodes.forEach(n => {
@@ -3210,6 +3239,18 @@ export default function CinemaPage() {
                     );
                   })}
                 </div>
+                {/* Bootleg node colour override */}
+                <div className="flex items-center gap-2 px-1 pt-1 border-t border-gray-800/60">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: bootlegNodeColor }} />
+                  <span className="text-[10px] text-gray-400 flex-1">Bootleg node colour</span>
+                  <input type="color" value={bootlegNodeColor}
+                    onChange={e => setBootlegNodeColor(e.target.value)}
+                    className="w-8 h-5 rounded cursor-pointer border-0 bg-transparent" />
+                  {bootlegNodeColor !== '#f97316' && (
+                    <button onClick={() => setBootlegNodeColor('#f97316')}
+                      className="text-[10px] text-gray-700 hover:text-gray-400 leading-none">↺</button>
+                  )}
+                </div>
               </div>
 
               {/* Genre data source */}
@@ -3558,6 +3599,22 @@ export default function CinemaPage() {
                     onChange={e => setLabelYOffset(Number(e.target.value))}
                     className="w-full accent-indigo-500" />
                   <div className="text-[10px] text-gray-700">Shift labels up (+) or down (−) to avoid artwork overlap</div>
+                </label>
+                {/* Word wrap */}
+                <label className="block space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-400">
+                    <span>Name wrap width</span>
+                    <span className="flex items-center gap-1">
+                      {labelWrapWidth === 0 ? 'off' : `${labelWrapWidth} chars`}
+                      {labelWrapWidth > 0 && (
+                        <button onClick={() => setLabelWrapWidth(0)} className="text-gray-700 hover:text-gray-400 leading-none">↺</button>
+                      )}
+                    </span>
+                  </div>
+                  <input type="range" min={0} max={30} step={1} value={labelWrapWidth}
+                    onChange={e => setLabelWrapWidth(Number(e.target.value))}
+                    className="w-full accent-indigo-500" />
+                  <div className="text-[10px] text-gray-700">Splits long names at the nearest word; 0 = off</div>
                 </label>
                 <div className="flex items-center justify-between pt-1">
                   <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Label Text Sizes</div>
