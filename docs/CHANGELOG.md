@@ -4,6 +4,23 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Cinema: adaptive rail speeds, star-polygon pendulum, song limit control (2026-06-02)
+
+### Changed / Fixed
+
+- **Rail speeds now adaptive** — Each rail type targets a sensible dwell time per waypoint regardless of graph size (Album Circuit: 8 s/album, Nonagon: 10 s/stop, Warp Jumps: 5 s/album, Slow Drift: 4 s/node, spiral/corkscrew: 2 s/point, Pendulum: 6 s/point). A 30-album KGLW circuit runs ~4 minutes at 1× instead of 43 seconds. The speed multiplier now applies live in the RAF loop so the slider responds immediately while a rail is playing.
+- **Speed slider minimum lowered to 0.05×** — Allows ultra-slow cinema movement, down from 0.2×.
+
+### Changed
+
+- **Pendulum redesigned as star-polygon** — Instead of a repetitive left-right cosine sweep, Pendulum now finds the N outermost album nodes (up to 9), sorts them by angle, and visits them in a star-polygon skip-k pattern (where gcd(k,N)=1). The camera traces a genuine star shape across the galaxy, visiting different "corners" on each pass.
+
+### Added
+
+- **Song limit control** — New "Song limit" input in the Cinema band picker (default 600, max 3 000). Raise it to load full discographies for large bands like KGLW with hundreds of bootlegs. The `nodeLimit` parameter flows through the public graph API and `buildArtistUniverse` with a hard cap of 3 000 to prevent browser memory issues.
+
+---
+
 ## Cinema camera rails, 12 new themes, opacity-during-playback fix (2026-06-02)
 
 ### Added
