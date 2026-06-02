@@ -4,6 +4,25 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## AI Batch Runner — Compound mode (2026-06-02)
+
+### Added
+
+- **Compound AI mode** — New `⚡ Compound (all AI jobs — 2 calls)` job type in the AI Batch Runner that replaces 7–8 sequential individual OpenAI calls per song with just **2 compound calls per song**, achieving roughly a **4× reduction in total API calls** and a **~3× speedup per song**.
+  - **Phase 1** (1 OpenAI call): Research summary + music style + Spectrum (6 axes) + Music Structure Score (6 axes) + Lyric Analysis (tags, register, depth, craft) + Genre Accessibility (6 genres).
+  - **Phase 2** (1 OpenAI call): Core Score (emotional fan perspective) + Context Analysis (5 narrative fields) — uses Phase 1 output as context.
+  - Wikipedia articles (song/album/band) are still fetched in parallel (fast HTTP, no extra OpenAI cost) before Phase 1, so research quality is preserved.
+  - Results are written to **the same DB tables** as the individual jobs — all downstream features (Spectrum page, Song page, Cinema, etc.) work without changes.
+  - **Mutual exclusivity**: selecting Compound automatically deselects the 7 individual AI jobs it covers; selecting any individual job deselects Compound. Track Duration (MusicBrainz) still runs independently.
+  - Compound mode is now the **default selection** when opening the batch runner, since it's the recommended approach for large runs.
+  - For KG's 20,340-job queue (~3,708 songs × ~8 jobs): compound mode reduces this to ~7,416 calls (2 per song).
+
+- **New service**: `apps/api/src/services/compoundAiService.ts` — pure service, no route coupling, smart caching (skips phases where all outputs already exist unless `force=true`).
+- **New route**: `POST /api/admin/ai-batch/compound/:songId` with `{ force?: boolean }` body.
+- **New API method**: `analysisApi.runCompoundAnalysis(songId, force)`.
+
+---
+
 ## Bootleg artwork in Cinema nodes (2026-06-02)
 
 ### Fixed

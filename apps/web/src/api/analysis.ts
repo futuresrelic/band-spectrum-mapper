@@ -113,4 +113,8 @@ export const analysisApi = {
     api.get<ThemeSimilarSong[]>(
       `/api/analysis/ai/${songId}/themes/similar${bandId ? `?bandId=${encodeURIComponent(bandId)}` : ''}`,
     ),
+
+  // Compound mode: 2 OpenAI calls cover all 7 AI job types
+  runCompoundAnalysis: (songId: string, force: boolean) =>
+    api.post<{ phase1Ran: boolean; phase2Ran: boolean }>(`/api/admin/ai-batch/compound/${songId}`, { force }),
 };

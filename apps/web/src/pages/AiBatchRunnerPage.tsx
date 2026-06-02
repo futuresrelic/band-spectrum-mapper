@@ -6,9 +6,13 @@ import { api } from '../lib/api';
 import PageHeader from '../components/layout/PageHeader';
 import type { Song } from '@band-spectrum-mapper/shared';
 
-type JobType = 'analysis' | 'spectrum' | 'coreScore' | 'musicScore' | 'research' | 'genre' | 'tags' | 'metadata' | 'context';
+type JobType = 'compound' | 'analysis' | 'spectrum' | 'coreScore' | 'musicScore' | 'research' | 'genre' | 'tags' | 'metadata' | 'context';
+
+// Jobs that compound mode replaces (all AI jobs except metadata)
+const COMPOUND_COVERS = new Set<JobType>(['analysis', 'spectrum', 'coreScore', 'musicScore', 'research', 'genre', 'tags', 'context']);
 
 const JOB_LABELS: Record<JobType, string> = {
+  compound:   '⚡ Compound (all AI jobs — 2 calls)',
   analysis:   'AI Lyric Analysis',
   spectrum:   'AI Spectrum (lyrics/artistic)',
   coreScore:  'Core Score (fix zeros)',
@@ -21,6 +25,7 @@ const JOB_LABELS: Record<JobType, string> = {
 };
 
 const JOB_DESCRIPTIONS: Record<JobType, string> = {
+  compound:   'Combines Analysis, Spectrum, Music Score, Research, Genre, Core Score & Context into just 2 OpenAI calls per song (~4× fewer API calls, ~3× faster). Run this instead of the individual jobs above. Metadata (MusicBrainz) still runs separately.',
   analysis:   'Curated discovery tags + emotional register + notable craft elements + narrative voice (also writes tags to Song Cloud — runs one AI call for both)',
   spectrum:   'Aggression, Complexity, Atmosphere, Emotion, Psychedelic, Concept (0–10). For songs with no lyrics, now infers from song/album titles, tags, and research context instead of failing.',
   coreScore:  'Targets only songs with missing or all-zero spectrum scores. Click "Load targets" to load only those songs — then Run to fix them. Use instead of full Spectrum job when most songs are already scored.',
@@ -52,6 +57,10 @@ interface SongRow {
 const RETRY_DELAYS_MS = [20_000, 40_000, 90_000];
 
 async function runJob(songId: string, job: JobType, force: boolean): Promise<void> {
+  if (job === 'compound') {
+    await analysisApi.runCompoundAnalysis(songId, force);
+    return;
+  }
   if (job === 'analysis') {
     force ? await analysisApi.regenerateAiAnalysis(songId) : await analysisApi.getAiAnalysis(songId);
     return;
@@ -122,7 +131,7 @@ function isRowDone(row: SongRow, jobs: JobType[]): boolean {
 }
 
 export default function AiBatchRunnerPage() {
-  const [selectedJobs, setSelectedJobs] = useState<Set<JobType>>(new Set(['analysis', 'spectrum']));
+  const [selectedJobs, setSelectedJobs] = useState<Set<JobType>>(new Set<JobType>(['compound']));
   const [delayMs, setDelayMs] = useState(2000);
   const [forceRegenerate, setForceRegenerate] = useState(false);
   const [rows, setRows] = useState<SongRow[]>([]);
@@ -145,7 +154,17 @@ export default function AiBatchRunnerPage() {
   const toggleJob = (job: JobType) => {
     setSelectedJobs((prev) => {
       const next = new Set(prev);
-      next.has(job) ? next.delete(job) : next.add(job);
+      if (next.has(job)) {
+        next.delete(job);
+      } else {
+        next.add(job);
+        // Mutual exclusivity: compound ↔ individual AI jobs
+        if (job === 'compound') {
+          COMPOUND_COVERS.forEach((j) => next.delete(j));
+        } else if (COMPOUND_COVERS.has(job)) {
+          next.delete('compound');
+        }
+      }
       return next;
     });
   };
@@ -161,8 +180,8 @@ export default function AiBatchRunnerPage() {
   const makeBlankRow = (song: Song, bandName: string): SongRow => ({
     song,
     bandName,
-    statuses: { analysis: 'pending', spectrum: 'pending', coreScore: 'pending', musicScore: 'pending', research: 'pending', genre: 'pending', tags: 'pending', metadata: 'pending', context: 'pending' },
-    errors:   { analysis: '', spectrum: '', coreScore: '', musicScore: '', research: '', genre: '', tags: '', metadata: '', context: '' },
+    statuses: { compound: 'pending', analysis: 'pending', spectrum: 'pending', coreScore: 'pending', musicScore: 'pending', research: 'pending', genre: 'pending', tags: 'pending', metadata: 'pending', context: 'pending' },
+    errors:   { compound: '', analysis: '', spectrum: '', coreScore: '', musicScore: '', research: '', genre: '', tags: '', metadata: '', context: '' },
   });
 
   const loadAllSongs = useCallback(async () => {

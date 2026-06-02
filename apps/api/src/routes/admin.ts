@@ -641,6 +641,18 @@ adminRouter.get('/ai-batch/tags-missing-description', async (req, res, next) => 
   } catch (e) { next(e); }
 });
 
+// POST /api/admin/ai-batch/compound/:songId
+// Runs compound AI analysis: 2 OpenAI calls instead of 7-8 individual jobs.
+// Body: { force?: boolean }
+adminRouter.post('/ai-batch/compound/:songId', async (req, res, next): Promise<void> => {
+  try {
+    const { compoundAiService } = await import('../services/compoundAiService.js');
+    const force = req.body?.force === true;
+    const result = await compoundAiService.run(req.params['songId']!, force);
+    res.json(result);
+  } catch (e) { next(e); }
+});
+
 // POST /api/admin/songs/:songId/fetch-metadata
 // Fetches track duration from MusicBrainz and saves it to the song record.
 adminRouter.post('/songs/:songId/fetch-metadata', async (req, res, next) => {
