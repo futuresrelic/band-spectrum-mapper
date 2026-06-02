@@ -214,6 +214,21 @@ function stareLookAt(
   ];
 }
 
+// ── Image proxy helper ────────────────────────────────────────────────────────
+// THREE.js TextureLoader sends crossOrigin:'anonymous', requiring the server to
+// return Access-Control-Allow-Origin. Apple Music CDN (mzstatic.com) does this;
+// Archive.org service URLs and scraped band-website images often do not.
+// Route non-CORS-friendly URLs through our server-side proxy so WebGL textures load.
+const _CORS_SAFE_HOSTS = ['mzstatic.com', 'apple.com', 'googleusercontent.com'];
+function toProxiedImageUrl(url: string): string {
+  if (!url || url.startsWith('/') || url.startsWith('data:')) return url;
+  try {
+    const u = new URL(url);
+    if (_CORS_SAFE_HOSTS.some(h => u.hostname === h || u.hostname.endsWith('.' + h))) return url;
+    return `/api/public/proxy-image?url=${encodeURIComponent(url)}`;
+  } catch { return url; }
+}
+
 // ── Texture cache (module-level so it survives re-renders) ───────────────────
 const _texCache = new Map<string, THREE.Texture>();
 function getCachedTexture(url: string, onLoad?: () => void): THREE.Texture {
@@ -1943,7 +1958,9 @@ export default function CinemaPage() {
     // ── Visual Node Mode ──────────────────────────────────────────────────────
     // Return a full Group (nodeThreeObjectExtend=false when visualNodeMode=true)
     const group = new THREE.Group();
-    const imageUrl = n.data?.imageUrl as string | undefined;
+    const imageUrl = n.data?.imageUrl
+      ? toProxiedImageUrl(n.data.imageUrl as string)
+      : undefined;
 
     const chain = selectedChainRef.current;
     const isInChain = chain.length > 0 && chain.some(c => c.id === n.id);

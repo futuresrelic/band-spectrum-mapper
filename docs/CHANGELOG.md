@@ -4,6 +4,17 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Bootleg artwork in Cinema nodes (2026-06-02)
+
+### Fixed
+
+- **Bootleg album artwork not loading in Cinema 3D nodes** — THREE.js `TextureLoader` sends `crossOrigin: 'anonymous'`, so the image server must return `Access-Control-Allow-Origin` headers. Apple Music CDN (`mzstatic.com`) does this; Archive.org thumbnail URLs and scraped band-website images (e.g. `kglw.net`) often do not, causing WebGL textures to fail silently while `<img>` tags still display the image fine.
+  - Added `GET /api/public/proxy-image?url=ENCODED_URL` — a server-side image proxy that fetches allowed-domain images and forwards them with `Access-Control-Allow-Origin: *` + 7-day cache.
+  - Added `toProxiedImageUrl()` helper in CinemaPage that routes non-Apple-Music artwork through the proxy before passing to `getCachedTexture`. Apple Music CDN URLs are passed through directly (already CORS-compliant).
+  - Allowlisted domains: `archive.org`, `kglw.net`, `pearljam.com`, `deadandcompany.com`, `phish.net`, `coverartarchive.org`.
+
+---
+
 ## Star + Nonagon Infinity arrangements (2026-06-01)
 
 ### Added

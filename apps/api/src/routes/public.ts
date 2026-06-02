@@ -263,6 +263,55 @@ publicRouter.get('/graph/scopes', async (_req, res, next): Promise<void> => {
 });
 
 // ---------------------------------------------------------------------------
+// Image proxy — forwards external images with CORS headers so THREE.js
+// WebGL textures can load them. Needed because browsers require CORS for
+// canvas/WebGL (THREE.js TextureLoader sends crossOrigin:'anonymous') but many
+// hosts (Archive.org thumbnails, band websites) don't serve CORS headers.
+// Only proxies an allowlist of trusted domains to prevent SSRF abuse.
+// ---------------------------------------------------------------------------
+
+const PROXY_ALLOWED_DOMAINS = [
+  'archive.org',         // bootleg thumbnails via services/img
+  'kglw.net',            // King Gizzard official bootleg page images
+  'pearljam.com',        // Pearl Jam vault images
+  'deadandcompany.com',  // Dead & Company
+  'phish.net',           // Phish bootlegs
+  'coverartarchive.org', // MusicBrainz cover art (may lack CORS on redirect target)
+];
+
+publicRouter.get('/proxy-image', async (req, res, next): Promise<void> => {
+  try {
+    const rawUrl = (req.query['url'] as string | undefined) ?? '';
+    if (!rawUrl) { res.status(400).json({ error: 'url required' }); return; }
+
+    let parsed: URL;
+    try { parsed = new URL(rawUrl); } catch { res.status(400).json({ error: 'invalid url' }); return; }
+    if (parsed.protocol !== 'https:') { res.status(400).json({ error: 'https only' }); return; }
+
+    const ok = PROXY_ALLOWED_DOMAINS.some(
+      d => parsed.hostname === d || parsed.hostname.endsWith('.' + d),
+    );
+    if (!ok) { res.status(403).json({ error: 'domain not in proxy allowlist' }); return; }
+
+    const upstream = await fetch(rawUrl, {
+      redirect: 'follow',
+      headers: { 'User-Agent': 'BandSpectrumMapper/1.0' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!upstream.ok) { res.status(upstream.status).end(); return; }
+
+    const ct = upstream.headers.get('content-type') ?? 'image/jpeg';
+    if (!ct.startsWith('image/')) { res.status(400).json({ error: 'not an image' }); return; }
+
+    const buf = await upstream.arrayBuffer();
+    res.setHeader('Content-Type', ct);
+    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.send(Buffer.from(buf));
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
 // Word Hunt — challenge word + verification
 // ---------------------------------------------------------------------------
 
