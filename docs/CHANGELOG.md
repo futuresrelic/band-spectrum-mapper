@@ -4,6 +4,27 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Cinema enhancements — label fix, album type colours, artwork spheres, tabbed config (2026-06-02)
+
+### Added
+
+- **Artwork Sphere mode** — New checkbox in the Nodes config tab. When enabled (and Visual Node Mode is off), album and artist nodes render as spheres with their artwork texture mapped onto the surface (Lambert shading). Regular song nodes and nodes without artwork fall back to colour-coded spheres. Artwork Sphere mode and Visual Node Mode are mutually exclusive.
+
+- **Per-album-type colour overrides** — Album type rows in the Nodes config tab now include colour picker inputs so each type (Studio, Live, Bootleg, EP, Compilation, Single, Demo) can be individually tinted. Defaults: Bootleg = orange (`#f97316`), Live = blue (`#0ea5e9`), all others inherit the current theme. These overrides are also applied inside Galactic Cinema mode.
+
+- **Tabbed config panel** — The single long-scroll config drawer is replaced by a five-tab layout, dramatically reducing the need to scroll:
+  - **⊞ Layout** — Arrangement mode grid + Camera (orbit speed, auto-rotate, FoV, near/far clip)
+  - **● Nodes** — Visual Node Mode, Artwork Spheres, node opacity, selection dim, per-type visibility, album-type colour pickers, visual theme
+  - **A Labels** — Show distances, vertical offset, word wrap, text sizes, label appearance, label states
+  - **♫ Lyrics** — Proximity trigger, lyric overlay font/animation/timing settings
+  - **◈ FX** — Genre source, genre cloud zones, depth-of-field controls
+
+### Fixed
+
+- **Label screen-space anchoring** — Label sprites are now offset in camera screen-space rather than world Y. The camera's up vector is extracted from `camera.matrixWorld.elements[4,5,6]` each frame and used to place labels consistently below the artwork/node regardless of camera pitch or roll. In Visual Node Mode the label is placed below the bottom edge of the artwork sprite; in standard mode the vertical offset slider now moves labels along the true screen-up axis instead of just world-Y.
+
+---
+
 ## Remix data model + Galactic Cinema mode + AI Batch song selection (2026-06-02)
 
 ### Added

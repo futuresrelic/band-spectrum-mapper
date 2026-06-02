@@ -54,6 +54,16 @@ const ALL_TYPES = ['artist', 'album', 'song', 'keyword', 'theme', 'tag', 'emotio
 
 const HIGHLIGHT_COLOR = '#ffffff';
 
+const DEFAULT_ALBUM_TYPE_COLORS: Record<string, string> = {
+  bootleg:     '#f97316',
+  live:        '#0ea5e9',
+  studio:      '',
+  ep:          '',
+  compilation: '',
+  single:      '',
+  demo:        '',
+};
+
 const QUICK_ARRANGE_MODES = [
   { mode: 'sphere',            emoji: '🌐', label: 'Sphere'    },
   { mode: 'galaxy',            emoji: '🌌', label: 'Galaxy'    },
@@ -416,9 +426,9 @@ export default function CinemaPage() {
   const labelYOffsetRef     = useRef(0);
   const labelWrapWidthRef   = useRef(0);
 
-  // Bootleg node colour — configurable in Cinema config panel
-  const [bootlegNodeColor, setBootlegNodeColor] = useState('#f97316');
-  const bootlegNodeColorRef = useRef('#f97316');
+  // Per-album-type node colour overrides (empty string = use theme default)
+  const [albumTypeColors, setAlbumTypeColors] = useState<Record<string, string>>({ ...DEFAULT_ALBUM_TYPE_COLORS });
+  const albumTypeColorsRef = useRef<Record<string, string>>({ ...DEFAULT_ALBUM_TYPE_COLORS });
 
   // Selection dim strength (0 = keep theme colour, 1 = fully dark)
   const [selectionDim, setSelectionDim] = useState(1.0);
@@ -519,6 +529,12 @@ export default function CinemaPage() {
   const [visualNodeMode, setVisualNodeMode] = useState(false);
   const visualNodeModeRef = useRef(false);
   useEffect(() => { visualNodeModeRef.current = visualNodeMode; }, [visualNodeMode]);
+
+  const [artworkSphereMode, setArtworkSphereMode] = useState(false);
+  const artworkSphereModeRef = useRef(false);
+  useEffect(() => { artworkSphereModeRef.current = artworkSphereMode; }, [artworkSphereMode]);
+
+  const [configTab, setConfigTab] = useState<'arrange' | 'nodes' | 'labels' | 'lyrics' | 'fx'>('arrange');
 
   // ── Depth of Field ───────────────────────────────────────────────────────────
   // CSS-based bokeh: backdrop-filter blur with a radial mask (centre sharp, edges blurred)
@@ -771,7 +787,7 @@ export default function CinemaPage() {
   useEffect(() => { labelAlwaysOnTopRef.current = labelAlwaysOnTop; }, [labelAlwaysOnTop]);
   useEffect(() => { labelYOffsetRef.current     = labelYOffset;     }, [labelYOffset]);
   useEffect(() => { labelWrapWidthRef.current   = labelWrapWidth;   }, [labelWrapWidth]);
-  useEffect(() => { bootlegNodeColorRef.current = bootlegNodeColor; }, [bootlegNodeColor]);
+  useEffect(() => { albumTypeColorsRef.current = albumTypeColors; }, [albumTypeColors]);
   useEffect(() => { freeCamRef.current              = freeCam;              }, [freeCam]);
   useEffect(() => { pathModeRef.current = pathMode; }, [pathMode]);
   useEffect(() => {
@@ -1452,18 +1468,36 @@ export default function CinemaPage() {
             const mat = (sprite as any).material;
             if (mat) mat.depthTest = !labelAlwaysOnTopRef.current;
 
-            // Position label on camera-facing side of node (never occluded by sphere)
+            // Position label relative to node, always readable from camera
             const nx = n.x ?? 0, ny = n.y ?? 0, nz = n.z ?? 0;
             const tcx = cx - nx, tcy = cy - ny, tcz = cz - nz;
             const camLen = Math.sqrt(tcx * tcx + tcy * tcy + tcz * tcz);
             if (camLen > 0) {
-              const r      = sphereR(nodeValFor(n.type));
-              const offset = r + desiredTH * 0.6 + 3;
-              (sprite as any).position.set(
-                (tcx / camLen) * offset,
-                (tcy / camLen) * offset + labelYOffsetRef.current,
-                (tcz / camLen) * offset,
-              );
+              const r = sphereR(nodeValFor(n.type));
+              // Screen-space up direction (column 1 of camera world matrix)
+              const m = camera.matrixWorld.elements;
+              const upX = m[4]!, upY = m[5]!, upZ = m[6]!;
+              if (visualNodeModeRef.current) {
+                // In Visual Node Mode: anchor label below the artwork/vinyl in screen space
+                // Album/artist sprite half-size = r*1.6; vinyl disk radius = r*2.5
+                const halfSize = n.type === 'song' ? r * 2.5 : r * 1.6;
+                const fwdPush  = r * 0.5; // push toward camera to avoid z-fighting
+                const downDist = halfSize + desiredTH * 0.6 + 2 - labelYOffsetRef.current;
+                (sprite as any).position.set(
+                  -upX * downDist + (tcx / camLen) * fwdPush,
+                  -upY * downDist + (tcy / camLen) * fwdPush,
+                  -upZ * downDist + (tcz / camLen) * fwdPush,
+                );
+              } else {
+                // Normal mode: push label toward camera, apply offset in screen-space Y
+                const offset = r + desiredTH * 0.6 + 3;
+                const yo = labelYOffsetRef.current;
+                (sprite as any).position.set(
+                  (tcx / camLen) * offset + upX * yo,
+                  (tcy / camLen) * offset + upY * yo,
+                  (tcz / camLen) * offset + upZ * yo,
+                );
+              }
             }
           }
 
@@ -1877,13 +1911,12 @@ export default function CinemaPage() {
     const n = node as CinemaNode;
     if (tourMode && n.id === tourHighlightedId) return HIGHLIGHT_COLOR;
     const override = nodeOverridesRef.current[n.id];
-    const isBootleg = n.type === 'album' && (n.data?.['albumType'] as string | undefined) === 'bootleg';
-    let baseColor = override?.color
-      ?? (isBootleg ? bootlegNodeColorRef.current : undefined)
-      ?? (currentTheme.nodeColors[n.type] ?? '#4b5563');
+    const albumType = n.type === 'album' ? (n.data?.['albumType'] as string | undefined) : undefined;
+    const albumTypeColor = albumType ? (albumTypeColorsRef.current[albumType] || undefined) : undefined;
+    let baseColor = override?.color ?? albumTypeColor ?? (currentTheme.nodeColors[n.type] ?? '#4b5563');
     if (activeArrangeModeRef.current === 'galactic-cinema') {
       if (n.type === 'artist') baseColor = override?.color ?? '#1e1b4b';
-      else if (n.type === 'album') baseColor = override?.color ?? (isBootleg ? bootlegNodeColorRef.current : '#d97706');
+      else if (n.type === 'album') baseColor = override?.color ?? albumTypeColor ?? '#d97706';
       else if (n.type === 'song') baseColor = override?.color ?? (n.data?.isRemix ? '#9ca3af' : '#3b82f6');
     }
     const chain = selectedChainRef.current;
@@ -1897,7 +1930,7 @@ export default function CinemaPage() {
       return blendHex(baseColor, '#0d1117', selectionDimRef.current);
     }
     return baseColor;
-  }, [tourMode, tourHighlightedId, currentTheme, bootlegNodeColor]);
+  }, [tourMode, tourHighlightedId, currentTheme, albumTypeColors]);
 
   const nodeVal = useCallback((node: object) => {
     const n = node as CinemaNode;
@@ -1991,10 +2024,34 @@ export default function CinemaPage() {
     (sprite as any).visible = false;
     labelMapRef.current.set(n.id, sprite);
 
-    if (!visualNodeModeRef.current) {
+    if (!visualNodeModeRef.current && !artworkSphereModeRef.current) {
       // Default mode: label sprite extends over the default sphere
       (sprite as any).position.y = r + th * 0.6 + 3;
       return sprite;
+    }
+
+    // ── Artwork Sphere Mode ───────────────────────────────────────────────────
+    // Nodes remain spheres but album/artist nodes get artwork as a sphere texture
+    if (artworkSphereModeRef.current && !visualNodeModeRef.current) {
+      const group = new THREE.Group();
+      const imageUrl = n.data?.imageUrl
+        ? toProxiedImageUrl(n.data.imageUrl as string)
+        : undefined;
+      const opacity = nodeOpacityUserRef.current;
+      if ((n.type === 'album' || n.type === 'artist') && imageUrl) {
+        const tex = getCachedTexture(imageUrl, () => fgRef.current?.refresh());
+        const geo = new THREE.SphereGeometry(r, 24, 24);
+        const mat = new THREE.MeshLambertMaterial({ map: tex, transparent: opacity < 1, opacity });
+        group.add(new THREE.Mesh(geo, mat));
+      } else {
+        const nColor = (n.data?.color as string | undefined) ?? '#4b5563';
+        const geo = new THREE.SphereGeometry(r, 12, 12);
+        const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color(nColor), transparent: opacity < 1, opacity });
+        group.add(new THREE.Mesh(geo, mat));
+      }
+      (sprite as any).position.y = r + th * 0.6 + 3;
+      group.add(sprite);
+      return group;
     }
 
     // ── Visual Node Mode ──────────────────────────────────────────────────────
@@ -2038,7 +2095,7 @@ export default function CinemaPage() {
     (sprite as any).position.y = r * 3 + th * 0.6 + 2;
     group.add(sprite);
     return group;
-  }, [visualNodeMode, labelWrapWidth]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visualNodeMode, artworkSphereMode, labelWrapWidth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onEngineStop = useCallback(() => {
     simNodes.forEach(n => {
@@ -2450,7 +2507,7 @@ export default function CinemaPage() {
           nodeRelSize={BASE_NODE_REL}
           nodeOpacity={nodeOpacityUser}
           nodeResolution={8}
-          nodeThreeObjectExtend={!visualNodeMode}
+          nodeThreeObjectExtend={!visualNodeMode && !artworkSphereMode}
           nodeThreeObject={nodeThreeObject}
           linkColor={linkColor}
           linkWidth={linkWidth}
@@ -3025,688 +3082,402 @@ export default function CinemaPage() {
 
           {/* ── Controls panel ── */}
           {showControls && (
-            <div className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-4 backdrop-blur-sm w-64 shadow-2xl space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100dvh - 80px)' }}>
+            <div className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-3 backdrop-blur-sm w-64 shadow-2xl overflow-y-auto" style={{ maxHeight: 'calc(100dvh - 80px)' }}>
 
-              {/* Quick arrangement switcher */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Arrangement</div>
-                  <button onClick={() => reArrange()} className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors">Re-apply</button>
-                </div>
-                <div className="grid grid-cols-3 gap-1">
-                  {QUICK_ARRANGE_MODES.map(({ mode, emoji, label }) => (
-                    <button
-                      key={mode}
-                      onClick={() => { setActiveArrangeMode(mode); reArrange(mode); }}
-                      className={`flex flex-col items-center gap-0.5 px-1 py-1.5 rounded-lg text-[10px] transition-colors ${
-                        activeArrangeMode === mode
-                          ? 'bg-indigo-900/60 border border-indigo-700/40 text-indigo-300'
-                          : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
-                      }`}
-                    >
-                      <span>{emoji}</span>
-                      <span>{label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide border-t border-gray-800 pt-3">Camera Controls</div>
-
-              {/* Camera motion mode */}
-              <div className="space-y-1.5">
-                <div className="text-[10px] text-gray-400">Camera motion</div>
-                <div className="flex bg-gray-800/60 rounded-lg p-0.5">
-                  {(['orbit', 'breathe'] as const).map(mode => (
-                    <button key={mode}
-                      onClick={() => updateControl('orbitMode', mode)}
-                      className={`flex-1 text-[10px] py-1.5 rounded transition-colors ${
-                        cinemaControls.orbitMode === mode ? 'bg-gray-600 text-white' : 'text-gray-500 hover:text-gray-300'
-                      }`}
-                    >
-                      {mode === 'orbit' ? '🔄 Orbit' : '🌬 Breathe'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Speed */}
-              <label className="block space-y-1">
-                <div className="flex justify-between text-[10px] text-gray-400">
-                  <span>{cinemaControls.orbitMode === 'breathe' ? 'Breathe rate' : 'Orbit speed'}</span>
-                  <span>{cinemaControls.orbitSpeed.toFixed(1)}×</span>
-                </div>
-                <input type="range" min="0.1" max="5" step="0.1" value={cinemaControls.orbitSpeed}
-                  onChange={e => updateControl('orbitSpeed', Number(e.target.value))}
-                  className="w-full accent-indigo-500" />
-              </label>
-
-              <label className="block space-y-1">
-                <div className="flex justify-between text-[10px] text-gray-400">
-                  <span>Approach dist</span><span>{cinemaControls.approachDist}</span>
-                </div>
-                <input type="range" min="30" max="400" step="5" value={cinemaControls.approachDist}
-                  onChange={e => updateControl('approachDist', Number(e.target.value))}
-                  className="w-full accent-indigo-500" />
-              </label>
-
-              <label className="block space-y-1">
-                <div className="flex justify-between text-[10px] text-gray-400">
-                  <span>Elevation</span><span>{cinemaControls.elevationOffset}</span>
-                </div>
-                <input type="range" min="-100" max="300" step="5" value={cinemaControls.elevationOffset}
-                  onChange={e => updateControl('elevationOffset', Number(e.target.value))}
-                  className="w-full accent-indigo-500" />
-              </label>
-
-              <label className="block space-y-1">
-                <div className="flex justify-between text-[10px] text-gray-400">
-                  <span>Playback speed</span><span>{cinemaControls.speedMultiplier.toFixed(1)}×</span>
-                </div>
-                <input type="range" min="0.25" max="4" step="0.25" value={cinemaControls.speedMultiplier}
-                  onChange={e => updateControl('speedMultiplier', Number(e.target.value))}
-                  className="w-full accent-indigo-500" />
-              </label>
-
-              <label className="block space-y-1">
-                <div className="flex justify-between text-[10px] text-gray-400">
-                  <span>Pitch bias</span>
-                  <span>{cinemaControls.pitchBias > 0 ? `+${cinemaControls.pitchBias}` : cinemaControls.pitchBias}</span>
-                </div>
-                <input type="range" min={-200} max={200} step={5} value={cinemaControls.pitchBias}
-                  onChange={e => updateControl('pitchBias', Number(e.target.value))}
-                  className="w-full accent-indigo-500" />
-                <div className="text-[10px] text-gray-700">Tilts the orbit look direction — + looks lower, − looks higher</div>
-              </label>
-
-              <button onClick={() => setCinemaControls(DEFAULT_CINEMA_CONTROLS)}
-                className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors">
-                Reset to defaults
-              </button>
-
-              {/* Label distances */}
-              <div className="border-t border-gray-800 pt-3 space-y-2">
-                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Label Show Distance</div>
-                {(['artist', 'album', 'song', 'other'] as const).map(t => (
-                  <label key={t} className="block space-y-1">
-                    <div className="flex justify-between text-[10px] text-gray-400">
-                      <span className="capitalize">{t === 'other' ? 'Tag / Theme' : t}</span>
-                      <span>{labelDistances[t]}</span>
-                    </div>
-                    <input type="range" min="50" max="1200" step="10"
-                      value={labelDistances[t]}
-                      onChange={e => setLabelDistances(prev => ({ ...prev, [t]: Number(e.target.value) }))}
-                      className="w-full accent-indigo-500" />
-                  </label>
+              {/* Tab bar */}
+              <div className="flex gap-0.5 bg-gray-800/60 rounded-lg p-0.5 mb-3">
+                {([
+                  { id: 'arrange', label: '⊞ Layout' },
+                  { id: 'nodes',   label: '● Nodes' },
+                  { id: 'labels',  label: 'A Labels' },
+                  { id: 'lyrics',  label: '♫ Lyrics' },
+                  { id: 'fx',      label: '◈ FX' },
+                ] as const).map(({ id, label }) => (
+                  <button key={id} onClick={() => setConfigTab(id)}
+                    className={`flex-1 text-[9px] py-1 rounded transition-colors ${
+                      configTab === id ? 'bg-gray-600 text-white font-medium' : 'text-gray-500 hover:text-gray-300'
+                    }`}
+                  >{label}</button>
                 ))}
-                <label className="block space-y-1">
-                  <div className="flex justify-between text-[10px] text-gray-400">
-                    <span>Lyrics show distance</span>
-                    <span>{lyricsShowDist}</span>
+              </div>
+
+              <div className="space-y-3">
+
+              {/* ── ARRANGE tab ── */}
+              {configTab === 'arrange' && (<>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Arrangement</div>
+                    <button onClick={() => reArrange()} className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors">Re-apply</button>
                   </div>
-                  <input type="range" min={50} max={600} step={10} value={lyricsShowDist}
-                    onChange={e => setLyricsShowDist(Number(e.target.value))}
-                    className="w-full accent-indigo-500" />
-                </label>
-                <label className="block space-y-1">
-                  <div className="flex justify-between text-[10px] text-gray-400">
-                    <span>Lyrics text size</span>
-                    <span>{lyricsTextSize.toFixed(1)}</span>
-                  </div>
-                  <input type="range" min={1} max={10} step={0.2} value={lyricsTextSize}
-                    onChange={e => setLyricsTextSize(Number(e.target.value))}
-                    className="w-full accent-indigo-500" />
-                </label>
-                <label className="block space-y-1">
-                  <div className="flex justify-between text-[10px] text-gray-400">
-                    <span>Lines per node</span>
-                    <span>{lyricsMaxLines === 1 ? '1 line' : lyricsMaxLines >= 30 ? 'full' : `${lyricsMaxLines} lines`}</span>
-                  </div>
-                  <input type="range" min={1} max={30} step={1} value={lyricsMaxLines}
-                    onChange={e => setLyricsMaxLines(Number(e.target.value))}
-                    className="w-full accent-indigo-500" />
-                  <div className="text-[10px] text-gray-700">5 = first verse · 30 = full song (rebuilds sprites)</div>
-                </label>
-                <label className="block space-y-1">
-                  <div className="flex justify-between text-[10px] text-gray-400">
-                    <span>Max nodes showing lyrics</span>
-                    <span>{lyricsMaxNodes >= 99 ? 'all' : lyricsMaxNodes}</span>
-                  </div>
-                  <input type="range" min={1} max={10} step={1} value={lyricsMaxNodes}
-                    onChange={e => setLyricsMaxNodes(Number(e.target.value))}
-                    className="w-full accent-indigo-500" />
-                  <div className="text-[10px] text-gray-700">1 = closest node only · prevents text piling when flying near a cluster</div>
-                </label>
-                {/* Stare-at-lyrics: shift camera lookAt toward nearest lyric during Director / scene-cam playback */}
-                <button
-                  onClick={() => setStareLyrics(v => !v)}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                    stareLyrics ? 'text-indigo-300 bg-indigo-900/30' : 'text-gray-500 hover:text-gray-300'
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${stareLyrics ? 'bg-indigo-400' : 'bg-gray-700'}`} />
-                  <span>👁 Stare at lyrics (Director / Scene cam)</span>
-                  <span className="ml-auto text-[10px] text-gray-600">{stareLyrics ? 'on' : 'off'}</span>
-                </button>
-                <div className="text-[10px] text-gray-700 px-0.5">When on, the camera drifts to look toward the nearest lyric sprite during playback.</div>
-              </div>
-
-              {/* Node type visibility */}
-              <div className="border-t border-gray-800 pt-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Show node types</div>
-                  {hiddenTypes.size > 0 && (
-                    <button onClick={() => setHiddenTypes(new Set())}
-                      className="text-[10px] text-indigo-500 hover:text-indigo-300 transition-colors">
-                      Show all
-                    </button>
-                  )}
-                </div>
-                <div className="space-y-1">
-                  {ALL_TYPES.map(type => {
-                    const hidden = hiddenTypes.has(type);
-                    return (
-                      <button key={type}
-                        onClick={() => toggleHiddenType(type)}
-                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                          hidden
-                            ? 'text-gray-700 hover:text-gray-500'
-                            : 'text-gray-300 hover:bg-gray-800'
-                        }`}
-                      >
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${hidden ? 'bg-gray-700' : ''}`}
-                          style={hidden ? {} : { backgroundColor: TYPE_COLOR[type] ?? '#4b5563' }}
-                        />
-                        <span className={hidden ? 'line-through' : ''}>{TYPE_LABELS[type] ?? type}</span>
-                        <span className="ml-auto text-[10px] text-gray-700">{hidden ? 'hidden' : '✓'}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Album type filter */}
-              <div className="border-t border-gray-800 pt-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Album types</div>
-                  {selectedAlbumTypes.length > 0 && (
-                    <button onClick={() => setSelectedAlbumTypes([])}
-                      className="text-[10px] text-indigo-500 hover:text-indigo-300 transition-colors">
-                      Show all
-                    </button>
-                  )}
-                </div>
-                <div className="text-[10px] text-gray-600 leading-snug px-1">
-                  Select types to include. Empty = all.
-                </div>
-                <div className="space-y-1">
-                  {ALL_ALBUM_TYPES.map(type => {
-                    const active = selectedAlbumTypes.length === 0 || selectedAlbumTypes.includes(type);
-                    return (
-                      <button key={type}
-                        onClick={() => toggleAlbumType(type)}
-                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                          active
-                            ? 'text-gray-300 hover:bg-gray-800'
-                            : 'text-gray-700 hover:text-gray-500'
-                        }`}
-                      >
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${
-                          active ? (type === 'bootleg' ? 'bg-amber-500' : type === 'live' ? 'bg-sky-500' : 'bg-indigo-500') : 'bg-gray-700'
-                        }`} />
-                        <span className={active ? '' : 'line-through'}>{ALBUM_TYPE_LABELS[type] ?? type}</span>
-                        <span className="ml-auto text-[10px] text-gray-700">
-                          {selectedAlbumTypes.length === 0 ? '✓' : selectedAlbumTypes.includes(type) ? '✓' : 'off'}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                {/* Bootleg node colour override */}
-                <div className="flex items-center gap-2 px-1 pt-1 border-t border-gray-800/60">
-                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: bootlegNodeColor }} />
-                  <span className="text-[10px] text-gray-400 flex-1">Bootleg node colour</span>
-                  <input type="color" value={bootlegNodeColor}
-                    onChange={e => setBootlegNodeColor(e.target.value)}
-                    className="w-8 h-5 rounded cursor-pointer border-0 bg-transparent" />
-                  {bootlegNodeColor !== '#f97316' && (
-                    <button onClick={() => setBootlegNodeColor('#f97316')}
-                      className="text-[10px] text-gray-700 hover:text-gray-400 leading-none">↺</button>
-                  )}
-                </div>
-              </div>
-
-              {/* Genre data source */}
-              <div className="border-t border-gray-800 pt-3 space-y-2">
-                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Genre data source</div>
-                <div className="space-y-1">
-                  {(['priority', 'community', 'ai'] as GenreSource[]).map(src => (
-                    <button key={src} onClick={() => setGenreSource(src)}
-                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                        genreSource === src ? 'bg-gray-800 text-gray-200' : 'text-gray-500 hover:text-gray-300'
-                      }`}
-                    >
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${genreSource === src ? 'bg-orange-500' : 'bg-gray-700'}`} />
-                      <span>{GENRE_SOURCE_LABELS[src]}</span>
-                      {genreSource === src && <span className="ml-auto text-[10px] text-orange-500">active</span>}
-                    </button>
-                  ))}
-                </div>
-                <div className="text-[10px] text-gray-600 leading-snug px-1">
-                  Changing source reloads the graph.
-                </div>
-              </div>
-
-              {/* Genre cloud zones */}
-              <div className="border-t border-gray-800 pt-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Genre zones</div>
-                  <button
-                    onClick={() => setGenreCloudsEnabled(v => !v)}
-                    className={`text-[10px] px-2 py-0.5 rounded transition-colors ${genreCloudsEnabled ? 'bg-indigo-900 text-indigo-300' : 'bg-gray-800 text-gray-500'}`}
-                  >
-                    {genreCloudsEnabled ? 'on' : 'off'}
-                  </button>
-                </div>
-                {genreCloudsEnabled && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-gray-500 w-14 shrink-0">Opacity</span>
-                      <input type="range" min="1" max="40" value={Math.round(genreCloudOpacity * 100)}
-                        onChange={e => setGenreCloudOpacity(Number(e.target.value) / 100)}
-                        className="flex-1 accent-indigo-500" />
-                      <span className="text-[10px] text-gray-600 w-8 text-right">{Math.round(genreCloudOpacity * 100)}%</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-gray-500 w-14 shrink-0">Size</span>
-                      <input type="range" min="40" max="300" value={genreCloudSize}
-                        onChange={e => setGenreCloudSize(Number(e.target.value))}
-                        className="flex-1 accent-indigo-500" />
-                      <span className="text-[10px] text-gray-600 w-8 text-right">{genreCloudSize}</span>
-                    </div>
-                    <div className="text-[10px] text-gray-600 mb-1">Show / hide zones</div>
-                    <div className="grid grid-cols-2 gap-1">
-                      {GENRE_CLOUD_POLES.map(pole => {
-                        const hidden = hiddenGenreClouds.has(pole.id as GenreCloudId);
-                        return (
-                          <button key={pole.id}
-                            onClick={() => setHiddenGenreClouds(prev => {
-                              const next = new Set(prev);
-                              if (next.has(pole.id as GenreCloudId)) next.delete(pole.id as GenreCloudId); else next.add(pole.id as GenreCloudId);
-                              return next;
-                            })}
-                            className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] transition-colors ${hidden ? 'text-gray-700' : 'text-gray-300'}`}
-                          >
-                            <span className="w-2 h-2 rounded-full shrink-0" style={hidden ? { background: '#374151' } : { background: pole.color }} />
-                            <span className={hidden ? 'line-through' : ''}>{pole.id.charAt(0).toUpperCase() + pole.id.slice(1)}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <div className="text-[10px] text-gray-600 leading-snug">
-                      Use Genre Radar arrange to position songs in their genre zones.
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Visual Node Mode — album art, band logos, vinyl song disks */}
-              <div className="border-t border-gray-800 pt-3">
-                <button
-                  onClick={() => setVisualNodeMode(v => !v)}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                    visualNodeMode ? 'text-amber-300 hover:bg-gray-800' : 'text-gray-700 hover:text-gray-500'
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${visualNodeMode ? 'bg-amber-400' : 'bg-gray-700'}`} />
-                  <span>Visual Node Mode</span>
-                  <span className="ml-auto text-[10px] text-gray-600">{visualNodeMode ? 'on' : 'off'}</span>
-                </button>
-                {visualNodeMode && (
-                  <p className="text-[9px] text-gray-600 px-2 mt-1 leading-snug">
-                    Album nodes show artwork · Song nodes become vinyl records · Band nodes show logo if set
-                  </p>
-                )}
-              </div>
-
-              {/* Lyrics overlay (Lyrical DNA scene) */}
-              <div className="border-t border-gray-800 pt-3">
-                <button
-                  onClick={() => setShowLyrics(v => !v)}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                    showLyrics ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-700 hover:text-gray-500'
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${showLyrics ? 'bg-indigo-500' : 'bg-gray-700'}`} />
-                  <span className={showLyrics ? '' : 'line-through'}>Lyric text overlay</span>
-                  <span className="ml-auto text-[10px] text-gray-700">{showLyrics ? '✓' : 'hidden'}</span>
-                </button>
-
-                {showLyrics && (
-                  <>
-                    {/* Selected node only */}
-                    <button
-                      onClick={() => setLyricsSelectedOnly(v => !v)}
-                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                        lyricsSelectedOnly ? 'text-green-300 bg-green-900/20' : 'text-gray-500 hover:text-gray-300'
-                      }`}
-                    >
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${lyricsSelectedOnly ? 'bg-green-400' : 'bg-gray-700'}`} />
-                      <span>Selected node only</span>
-                      <span className="ml-auto text-[10px] text-gray-600">{lyricsSelectedOnly ? 'on' : 'off'}</span>
-                    </button>
-
-                    {/* Scroll mode toggle */}
-                    <button
-                      onClick={() => setLyricsScrollMode(v => !v)}
-                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                        lyricsScrollMode ? 'text-indigo-300 bg-indigo-900/30' : 'text-gray-500 hover:text-gray-300'
-                      }`}
-                    >
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${lyricsScrollMode ? 'bg-indigo-400' : 'bg-gray-700'}`} />
-                      <span>Scroll mode</span>
-                      <span className="ml-auto text-[10px] text-gray-600">{lyricsScrollMode ? 'on' : 'off'}</span>
-                    </button>
-
-                    {lyricsScrollMode && (
-                      <>
-                        <label className="block space-y-1">
-                          <div className="flex justify-between text-[10px] text-gray-400">
-                            <span>Lines visible</span>
-                            <span>{lyricsWindowSize}</span>
-                          </div>
-                          <input type="range" min={1} max={8} step={1} value={lyricsWindowSize}
-                            onChange={e => setLyricsWindowSize(Number(e.target.value))}
-                            className="w-full accent-indigo-500" />
-                        </label>
-                        <label className="block space-y-1">
-                          <div className="flex justify-between text-[10px] text-gray-400">
-                            <span>Advance every</span>
-                            <span>{lyricsScrollSpeed}s</span>
-                          </div>
-                          <input type="range" min={0.5} max={8} step={0.5} value={lyricsScrollSpeed}
-                            onChange={e => setLyricsScrollSpeed(Number(e.target.value))}
-                            className="w-full accent-indigo-500" />
-                        </label>
-                        <label className="block space-y-1">
-                          <div className="flex justify-between text-[10px] text-gray-400">
-                            <span>Start at line</span>
-                            <span>{lyricsGlobalStartLine}</span>
-                          </div>
-                          <input type="range" min={0} max={120} step={1} value={lyricsGlobalStartLine}
-                            onChange={e => {
-                              const v = Number(e.target.value);
-                              setLyricsGlobalStartLine(v);
-                              // Apply immediately to all currently-tracked songs
-                              lyricsScrollOffsetRef.current.forEach((_, id) => {
-                                lyricsScrollOffsetRef.current.set(id, v);
-                              });
-                            }}
-                            className="w-full accent-indigo-500" />
-                          <div className="flex items-center justify-between">
-                            <div className="text-[10px] text-gray-700">0 = beginning · drag to skip intro</div>
-                            <button
-                              onClick={() => {
-                                setLyricsGlobalStartLine(0);
-                                lyricsScrollOffsetRef.current.clear();
-                              }}
-                              className="text-[10px] text-gray-700 hover:text-gray-400"
-                            >
-                              reset
-                            </button>
-                          </div>
-                        </label>
-                      </>
-                    )}
-
-                    {/* Progressive reveal mode */}
-                    <button
-                      onClick={() => setLyricsProgressiveMode(v => !v)}
-                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                        lyricsProgressiveMode ? 'text-amber-300 bg-amber-900/20' : 'text-gray-500 hover:text-gray-300'
-                      }`}
-                    >
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${lyricsProgressiveMode ? 'bg-amber-400' : 'bg-gray-700'}`} />
-                      <span>Progressive reveal</span>
-                      <span className="ml-auto text-[10px] text-gray-600">{lyricsProgressiveMode ? 'on' : 'off'}</span>
-                    </button>
-                    {lyricsProgressiveMode && (
-                      <label className="block space-y-1">
-                        <div className="flex justify-between text-[10px] text-gray-400">
-                          <span>Reveal pace</span>
-                          <span>{lyricsRevealPace}s / line</span>
-                        </div>
-                        <input type="range" min={0.5} max={8} step={0.5} value={lyricsRevealPace}
-                          onChange={e => setLyricsRevealPace(Number(e.target.value))}
-                          className="w-full accent-amber-500" />
-                        <div className="text-[10px] text-gray-700">Linger near a node — lines appear one by one</div>
-                      </label>
-                    )}
-
-                    {/* Saturn ring lyrics */}
-                    <div className="border-t border-gray-800/60 pt-2 space-y-1">
+                  <div className="grid grid-cols-3 gap-1">
+                    {QUICK_ARRANGE_MODES.map(({ mode, emoji, label }) => (
                       <button
-                        onClick={() => setRingLyricsMode(v => !v)}
-                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                          ringLyricsMode ? 'text-cyan-300 bg-cyan-900/20' : 'text-gray-500 hover:text-gray-300'
+                        key={mode}
+                        onClick={() => { setActiveArrangeMode(mode); reArrange(mode); }}
+                        className={`flex flex-col items-center gap-0.5 px-1 py-1.5 rounded-lg text-[10px] transition-colors ${
+                          activeArrangeMode === mode
+                            ? 'bg-indigo-900/60 border border-indigo-700/40 text-indigo-300'
+                            : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
                         }`}
                       >
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${ringLyricsMode ? 'bg-cyan-400' : 'bg-gray-700'}`} />
-                        <span>🪐 Saturn ring lyrics</span>
-                        <span className="ml-auto text-[10px] text-gray-600">{ringLyricsMode ? 'on' : 'off'}</span>
+                        <span>{emoji}</span>
+                        <span>{label}</span>
                       </button>
-                      {ringLyricsMode && (
-                        <div className="space-y-2 pl-1 pt-1">
-                          <label className="block space-y-1">
-                            <div className="flex justify-between text-[10px] text-gray-400">
-                              <span>Ring radius</span><span>{ringRadius}</span>
-                            </div>
-                            <input type="range" min={20} max={300} step={5} value={ringRadius}
-                              onChange={e => setRingRadius(Number(e.target.value))}
-                              className="w-full accent-cyan-500" />
-                          </label>
-                          <label className="block space-y-1">
-                            <div className="flex justify-between text-[10px] text-gray-400">
-                              <span>Inclination</span><span>{ringInclination}°</span>
-                            </div>
-                            <input type="range" min={0} max={90} step={1} value={ringInclination}
-                              onChange={e => setRingInclination(Number(e.target.value))}
-                              className="w-full accent-cyan-500" />
-                            <div className="text-[10px] text-gray-700">0° flat / equatorial · 90° vertical</div>
-                          </label>
-                          <label className="block space-y-1">
-                            <div className="flex justify-between text-[10px] text-gray-400">
-                              <span>Ring angle (azimuth)</span><span>{ringAzimuth}°</span>
-                            </div>
-                            <input type="range" min={0} max={360} step={5} value={ringAzimuth}
-                              onChange={e => setRingAzimuth(Number(e.target.value))}
-                              className="w-full accent-cyan-500" />
-                          </label>
-                          <label className="block space-y-1">
-                            <div className="flex justify-between text-[10px] text-gray-400">
-                              <span>Arc coverage</span><span>{ringArcCoverage}°</span>
-                            </div>
-                            <input type="range" min={30} max={360} step={10} value={ringArcCoverage}
-                              onChange={e => setRingArcCoverage(Number(e.target.value))}
-                              className="w-full accent-cyan-500" />
-                            <div className="text-[10px] text-gray-700">360° full ring · less = open arc</div>
-                          </label>
-                          <label className="block space-y-1">
-                            <div className="flex justify-between text-[10px] text-gray-400">
-                              <span>Rotation speed</span>
-                              <span>{ringRotSpeed === 0 ? 'static' : `${ringRotSpeed > 0 ? '+' : ''}${ringRotSpeed.toFixed(2)} r/s`}</span>
-                            </div>
-                            <input type="range" min={-1.5} max={1.5} step={0.01} value={ringRotSpeed}
-                              onChange={e => setRingRotSpeed(Number(e.target.value))}
-                              className="w-full accent-cyan-500" />
-                            <div className="text-[10px] text-gray-700">Negative = reverse direction · 0 = static</div>
-                          </label>
-                          <label className="block space-y-1">
-                            <div className="flex justify-between text-[10px] text-gray-400">
-                              <span>Text size</span><span>{ringTextSize.toFixed(1)}</span>
-                            </div>
-                            <input type="range" min={0.5} max={8} step={0.2} value={ringTextSize}
-                              onChange={e => setRingTextSize(Number(e.target.value))}
-                              className="w-full accent-cyan-500" />
-                          </label>
-                          <button
-                            onClick={() => setRingSelectedOnly(v => !v)}
-                            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                              ringSelectedOnly ? 'text-cyan-300 bg-cyan-900/20' : 'text-gray-500 hover:text-gray-300'
-                            }`}
-                          >
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${ringSelectedOnly ? 'bg-cyan-400' : 'bg-gray-700'}`} />
-                            <span>Selected nodes only</span>
-                            <span className="ml-auto text-[10px] text-gray-600">{ringSelectedOnly ? 'on' : 'off'}</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    ))}
+                  </div>
+                </div>
 
-                    {/* Universe spread lyrics */}
-                    <div className="border-t border-gray-800/60 pt-2 space-y-1">
-                      <button
-                        onClick={() => setLyricsUniverseMode(v => !v)}
-                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                          lyricsUniverseMode ? 'text-violet-300 bg-violet-900/20' : 'text-gray-500 hover:text-gray-300'
+                <div className="border-t border-gray-800 pt-3 space-y-2">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Camera</div>
+                  <div className="flex bg-gray-800/60 rounded-lg p-0.5">
+                    {(['orbit', 'breathe'] as const).map(mode => (
+                      <button key={mode}
+                        onClick={() => updateControl('orbitMode', mode)}
+                        className={`flex-1 text-[10px] py-1.5 rounded transition-colors ${
+                          cinemaControls.orbitMode === mode ? 'bg-gray-600 text-white' : 'text-gray-500 hover:text-gray-300'
                         }`}
                       >
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${lyricsUniverseMode ? 'bg-violet-400' : 'bg-gray-700'}`} />
-                        <span>🌌 Universe spread</span>
-                        <span className="ml-auto text-[10px] text-gray-600">{lyricsUniverseMode ? 'on' : 'off'}</span>
+                        {mode === 'orbit' ? '🔄 Orbit' : '🌬 Breathe'}
                       </button>
-                      {lyricsUniverseMode && (
-                        <div className="space-y-2 pl-1 pt-1">
-                          <div className="text-[10px] text-gray-600 leading-snug">
-                            Lines spiral outward from each song. Lower node opacity to let lyrics fill the space.
-                          </div>
-                          <label className="block space-y-1">
-                            <div className="flex justify-between text-[10px] text-gray-400">
-                              <span>Spread radius</span><span>{universeSpread}</span>
-                            </div>
-                            <input type="range" min={1} max={20} step={0.5} value={universeSpread}
-                              onChange={e => setUniverseSpread(Number(e.target.value))}
-                              className="w-full accent-violet-500" />
-                            <div className="text-[10px] text-gray-700">Higher = lines fan further from the song node</div>
-                          </label>
-                          <label className="block space-y-1">
-                            <div className="flex justify-between text-[10px] text-gray-400">
-                              <span>Vertical step</span><span>{universeLineStep}</span>
-                            </div>
-                            <input type="range" min={2} max={30} step={1} value={universeLineStep}
-                              onChange={e => setUniverseLineStep(Number(e.target.value))}
-                              className="w-full accent-violet-500" />
-                            <div className="text-[10px] text-gray-700">Gap between successive lyric lines vertically</div>
-                          </label>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Label styling */}
-              <div className="border-t border-gray-800 pt-3 space-y-2">
-                {/* Label vertical offset — first so it's easy to find */}
-                <label className="block space-y-1">
-                  <div className="flex justify-between text-[10px] text-gray-400">
-                    <span>Label vertical offset</span>
-                    <span className="flex items-center gap-1">
-                      {labelYOffset > 0 ? '+' : ''}{labelYOffset}
-                      {labelYOffset !== 0 && (
-                        <button onClick={() => setLabelYOffset(0)} className="text-gray-700 hover:text-gray-400 leading-none">↺</button>
-                      )}
-                    </span>
+                    ))}
                   </div>
-                  <input type="range" min={-60} max={60} step={1} value={labelYOffset}
-                    onChange={e => setLabelYOffset(Number(e.target.value))}
-                    className="w-full accent-indigo-500" />
-                  <div className="text-[10px] text-gray-700">Shift labels up (+) or down (−) to avoid artwork overlap</div>
-                </label>
-                {/* Word wrap */}
-                <label className="block space-y-1">
-                  <div className="flex justify-between text-[10px] text-gray-400">
-                    <span>Name wrap width</span>
-                    <span className="flex items-center gap-1">
-                      {labelWrapWidth === 0 ? 'off' : `${labelWrapWidth} chars`}
-                      {labelWrapWidth > 0 && (
-                        <button onClick={() => setLabelWrapWidth(0)} className="text-gray-700 hover:text-gray-400 leading-none">↺</button>
-                      )}
-                    </span>
-                  </div>
-                  <input type="range" min={0} max={30} step={1} value={labelWrapWidth}
-                    onChange={e => setLabelWrapWidth(Number(e.target.value))}
-                    className="w-full accent-indigo-500" />
-                  <div className="text-[10px] text-gray-700">Splits long names at the nearest word; 0 = off</div>
-                </label>
-                <div className="flex items-center justify-between pt-1">
-                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Label Text Sizes</div>
-                  <button onClick={() => setLabelTextSizes({ ...DEFAULT_LABEL_TEXT_SIZES })}
-                    className="text-[10px] text-gray-700 hover:text-gray-500">reset</button>
-                </div>
-                <div className="space-y-1">
-                  {LABEL_SIZE_ROWS.map((row, i) =>
-                    row === null
-                      ? <div key={`div-${i}`} className="border-t border-gray-800/60 my-0.5" />
-                      : (
-                        <div key={row.key} className="grid items-center gap-1" style={{ gridTemplateColumns: '5.5rem 1fr 2.5rem' }}>
-                          <span className="text-[10px] text-gray-500 truncate" title={row.name}>{row.emoji} {row.name}</span>
-                          <input
-                            type="range" min={row.min} max={row.max} step={0.5}
-                            value={labelTextSizes[row.key]}
-                            onChange={e => setLabelTextSizes(prev => ({ ...prev, [row.key]: Number(e.target.value) }))}
-                            className="w-full accent-indigo-500 h-0.5"
-                          />
-                          <span className="text-[10px] text-gray-600 text-right tabular-nums">{labelTextSizes[row.key].toFixed(1)}</span>
-                        </div>
-                      )
-                  )}
-                </div>
-                <button
-                  onClick={() => setLabelShowBg(v => !v)}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                    labelShowBg ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-700 hover:text-gray-500'
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${labelShowBg ? 'bg-indigo-500' : 'bg-gray-700'}`} />
-                  <span className={labelShowBg ? '' : 'line-through'}>Label backgrounds</span>
-                  <span className="ml-auto text-[10px] text-gray-700">{labelShowBg ? 'on' : 'off'}</span>
-                </button>
-                {labelShowBg && (
                   <label className="block space-y-1">
                     <div className="flex justify-between text-[10px] text-gray-400">
-                      <span>Bg opacity</span><span>{Math.round(labelBgOpacity * 100)}%</span>
+                      <span>{cinemaControls.orbitMode === 'breathe' ? 'Breathe rate' : 'Orbit speed'}</span>
+                      <span>{cinemaControls.orbitSpeed.toFixed(1)}×</span>
                     </div>
-                    <input type="range" min={0} max={1} step={0.05} value={labelBgOpacity}
-                      onChange={e => setLabelBgOpacity(Number(e.target.value))}
+                    <input type="range" min="0.1" max="5" step="0.1" value={cinemaControls.orbitSpeed}
+                      onChange={e => updateControl('orbitSpeed', Number(e.target.value))}
                       className="w-full accent-indigo-500" />
                   </label>
-                )}
-                <button
-                  onClick={() => setLabelAlwaysOnTop(v => !v)}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                    labelAlwaysOnTop ? 'text-cyan-300 bg-cyan-900/20' : 'text-gray-500 hover:text-gray-300'
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${labelAlwaysOnTop ? 'bg-cyan-400' : 'bg-gray-700'}`} />
-                  <span>Show through nodes</span>
-                  <span className="ml-auto text-[10px] text-gray-600">{labelAlwaysOnTop ? 'on' : 'off'}</span>
-                </button>
-                <div className="flex items-center gap-2 px-1">
-                  <span className="text-[10px] text-gray-400 flex-1">Text colour</span>
-                  <input type="color" value={labelTextColor}
-                    onChange={e => setLabelTextColor(e.target.value)}
-                    className="w-8 h-5 rounded cursor-pointer border-0 bg-transparent" />
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Approach dist</span><span>{cinemaControls.approachDist}</span>
+                    </div>
+                    <input type="range" min="30" max="400" step="5" value={cinemaControls.approachDist}
+                      onChange={e => updateControl('approachDist', Number(e.target.value))}
+                      className="w-full accent-indigo-500" />
+                  </label>
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Elevation</span><span>{cinemaControls.elevationOffset}</span>
+                    </div>
+                    <input type="range" min="-100" max="300" step="5" value={cinemaControls.elevationOffset}
+                      onChange={e => updateControl('elevationOffset', Number(e.target.value))}
+                      className="w-full accent-indigo-500" />
+                  </label>
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Playback speed</span><span>{cinemaControls.speedMultiplier.toFixed(1)}×</span>
+                    </div>
+                    <input type="range" min="0.25" max="4" step="0.25" value={cinemaControls.speedMultiplier}
+                      onChange={e => updateControl('speedMultiplier', Number(e.target.value))}
+                      className="w-full accent-indigo-500" />
+                  </label>
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Pitch bias</span>
+                      <span>{cinemaControls.pitchBias > 0 ? `+${cinemaControls.pitchBias}` : cinemaControls.pitchBias}</span>
+                    </div>
+                    <input type="range" min={-200} max={200} step={5} value={cinemaControls.pitchBias}
+                      onChange={e => updateControl('pitchBias', Number(e.target.value))}
+                      className="w-full accent-indigo-500" />
+                    <div className="text-[10px] text-gray-700">+ looks lower, − looks higher</div>
+                  </label>
+                  <button onClick={() => setCinemaControls(DEFAULT_CINEMA_CONTROLS)}
+                    className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors">
+                    Reset camera defaults
+                  </button>
                 </div>
-              </div>
+              </>)}
 
-              {/* Label states: selected vs unselected appearance */}
-              <div className="border-t border-gray-800 pt-3 space-y-3">
-                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Label States</div>
+              {/* ── NODES tab ── */}
+              {configTab === 'nodes' && (<>
+                {/* Visual modes */}
+                <div className="space-y-1">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Node Display</div>
+                  <button
+                    onClick={() => setVisualNodeMode(v => !v)}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                      visualNodeMode ? 'text-amber-300 hover:bg-gray-800' : 'text-gray-700 hover:text-gray-500'
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${visualNodeMode ? 'bg-amber-400' : 'bg-gray-700'}`} />
+                    <span>Visual Node Mode</span>
+                    <span className="ml-auto text-[10px] text-gray-600">{visualNodeMode ? 'on' : 'off'}</span>
+                  </button>
+                  {visualNodeMode && (
+                    <p className="text-[9px] text-gray-600 px-2 leading-snug">
+                      Albums = artwork sprite · Songs = vinyl disk · Bands = logo
+                    </p>
+                  )}
+                  {!visualNodeMode && (
+                    <button
+                      onClick={() => setArtworkSphereMode(v => !v)}
+                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                        artworkSphereMode ? 'text-sky-300 hover:bg-gray-800' : 'text-gray-700 hover:text-gray-500'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${artworkSphereMode ? 'bg-sky-400' : 'bg-gray-700'}`} />
+                      <span>Artwork spheres</span>
+                      <span className="ml-auto text-[10px] text-gray-600">{artworkSphereMode ? 'on' : 'off'}</span>
+                    </button>
+                  )}
+                  {artworkSphereMode && !visualNodeMode && (
+                    <p className="text-[9px] text-gray-600 px-2 leading-snug">
+                      Album &amp; band nodes show artwork wrapped on sphere · songs remain colour balls
+                    </p>
+                  )}
+                </div>
 
-                {/* Unselected nodes */}
-                <div className="space-y-1.5">
-                  <div className="text-[10px] text-gray-500 font-medium">Unselected nodes</div>
+                {/* Node opacity */}
+                <div className="border-t border-gray-800 pt-3">
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Node opacity</span><span>{Math.round(nodeOpacityUser * 100)}%</span>
+                    </div>
+                    <input type="range" min={0.05} max={1} step={0.05} value={nodeOpacityUser}
+                      onChange={e => setNodeOpacityUser(Number(e.target.value))}
+                      className="w-full accent-indigo-500" />
+                    <div className="text-[10px] text-gray-600">Lower = more transparent · resets with theme</div>
+                  </label>
+                  <label className="block space-y-1 mt-2">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Selection dim</span><span>{Math.round(selectionDim * 100)}%</span>
+                    </div>
+                    <input type="range" min={0} max={1} step={0.05} value={selectionDim}
+                      onChange={e => setSelectionDim(Number(e.target.value))}
+                      className="w-full accent-indigo-500" />
+                    <div className="text-[10px] text-gray-600">0 = colours · 1 = fully dark</div>
+                  </label>
+                </div>
+
+                {/* Node type visibility */}
+                <div className="border-t border-gray-800 pt-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Node types</div>
+                    {hiddenTypes.size > 0 && (
+                      <button onClick={() => setHiddenTypes(new Set())}
+                        className="text-[10px] text-indigo-500 hover:text-indigo-300 transition-colors">
+                        Show all
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    {ALL_TYPES.map(type => {
+                      const hidden = hiddenTypes.has(type);
+                      return (
+                        <button key={type}
+                          onClick={() => toggleHiddenType(type)}
+                          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                            hidden
+                              ? 'text-gray-700 hover:text-gray-500'
+                              : 'text-gray-300 hover:bg-gray-800'
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${hidden ? 'bg-gray-700' : ''}`}
+                            style={hidden ? {} : { backgroundColor: TYPE_COLOR[type] ?? '#4b5563' }}
+                          />
+                          <span className={hidden ? 'line-through' : ''}>{TYPE_LABELS[type] ?? type}</span>
+                          <span className="ml-auto text-[10px] text-gray-700">{hidden ? 'hidden' : '✓'}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Album types + per-type colour */}
+                <div className="border-t border-gray-800 pt-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Album types</div>
+                    {selectedAlbumTypes.length > 0 && (
+                      <button onClick={() => setSelectedAlbumTypes([])}
+                        className="text-[10px] text-indigo-500 hover:text-indigo-300 transition-colors">
+                        Show all
+                      </button>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-gray-600 px-1">Check to filter · colour = node tint (empty = theme default)</div>
+                  <div className="space-y-1">
+                    {ALL_ALBUM_TYPES.map(type => {
+                      const active = selectedAlbumTypes.length === 0 || selectedAlbumTypes.includes(type);
+                      const typeColor = albumTypeColors[type] || '';
+                      return (
+                        <div key={type} className="flex items-center gap-1">
+                          <button
+                            onClick={() => toggleAlbumType(type)}
+                            className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                              active ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-700 hover:text-gray-500'
+                            }`}
+                          >
+                            <span className="w-2 h-2 rounded-full shrink-0"
+                              style={{ background: active && typeColor ? typeColor : active ? '#6366f1' : '#374151' }} />
+                            <span className={active ? '' : 'line-through'}>{ALBUM_TYPE_LABELS[type] ?? type}</span>
+                          </button>
+                          <input type="color"
+                            value={typeColor || '#6366f1'}
+                            onChange={e => setAlbumTypeColors(prev => ({ ...prev, [type]: e.target.value }))}
+                            title={`Node colour for ${type}`}
+                            className="w-6 h-5 rounded cursor-pointer border-0 bg-transparent shrink-0" />
+                          {typeColor && (
+                            <button
+                              onClick={() => setAlbumTypeColors(prev => ({ ...prev, [type]: '' }))}
+                              className="text-[10px] text-gray-700 hover:text-gray-400 leading-none shrink-0"
+                              title="Clear colour override">↺</button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Visual theme */}
+                <div className="border-t border-gray-800 pt-3 space-y-2">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Theme</div>
+                  <div className="grid grid-cols-2 gap-1">
+                    {CINEMA_THEMES.map(theme => (
+                      <button
+                        key={theme.id}
+                        onClick={() => setSelectedThemeId(theme.id)}
+                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                          selectedThemeId === theme.id
+                            ? 'bg-gray-700 text-white'
+                            : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                        }`}
+                      >
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: theme.backgroundColor === '#030712' ? '#6366f1' : theme.backgroundColor }} />
+                        <span className="truncate">{theme.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>)}
+
+              {/* ── LABELS tab ── */}
+              {configTab === 'labels' && (<>
+                {/* Label show distances */}
+                <div className="space-y-2">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Show Distance</div>
+                  {(['artist', 'album', 'song', 'other'] as const).map(t => (
+                    <label key={t} className="block space-y-1">
+                      <div className="flex justify-between text-[10px] text-gray-400">
+                        <span className="capitalize">{t === 'other' ? 'Tag / Theme' : t}</span>
+                        <span>{labelDistances[t]}</span>
+                      </div>
+                      <input type="range" min="50" max="1200" step="10"
+                        value={labelDistances[t]}
+                        onChange={e => setLabelDistances(prev => ({ ...prev, [t]: Number(e.target.value) }))}
+                        className="w-full accent-indigo-500" />
+                    </label>
+                  ))}
+                </div>
+
+                {/* Offset + wrap */}
+                <div className="border-t border-gray-800 pt-3 space-y-2">
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Vertical offset</span>
+                      <span className="flex items-center gap-1">
+                        {labelYOffset > 0 ? '+' : ''}{labelYOffset}
+                        {labelYOffset !== 0 && (
+                          <button onClick={() => setLabelYOffset(0)} className="text-gray-700 hover:text-gray-400 leading-none">↺</button>
+                        )}
+                      </span>
+                    </div>
+                    <input type="range" min={-60} max={60} step={1} value={labelYOffset}
+                      onChange={e => setLabelYOffset(Number(e.target.value))}
+                      className="w-full accent-indigo-500" />
+                    <div className="text-[10px] text-gray-700">+ up · − down in screen space · anchors below artwork in Visual Mode</div>
+                  </label>
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Word wrap</span>
+                      <span className="flex items-center gap-1">
+                        {labelWrapWidth === 0 ? 'off' : `${labelWrapWidth} chars`}
+                        {labelWrapWidth > 0 && (
+                          <button onClick={() => setLabelWrapWidth(0)} className="text-gray-700 hover:text-gray-400 leading-none">↺</button>
+                        )}
+                      </span>
+                    </div>
+                    <input type="range" min={0} max={30} step={1} value={labelWrapWidth}
+                      onChange={e => setLabelWrapWidth(Number(e.target.value))}
+                      className="w-full accent-indigo-500" />
+                    <div className="text-[10px] text-gray-700">0 = off</div>
+                  </label>
+                </div>
+
+                {/* Text sizes */}
+                <div className="border-t border-gray-800 pt-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Text Sizes</div>
+                    <button onClick={() => setLabelTextSizes({ ...DEFAULT_LABEL_TEXT_SIZES })}
+                      className="text-[10px] text-gray-700 hover:text-gray-500">reset</button>
+                  </div>
+                  <div className="space-y-1">
+                    {LABEL_SIZE_ROWS.map((row, i) =>
+                      row === null
+                        ? <div key={`div-${i}`} className="border-t border-gray-800/60 my-0.5" />
+                        : (
+                          <div key={row.key} className="grid items-center gap-1" style={{ gridTemplateColumns: '5.5rem 1fr 2.5rem' }}>
+                            <span className="text-[10px] text-gray-500 truncate" title={row.name}>{row.emoji} {row.name}</span>
+                            <input
+                              type="range" min={row.min} max={row.max} step={0.5}
+                              value={labelTextSizes[row.key]}
+                              onChange={e => setLabelTextSizes(prev => ({ ...prev, [row.key]: Number(e.target.value) }))}
+                              className="w-full accent-indigo-500 h-0.5"
+                            />
+                            <span className="text-[10px] text-gray-600 text-right tabular-nums">{labelTextSizes[row.key].toFixed(1)}</span>
+                          </div>
+                        )
+                    )}
+                  </div>
+                </div>
+
+                {/* Appearance */}
+                <div className="border-t border-gray-800 pt-3 space-y-2">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Appearance</div>
+                  <div className="flex items-center gap-2 px-1">
+                    <span className="text-[10px] text-gray-400 flex-1">Text colour</span>
+                    <input type="color" value={labelTextColor}
+                      onChange={e => setLabelTextColor(e.target.value)}
+                      className="w-8 h-5 rounded cursor-pointer border-0 bg-transparent" />
+                  </div>
+                  <button
+                    onClick={() => setLabelShowBg(v => !v)}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                      labelShowBg ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-700 hover:text-gray-500'
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${labelShowBg ? 'bg-indigo-500' : 'bg-gray-700'}`} />
+                    <span className={labelShowBg ? '' : 'line-through'}>Label backgrounds</span>
+                    <span className="ml-auto text-[10px] text-gray-700">{labelShowBg ? 'on' : 'off'}</span>
+                  </button>
+                  {labelShowBg && (
+                    <label className="block space-y-1">
+                      <div className="flex justify-between text-[10px] text-gray-400">
+                        <span>Bg opacity</span><span>{Math.round(labelBgOpacity * 100)}%</span>
+                      </div>
+                      <input type="range" min={0} max={1} step={0.05} value={labelBgOpacity}
+                        onChange={e => setLabelBgOpacity(Number(e.target.value))}
+                        className="w-full accent-indigo-500" />
+                    </label>
+                  )}
+                  <button
+                    onClick={() => setLabelAlwaysOnTop(v => !v)}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                      labelAlwaysOnTop ? 'text-cyan-300 bg-cyan-900/20' : 'text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${labelAlwaysOnTop ? 'bg-cyan-400' : 'bg-gray-700'}`} />
+                    <span>Show through nodes</span>
+                    <span className="ml-auto text-[10px] text-gray-600">{labelAlwaysOnTop ? 'on' : 'off'}</span>
+                  </button>
+                </div>
+
+                {/* Label states */}
+                <div className="border-t border-gray-800 pt-3 space-y-2">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Unselected nodes</div>
                   <label className="block space-y-1">
                     <div className="flex justify-between text-[10px] text-gray-400">
                       <span>Scale{unselectedLabelScale === 0 ? ' — hidden' : ''}</span>
@@ -3736,126 +3507,415 @@ export default function CinemaPage() {
                         className="text-[10px] text-gray-600 hover:text-gray-400">reset</button>
                     )}
                   </div>
-                </div>
 
-                {/* Selected / path nodes */}
-                <div className="space-y-1.5 border-t border-gray-800/60 pt-2">
-                  <div className="text-[10px] text-gray-500 font-medium">Selected / Path nodes</div>
-                  <label className="block space-y-1">
-                    <div className="flex justify-between text-[10px] text-gray-400">
-                      <span>Scale</span><span>{selectedLabelScale.toFixed(2)}×</span>
+                  <div className="border-t border-gray-800/60 pt-2 space-y-1.5">
+                    <div className="text-[10px] text-gray-500 font-medium">Selected / Path nodes</div>
+                    <label className="block space-y-1">
+                      <div className="flex justify-between text-[10px] text-gray-400">
+                        <span>Scale</span><span>{selectedLabelScale.toFixed(2)}×</span>
+                      </div>
+                      <input type="range" min={0.5} max={3} step={0.05} value={selectedLabelScale}
+                        onChange={e => setSelectedLabelScale(Number(e.target.value))}
+                        className="w-full accent-amber-500" />
+                    </label>
+                    <div className="flex items-center gap-2 px-1">
+                      <span className="text-[10px] text-gray-400 flex-1">Color</span>
+                      <input type="color"
+                        value={selectedLabelColorOverride || labelTextColor}
+                        onChange={e => setSelectedLabelColorOverride(e.target.value)}
+                        className="w-8 h-5 rounded cursor-pointer border-0 bg-transparent" />
+                      {selectedLabelColorOverride && (
+                        <button onClick={() => setSelectedLabelColorOverride('')}
+                          className="text-[10px] text-gray-600 hover:text-gray-400">reset</button>
+                      )}
                     </div>
-                    <input type="range" min={0.5} max={3} step={0.05} value={selectedLabelScale}
-                      onChange={e => setSelectedLabelScale(Number(e.target.value))}
-                      className="w-full accent-amber-500" />
-                  </label>
-                  <div className="flex items-center gap-2 px-1">
-                    <span className="text-[10px] text-gray-400 flex-1">Color</span>
-                    <input type="color"
-                      value={selectedLabelColorOverride || labelTextColor}
-                      onChange={e => setSelectedLabelColorOverride(e.target.value)}
-                      className="w-8 h-5 rounded cursor-pointer border-0 bg-transparent" />
-                    {selectedLabelColorOverride && (
-                      <button onClick={() => setSelectedLabelColorOverride('')}
-                        className="text-[10px] text-gray-600 hover:text-gray-400">reset</button>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => setSelectedLabelAlwaysVisible(v => !v)}
-                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                      selectedLabelAlwaysVisible ? 'text-amber-300 bg-amber-900/20' : 'text-gray-500 hover:text-gray-300'
-                    }`}
-                  >
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${selectedLabelAlwaysVisible ? 'bg-amber-400' : 'bg-gray-700'}`} />
-                    <span>Always visible</span>
-                    <span className="ml-auto text-[10px] text-gray-600">{selectedLabelAlwaysVisible ? 'on' : 'off'}</span>
-                  </button>
-                </div>
-                <div className="text-[10px] text-gray-700 leading-snug">
-                  Applies when a chain or path is active. Unselected scale 0 hides all other labels.
-                </div>
-              </div>
-
-              {/* Selection dim */}
-              <div className="border-t border-gray-800 pt-3">
-                <label className="block space-y-1">
-                  <div className="flex justify-between text-[10px] text-gray-400">
-                    <span>Selection dim</span><span>{Math.round(selectionDim * 100)}%</span>
-                  </div>
-                  <input type="range" min={0} max={1} step={0.05} value={selectionDim}
-                    onChange={e => setSelectionDim(Number(e.target.value))}
-                    className="w-full accent-indigo-500" />
-                  <div className="text-[10px] text-gray-600">0 = colours · 1 = fully dark</div>
-                </label>
-              </div>
-
-              {/* Node opacity */}
-              <div className="border-t border-gray-800 pt-3">
-                <label className="block space-y-1">
-                  <div className="flex justify-between text-[10px] text-gray-400">
-                    <span>Node opacity</span><span>{Math.round(nodeOpacityUser * 100)}%</span>
-                  </div>
-                  <input type="range" min={0.05} max={1} step={0.05} value={nodeOpacityUser}
-                    onChange={e => setNodeOpacityUser(Number(e.target.value))}
-                    className="w-full accent-indigo-500" />
-                  <div className="text-[10px] text-gray-600">Lower = more transparent nodes · resets with theme</div>
-                </label>
-              </div>
-
-              {/* Visual theme */}
-              <div className="border-t border-gray-800 pt-3 space-y-2">
-                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Visual Theme</div>
-                <div className="grid grid-cols-2 gap-1">
-                  {CINEMA_THEMES.map(theme => (
                     <button
-                      key={theme.id}
-                      onClick={() => setSelectedThemeId(theme.id)}
-                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                        selectedThemeId === theme.id
-                          ? 'bg-indigo-900/60 border border-indigo-700/40 text-indigo-300'
-                          : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                      onClick={() => setSelectedLabelAlwaysVisible(v => !v)}
+                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                        selectedLabelAlwaysVisible ? 'text-amber-300 bg-amber-900/20' : 'text-gray-500 hover:text-gray-300'
                       }`}
                     >
-                      <span>{theme.emoji}</span>
-                      <span className="truncate">{theme.name}</span>
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${selectedLabelAlwaysVisible ? 'bg-amber-400' : 'bg-gray-700'}`} />
+                      <span>Always visible</span>
+                      <span className="ml-auto text-[10px] text-gray-600">{selectedLabelAlwaysVisible ? 'on' : 'off'}</span>
                     </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Depth of Field */}
-              <div className="border-t border-gray-800 pt-3 space-y-2">
-                <button
-                  onClick={() => setDofEnabled(v => !v)}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
-                    dofEnabled ? 'text-sky-300 hover:bg-gray-800' : 'text-gray-700 hover:text-gray-500'
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${dofEnabled ? 'bg-sky-400' : 'bg-gray-700'}`} />
-                  <span>Depth of Field (DoF)</span>
-                  <span className="ml-auto text-[10px] text-gray-600">{dofEnabled ? 'on' : 'off'}</span>
-                </button>
-                {dofEnabled && (
-                  <div className="space-y-2 pl-1">
-                    <label className="block space-y-1">
-                      <div className="flex justify-between text-[10px] text-gray-400">
-                        <span>Blur amount</span><span>{dofBlur}px</span>
-                      </div>
-                      <input type="range" min={2} max={40} step={1} value={dofBlur}
-                        onChange={e => setDofBlur(Number(e.target.value))}
-                        className="w-full accent-sky-500" />
-                    </label>
-                    <label className="block space-y-1">
-                      <div className="flex justify-between text-[10px] text-gray-400">
-                        <span>Focal zone width</span><span>{dofFocalRadius}%</span>
-                      </div>
-                      <input type="range" min={10} max={80} step={2} value={dofFocalRadius}
-                        onChange={e => setDofFocalRadius(Number(e.target.value))}
-                        className="w-full accent-sky-500" />
-                      <div className="text-[10px] text-gray-700">Small = tight focus · large = wide sharp zone</div>
-                    </label>
                   </div>
-                )}
+                </div>
+              </>)}
+
+              {/* ── LYRICS tab ── */}
+              {configTab === 'lyrics' && (<>
+                <div className="space-y-2">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Proximity</div>
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Lyrics show distance</span>
+                      <span>{lyricsShowDist}</span>
+                    </div>
+                    <input type="range" min={50} max={600} step={10} value={lyricsShowDist}
+                      onChange={e => setLyricsShowDist(Number(e.target.value))}
+                      className="w-full accent-indigo-500" />
+                  </label>
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Text size</span>
+                      <span>{lyricsTextSize.toFixed(1)}</span>
+                    </div>
+                    <input type="range" min={1} max={10} step={0.2} value={lyricsTextSize}
+                      onChange={e => setLyricsTextSize(Number(e.target.value))}
+                      className="w-full accent-indigo-500" />
+                  </label>
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Lines per node</span>
+                      <span>{lyricsMaxLines === 1 ? '1 line' : lyricsMaxLines >= 30 ? 'full' : `${lyricsMaxLines} lines`}</span>
+                    </div>
+                    <input type="range" min={1} max={30} step={1} value={lyricsMaxLines}
+                      onChange={e => setLyricsMaxLines(Number(e.target.value))}
+                      className="w-full accent-indigo-500" />
+                    <div className="text-[10px] text-gray-700">5 = first verse · 30 = full song</div>
+                  </label>
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Max nodes showing</span>
+                      <span>{lyricsMaxNodes >= 99 ? 'all' : lyricsMaxNodes}</span>
+                    </div>
+                    <input type="range" min={1} max={10} step={1} value={lyricsMaxNodes}
+                      onChange={e => setLyricsMaxNodes(Number(e.target.value))}
+                      className="w-full accent-indigo-500" />
+                  </label>
+                  <button
+                    onClick={() => setStareLyrics(v => !v)}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                      stareLyrics ? 'text-indigo-300 bg-indigo-900/30' : 'text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${stareLyrics ? 'bg-indigo-400' : 'bg-gray-700'}`} />
+                    <span>👁 Stare at lyrics</span>
+                    <span className="ml-auto text-[10px] text-gray-600">{stareLyrics ? 'on' : 'off'}</span>
+                  </button>
+                </div>
+
+                {/* Lyric text overlay toggle + sub-settings */}
+                <div className="border-t border-gray-800 pt-3">
+                  <button
+                    onClick={() => setShowLyrics(v => !v)}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                      showLyrics ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-700 hover:text-gray-500'
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${showLyrics ? 'bg-indigo-500' : 'bg-gray-700'}`} />
+                    <span className={showLyrics ? '' : 'line-through'}>Lyric text overlay</span>
+                    <span className="ml-auto text-[10px] text-gray-700">{showLyrics ? '✓' : 'hidden'}</span>
+                  </button>
+
+                  {showLyrics && (
+                    <>
+                      <button
+                        onClick={() => setLyricsSelectedOnly(v => !v)}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                          lyricsSelectedOnly ? 'text-green-300 bg-green-900/20' : 'text-gray-500 hover:text-gray-300'
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${lyricsSelectedOnly ? 'bg-green-400' : 'bg-gray-700'}`} />
+                        <span>Selected node only</span>
+                        <span className="ml-auto text-[10px] text-gray-600">{lyricsSelectedOnly ? 'on' : 'off'}</span>
+                      </button>
+
+                      <button
+                        onClick={() => setLyricsScrollMode(v => !v)}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                          lyricsScrollMode ? 'text-indigo-300 bg-indigo-900/30' : 'text-gray-500 hover:text-gray-300'
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${lyricsScrollMode ? 'bg-indigo-400' : 'bg-gray-700'}`} />
+                        <span>Scroll mode</span>
+                        <span className="ml-auto text-[10px] text-gray-600">{lyricsScrollMode ? 'on' : 'off'}</span>
+                      </button>
+
+                      {lyricsScrollMode && (
+                        <>
+                          <label className="block space-y-1">
+                            <div className="flex justify-between text-[10px] text-gray-400">
+                              <span>Lines visible</span><span>{lyricsWindowSize}</span>
+                            </div>
+                            <input type="range" min={1} max={8} step={1} value={lyricsWindowSize}
+                              onChange={e => setLyricsWindowSize(Number(e.target.value))}
+                              className="w-full accent-indigo-500" />
+                          </label>
+                          <label className="block space-y-1">
+                            <div className="flex justify-between text-[10px] text-gray-400">
+                              <span>Advance every</span><span>{lyricsScrollSpeed}s</span>
+                            </div>
+                            <input type="range" min={0.5} max={8} step={0.5} value={lyricsScrollSpeed}
+                              onChange={e => setLyricsScrollSpeed(Number(e.target.value))}
+                              className="w-full accent-indigo-500" />
+                          </label>
+                          <label className="block space-y-1">
+                            <div className="flex justify-between text-[10px] text-gray-400">
+                              <span>Start at line</span><span>{lyricsGlobalStartLine}</span>
+                            </div>
+                            <input type="range" min={0} max={120} step={1} value={lyricsGlobalStartLine}
+                              onChange={e => {
+                                const v = Number(e.target.value);
+                                setLyricsGlobalStartLine(v);
+                                lyricsScrollOffsetRef.current.forEach((_, id) => {
+                                  lyricsScrollOffsetRef.current.set(id, v);
+                                });
+                              }}
+                              className="w-full accent-indigo-500" />
+                            <div className="flex items-center justify-between">
+                              <div className="text-[10px] text-gray-700">0 = beginning</div>
+                              <button
+                                onClick={() => { setLyricsGlobalStartLine(0); lyricsScrollOffsetRef.current.clear(); }}
+                                className="text-[10px] text-gray-700 hover:text-gray-400"
+                              >reset</button>
+                            </div>
+                          </label>
+                        </>
+                      )}
+
+                      <button
+                        onClick={() => setLyricsProgressiveMode(v => !v)}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                          lyricsProgressiveMode ? 'text-amber-300 bg-amber-900/20' : 'text-gray-500 hover:text-gray-300'
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${lyricsProgressiveMode ? 'bg-amber-400' : 'bg-gray-700'}`} />
+                        <span>Progressive reveal</span>
+                        <span className="ml-auto text-[10px] text-gray-600">{lyricsProgressiveMode ? 'on' : 'off'}</span>
+                      </button>
+                      {lyricsProgressiveMode && (
+                        <label className="block space-y-1">
+                          <div className="flex justify-between text-[10px] text-gray-400">
+                            <span>Reveal pace</span><span>{lyricsRevealPace}s / line</span>
+                          </div>
+                          <input type="range" min={0.5} max={8} step={0.5} value={lyricsRevealPace}
+                            onChange={e => setLyricsRevealPace(Number(e.target.value))}
+                            className="w-full accent-amber-500" />
+                        </label>
+                      )}
+
+                      <div className="border-t border-gray-800/60 pt-2 space-y-1">
+                        <button
+                          onClick={() => setRingLyricsMode(v => !v)}
+                          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                            ringLyricsMode ? 'text-cyan-300 bg-cyan-900/20' : 'text-gray-500 hover:text-gray-300'
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${ringLyricsMode ? 'bg-cyan-400' : 'bg-gray-700'}`} />
+                          <span>🪐 Saturn ring</span>
+                          <span className="ml-auto text-[10px] text-gray-600">{ringLyricsMode ? 'on' : 'off'}</span>
+                        </button>
+                        {ringLyricsMode && (
+                          <div className="space-y-2 pl-1 pt-1">
+                            <label className="block space-y-1">
+                              <div className="flex justify-between text-[10px] text-gray-400">
+                                <span>Radius</span><span>{ringRadius}</span>
+                              </div>
+                              <input type="range" min={20} max={300} step={5} value={ringRadius}
+                                onChange={e => setRingRadius(Number(e.target.value))}
+                                className="w-full accent-cyan-500" />
+                            </label>
+                            <label className="block space-y-1">
+                              <div className="flex justify-between text-[10px] text-gray-400">
+                                <span>Inclination</span><span>{ringInclination}°</span>
+                              </div>
+                              <input type="range" min={0} max={90} step={1} value={ringInclination}
+                                onChange={e => setRingInclination(Number(e.target.value))}
+                                className="w-full accent-cyan-500" />
+                            </label>
+                            <label className="block space-y-1">
+                              <div className="flex justify-between text-[10px] text-gray-400">
+                                <span>Azimuth</span><span>{ringAzimuth}°</span>
+                              </div>
+                              <input type="range" min={0} max={360} step={5} value={ringAzimuth}
+                                onChange={e => setRingAzimuth(Number(e.target.value))}
+                                className="w-full accent-cyan-500" />
+                            </label>
+                            <label className="block space-y-1">
+                              <div className="flex justify-between text-[10px] text-gray-400">
+                                <span>Arc coverage</span><span>{ringArcCoverage}°</span>
+                              </div>
+                              <input type="range" min={30} max={360} step={10} value={ringArcCoverage}
+                                onChange={e => setRingArcCoverage(Number(e.target.value))}
+                                className="w-full accent-cyan-500" />
+                            </label>
+                            <label className="block space-y-1">
+                              <div className="flex justify-between text-[10px] text-gray-400">
+                                <span>Rotation</span>
+                                <span>{ringRotSpeed === 0 ? 'static' : `${ringRotSpeed > 0 ? '+' : ''}${ringRotSpeed.toFixed(2)} r/s`}</span>
+                              </div>
+                              <input type="range" min={-1.5} max={1.5} step={0.01} value={ringRotSpeed}
+                                onChange={e => setRingRotSpeed(Number(e.target.value))}
+                                className="w-full accent-cyan-500" />
+                            </label>
+                            <label className="block space-y-1">
+                              <div className="flex justify-between text-[10px] text-gray-400">
+                                <span>Text size</span><span>{ringTextSize.toFixed(1)}</span>
+                              </div>
+                              <input type="range" min={0.5} max={8} step={0.2} value={ringTextSize}
+                                onChange={e => setRingTextSize(Number(e.target.value))}
+                                className="w-full accent-cyan-500" />
+                            </label>
+                            <button
+                              onClick={() => setRingSelectedOnly(v => !v)}
+                              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                                ringSelectedOnly ? 'text-cyan-300 bg-cyan-900/20' : 'text-gray-500 hover:text-gray-300'
+                              }`}
+                            >
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${ringSelectedOnly ? 'bg-cyan-400' : 'bg-gray-700'}`} />
+                              <span>Selected only</span>
+                              <span className="ml-auto text-[10px] text-gray-600">{ringSelectedOnly ? 'on' : 'off'}</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="border-t border-gray-800/60 pt-2 space-y-1">
+                        <button
+                          onClick={() => setLyricsUniverseMode(v => !v)}
+                          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                            lyricsUniverseMode ? 'text-violet-300 bg-violet-900/20' : 'text-gray-500 hover:text-gray-300'
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${lyricsUniverseMode ? 'bg-violet-400' : 'bg-gray-700'}`} />
+                          <span>🌌 Universe spread</span>
+                          <span className="ml-auto text-[10px] text-gray-600">{lyricsUniverseMode ? 'on' : 'off'}</span>
+                        </button>
+                        {lyricsUniverseMode && (
+                          <div className="space-y-2 pl-1 pt-1">
+                            <label className="block space-y-1">
+                              <div className="flex justify-between text-[10px] text-gray-400">
+                                <span>Spread radius</span><span>{universeSpread}</span>
+                              </div>
+                              <input type="range" min={1} max={20} step={0.5} value={universeSpread}
+                                onChange={e => setUniverseSpread(Number(e.target.value))}
+                                className="w-full accent-violet-500" />
+                            </label>
+                            <label className="block space-y-1">
+                              <div className="flex justify-between text-[10px] text-gray-400">
+                                <span>Vertical step</span><span>{universeLineStep}</span>
+                              </div>
+                              <input type="range" min={2} max={30} step={1} value={universeLineStep}
+                                onChange={e => setUniverseLineStep(Number(e.target.value))}
+                                className="w-full accent-violet-500" />
+                            </label>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </>)}
+
+              {/* ── FX tab ── */}
+              {configTab === 'fx' && (<>
+                {/* Genre data source */}
+                <div className="space-y-2">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Genre data source</div>
+                  <div className="space-y-1">
+                    {(['priority', 'community', 'ai'] as GenreSource[]).map(src => (
+                      <button key={src} onClick={() => setGenreSource(src)}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                          genreSource === src ? 'bg-gray-800 text-gray-200' : 'text-gray-500 hover:text-gray-300'
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${genreSource === src ? 'bg-orange-500' : 'bg-gray-700'}`} />
+                        <span>{GENRE_SOURCE_LABELS[src]}</span>
+                        {genreSource === src && <span className="ml-auto text-[10px] text-orange-500">active</span>}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-[10px] text-gray-600 px-1">Changing source reloads the graph.</div>
+                </div>
+
+                {/* Genre cloud zones */}
+                <div className="border-t border-gray-800 pt-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Genre zones</div>
+                    <button
+                      onClick={() => setGenreCloudsEnabled(v => !v)}
+                      className={`text-[10px] px-2 py-0.5 rounded transition-colors ${genreCloudsEnabled ? 'bg-indigo-900 text-indigo-300' : 'bg-gray-800 text-gray-500'}`}
+                    >
+                      {genreCloudsEnabled ? 'on' : 'off'}
+                    </button>
+                  </div>
+                  {genreCloudsEnabled && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-gray-500 w-14 shrink-0">Opacity</span>
+                        <input type="range" min="1" max="40" value={Math.round(genreCloudOpacity * 100)}
+                          onChange={e => setGenreCloudOpacity(Number(e.target.value) / 100)}
+                          className="flex-1 accent-indigo-500" />
+                        <span className="text-[10px] text-gray-600 w-8 text-right">{Math.round(genreCloudOpacity * 100)}%</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-gray-500 w-14 shrink-0">Size</span>
+                        <input type="range" min="40" max="300" value={genreCloudSize}
+                          onChange={e => setGenreCloudSize(Number(e.target.value))}
+                          className="flex-1 accent-indigo-500" />
+                        <span className="text-[10px] text-gray-600 w-8 text-right">{genreCloudSize}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1">
+                        {GENRE_CLOUD_POLES.map(pole => {
+                          const hidden = hiddenGenreClouds.has(pole.id as GenreCloudId);
+                          return (
+                            <button key={pole.id}
+                              onClick={() => setHiddenGenreClouds(prev => {
+                                const next = new Set(prev);
+                                if (next.has(pole.id as GenreCloudId)) next.delete(pole.id as GenreCloudId); else next.add(pole.id as GenreCloudId);
+                                return next;
+                              })}
+                              className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] transition-colors ${hidden ? 'text-gray-700' : 'text-gray-300'}`}
+                            >
+                              <span className="w-2 h-2 rounded-full shrink-0" style={hidden ? { background: '#374151' } : { background: pole.color }} />
+                              <span className={hidden ? 'line-through' : ''}>{pole.id.charAt(0).toUpperCase() + pole.id.slice(1)}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="text-[10px] text-gray-600">Use Genre Radar arrange to position songs in zones.</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Depth of Field */}
+                <div className="border-t border-gray-800 pt-3 space-y-2">
+                  <button
+                    onClick={() => setDofEnabled(v => !v)}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                      dofEnabled ? 'text-sky-300 hover:bg-gray-800' : 'text-gray-700 hover:text-gray-500'
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${dofEnabled ? 'bg-sky-400' : 'bg-gray-700'}`} />
+                    <span>Depth of Field (DoF)</span>
+                    <span className="ml-auto text-[10px] text-gray-600">{dofEnabled ? 'on' : 'off'}</span>
+                  </button>
+                  {dofEnabled && (
+                    <div className="space-y-2 pl-1">
+                      <label className="block space-y-1">
+                        <div className="flex justify-between text-[10px] text-gray-400">
+                          <span>Blur amount</span><span>{dofBlur}px</span>
+                        </div>
+                        <input type="range" min={2} max={40} step={1} value={dofBlur}
+                          onChange={e => setDofBlur(Number(e.target.value))}
+                          className="w-full accent-sky-500" />
+                      </label>
+                      <label className="block space-y-1">
+                        <div className="flex justify-between text-[10px] text-gray-400">
+                          <span>Focal zone</span><span>{dofFocalRadius}%</span>
+                        </div>
+                        <input type="range" min={10} max={80} step={2} value={dofFocalRadius}
+                          onChange={e => setDofFocalRadius(Number(e.target.value))}
+                          className="w-full accent-sky-500" />
+                        <div className="text-[10px] text-gray-700">Small = tight · large = wide sharp zone</div>
+                      </label>
+                    </div>
+                  )}
+                </div>
+              </>)}
+
               </div>
             </div>
           )}
