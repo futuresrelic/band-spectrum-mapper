@@ -241,8 +241,10 @@ publicRouter.get('/graph', async (req, res, next): Promise<void> => {
     const albumId       = (req.query['albumId']      as string) ?? '';
     const genreRaw      = (req.query['genreSource']  as string) ?? 'priority';
     const albumTypesRaw = (req.query['albumTypes']   as string) ?? '';
+    const nodeLimitRaw  = (req.query['nodeLimit']    as string) ?? '';
     const bandIds       = bandIdsRaw ? bandIdsRaw.split(',').filter(Boolean) : [];
     const albumTypes    = albumTypesRaw ? albumTypesRaw.split(',').filter(Boolean) : [];
+    const nodeLimit     = nodeLimitRaw ? Math.max(100, Math.min(3000, parseInt(nodeLimitRaw, 10) || 600)) : undefined;
     const VALID_GENRE_SOURCES = new Set<string>(['ai', 'community', 'priority']);
     const genreSource: GenreSource = VALID_GENRE_SOURCES.has(genreRaw) ? (genreRaw as GenreSource) : 'priority';
     const data = await buildGraph(preset, {
@@ -250,6 +252,7 @@ publicRouter.get('/graph', async (req, res, next): Promise<void> => {
       genreSource,
       ...(albumId ? { albumId } : {}),
       ...(albumTypes.length ? { albumTypes } : {}),
+      ...(nodeLimit != null ? { nodeLimit } : {}),
     });
     res.json(data);
   } catch (e) { next(e); }

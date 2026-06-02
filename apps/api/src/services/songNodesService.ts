@@ -175,8 +175,9 @@ async function fetchSongs(filter: {
 // Layout: artist-universe
 // ---------------------------------------------------------------------------
 
-async function buildArtistUniverse(bandIds: string[], albumTypes?: string[]): Promise<GraphData> {
-  const songs = await fetchSongs({ bandIds, limit: 600, ...(albumTypes?.length ? { albumTypes } : {}) });
+async function buildArtistUniverse(bandIds: string[], albumTypes?: string[], nodeLimit?: number): Promise<GraphData> {
+  const limit = Math.max(100, Math.min(nodeLimit ?? 600, 3000));
+  const songs = await fetchSongs({ bandIds, limit, ...(albumTypes?.length ? { albumTypes } : {}) });
 
   if (!songs.length) {
     return { nodes: [], edges: [], preset: 'artist-universe', label: 'Artist Universe' };
@@ -557,13 +558,13 @@ async function buildLyricalDna(bandIds: string[]): Promise<GraphData> {
 
 export async function buildGraph(
   preset: GraphLayoutPreset,
-  params: { bandIds?: string[]; albumId?: string; genreSource?: GenreSource; albumTypes?: string[] },
+  params: { bandIds?: string[]; albumId?: string; genreSource?: GenreSource; albumTypes?: string[]; nodeLimit?: number },
 ): Promise<GraphData> {
-  const { bandIds = [], albumId, albumTypes } = params;
+  const { bandIds = [], albumId, albumTypes, nodeLimit } = params;
 
   switch (preset) {
     case 'artist-universe':
-      return buildArtistUniverse(bandIds, albumTypes);
+      return buildArtistUniverse(bandIds, albumTypes, nodeLimit);
 
     case 'album-cluster':
       if (!albumId) throw Object.assign(new Error('albumId required for album-cluster'), { statusCode: 400 });

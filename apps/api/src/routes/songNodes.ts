@@ -29,12 +29,15 @@ songNodesRouter.get('/', async (req, res, next): Promise<void> => {
     }
 
     const albumTypesRaw = (req.query['albumTypes'] as string) ?? '';
+    const nodeLimitRaw  = (req.query['nodeLimit']  as string) ?? '';
     const albumTypes = albumTypesRaw ? albumTypesRaw.split(',').filter(Boolean) : [];
     const bandIds = bandIdsRaw ? bandIdsRaw.split(',').filter(Boolean) : [];
+    const nodeLimit = nodeLimitRaw ? Math.max(100, Math.min(3000, parseInt(nodeLimitRaw, 10) || 600)) : undefined;
     const data = await buildGraph(preset as GraphLayoutPreset, {
       bandIds,
       ...(albumId ? { albumId } : {}),
       ...(albumTypes.length ? { albumTypes } : {}),
+      ...(nodeLimit != null ? { nodeLimit } : {}),
     });
 
     res.json(data);

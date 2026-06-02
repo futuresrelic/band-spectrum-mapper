@@ -106,7 +106,7 @@ export const RAIL_DEFS: RailDef[] = [
     type: 'pendulum',
     label: 'Pendulum',
     emoji: '⏱',
-    description: 'Wide side-to-side sweep across the galaxy — cinematic pan from one wing to the other.',
+    description: 'Star-polygon path through the outermost albums — the camera traces a star shape across the galaxy.',
     loop: true,
     defaultSpeedPerSec: 0.04,
   },
@@ -376,23 +376,46 @@ export function buildRailWaypoints(
 
   // ── Pendulum ───────────────────────────────────────────────────────────────
   if (type === 'pendulum') {
-    // Find the left-most and right-most extremes of the graph (X axis)
-    const xValues = placed.map(n => n.x ?? 0);
-    const xMin    = Math.min(...xValues);
-    const xMax    = Math.max(...xValues);
-    const xSpan   = Math.max(xMax - xMin, maxR * 1.5);
-    const numPts  = 8; // 8 waypoints for 4 swings: left → center → right → center → …
-    return Array.from({ length: numPts }, (_, i) => {
-      // Cosine sweep: -1 → 1 → -1 → 1 …
-      const phase = (i / (numPts - 1)) * Math.PI * 2;
-      const xOff  = Math.cos(phase) * xSpan * 0.5;
-      const px    = cx + xOff;
-      const py    = cy + elevation + maxR * 0.45;
-      const pz    = cz + maxR * 0.8; // slightly outside the graph
+    // Star-polygon pendulum: find the outermost albums, sort by angle, then
+    // visit them in a skip-k star pattern so the camera traces a star shape
+    // across the galaxy instead of a boring back-and-forth sweep.
+    const albums = placed.filter(n => n.type === 'album');
+    if (albums.length === 0) return [];
+
+    const withDist = albums.map(a => {
+      const dx = (a.x ?? 0) - cx, dz = (a.z ?? 0) - cz;
+      return { a, dist: Math.sqrt(dx * dx + dz * dz), angle: Math.atan2(dz, dx) };
+    }).sort((x, y) => y.dist - x.dist);
+
+    // Take 5-9 outermost albums and sort them by angle for star construction
+    const N     = Math.max(3, Math.min(9, withDist.length));
+    const outer = withDist.slice(0, N).sort((x, y) => x.angle - y.angle);
+
+    // Find a star skip k such that gcd(k, N) === 1 (visits every point exactly once)
+    const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b);
+    const starSkip = (n: number): number => {
+      const ideal = Math.max(2, Math.round(n * 0.4));
+      for (let k = ideal; k >= 2; k--) if (gcd(k, n) === 1) return k;
+      for (let k = ideal + 1; k < n; k++) if (gcd(k, n) === 1) return k;
+      return 2;
+    };
+    const skip = starSkip(N);
+
+    // Build the visit-order indices
+    const visitOrder: number[] = [];
+    let idx = 0;
+    for (let i = 0; i < N; i++) {
+      visitOrder.push(idx);
+      idx = (idx + skip) % N;
+    }
+
+    return visitOrder.map(i => {
+      const entry = outer[i]!;
+      const nx = entry.a.x ?? 0, ny = entry.a.y ?? 0, nz = entry.a.z ?? 0;
       return {
-        position: { x: px, y: py, z: pz },
-        lookAt:   { x: cx + xOff * 0.3, y: cy, z: cz }, // look toward the near side
-        label:    i % 2 === 0 ? (xOff < 0 ? 'Left wing' : 'Right wing') : 'Centre',
+        position: outerCamPos(nx, ny, nz, cx, cz, approachDist, elevation),
+        lookAt:   { x: nx, y: ny, z: nz },
+        label:    entry.a.label,
       };
     });
   }

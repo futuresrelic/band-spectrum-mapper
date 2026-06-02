@@ -156,10 +156,11 @@ const GENRE_SOURCE_LABELS: Record<GenreSource, string> = {
   ai:        '🤖 AI',
 };
 
-function fetchCinemaGraph(bandIds: string[], genreSource: GenreSource = 'priority', albumTypes: string[] = []): Promise<GraphData> {
+function fetchCinemaGraph(bandIds: string[], genreSource: GenreSource = 'priority', albumTypes: string[] = [], nodeLimit = 600): Promise<GraphData> {
   const qs = new URLSearchParams({ preset: 'artist-universe', genreSource });
   if (bandIds.length) qs.set('bandIds', bandIds.join(','));
   if (albumTypes.length) qs.set('albumTypes', albumTypes.join(','));
+  qs.set('nodeLimit', String(nodeLimit));
   return api.get(`/api/public/graph?${qs}`);
 }
 function fetchScopes(): Promise<{ bands: { id: string; name: string }[] }> {
@@ -595,6 +596,7 @@ export default function CinemaPage() {
     bootleg: 'Bootleg', single: 'Single', demo: 'Demo',
   };
   const [selectedAlbumTypes, setSelectedAlbumTypes] = useState<string[]>([]);
+  const [nodeLimit, setNodeLimit] = useState(600);
   const toggleAlbumType = (type: string) => {
     setSelectedAlbumTypes(prev =>
       prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
@@ -928,8 +930,8 @@ export default function CinemaPage() {
   const { data: scopes } = useQuery({ queryKey: ['cinema-scopes'], queryFn: fetchScopes });
 
   const { data: graphData, isFetching } = useQuery({
-    queryKey: ['cinema-graph', selectedBandIds.join(','), genreSource, selectedAlbumTypes.join(',')],
-    queryFn: () => fetchCinemaGraph(selectedBandIds, genreSource, selectedAlbumTypes),
+    queryKey: ['cinema-graph', selectedBandIds.join(','), genreSource, selectedAlbumTypes.join(','), nodeLimit],
+    queryFn: () => fetchCinemaGraph(selectedBandIds, genreSource, selectedAlbumTypes, nodeLimit),
     staleTime: Infinity,        // never auto-stale in Cinema — prevents background refetches
     refetchOnWindowFocus: false, // clicking browser/devtools and back must not reset node positions
   });
@@ -1076,13 +1078,26 @@ export default function CinemaPage() {
     if (waypoints.length < 2) return;
     const posVecs  = waypoints.map(w => new THREE.Vector3(w.position.x, w.position.y, w.position.z));
     const lookVecs = waypoints.map(w => new THREE.Vector3(w.lookAt.x,   w.lookAt.y,   w.lookAt.z));
+    // Adaptive base speed: target a sensible dwell time at each waypoint regardless of graph size.
+    // The RAF loop multiplies this by railSpeedRef.current so the slider works live.
+    const TARGET_SECS_PER_WP: Record<RailType, number> = {
+      'album-circuit': 8,
+      'nonagon':       10,
+      'spiral-in':     2,
+      'perimeter':     5,
+      'warp-jumps':    5,
+      'slow-drift':    4,
+      'corkscrew':     2,
+      'pendulum':      6,
+    };
+    const secsPerWp = TARGET_SECS_PER_WP[railType] ?? 5;
     railStateRef.current = {
       posCurve:    new THREE.CatmullRomCurve3(posVecs,  def.loop, 'catmullrom', 0.5),
       lookCurve:   new THREE.CatmullRomCurve3(lookVecs, def.loop, 'catmullrom', 0.5),
       labels:      waypoints.map(w => w.label),
       loop:        def.loop,
       t:           0,
-      speedPerSec: def.defaultSpeedPerSec * railSpeedRef.current,
+      speedPerSec: 1 / (waypoints.length * secsPerWp),
       lastMs:      performance.now(),
     };
     railLookRef.current = { yaw: 0, pitch: 0, active: false, px: 0, py: 0 };
@@ -1422,7 +1437,7 @@ export default function CinemaPage() {
           const dt  = Math.min(0.1, (now - rs.lastMs) / 1000);
           rs.lastMs = now;
 
-          rs.t += dt * rs.speedPerSec;
+          rs.t += dt * rs.speedPerSec * railSpeedRef.current;
           if (rs.t >= 1) {
             if (rs.loop) {
               rs.t %= 1;
@@ -3442,9 +3457,9 @@ export default function CinemaPage() {
                   <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Camera Rail</div>
                   <label className="block space-y-1">
                     <div className="flex justify-between text-[10px] text-gray-400">
-                      <span>Rail speed</span><span>{railSpeed.toFixed(1)}×</span>
+                      <span>Rail speed</span><span>{railSpeed.toFixed(2)}×</span>
                     </div>
-                    <input type="range" min={0.2} max={4} step={0.1} value={railSpeed}
+                    <input type="range" min={0.05} max={4} step={0.05} value={railSpeed}
                       onChange={e => setRailSpeed(Number(e.target.value))}
                       className="w-full accent-indigo-500" />
                   </label>
@@ -3601,6 +3616,26 @@ export default function CinemaPage() {
                         </div>
                       );
                     })}
+                  </div>
+                </div>
+
+                {/* Song cap */}
+                <div className="border-t border-gray-800 pt-3 space-y-2">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Song limit</div>
+                  <div className="text-[10px] text-gray-600 px-1">Max songs loaded — raise for large discographies, lower for speed</div>
+                  <div className="flex items-center gap-2 px-1">
+                    <input
+                      type="number" min={100} max={3000} step={100} value={nodeLimit}
+                      onChange={e => setNodeLimit(Math.max(100, Math.min(3000, Number(e.target.value) || 600)))}
+                      className="w-20 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-[11px] text-gray-200 text-right"
+                    />
+                    <span className="text-[10px] text-gray-500">songs max</span>
+                    {nodeLimit !== 600 && (
+                      <button onClick={() => setNodeLimit(600)}
+                        className="text-[10px] text-indigo-500 hover:text-indigo-300 transition-colors ml-auto">
+                        Reset
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -4672,9 +4707,9 @@ export default function CinemaPage() {
           {/* Speed */}
           <div className="mb-3">
             <div className="flex justify-between text-[10px] text-gray-400 mb-1">
-              <span>Rail speed</span><span>{railSpeed.toFixed(1)}×</span>
+              <span>Rail speed</span><span>{railSpeed.toFixed(2)}×</span>
             </div>
-            <input type="range" min={0.2} max={4} step={0.1} value={railSpeed}
+            <input type="range" min={0.05} max={4} step={0.05} value={railSpeed}
               onChange={e => setRailSpeed(Number(e.target.value))}
               className="w-full accent-indigo-500" />
           </div>
