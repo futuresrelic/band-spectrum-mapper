@@ -500,6 +500,11 @@ export default function CinemaPage() {
   const activeArrangeModeRef = useRef<string>(CINEMA_SCENES[0]?.arrangeMode ?? 'sphere');
   useEffect(() => { activeArrangeModeRef.current = activeArrangeMode; }, [activeArrangeMode]);
 
+  // Lyric visual style
+  const [lyricsStyle, setLyricsStyle] = useState<'default'|'cinema'|'light-card'|'subtitle'|'glow'|'theatrical'|'neon'>('default');
+  const lyricsStyleRef = useRef<'default'|'cinema'|'light-card'|'subtitle'|'glow'|'theatrical'|'neon'>('default');
+  useEffect(() => { lyricsStyleRef.current = lyricsStyle; }, [lyricsStyle]);
+
   // Lyric sprite text size
   const [lyricsTextSize, setLyricsTextSize] = useState(2.8);
   const lyricsTextSizeRef = useRef(2.8);
@@ -1992,11 +1997,8 @@ export default function CinemaPage() {
             const totalWords = words.length;
             words.forEach((word, wordIdx) => {
               const sp = new SpriteText(word);
-              sp.color = 'rgba(199,210,254,0.72)';
+              applyLyricsStyle(sp, lyricsStyleRef.current, true);
               sp.textHeight = ringTextSizeRef.current;
-              sp.fontFace = 'Georgia, serif';
-              sp.backgroundColor = 'rgba(3,7,18,0.4)';
-              sp.padding = 1;
               if ((sp as any).material) (sp as any).material.depthTest = false;
               (sp as any).position.set(node.x ?? 0, node.y ?? 0, node.z ?? 0);
               (sp as any)._songId     = nodeId;
@@ -2013,11 +2015,8 @@ export default function CinemaPage() {
             lines.forEach((line, li) => {
               if (!line.trim()) return;
               const sp = new SpriteText(line.slice(0, 60));
-              sp.color = 'rgba(199,210,254,0.65)';
+              applyLyricsStyle(sp, lyricsStyleRef.current, false);
               sp.textHeight = lyricsTextSizeRef.current;
-              sp.fontFace = 'Georgia, serif';
-              sp.backgroundColor = 'rgba(3,7,18,0.5)';
-              sp.padding = 1;
               if ((sp as any).material) (sp as any).material.depthTest = false;
               const angle = li * 0.9 + nodeId.charCodeAt(5) * 0.1;
               (sp as any).position.set(
@@ -2048,7 +2047,7 @@ export default function CinemaPage() {
       cleanupLyricsSprites();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showLyrics, simNodes, lyricsMaxLines, ringLyricsMode, lyricsUniverseMode]);
+  }, [showLyrics, simNodes, lyricsMaxLines, ringLyricsMode, lyricsUniverseMode, lyricsStyle]);
 
   // ── Social mode ───────────────────────────────────────────────────────────────
 
@@ -2636,6 +2635,60 @@ export default function CinemaPage() {
     setSelectedNode(null);
     fgRef.current?.refresh();
   }, []);
+
+  // Apply the chosen lyric visual style to a freshly-created SpriteText.
+  // Called at sprite creation time; sprites are destroyed+rebuilt on style change.
+  function applyLyricsStyle(sp: any, style: typeof lyricsStyleRef.current, isRing: boolean) {
+    switch (style) {
+      case 'cinema':
+        sp.color           = 'rgba(255,255,255,0.92)';
+        sp.backgroundColor = 'rgba(2,6,28,0.84)';
+        sp.padding         = 4;
+        sp.borderRadius    = 3;
+        sp.fontFace        = 'Georgia, serif';
+        break;
+      case 'light-card':
+        sp.color           = 'rgba(12,20,50,0.92)';
+        sp.backgroundColor = 'rgba(252,248,238,0.91)';
+        sp.padding         = 4;
+        sp.borderRadius    = 3;
+        sp.fontFace        = 'Georgia, serif';
+        break;
+      case 'subtitle':
+        sp.color           = 'rgba(255,255,255,0.97)';
+        sp.backgroundColor = false;
+        sp.padding         = 1;
+        sp.strokeColor     = 'rgba(0,0,0,0.88)';
+        sp.strokeWidth     = 0.4;
+        sp.fontFace        = 'system-ui, sans-serif';
+        break;
+      case 'glow':
+        sp.color           = 'rgba(210,235,255,0.88)';
+        sp.backgroundColor = false;
+        sp.padding         = 1;
+        sp.fontFace        = 'Georgia, serif';
+        break;
+      case 'theatrical':
+        sp.color           = 'rgba(255,214,80,0.90)';
+        sp.backgroundColor = isRing ? false : 'rgba(0,0,0,0.18)';
+        sp.padding         = 2;
+        sp.fontFace        = 'italic Georgia, serif';
+        break;
+      case 'neon':
+        sp.color           = 'rgba(0,255,190,0.92)';
+        sp.backgroundColor = isRing ? false : 'rgba(0,18,10,0.62)';
+        sp.padding         = 2;
+        sp.borderRadius    = 2;
+        sp.fontFace        = 'monospace';
+        break;
+      default: // 'default'
+        sp.color           = isRing ? 'rgba(199,210,254,0.72)' : 'rgba(199,210,254,0.65)';
+        sp.backgroundColor = isRing ? 'rgba(3,7,18,0.40)' : 'rgba(3,7,18,0.50)';
+        sp.padding         = 1;
+        sp.fontFace        = 'Georgia, serif';
+        break;
+    }
+  }
 
   function cleanupLyricsSprites() {
     const scene = fgRef.current?.scene?.();
@@ -3764,7 +3817,48 @@ export default function CinemaPage() {
 
               {/* ── LYRICS tab ── */}
               {configTab === 'lyrics' && (<>
-                <div className="space-y-2">
+
+                {/* Lyric style picker */}
+                <div className="space-y-1.5">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Lyric Style</div>
+                  <div className="grid grid-cols-2 gap-1">
+                    {([
+                      { id: 'default',    label: 'Default',    preview: { bg: 'rgba(3,7,18,0.7)',      color: '#c7d2fe', font: 'Georgia,serif' } },
+                      { id: 'cinema',     label: 'Cinema Card',preview: { bg: 'rgba(2,6,28,0.88)',     color: '#ffffff',  font: 'Georgia,serif' } },
+                      { id: 'light-card', label: 'Light Card', preview: { bg: 'rgba(252,248,238,0.94)',color: '#0c1432',  font: 'Georgia,serif' } },
+                      { id: 'subtitle',   label: 'Subtitle',   preview: { bg: 'transparent',           color: '#ffffff',  font: 'sans-serif',   outline: true } },
+                      { id: 'glow',       label: 'Glow',       preview: { bg: 'transparent',           color: '#d2ebff',  font: 'Georgia,serif' } },
+                      { id: 'theatrical', label: 'Theatrical', preview: { bg: 'rgba(0,0,0,0.22)',      color: '#ffd650',  font: 'italic Georgia,serif' } },
+                      { id: 'neon',       label: 'Neon',       preview: { bg: 'rgba(0,18,10,0.65)',    color: '#00ffbe',  font: 'monospace' } },
+                    ] as const).map(s => (
+                      <button
+                        key={s.id}
+                        onClick={() => setLyricsStyle(s.id)}
+                        className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-[10px] transition-colors ${
+                          lyricsStyle === s.id
+                            ? 'bg-indigo-900/60 border border-indigo-700/40 text-indigo-200'
+                            : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                        }`}
+                      >
+                        {/* Mini preview swatch */}
+                        <span
+                          className="shrink-0 rounded px-1 text-[9px] leading-tight select-none"
+                          style={{
+                            background:   s.preview.bg,
+                            color:        s.preview.color,
+                            fontFamily:   s.preview.font,
+                            textShadow:   ('outline' in s.preview && s.preview.outline) ? '0 0 2px #000,0 0 2px #000' : undefined,
+                            border:       s.preview.bg === 'transparent' ? '1px solid rgba(255,255,255,0.15)' : undefined,
+                          }}
+                        >Aa</span>
+                        <span>{s.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-[9px] text-gray-700 leading-snug px-0.5">Style applies to all lyric sprites · rebuilds on change</div>
+                </div>
+
+                <div className="border-t border-gray-800 pt-3 space-y-2">
                   <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Proximity</div>
                   <label className="block space-y-1">
                     <div className="flex justify-between text-[10px] text-gray-400">
