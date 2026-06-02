@@ -4,6 +4,32 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Cinema camera rails, 12 new themes, opacity-during-playback fix (2026-06-02)
+
+### Added
+
+- **Camera Rail system** — New `🛤 Rail` mode in the bottom toolbar (alongside Scenes / Tour). Camera follows a continuous smooth spline path through the graph; eight distinct rail types selectable from a panel:
+  - **🎞 Album Circuit** — visits every album in release-year order along a smooth curve
+  - **⬡ Nonagon** — 9-vertex looping polygon around the outer ring; perfect for KGLW's circular discography
+  - **🌀 Spiral In** — grand 2.5-turn descent from high orbit down to the core
+  - **🔭 Perimeter Scout** — walks the outer boundary of the galaxy, always gazing inward
+  - **⚡ Warp Jumps** — launches from far-field, decelerates at each album — cinematic hyperjumps
+  - **🌌 Slow Drift** — ambient unhurried drift through the full node cloud (loops forever)
+  - **🔩 Corkscrew** — helical rise up through the galaxy from below
+  - **⏱ Pendulum** — wide side-to-side sweep across the full width of the graph
+  - Rail speed slider (0.2× – 4×) in both the rail panel and the config Layout tab
+  - **Free-aim look-around**: drag the canvas while the rail is running to pan the camera aim; release and it eases back toward the next auto-target over ~1 second
+  - Rail progress shown in top-centre HUD (type emoji + current node label + hint text)
+  - Album nodes now carry `year` in their graph data so Album Circuit sorts by release year
+
+- **12 new visual themes** (added to the existing 30): Solarized Light, Dracula, Tokyo Night, Catppuccin, Gruvbox, Nord Ice, Monokai, Synthwave, Sakura, Lava Lamp (with bokeh), Twilight, Watercolor
+
+### Fixed
+
+- **Selection opacity during playback** — Node dimming, size emphasis, and link highlighting no longer disappear when any playback mode (Path, Scene) is running; they were incorrectly gated on `!isPlayingRef.current` which blocked all dimming during any playback. Now gated on `!tourModeRef.current` so Tour mode keeps its own highlighting while all other playback modes respect the selection dim strength.
+
+---
+
 ## Cinema enhancements — label fix, album type colours, artwork spheres, tabbed config (2026-06-02)
 
 ### Added

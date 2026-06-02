@@ -290,6 +290,93 @@ export const CINEMA_THEMES: CinemaTheme[] = [
     },
     linkColor: 'rgba(180,140,80,0.22)', linkWidthMultiplier: 1.2, nodeOpacity: 0.9, nodeValMultiplier: 1,
   },
+
+  // ── New themes ────────────────────────────────────────────────────────────
+  {
+    id: 'solarized-light', name: 'Sol. Light',  emoji: '🌤',
+    backgroundColor: '#fdf6e3',
+    cssFilter: '',
+    nodeColors: { song: '#268bd2', album: '#2aa198', artist: '#cb4b16', theme: '#859900', tag: '#6c71c4', keyword: '#657b83', emotion: '#d33682' },
+    linkColor: 'rgba(7,54,66,0.25)', linkWidthMultiplier: 1, nodeOpacity: 0.95, nodeValMultiplier: 1,
+  },
+  {
+    id: 'dracula',         name: 'Dracula',      emoji: '🧛',
+    backgroundColor: '#282a36',
+    cssFilter: '',
+    nodeColors: { song: '#8be9fd', album: '#bd93f9', artist: '#ff79c6', theme: '#50fa7b', tag: '#f1fa8c', keyword: '#44475a', emotion: '#ff5555' },
+    linkColor: 'rgba(189,147,249,0.22)', linkWidthMultiplier: 1.2, nodeOpacity: 0.94, nodeValMultiplier: 1,
+  },
+  {
+    id: 'tokyo-night',     name: 'Tokyo Night',  emoji: '🗼',
+    backgroundColor: '#1a1b26',
+    cssFilter: '',
+    nodeColors: { song: '#7aa2f7', album: '#bb9af7', artist: '#e0af68', theme: '#9ece6a', tag: '#2ac3de', keyword: '#565f89', emotion: '#f7768e' },
+    linkColor: 'rgba(122,162,247,0.18)', linkWidthMultiplier: 1, nodeOpacity: 0.93, nodeValMultiplier: 1,
+  },
+  {
+    id: 'catppuccin',      name: 'Catppuccin',   emoji: '🐱',
+    backgroundColor: '#1e1e2e',
+    cssFilter: '',
+    nodeColors: { song: '#89b4fa', album: '#cba6f7', artist: '#fab387', theme: '#a6e3a1', tag: '#89dceb', keyword: '#585b70', emotion: '#f38ba8' },
+    linkColor: 'rgba(137,180,250,0.18)', linkWidthMultiplier: 1, nodeOpacity: 0.93, nodeValMultiplier: 1,
+  },
+  {
+    id: 'gruvbox',         name: 'Gruvbox',      emoji: '🪵',
+    backgroundColor: '#1d2021',
+    cssFilter: 'saturate(0.9)',
+    nodeColors: { song: '#83a598', album: '#d3869b', artist: '#fabd2f', theme: '#b8bb26', tag: '#8ec07c', keyword: '#504945', emotion: '#fb4934' },
+    linkColor: 'rgba(168,153,132,0.22)', linkWidthMultiplier: 1.1, nodeOpacity: 0.92, nodeValMultiplier: 1,
+  },
+  {
+    id: 'nord-ice',        name: 'Nord Ice',     emoji: '❄️',
+    backgroundColor: '#2e3440',
+    cssFilter: '',
+    nodeColors: { song: '#88c0d0', album: '#81a1c1', artist: '#eceff4', theme: '#a3be8c', tag: '#5e81ac', keyword: '#3b4252', emotion: '#b48ead' },
+    linkColor: 'rgba(136,192,208,0.2)', linkWidthMultiplier: 1, nodeOpacity: 0.92, nodeValMultiplier: 1,
+  },
+  {
+    id: 'monokai',         name: 'Monokai',      emoji: '🖥',
+    backgroundColor: '#272822',
+    cssFilter: '',
+    nodeColors: { song: '#66d9e8', album: '#ae81ff', artist: '#e6db74', theme: '#a6e22e', tag: '#f8f8f2', keyword: '#75715e', emotion: '#f92672' },
+    linkColor: 'rgba(166,226,46,0.2)', linkWidthMultiplier: 1.1, nodeOpacity: 0.94, nodeValMultiplier: 1,
+  },
+  {
+    id: 'synthwave',       name: 'Synthwave',    emoji: '🕹',
+    backgroundColor: '#0d0221',
+    cssFilter: 'saturate(1.5) brightness(1.1)',
+    nodeColors: { song: '#ff6ec7', album: '#b967ff', artist: '#fffb96', theme: '#05ffa1', tag: '#01cdfe', keyword: '#2d1b69', emotion: '#ff2975' },
+    linkColor: 'rgba(255,110,199,0.22)', linkWidthMultiplier: 1.5, nodeOpacity: 0.96, nodeValMultiplier: 1,
+  },
+  {
+    id: 'sakura',          name: 'Sakura',       emoji: '🌸',
+    backgroundColor: '#0a0610',
+    cssFilter: 'saturate(1.3) brightness(1.05)',
+    nodeColors: { song: '#f9a8c9', album: '#e879a0', artist: '#fce4ec', theme: '#c0ca33', tag: '#ab47bc', keyword: '#2d1b32', emotion: '#ef5350' },
+    linkColor: 'rgba(233,121,160,0.2)', linkWidthMultiplier: 1, nodeOpacity: 0.93, nodeValMultiplier: 1,
+  },
+  {
+    id: 'lava',            name: 'Lava Lamp',    emoji: '🫧',
+    backgroundColor: '#07000d',
+    cssFilter: 'saturate(1.6) contrast(1.15)',
+    nodeColors: { song: '#ff6d00', album: '#ff3d00', artist: '#ffcc02', theme: '#dd2c00', tag: '#ff9100', keyword: '#1a0500', emotion: '#e64a19' },
+    linkColor: 'rgba(255,109,0,0.22)', linkWidthMultiplier: 1.3, nodeOpacity: 0.95, nodeValMultiplier: 1,
+    bokehOverlay: true,
+  },
+  {
+    id: 'twilight',        name: 'Twilight',     emoji: '🌆',
+    backgroundColor: '#0d0a1a',
+    cssFilter: 'saturate(1.2)',
+    nodeColors: { song: '#9d8cf7', album: '#6c63d4', artist: '#f4a261', theme: '#56cfe1', tag: '#80ffdb', keyword: '#1c1630', emotion: '#ff6b9d' },
+    linkColor: 'rgba(157,140,247,0.18)', linkWidthMultiplier: 1, nodeOpacity: 0.93, nodeValMultiplier: 1,
+  },
+  {
+    id: 'watercolor',      name: 'Watercolor',   emoji: '🎨',
+    backgroundColor: '#0e1f2f',
+    cssFilter: 'saturate(0.75) brightness(1.1)',
+    nodeColors: { song: '#76c8e0', album: '#a0d8b3', artist: '#f0c27f', theme: '#b0a4e3', tag: '#89d4cf', keyword: '#2a4a5e', emotion: '#e8a0a0' },
+    linkColor: 'rgba(118,200,224,0.18)', linkWidthMultiplier: 1, nodeOpacity: 0.88, nodeValMultiplier: 1,
+  },
 ];
 
 export const DEFAULT_THEME_ID = 'default';

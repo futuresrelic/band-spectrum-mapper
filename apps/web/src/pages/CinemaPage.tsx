@@ -29,6 +29,7 @@ import { initOrbitState, updateOrbitCamera, type OrbitCameraState } from '../cin
 import type { CinemaNode, CinemaLink, CinemaControls, TourStep, CinemaKeyframe, NodeSequence } from '../cinema/types';
 import { DEFAULT_CINEMA_CONTROLS } from '../cinema/types';
 import { CINEMA_THEMES, getTheme, DEFAULT_THEME_ID, type CinemaTheme } from '../cinema/themes';
+import { buildRailWaypoints, RAIL_DEFS, type RailType } from '../cinema/cameraRails';
 import TourPlanner from '../cinema/TourPlanner';
 import CameraDirector from '../cinema/CameraDirector';
 
@@ -536,6 +537,15 @@ export default function CinemaPage() {
 
   const [configTab, setConfigTab] = useState<'arrange' | 'nodes' | 'labels' | 'lyrics' | 'fx'>('arrange');
 
+  // ── Camera Rail ──────────────────────────────────────────────────────────────
+  const [railMode, setRailMode]           = useState(false);
+  const [railType, setRailType]           = useState<RailType>('album-circuit');
+  const [railPlaying, setRailPlaying]     = useState(false);
+  const [railSpeed, setRailSpeed]         = useState(1.0);
+  const [railLookFreedom, setRailLookFreedom] = useState(true);
+  const [railCurrentLabel, setRailCurrentLabel] = useState('');
+  const [showRailPanel, setShowRailPanel] = useState(false);
+
   // ── Depth of Field ───────────────────────────────────────────────────────────
   // CSS-based bokeh: backdrop-filter blur with a radial mask (centre sharp, edges blurred)
   const [dofEnabled, setDofEnabled]           = useState(false);
@@ -729,6 +739,21 @@ export default function CinemaPage() {
   // Genre cloud meshes managed by Three.js
   const genreCloudMeshesRef = useRef<THREE.Mesh[]>([]);
 
+  // Camera Rail playback state
+  const railPlayingRef   = useRef(false);
+  const railSpeedRef     = useRef(1.0);
+  const railLookRef      = useRef({ yaw: 0, pitch: 0, active: false, px: 0, py: 0 });
+  const railLabelRef     = useRef('');
+  const railStateRef     = useRef<{
+    posCurve:    THREE.CatmullRomCurve3;
+    lookCurve:   THREE.CatmullRomCurve3;
+    labels:      string[];
+    loop:        boolean;
+    t:           number;
+    speedPerSec: number;
+    lastMs:      number;
+  } | null>(null);
+
   // Node chain selection
   const selectedChainRef = useRef<CinemaNode[]>([]);
 
@@ -788,6 +813,8 @@ export default function CinemaPage() {
   useEffect(() => { labelYOffsetRef.current     = labelYOffset;     }, [labelYOffset]);
   useEffect(() => { labelWrapWidthRef.current   = labelWrapWidth;   }, [labelWrapWidth]);
   useEffect(() => { albumTypeColorsRef.current = albumTypeColors; }, [albumTypeColors]);
+  useEffect(() => { railPlayingRef.current = railPlaying; }, [railPlaying]);
+  useEffect(() => { railSpeedRef.current   = railSpeed;   }, [railSpeed]);
   useEffect(() => { freeCamRef.current              = freeCam;              }, [freeCam]);
   useEffect(() => { pathModeRef.current = pathMode; }, [pathMode]);
   useEffect(() => {
@@ -1031,6 +1058,76 @@ export default function CinemaPage() {
     tourOrbitRef.current = null;
     applyHighlightRef.current(null);
   }, []);
+
+  // ── Camera Rail controls ──────────────────────────────────────────────────
+
+  const startRail = useCallback(() => {
+    const def = RAIL_DEFS.find(d => d.type === railType);
+    if (!def) return;
+    const waypoints = buildRailWaypoints(railType, simNodesRef.current, {
+      approachDist: cinemaControlsRef.current.approachDist,
+      elevation:    cinemaControlsRef.current.elevationOffset,
+    });
+    if (waypoints.length < 2) return;
+    const posVecs  = waypoints.map(w => new THREE.Vector3(w.position.x, w.position.y, w.position.z));
+    const lookVecs = waypoints.map(w => new THREE.Vector3(w.lookAt.x,   w.lookAt.y,   w.lookAt.z));
+    railStateRef.current = {
+      posCurve:    new THREE.CatmullRomCurve3(posVecs,  def.loop, 'catmullrom', 0.5),
+      lookCurve:   new THREE.CatmullRomCurve3(lookVecs, def.loop, 'catmullrom', 0.5),
+      labels:      waypoints.map(w => w.label),
+      loop:        def.loop,
+      t:           0,
+      speedPerSec: def.defaultSpeedPerSec * railSpeedRef.current,
+      lastMs:      performance.now(),
+    };
+    railLookRef.current = { yaw: 0, pitch: 0, active: false, px: 0, py: 0 };
+    railLabelRef.current = waypoints[0]?.label ?? '';
+    setRailCurrentLabel(railLabelRef.current);
+    setRailPlaying(true);
+    railPlayingRef.current = true;
+  }, [railType]);
+
+  const stopRail = useCallback(() => {
+    railStateRef.current = null;
+    setRailPlaying(false);
+    railPlayingRef.current = false;
+    railLookRef.current = { yaw: 0, pitch: 0, active: false, px: 0, py: 0 };
+    setRailCurrentLabel('');
+    const ctrl = fgRef.current?.controls?.();
+    if (ctrl) ctrl.enabled = true;
+  }, []);
+
+  // Pointer look-around while on a rail (user can pan aim, releases to auto-return)
+  useEffect(() => {
+    if (!railPlaying || !containerRef.current) return;
+    const el = containerRef.current;
+    const onDown = (e: PointerEvent) => {
+      railLookRef.current.active = true;
+      railLookRef.current.px = e.clientX;
+      railLookRef.current.py = e.clientY;
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!railLookRef.current.active) return;
+      const dx = e.clientX - railLookRef.current.px;
+      const dy = e.clientY - railLookRef.current.py;
+      railLookRef.current.px = e.clientX;
+      railLookRef.current.py = e.clientY;
+      const sens = 0.004;
+      railLookRef.current.yaw   = Math.max(-Math.PI * 0.55, Math.min(Math.PI * 0.55, railLookRef.current.yaw   + dx * sens));
+      railLookRef.current.pitch = Math.max(-Math.PI * 0.35, Math.min(Math.PI * 0.35, railLookRef.current.pitch - dy * sens));
+    };
+    const onUp = () => { railLookRef.current.active = false; };
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }, [railPlaying]);
 
   const playPath = useCallback(() => {
     if (!pathNodesRef.current.length) return;
@@ -1311,7 +1408,94 @@ export default function CinemaPage() {
           }
         }
 
-        if (ctrl) ctrl.enabled = (!isPlayingRef.current || freeCamRef.current) && directorPlayRef.current === null && sceneKfPlayRef.current === null;
+        if (ctrl) ctrl.enabled = (!isPlayingRef.current || freeCamRef.current) && directorPlayRef.current === null && sceneKfPlayRef.current === null && railStateRef.current === null;
+
+        // ── Camera Rail ──────────────────────────────────────────────────────
+        if (railStateRef.current && camera && ctrl) {
+          const rs  = railStateRef.current;
+          const now = performance.now();
+          const dt  = Math.min(0.1, (now - rs.lastMs) / 1000);
+          rs.lastMs = now;
+
+          rs.t += dt * rs.speedPerSec;
+          if (rs.t >= 1) {
+            if (rs.loop) {
+              rs.t %= 1;
+            } else {
+              rs.t = 0.9999;
+              railStateRef.current = null;
+              setRailPlaying(false);
+              railPlayingRef.current = false;
+              setRailCurrentLabel('');
+            }
+          }
+
+          if (railStateRef.current) {
+            ctrl.enabled = false;
+            const pos      = rs.posCurve.getPoint(rs.t);
+            const autoLook = rs.lookCurve.getPoint(rs.t);
+
+            // HUD label update
+            const labelIdx = Math.min(Math.floor(rs.t * rs.labels.length), rs.labels.length - 1);
+            const lbl = rs.labels[labelIdx] ?? '';
+            if (lbl !== railLabelRef.current) {
+              railLabelRef.current = lbl;
+              setRailCurrentLabel(lbl);
+            }
+
+            // User look offset: ease back when not dragging
+            const look = railLookRef.current;
+            if (!look.active) {
+              const f = Math.exp(-2.5 * dt);
+              look.yaw   *= f;
+              look.pitch *= f;
+              if (Math.abs(look.yaw)   < 0.0005) look.yaw   = 0;
+              if (Math.abs(look.pitch) < 0.0005) look.pitch = 0;
+            }
+
+            // Compute final look target
+            let finalLookX = autoLook.x;
+            let finalLookY = autoLook.y;
+            let finalLookZ = autoLook.z;
+
+            if (look.yaw !== 0 || look.pitch !== 0) {
+              const dX = autoLook.x - pos.x;
+              const dY = autoLook.y - pos.y;
+              const dZ = autoLook.z - pos.z;
+              const dLen = Math.sqrt(dX * dX + dY * dY + dZ * dZ);
+              if (dLen > 0.01) {
+                const fwdX = dX / dLen, fwdY = dY / dLen, fwdZ = dZ / dLen;
+                // right = fwd × worldUp  (worldUp = 0,1,0)
+                const rX = -fwdZ, rZ = fwdX;
+                const rLen = Math.sqrt(rX * rX + rZ * rZ);
+                if (rLen > 0.001) {
+                  const rfX = rX / rLen, rfZ = rZ / rLen;
+                  // camUp = right × fwd
+                  const uX = 0 * fwdZ - rfZ * fwdY;
+                  const uY = rfZ * fwdX - rfX * fwdZ;
+                  const uZ = rfX * fwdY - 0 * fwdX;
+                  // Yaw: rotate fwd around worldUp
+                  const sy = Math.sin(look.yaw),   cy2 = Math.cos(look.yaw);
+                  const yFx = fwdX * cy2 + rfX * sy;
+                  const yFy = fwdY * cy2 + 0   * sy;
+                  const yFz = fwdZ * cy2 + rfZ * sy;
+                  // Pitch: rotate around camera right
+                  const sp = Math.sin(look.pitch), cp = Math.cos(look.pitch);
+                  const pFx = yFx * cp + uX * sp;
+                  const pFy = yFy * cp + uY * sp;
+                  const pFz = yFz * cp + uZ * sp;
+                  finalLookX = pos.x + pFx * 100;
+                  finalLookY = pos.y + pFy * 100;
+                  finalLookZ = pos.z + pFz * 100;
+                }
+              }
+            }
+
+            camera.position.set(pos.x, pos.y, pos.z);
+            ctrl.target.set(finalLookX, finalLookY, finalLookZ);
+            camera.lookAt(finalLookX, finalLookY, finalLookZ);
+          }
+        }
 
         if (isPlayingRef.current && camera && ctrl) {
           const elapsed  = performance.now() - sceneStartRef.current;
@@ -1453,7 +1637,7 @@ export default function CinemaPage() {
               if (!isSelected) {
                 opacity *= unselectedLabelOpacityRef.current;
                 // When something is selected, selectionDim also fades unselected labels
-                if (selectedChainSet.size > 0 && !isPlayingRef.current) {
+                if (selectedChainSet.size > 0 && !tourModeRef.current) {
                   opacity *= Math.max(0, 1 - selectionDimRef.current);
                 }
               }
@@ -1920,7 +2104,7 @@ export default function CinemaPage() {
       else if (n.type === 'song') baseColor = override?.color ?? (n.data?.isRemix ? '#9ca3af' : '#3b82f6');
     }
     const chain = selectedChainRef.current;
-    if (chain.length > 0 && !isPlayingRef.current) {
+    if (chain.length > 0 && !tourModeRef.current) {
       const chainIdx = chain.findIndex(c => c.id === n.id);
       if (chainIdx >= 0) {
         return chainIdx === chain.length - 1 ? '#ffffff' : '#7dd3fc';
@@ -1942,7 +2126,7 @@ export default function CinemaPage() {
       if (n.type === 'album')  return 5 * sizeMult;
       if (n.type === 'song')   return (n.data?.isRemix ? 1.2 : 2) * sizeMult;
     }
-    if (chain.length > 0 && !isPlayingRef.current) {
+    if (chain.length > 0 && !tourModeRef.current) {
       // Chain nodes (selected path): biggest
       const inChain = chain.some(c => c.id === n.id);
       if (inChain) return nodeValFor(n.type) * 2.8 * sizeMult;
@@ -1969,7 +2153,7 @@ export default function CinemaPage() {
       }
     }
     const chain = selectedChainRef.current;
-    if (chain.length > 0 && !isPlayingRef.current) {
+    if (chain.length > 0 && !tourModeRef.current) {
       // Bright white for links that are part of the chain path
       for (let i = 0; i < chain.length - 1; i++) {
         const a = chain[i]!.id, b = chain[i + 1]!.id;
@@ -1994,7 +2178,7 @@ export default function CinemaPage() {
       if (tourNodeIds.size > 0 && (tourNodeIds.has(srcId) || tourNodeIds.has(tgtId))) return 1;
     }
     const chain = selectedChainRef.current;
-    if (chain.length > 0 && !isPlayingRef.current) {
+    if (chain.length > 0 && !tourModeRef.current) {
       for (let i = 0; i < chain.length - 1; i++) {
         const a = chain[i]!.id, b = chain[i + 1]!.id;
         if ((srcId === a && tgtId === b) || (srcId === b && tgtId === a)) return 2.5;
@@ -2063,7 +2247,7 @@ export default function CinemaPage() {
 
     const chain = selectedChainRef.current;
     const isInChain = chain.length > 0 && chain.some(c => c.id === n.id);
-    const dimFactor = (chain.length > 0 && !isInChain && !isPlayingRef.current)
+    const dimFactor = (chain.length > 0 && !isInChain && !tourModeRef.current)
       ? Math.max(0, 1 - selectionDimRef.current)
       : 1;
     const opacity = nodeOpacityUserRef.current * dimFactor;
@@ -2611,6 +2795,15 @@ export default function CinemaPage() {
                   </span>
                 )}
               </div>
+            </div>
+          )}
+          {railPlaying && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 text-center pointer-events-none select-none">
+              <div className="text-xs text-indigo-400/70 uppercase tracking-wider">
+                {RAIL_DEFS.find(d => d.type === railType)?.emoji} {RAIL_DEFS.find(d => d.type === railType)?.label}
+              </div>
+              <div className="text-sm font-semibold text-white/80 mt-0.5">{railCurrentLabel}</div>
+              <div className="text-[10px] text-gray-600 mt-0.5">drag to look · releases to auto-aim</div>
             </div>
           )}
 
@@ -3188,6 +3381,32 @@ export default function CinemaPage() {
                   <button onClick={() => setCinemaControls(DEFAULT_CINEMA_CONTROLS)}
                     className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors">
                     Reset camera defaults
+                  </button>
+                </div>
+
+                {/* Rail settings */}
+                <div className="border-t border-gray-800 pt-3 space-y-2">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Camera Rail</div>
+                  <label className="block space-y-1">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Rail speed</span><span>{railSpeed.toFixed(1)}×</span>
+                    </div>
+                    <input type="range" min={0.2} max={4} step={0.1} value={railSpeed}
+                      onChange={e => setRailSpeed(Number(e.target.value))}
+                      className="w-full accent-indigo-500" />
+                  </label>
+                  <button
+                    onClick={() => setRailLookFreedom(v => !v)}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[10px] transition-colors ${railLookFreedom ? 'text-indigo-300' : 'text-gray-600 hover:text-gray-400'}`}
+                  >
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${railLookFreedom ? 'bg-indigo-400' : 'bg-gray-700'}`} />
+                    <span>Free aim while on rail</span>
+                  </button>
+                  <button
+                    onClick={() => { setRailMode(true); setShowRailPanel(true); setShowControls(false); }}
+                    className="w-full text-[10px] py-1.5 rounded-lg bg-indigo-900/40 text-indigo-400 hover:bg-indigo-900/60 transition-colors"
+                  >
+                    🛤 Open Rail Panel
                   </button>
                 </div>
               </>)}
@@ -4108,19 +4327,26 @@ export default function CinemaPage() {
           )}
           <div className="flex items-center justify-between px-4 py-3 gap-3 bg-gradient-to-t from-gray-950/90 to-transparent backdrop-blur-sm">
             <div className="flex items-center gap-2">
+              {/* Mode switcher: Scenes · Tour · Rail */}
               <div className="flex bg-gray-800/60 rounded-lg p-0.5 text-[10px]">
-                <button onClick={() => setTourMode(false)}
-                  className={`px-2 py-1 rounded transition-colors ${!tourMode ? 'bg-gray-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+                <button onClick={() => { setTourMode(false); setRailMode(false); if (railPlaying) stopRail(); }}
+                  className={`px-2 py-1 rounded transition-colors ${!tourMode && !railMode ? 'bg-gray-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
                   Scenes
                 </button>
-                <button onClick={() => setTourMode(true)}
+                <button onClick={() => { setTourMode(true); setRailMode(false); if (railPlaying) stopRail(); }}
                   className={`px-2 py-1 rounded transition-colors ${tourMode ? 'bg-gray-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
                   Tour
                 </button>
+                <button onClick={() => { setRailMode(true); setTourMode(false); setShowRailPanel(true); }}
+                  className={`px-2 py-1 rounded transition-colors ${railMode ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+                  🛤 Rail
+                </button>
               </div>
-              {!tourMode && (
+
+              {/* Scene picker (Scenes mode) */}
+              {!tourMode && !railMode && (
                 <button
-                  onClick={() => { setShowPlaylist(v => !v); setShowBandPicker(false); setShowControls(false); setShowTourPlanner(false); }}
+                  onClick={() => { setShowPlaylist(v => !v); setShowBandPicker(false); setShowControls(false); setShowTourPlanner(false); setShowRailPanel(false); }}
                   className="text-xs text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1.5"
                 >
                   <span>{currentScene?.emoji ?? '🎬'}</span>
@@ -4128,9 +4354,11 @@ export default function CinemaPage() {
                   <span className="text-gray-600">▾</span>
                 </button>
               )}
+
+              {/* Tour planner (Tour mode) */}
               {tourMode && (
                 <button
-                  onClick={() => { setShowTourPlanner(v => !v); setShowPlaylist(false); setShowBandPicker(false); setShowControls(false); }}
+                  onClick={() => { setShowTourPlanner(v => !v); setShowPlaylist(false); setShowBandPicker(false); setShowControls(false); setShowRailPanel(false); }}
                   className={`text-xs transition-colors flex items-center gap-1.5 ${showTourPlanner ? 'text-indigo-400' : 'text-gray-500 hover:text-gray-300'}`}
                 >
                   <span>📋</span>
@@ -4138,34 +4366,63 @@ export default function CinemaPage() {
                   <span className="text-gray-600">▾</span>
                 </button>
               )}
+
+              {/* Rail type picker (Rail mode) */}
+              {railMode && (
+                <button
+                  onClick={() => { setShowRailPanel(v => !v); setShowPlaylist(false); setShowTourPlanner(false); setShowBandPicker(false); setShowControls(false); }}
+                  className={`text-xs transition-colors flex items-center gap-1.5 ${showRailPanel ? 'text-indigo-400' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                  <span>{RAIL_DEFS.find(d => d.type === railType)?.emoji ?? '🛤'}</span>
+                  <span className="hidden sm:inline">{RAIL_DEFS.find(d => d.type === railType)?.label ?? 'Rail'}</span>
+                  <span className="text-gray-600">▾</span>
+                </button>
+              )}
             </div>
 
             <div className="flex items-center gap-3">
-              {!tourMode && (
+              {/* Scene prev/next only in Scenes mode */}
+              {!tourMode && !railMode && (
                 <button onClick={retreatScene} className="text-gray-500 hover:text-white transition-colors text-lg" title="Previous (J / ←)">⏮</button>
               )}
-              <button
-                onClick={() => {
-                  if (isPlaying) { if (tourMode) stopTour(); else setIsPlaying(false); }
-                  else           { if (tourMode) startTour(); else startPlayback(); }
-                }}
-                disabled={!simReady || (tourMode && tourSteps.length === 0)}
-                className={`w-10 h-10 rounded-full flex items-center justify-center text-lg transition-colors ${
-                  simReady && (!tourMode || tourSteps.length > 0)
-                    ? 'bg-white/10 hover:bg-white/20 text-white'
-                    : 'bg-white/5 text-gray-700 cursor-not-allowed'
-                }`}
-                title="Play / Pause (Space)"
-              >
-                {isPlaying ? '⏸' : '▶'}
-              </button>
-              {!tourMode && (
+
+              {/* Play / stop button adapts to mode */}
+              {railMode ? (
+                <button
+                  onClick={() => { if (railPlaying) stopRail(); else startRail(); }}
+                  disabled={!simReady}
+                  className={`w-10 h-10 rounded-full flex items-center justify-center text-lg transition-colors ${
+                    simReady ? 'bg-indigo-600/60 hover:bg-indigo-600/80 text-white' : 'bg-white/5 text-gray-700 cursor-not-allowed'
+                  }`}
+                  title={railPlaying ? 'Stop rail' : 'Launch rail'}
+                >
+                  {railPlaying ? '⏹' : '▶'}
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    if (isPlaying) { if (tourMode) stopTour(); else setIsPlaying(false); }
+                    else           { if (tourMode) startTour(); else startPlayback(); }
+                  }}
+                  disabled={!simReady || (tourMode && tourSteps.length === 0)}
+                  className={`w-10 h-10 rounded-full flex items-center justify-center text-lg transition-colors ${
+                    simReady && (!tourMode || tourSteps.length > 0)
+                      ? 'bg-white/10 hover:bg-white/20 text-white'
+                      : 'bg-white/5 text-gray-700 cursor-not-allowed'
+                  }`}
+                  title="Play / Pause (Space)"
+                >
+                  {isPlaying ? '⏸' : '▶'}
+                </button>
+              )}
+
+              {!tourMode && !railMode && (
                 <button onClick={advanceScene} className="text-gray-500 hover:text-white transition-colors text-lg" title="Next (L / →)">⏭</button>
               )}
             </div>
 
             <div className="flex items-center gap-2">
-              {isPlaying && (
+              {isPlaying && !railMode && (
                 <button
                   onClick={() => setFreeCam(v => !v)}
                   title={freeCam ? 'Free cam — click to restore scene camera' : 'Lock camera to scene path'}
@@ -4173,6 +4430,9 @@ export default function CinemaPage() {
                 >
                   {freeCam ? '🕹 Free' : '🎥'}
                 </button>
+              )}
+              {railPlaying && (
+                <span className="text-[10px] text-indigo-400 animate-pulse">● Rail</span>
               )}
               <span className="hidden md:inline text-[10px] text-gray-700">Space · F · ⚙</span>
               <button onClick={toggleSocialMode} title="Social Mode (F)" className="text-xs text-gray-600 hover:text-gray-300 transition-colors">🎬</button>
@@ -4278,6 +4538,81 @@ export default function CinemaPage() {
             onLoadSequence={handleLoadSequence}
             onDeleteSequence={handleDeleteSequence}
           />
+        </div>
+      )}
+
+      {/* ── Rail panel ── */}
+      {showRailPanel && railMode && !socialMode && (
+        <div className="absolute bottom-20 left-4 z-40 bg-gray-900/97 border border-indigo-800/40 rounded-xl p-3 backdrop-blur-sm w-72 shadow-2xl">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wide">🛤 Camera Rail</div>
+            <button onClick={() => setShowRailPanel(false)} className="text-gray-600 hover:text-gray-400 text-xs">✕</button>
+          </div>
+
+          <div className="text-[10px] text-gray-600 mb-2 leading-snug">
+            Camera follows a continuous path. Drag to look around — aim returns automatically.
+          </div>
+
+          {/* Rail type grid */}
+          <div className="grid grid-cols-2 gap-1 mb-3">
+            {RAIL_DEFS.map(def => (
+              <button
+                key={def.type}
+                onClick={() => setRailType(def.type)}
+                title={def.description}
+                className={`flex flex-col items-start px-2 py-1.5 rounded-lg text-[10px] transition-colors ${
+                  railType === def.type
+                    ? 'bg-indigo-900/60 border border-indigo-700/40 text-indigo-300'
+                    : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                }`}
+              >
+                <div className="flex items-center gap-1">
+                  <span>{def.emoji}</span>
+                  <span className="font-medium">{def.label}</span>
+                  {def.loop && <span className="text-[9px] text-indigo-500 ml-auto">∞</span>}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Speed */}
+          <div className="mb-3">
+            <div className="flex justify-between text-[10px] text-gray-400 mb-1">
+              <span>Rail speed</span><span>{railSpeed.toFixed(1)}×</span>
+            </div>
+            <input type="range" min={0.2} max={4} step={0.1} value={railSpeed}
+              onChange={e => setRailSpeed(Number(e.target.value))}
+              className="w-full accent-indigo-500" />
+          </div>
+
+          {/* Look freedom toggle */}
+          <button
+            onClick={() => setRailLookFreedom(v => !v)}
+            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[10px] mb-3 transition-colors ${
+              railLookFreedom ? 'text-indigo-300 bg-indigo-900/30' : 'text-gray-600 hover:text-gray-400'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full shrink-0 ${railLookFreedom ? 'bg-indigo-400' : 'bg-gray-700'}`} />
+            <span>Free aim (drag to look, auto-returns)</span>
+          </button>
+
+          {/* Description of selected type */}
+          <div className="text-[9px] text-gray-600 leading-snug mb-3">
+            {RAIL_DEFS.find(d => d.type === railType)?.description}
+          </div>
+
+          {/* Launch / Stop */}
+          <button
+            onClick={() => { if (railPlaying) stopRail(); else startRail(); }}
+            disabled={!simReady}
+            className={`w-full py-2 rounded-lg text-sm font-semibold transition-colors ${
+              railPlaying
+                ? 'bg-red-900/50 text-red-300 hover:bg-red-900/70'
+                : 'bg-indigo-600/70 text-white hover:bg-indigo-600/90'
+            }`}
+          >
+            {railPlaying ? '⏹ Stop Rail' : '▶ Launch Rail'}
+          </button>
         </div>
       )}
 

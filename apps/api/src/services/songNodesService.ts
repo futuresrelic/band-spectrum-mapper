@@ -160,7 +160,7 @@ async function fetchSongs(filter: {
     },
     include: {
       band: { select: { id: true, name: true, logoUrl: true } },
-      album: { select: { id: true, title: true, artworkUrl: true, albumType: true } },
+      album: { select: { id: true, title: true, artworkUrl: true, albumType: true, year: true } },
       score: true,
       songTags: { include: { tag: true } },
       aiAnalysis: { select: { themes: true } },
@@ -186,7 +186,7 @@ async function buildArtistUniverse(bandIds: string[], albumTypes?: string[]): Pr
   const edges: GraphEdge[] = [];
 
   const bandSet   = new Map<string, { name: string; logoUrl?: string | null }>();  // bandId → info
-  const albumSet  = new Map<string, { title: string; artworkUrl?: string | null; albumType?: string | null }>(); // albumId → info
+  const albumSet  = new Map<string, { title: string; artworkUrl?: string | null; albumType?: string | null; year?: number | null }>(); // albumId → info
   const albumBandMap = new Map<string, string>();    // albumId → bandId
   const tagSet = new Map<string, string>();          // tagId → name
   // Note: Theme nodes removed from artist-universe — Tags carry the same data
@@ -198,7 +198,7 @@ async function buildArtistUniverse(bandIds: string[], albumTypes?: string[]): Pr
     nodes.push(songNode(s));
     bandSet.set(s.band.id, { name: s.band.name, logoUrl: s.band.logoUrl });
     if (s.album) {
-      albumSet.set(s.album.id, { title: s.album.title, artworkUrl: s.album.artworkUrl, albumType: s.album.albumType });
+      albumSet.set(s.album.id, { title: s.album.title, artworkUrl: s.album.artworkUrl, albumType: s.album.albumType, year: s.album.year });
       albumBandMap.set(s.album.id, s.band.id);
     }
 
@@ -255,6 +255,7 @@ async function buildArtistUniverse(bandIds: string[], albumTypes?: string[]): Pr
         color: NODE_COLORS.album,
         ...(info.artworkUrl ? { imageUrl: info.artworkUrl } : {}),
         ...(info.albumType ? { albumType: info.albumType } : {}),
+        ...(info.year != null ? { year: info.year } : {}),
       },
     });
     const bandId = albumBandMap.get(id);
