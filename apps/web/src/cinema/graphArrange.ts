@@ -44,8 +44,10 @@ export function buildAdj(
 type RawEdge = { source: string | { id: string }; target: string | { id: string }; type?: string; weight?: number };
 
 // ── Star layout helper ────────────────────────────────────────────────────────
-// Artists → center cluster; Albums → N star-tip fans; Songs → orbit albums;
-// Others → outer belt. Works for any N from 3 to 8.
+// Each star tip is a tight RADIAL SPOKE pointing outward from the center.
+// Albums that overflow a tip stack further out along the same radial direction
+// rather than spreading angularly — this keeps the tip narrow and the gaps
+// between tips wide and clearly visible as a star shape from any camera angle.
 function computeStarLayout<N extends ArrangeNode>(
   nodes: N[],
   nPoints: number,
@@ -57,7 +59,10 @@ function computeStarLayout<N extends ArrangeNode>(
   const albums  = nodes.filter(n => n.type === 'album');
   const songs   = nodes.filter(n => n.type === 'song');
   const others  = nodes.filter(n => !['artist', 'album', 'song'].includes(n.type));
-  const R_OUTER = 330;
+
+  // Radial distance of the first album in each tip, and spacing between stacked albums
+  const R_TIP  = 300;
+  const R_STEP = 62;
 
   // Artists at center (tiny ring)
   const artistR = Math.max(20, Math.min(50, artists.length * 12));
@@ -66,24 +71,26 @@ function computeStarLayout<N extends ArrangeNode>(
     out.set(a.id, { x: artistR * Math.cos(phi), y: 0, z: artistR * Math.sin(phi) });
   });
 
-  // Distribute albums across N tips, round-robin
+  // Distribute albums round-robin across N tips
   const albumsByTip: N[][] = Array.from({ length: nPoints }, () => []);
   albums.forEach((alb, i) => albumsByTip[i % nPoints]!.push(alb));
 
   const albumPositions = new Map<string, { x: number; y: number; z: number }>();
   albumsByTip.forEach((group, tipIdx) => {
     const basePhi = (tipIdx / nPoints) * TWO_PI - Math.PI / 2; // start at top
-    // Each tip sits at a distinct height — makes the star legible from any camera angle
-    const tipY = Math.sin((tipIdx / nPoints) * TWO_PI) * 110;
+    // Each tip at a distinct Y height — star shape legible from any camera angle
+    const tipY = Math.sin((tipIdx / nPoints) * TWO_PI) * 130;
+
     group.forEach((alb, j) => {
-      // Fan spread: albums at the same tip form a small arc
-      const halfW  = (group.length - 1) * 0.13;
-      const angle  = basePhi + (j * 0.26 - halfW);
-      const ringR  = R_OUTER + Math.floor(j / Math.max(1, nPoints)) * 52;
+      // Stack radially — overflow albums go further OUT, not angularly wider
+      const r = R_TIP + j * R_STEP;
+      // Tiny sine dither so stacked albums don't perfectly overlap
+      const angDither = Math.sin(j * 2.4) * 0.045;
+      const angle = basePhi + angDither;
       const pos = {
-        x: ringR * Math.cos(angle),
-        y: tipY + Math.sin(j * 1.618) * 22,
-        z: ringR * Math.sin(angle),
+        x: r * Math.cos(angle),
+        y: tipY + j * 14,
+        z: r * Math.sin(angle),
       };
       albumPositions.set(alb.id, pos);
       out.set(alb.id, pos);
@@ -99,17 +106,17 @@ function computeStarLayout<N extends ArrangeNode>(
     });
     const idx  = siblings.indexOf(song);
     const phi  = (idx / Math.max(1, siblings.length)) * TWO_PI;
-    const r    = 32;
-    const base = pa ? (albumPositions.get(pa.id) ?? { x: R_OUTER * 0.42, y: 0, z: 0 }) : { x: R_OUTER * 0.42, y: 0, z: 0 };
+    const r    = 28;
+    const base = pa ? (albumPositions.get(pa.id) ?? { x: R_TIP * 0.5, y: 0, z: 0 }) : { x: R_TIP * 0.5, y: 0, z: 0 };
     out.set(song.id, {
       x: base.x + r * Math.cos(phi),
-      y: base.y + r * 0.6 * Math.sin(phi * 2.5),
+      y: base.y + r * 0.5 * Math.sin(phi * 2.5),
       z: base.z + r * Math.sin(phi),
     });
   });
 
-  // Others in outer belt — staggered Y so they're not confused with the star tips
-  const beltR = R_OUTER * 1.6;
+  // Others in outer belt
+  const beltR = R_TIP * 1.8;
   others.forEach((n, i) => {
     const phi = (i / Math.max(1, others.length)) * TWO_PI;
     out.set(n.id, { x: beltR * Math.cos(phi), y: Math.sin(i * 0.618) * 45, z: beltR * Math.sin(phi) });
@@ -117,8 +124,10 @@ function computeStarLayout<N extends ArrangeNode>(
 }
 
 // ── Nonagon Infinity layout helper ────────────────────────────────────────────
-// 9-sided regular polygon — albums placed at nonagon vertices cycling outward,
-// songs orbit their album, artists at center.
+// 9-sided regular polygon — each vertex is a tight radial spoke so the 9-sided
+// shape is unmistakable with large empty arcs between vertices.
+// Albums are distributed round-robin across the 9 vertices; overflow albums
+// stack radially outward from their vertex rather than spreading angularly.
 function computeNonagonLayout<N extends ArrangeNode>(
   nodes: N[],
   adj: Map<string, Set<string>>,
@@ -130,7 +139,9 @@ function computeNonagonLayout<N extends ArrangeNode>(
   const albums  = nodes.filter(n => n.type === 'album');
   const songs   = nodes.filter(n => n.type === 'song');
   const others  = nodes.filter(n => !['artist', 'album', 'song'].includes(n.type));
-  const R_MAIN  = 340;
+
+  const R_VERTEX = 320;
+  const R_STEP   = 62;
 
   // Artists at center
   const artistR = Math.max(20, Math.min(55, artists.length * 14));
@@ -139,19 +150,28 @@ function computeNonagonLayout<N extends ArrangeNode>(
     out.set(a.id, { x: artistR * Math.cos(phi), y: 0, z: artistR * Math.sin(phi) });
   });
 
-  // Albums: place on successive nonagon rings
+  // Albums: round-robin to 9 vertices, overflow stacks radially (not angularly)
+  const albumsByVertex: N[][] = Array.from({ length: N_SIDES }, () => []);
+  albums.forEach((alb, i) => albumsByVertex[i % N_SIDES]!.push(alb));
+
   const albumPositions = new Map<string, { x: number; y: number; z: number }>();
-  albums.forEach((alb, i) => {
-    const vertexIdx = i % N_SIDES;
-    const ring = Math.floor(i / N_SIDES);
-    const r    = R_MAIN + ring * 110;
-    // Start at top (−π/2) and rotate; small angular jitter per ring for depth
-    const phi  = (vertexIdx / N_SIDES) * TWO_PI - Math.PI / 2 + ring * 0.18;
-    // Each vertex at a distinct height — makes the nonagon visually distinct from any angle
-    const vertexY = Math.sin((vertexIdx / N_SIDES) * TWO_PI) * 110;
-    const pos  = { x: r * Math.cos(phi), y: vertexY + ring * 30, z: r * Math.sin(phi) };
-    albumPositions.set(alb.id, pos);
-    out.set(alb.id, pos);
+  albumsByVertex.forEach((group, vertexIdx) => {
+    const basePhi  = (vertexIdx / N_SIDES) * TWO_PI - Math.PI / 2;
+    // Each vertex at a distinct Y height for 3D visibility
+    const vertexY  = Math.sin((vertexIdx / N_SIDES) * TWO_PI) * 120;
+
+    group.forEach((alb, j) => {
+      const r         = R_VERTEX + j * R_STEP;
+      const angDither = Math.sin(j * 2.4) * 0.045;
+      const angle     = basePhi + angDither;
+      const pos = {
+        x: r * Math.cos(angle),
+        y: vertexY + j * 14,
+        z: r * Math.sin(angle),
+      };
+      albumPositions.set(alb.id, pos);
+      out.set(alb.id, pos);
+    });
   });
 
   // Songs orbit their album
@@ -163,8 +183,8 @@ function computeNonagonLayout<N extends ArrangeNode>(
     });
     const idx  = siblings.indexOf(song);
     const phi  = (idx / Math.max(1, siblings.length)) * TWO_PI;
-    const r    = 30;
-    const base = pa ? (albumPositions.get(pa.id) ?? { x: R_MAIN * 0.45, y: 0, z: 0 }) : { x: R_MAIN * 0.45, y: 0, z: 0 };
+    const r    = 28;
+    const base = pa ? (albumPositions.get(pa.id) ?? { x: R_VERTEX * 0.45, y: 0, z: 0 }) : { x: R_VERTEX * 0.45, y: 0, z: 0 };
     out.set(song.id, {
       x: base.x + r * Math.cos(phi),
       y: base.y + r * 0.45 * Math.sin(phi * 2),
@@ -173,7 +193,7 @@ function computeNonagonLayout<N extends ArrangeNode>(
   });
 
   // Others: outer belt
-  const beltR = R_MAIN * 1.65;
+  const beltR = R_VERTEX * 1.7;
   others.forEach((n, i) => {
     const phi = (i / Math.max(1, others.length)) * TWO_PI;
     out.set(n.id, { x: beltR * Math.cos(phi), y: Math.sin(i * 0.618) * 48, z: beltR * Math.sin(phi) });
