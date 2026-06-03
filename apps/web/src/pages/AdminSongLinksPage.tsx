@@ -145,22 +145,36 @@ export default function AdminSongLinksPage() {
     enabled: false,
   });
 
-  // Bulk link mutation
+  // Bulk link mutation — onSuccess receives `variables` so we only mark the
+  // rows that were actually sent, not every pending row in the grid.
   const bulkMutation = useMutation({
     mutationFn: (links: { songId: string; sourceSongId: string; copyLyrics: boolean }[]) =>
       api.post<{ linked: number; lyricsInherited: number; errors: unknown[] }>(
         '/api/song-links/bulk',
         { links }
       ),
-    onSuccess: (result) => {
+    onSuccess: (result, variables) => {
       setBulkResult(result);
-      // Mark linked rows in state
+      const linkedIds = new Set(variables.map(l => l.songId));
       setRows(prev => prev.map(r => {
-        if (r.chosenSourceId && r.status === 'pending') {
+        if (linkedIds.has(r.song.id) && r.status === 'pending') {
           return { ...r, status: 'linked', song: { ...r.song, sourceSongId: r.chosenSourceId } };
         }
         return r;
       }));
+    },
+  });
+
+  // Per-row unlink mutation
+  const unlinkMutation = useMutation({
+    mutationFn: (songId: string) =>
+      api.patch<{ id: string; sourceSongId: string | null }>(`/api/song-links/${songId}`, { sourceSongId: null }),
+    onSuccess: (_, songId) => {
+      setRows(prev => prev.map(r =>
+        r.song.id === songId
+          ? { ...r, status: 'pending', song: { ...r.song, sourceSongId: null } }
+          : r
+      ));
     },
   });
 
@@ -514,9 +528,16 @@ export default function AdminSongLinksPage() {
                     </div>
 
                     {/* Status + per-row action */}
-                    <div className="flex justify-end">
+                    <div className="flex justify-end gap-1">
                       {isAlreadyLinked ? (
-                        <span className="text-[10px] text-green-500 font-medium">Linked</span>
+                        <button
+                          onClick={() => unlinkMutation.mutate(row.song.id)}
+                          disabled={unlinkMutation.isPending}
+                          title="Remove this source link"
+                          className="px-2 py-1 rounded text-[11px] bg-gray-800 text-gray-400 hover:bg-red-900/60 hover:text-red-300 disabled:opacity-40 transition-colors"
+                        >
+                          Unlink
+                        </button>
                       ) : row.chosenSourceId ? (
                         <button
                           onClick={() => {
