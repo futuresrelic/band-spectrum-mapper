@@ -78,14 +78,17 @@ model Song {
   isInstrumental  Boolean   @default(false)
   isRemix         Boolean   @default(false)
   remixOfSongId   String?
+  sourceSongId    String?
   noLyricsAt      DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   band      Band    @relation(fields: [bandId], references: [id], onDelete: Cascade)
   album     Album?  @relation(fields: [albumId], references: [id], onDelete: SetNull)
-  remixOf   Song?   @relation("SongRemixes", fields: [remixOfSongId], references: [id], onDelete: SetNull)
+  remixOf   Song?   @relation("SongRemixes",      fields: [remixOfSongId], references: [id], onDelete: SetNull)
   remixes   Song[]  @relation("SongRemixes")
+  sourceSong  Song?   @relation("SongDerivations", fields: [sourceSongId],  references: [id], onDelete: SetNull)
+  derivations Song[]  @relation("SongDerivations")
 
   lyrics          Lyric[]
   score           SongAxisScore?

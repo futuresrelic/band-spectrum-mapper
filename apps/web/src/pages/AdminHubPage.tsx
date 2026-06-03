@@ -330,6 +330,7 @@ export default function AdminHubPage() {
               {[
                 { label: 'AI Batch Runner', desc: 'Analysis, spectrum, research, genre, context for all songs', path: '/admin/ai-batch' },
                 { label: 'Lyrics Batch Fetcher', desc: 'Automatically fetch missing lyrics', path: '/admin/lyrics-batch' },
+                { label: 'Song Source Linker', desc: 'Link live/bootleg/demo tracks to studio originals · inherit lyrics in bulk', path: '/admin/song-links' },
                 { label: 'Discography Import', desc: 'Import artist discographies from MusicBrainz', path: '/discography' },
                 { label: 'Data Grid', desc: 'Full song matrix — all scored data in one table', path: '/admin/data-grid' },
                 { label: 'DB Health', desc: 'Find and fix integrity issues in the library', path: '/admin/db-health' },

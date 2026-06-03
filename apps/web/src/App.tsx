@@ -25,6 +25,7 @@ import AdminDbHealthPage from './pages/AdminDbHealthPage';
 import AdminMissingLyricsPage from './pages/AdminMissingLyricsPage';
 import AdminMissingArtworkPage from './pages/AdminMissingArtworkPage';
 import AdminLyricsBatchPage from './pages/AdminLyricsBatchPage';
+import AdminSongLinksPage from './pages/AdminSongLinksPage';
 import LyricsBuilderPage from './pages/LyricsBuilderPage';
 import AiBatchRunnerPage from './pages/AiBatchRunnerPage';
 import UserRatePage from './pages/UserRatePage';
@@ -162,6 +163,7 @@ export default function App() {
           <Route path="admin/missing-lyrics" element={<AdminMissingLyricsPage />} />
           <Route path="admin/missing-artwork" element={<AdminMissingArtworkPage />} />
           <Route path="admin/lyrics-batch" element={<AdminLyricsBatchPage />} />
+          <Route path="admin/song-links" element={<AdminSongLinksPage />} />
           <Route path="admin/data-grid" element={<AdminDataGridPage />} />
           <Route path="admin/hub" element={<AdminHubPage />} />
           <Route path="admin/bootlegs" element={<AdminBootlegsPage />} />
