@@ -2022,6 +2022,10 @@ export default function CinemaPage() {
     applyImageFilters(sky.imageDataUrl, sky).then(filteredCanvas => {
       if (cancelled) return;
       const texture  = new THREE.CanvasTexture(filteredCanvas);
+      // Fix UV seam: mirror horizontally so the 0°/360° join is hidden
+      texture.wrapS   = THREE.RepeatWrapping;
+      texture.repeat.x = -1;
+      texture.offset.x =  1;
       const geometry = new THREE.SphereGeometry(8000, 64, 64);
       const material = new THREE.MeshBasicMaterial({
         map: texture,
@@ -2031,6 +2035,8 @@ export default function CinemaPage() {
         depthWrite: false,
       });
       const mesh = new THREE.Mesh(geometry, material);
+      // Rotate so the geometry seam starts directly behind the initial camera look-direction
+      mesh.rotation.y = Math.PI;
       scene3d.add(mesh);
       skyMeshRef.current = mesh;
     }).catch(() => { /* ignore failed image loads */ });
