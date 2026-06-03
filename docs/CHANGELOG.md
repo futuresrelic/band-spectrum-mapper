@@ -4,7 +4,39 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
-## Cinema: adaptive rail speeds, star-polygon pendulum, song limit control (2026-06-02)
+## Song Source Linker — bulk-link live/bootleg/demo recordings to studio originals (2026-06-03)
+
+### Added
+
+- **Song Source Linker** — New admin tool at `/admin/song-links` (also linked from Admin Hub).
+
+  **What it does:** Lets you link any live, bootleg, demo, EP, or single recording to the studio original song it's derived from. Once linked, lyrics can be inherited in bulk — the derived song gets its own editable copy so you can tweak it later.
+
+  **How the auto-detection works:**
+  - Loads all songs from selected bands in one fetch
+  - Splits into "source candidates" (studio album songs) and "derivations" (live/bootleg/demo/EP/single albums)
+  - Title normalisation strips suffixes like `(Live)`, `[Bootleg]`, `- Demo Version` before comparing
+  - Levenshtein distance gives a 0–100% confidence score
+  - ≥ 90% = near-exact match (green), 70–89% = likely (yellow), < 70% = needs review (red)
+
+  **UX flow:**
+  1. Pick one or more bands → click **Load & Auto-detect**
+  2. Grid shows every derivation with: Song + album, type badge, suggested studio match (dropdown), confidence bar, "Copy lyrics" checkbox, status
+  3. The source dropdown lists all studio songs sorted by match % — override any wrong guess instantly
+  4. Click **Link N high-confidence** to bulk-apply everything above your chosen threshold (70/80/90/95%)
+  5. Optionally inherit lyrics for songs that don't have any yet — creates an editable copy labelled "Inherited from: {title}"
+
+- **Schema**: Added `sourceSongId` column to `songs` table with a `SongDerivations` self-referential relation (separate from `remixOfSongId` which remains for actual artistic remixes).
+
+- **API endpoints** at `/api/song-links/`:
+  - `GET /candidates` — fetch all songs with album and lyric status
+  - `PATCH /:songId` — set or clear a source link
+  - `POST /:songId/inherit-lyrics` — copy lyrics from source to this song
+  - `POST /bulk` — link many songs at once, with optional lyrics inheritance
+
+---
+
+## Cinema: adaptive rail speeds, star-polygon pendulum, song limit control (2026-06-03)
 
 ### Changed / Fixed
 
