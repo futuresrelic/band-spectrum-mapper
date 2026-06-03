@@ -30,6 +30,10 @@ import type { CinemaNode, CinemaLink, CinemaControls, TourStep, CinemaKeyframe, 
 import { DEFAULT_CINEMA_CONTROLS } from '../cinema/types';
 import { CINEMA_THEMES, getTheme, DEFAULT_THEME_ID, type CinemaTheme } from '../cinema/themes';
 import { buildRailWaypoints, RAIL_DEFS, type RailType } from '../cinema/cameraRails';
+import {
+  type UserPreset, loadUserPresets, saveUserPresets, makeUserPreset,
+  processImageFile, applyImageFilters,
+} from '../cinema/userPresets';
 import TourPlanner from '../cinema/TourPlanner';
 import CameraDirector from '../cinema/CameraDirector';
 
@@ -541,7 +545,31 @@ export default function CinemaPage() {
   const artworkSphereModeRef = useRef(false);
   useEffect(() => { artworkSphereModeRef.current = artworkSphereMode; }, [artworkSphereMode]);
 
-  const [configTab, setConfigTab] = useState<'arrange' | 'nodes' | 'labels' | 'lyrics' | 'fx'>('arrange');
+  const [configTab, setConfigTab] = useState<'arrange' | 'nodes' | 'labels' | 'lyrics' | 'fx' | 'style'>('arrange');
+
+  // ── User presets ─────────────────────────────────────────────────────────────
+  const [userPresets, setUserPresets]           = useState<UserPreset[]>(() => loadUserPresets());
+  const [activeUserPresetId, setActiveUserPresetId] = useState<string | null>(null);
+  const [editingPresetId, setEditingPresetId]   = useState<string | null>(null);
+  const [presetNameDraft, setPresetNameDraft]   = useState('');
+  const userPresetsRef = useRef<UserPreset[]>([]);
+  useEffect(() => { userPresetsRef.current = userPresets; }, [userPresets]);
+  useEffect(() => { saveUserPresets(userPresets); }, [userPresets]);
+
+  const activeUserPreset  = useMemo(() => userPresets.find(p => p.id === activeUserPresetId)  ?? null, [userPresets, activeUserPresetId]);
+  const editingPreset     = useMemo(() => userPresets.find(p => p.id === editingPresetId)     ?? null, [userPresets, editingPresetId]);
+
+  const upsertPreset = useCallback((updated: UserPreset) => {
+    setUserPresets(prev => {
+      const idx = prev.findIndex(p => p.id === updated.id);
+      return idx >= 0 ? prev.map(p => p.id === updated.id ? updated : p) : [...prev, updated];
+    });
+  }, []);
+
+  // Sky sphere THREE.js mesh
+  const skyMeshRef = useRef<THREE.Mesh | null>(null);
+  const activeUserPresetIdRef = useRef<string | null>(null);
+  useEffect(() => { activeUserPresetIdRef.current = activeUserPresetId; }, [activeUserPresetId]);
 
   // ── Camera Rail ──────────────────────────────────────────────────────────────
   const [railMode, setRailMode]           = useState(false);
@@ -1884,6 +1912,18 @@ export default function CinemaPage() {
           }
         }
       }
+      // Sky sphere rotation
+      if (skyMeshRef.current) {
+        const activeSky = userPresetsRef.current.find(
+          p => p.id === activeUserPresetIdRef.current
+        )?.background;
+        if (activeSky?.mode === 'skySphere') {
+          skyMeshRef.current.rotation.x += activeSky.rotX;
+          skyMeshRef.current.rotation.y += activeSky.rotY;
+          skyMeshRef.current.rotation.z += activeSky.rotZ;
+        }
+      }
+
       rafId = requestAnimationFrame(tick);
     };
 
@@ -1952,6 +1992,67 @@ export default function CinemaPage() {
       }
     };
   }, [simReady, genreCloudsEnabled, genreCloudOpacity, genreCloudSize, hiddenGenreClouds]);
+
+  // ── Sky sphere ────────────────────────────────────────────────────────────────
+  // Rebuilt whenever the image data or any filter setting changes.
+  // Rotation is applied in the RAF loop below.
+
+  const sky = activeUserPreset?.background;
+  const skyFilterKey = sky
+    ? `${activeUserPresetId}:${sky.imageDataUrl.slice(0, 40)}:${sky.brightness}:${sky.contrast}:${sky.saturation}:${sky.hueShift}:${sky.blur}`
+    : 'none';
+
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg || !simReady) return;
+    const scene3d = fg.scene?.() as THREE.Scene | undefined;
+    if (!scene3d) return;
+
+    // Dispose previous sphere
+    if (skyMeshRef.current) {
+      scene3d.remove(skyMeshRef.current);
+      skyMeshRef.current.geometry.dispose();
+      (skyMeshRef.current.material as THREE.Material).dispose();
+      skyMeshRef.current = null;
+    }
+
+    if (!sky || sky.mode !== 'skySphere' || !sky.imageDataUrl) return;
+
+    let cancelled = false;
+    applyImageFilters(sky.imageDataUrl, sky).then(filteredCanvas => {
+      if (cancelled) return;
+      const texture  = new THREE.CanvasTexture(filteredCanvas);
+      const geometry = new THREE.SphereGeometry(8000, 64, 64);
+      const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        side: THREE.BackSide,
+        transparent: true,
+        opacity: sky.opacity,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      scene3d.add(mesh);
+      skyMeshRef.current = mesh;
+    }).catch(() => { /* ignore failed image loads */ });
+
+    return () => {
+      cancelled = true;
+      if (skyMeshRef.current) {
+        scene3d.remove(skyMeshRef.current);
+        skyMeshRef.current.geometry.dispose();
+        (skyMeshRef.current.material as THREE.Material).dispose();
+        skyMeshRef.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simReady, skyFilterKey]);
+
+  // Live-update opacity without rebuilding the sphere
+  useEffect(() => {
+    const mesh = skyMeshRef.current;
+    if (!mesh) return;
+    (mesh.material as THREE.MeshBasicMaterial).opacity = sky?.opacity ?? 0.65;
+  }, [sky?.opacity]);
 
   // ── Cursor auto-hide ──────────────────────────────────────────────────────────
 
@@ -2111,7 +2212,15 @@ export default function CinemaPage() {
     const override = nodeOverridesRef.current[n.id];
     const albumType = n.type === 'album' ? (n.data?.['albumType'] as string | undefined) : undefined;
     const albumTypeColor = albumType ? (albumTypeColorsRef.current[albumType] || undefined) : undefined;
-    let baseColor = override?.color ?? albumTypeColor ?? (currentTheme.nodeColors[n.type] ?? '#4b5563');
+    // User preset overrides: artist profile > type override > base theme
+    const preset = userPresetsRef.current.find(p => p.id === activeUserPresetIdRef.current) ?? null;
+    const bandId = n.data?.bandId as string | undefined;
+    const presetColor: string | undefined =
+      (preset?.artistProfiles.enabled && bandId
+        ? preset.artistProfiles.profiles[bandId]?.primary
+        : undefined)
+      ?? (preset?.nodeColorOverrides[n.type] || undefined);
+    let baseColor = override?.color ?? albumTypeColor ?? presetColor ?? (currentTheme.nodeColors[n.type] ?? '#4b5563');
     if (activeArrangeModeRef.current === 'galactic-cinema') {
       if (n.type === 'artist') baseColor = override?.color ?? '#1e1b4b';
       else if (n.type === 'album') baseColor = override?.color ?? albumTypeColor ?? '#d97706';
@@ -2128,7 +2237,7 @@ export default function CinemaPage() {
       return blendHex(baseColor, '#0d1117', selectionDimRef.current);
     }
     return baseColor;
-  }, [tourMode, tourHighlightedId, currentTheme, albumTypeColors]);
+  }, [tourMode, tourHighlightedId, currentTheme, albumTypeColors, activeUserPresetId]);
 
   const nodeVal = useCallback((node: object) => {
     const n = node as CinemaNode;
@@ -3353,6 +3462,7 @@ export default function CinemaPage() {
                   { id: 'labels',  label: 'A Labels' },
                   { id: 'lyrics',  label: '♫ Lyrics' },
                   { id: 'fx',      label: '◈ FX' },
+                  { id: 'style',   label: '🎨 Style' },
                 ] as const).map(({ id, label }) => (
                   <button key={id} onClick={() => setConfigTab(id)}
                     className={`flex-1 text-[9px] py-1 rounded transition-colors ${
@@ -4263,6 +4373,297 @@ export default function CinemaPage() {
                   )}
                 </div>
               </>)}
+
+              {/* ── STYLE tab ── */}
+              {configTab === 'style' && (() => {
+                const NODE_TYPES_EDITABLE = ['artist','album','song','tag','keyword','emotion'] as const;
+                const NODE_TYPE_LABELS: Record<string, string> = {
+                  artist: 'Artist', album: 'Album', song: 'Song',
+                  tag: 'Tag', keyword: 'Keyword', emotion: 'Emotion',
+                };
+                return (<>
+                  {/* My Presets list */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">My Presets</div>
+                      <button
+                        onClick={() => {
+                          const p = makeUserPreset(`My Preset ${userPresets.length + 1}`, selectedThemeId);
+                          upsertPreset(p);
+                          setEditingPresetId(p.id);
+                          setPresetNameDraft(p.name);
+                          setActiveUserPresetId(p.id);
+                        }}
+                        className="text-[10px] text-indigo-400 hover:text-indigo-200 transition-colors"
+                      >+ New</button>
+                    </div>
+
+                    {userPresets.length === 0 && (
+                      <div className="text-[10px] text-gray-600 px-1">No presets yet. Click + New to create one from the current theme.</div>
+                    )}
+
+                    {userPresets.map(p => (
+                      <div key={p.id}
+                        className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] transition-colors ${
+                          activeUserPresetId === p.id ? 'bg-indigo-900/60 text-indigo-200' : 'bg-gray-800/50 text-gray-400'
+                        }`}
+                      >
+                        <button
+                          onClick={() => setActiveUserPresetId(prev => prev === p.id ? null : p.id)}
+                          className="flex-1 text-left truncate"
+                          title={activeUserPresetId === p.id ? 'Click to deactivate' : 'Click to activate'}
+                        >
+                          {activeUserPresetId === p.id ? '✓ ' : ''}{p.name}
+                          <span className="ml-1.5 text-[9px] text-gray-600">{p.baseThemeId}</span>
+                        </button>
+                        <button onClick={() => { setEditingPresetId(p.id); setPresetNameDraft(p.name); }}
+                          title="Edit" className="text-gray-600 hover:text-gray-300 px-1">✎</button>
+                        <button
+                          onClick={() => {
+                            const copy = makeUserPreset(`${p.name} (copy)`, p.baseThemeId);
+                            const dup: UserPreset = { ...p, ...copy, name: `${p.name} (copy)` };
+                            upsertPreset(dup);
+                          }}
+                          title="Duplicate" className="text-gray-600 hover:text-gray-300 px-1">⎘</button>
+                        <button
+                          onClick={() => {
+                            const json = JSON.stringify(p, null, 2);
+                            const blob = new Blob([json], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a'); a.href = url;
+                            a.download = `${p.name.replace(/\s+/g, '-').toLowerCase()}-preset.json`;
+                            a.click(); URL.revokeObjectURL(url);
+                          }}
+                          title="Export JSON" className="text-gray-600 hover:text-gray-300 px-1">↓</button>
+                        <button
+                          onClick={() => {
+                            if (!confirm(`Delete preset "${p.name}"?`)) return;
+                            setUserPresets(prev => prev.filter(x => x.id !== p.id));
+                            if (activeUserPresetId === p.id) setActiveUserPresetId(null);
+                            if (editingPresetId === p.id) setEditingPresetId(null);
+                          }}
+                          title="Delete" className="text-gray-600 hover:text-red-400 px-1">✕</button>
+                      </div>
+                    ))}
+
+                    {/* Import JSON */}
+                    <label className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-[10px] text-gray-600 hover:text-gray-400 cursor-pointer bg-gray-800/30 hover:bg-gray-800/60 transition-colors">
+                      <span>↑ Import JSON</span>
+                      <input type="file" accept=".json" className="hidden"
+                        onChange={e => {
+                          const file = e.target.files?.[0]; if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = ev => {
+                            try {
+                              const raw = JSON.parse(ev.target?.result as string) as UserPreset;
+                              const imported: UserPreset = { ...makeUserPreset(raw.name ?? 'Imported', raw.baseThemeId ?? 'default'), ...raw, id: `user-${Date.now()}` };
+                              upsertPreset(imported);
+                            } catch { alert('Invalid preset JSON'); }
+                          };
+                          reader.readAsText(file);
+                          e.target.value = '';
+                        }} />
+                    </label>
+                  </div>
+
+                  {/* Preset editor */}
+                  {editingPreset && (() => {
+                    const ep = editingPreset;
+                    const patchPreset = (patch: Partial<UserPreset>) => upsertPreset({ ...ep, ...patch });
+                    const patchSky = (patch: Partial<typeof ep.background>) =>
+                      patchPreset({ background: { ...ep.background, ...patch } });
+                    const patchArtist = (patch: Partial<typeof ep.artistProfiles>) =>
+                      patchPreset({ artistProfiles: { ...ep.artistProfiles, ...patch } });
+
+                    return (
+                      <div className="border-t border-gray-700 pt-3 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Editing: {ep.name}</div>
+                          <button onClick={() => setEditingPresetId(null)} className="text-gray-600 hover:text-gray-300 text-xs">Done</button>
+                        </div>
+
+                        {/* Name */}
+                        <div className="flex gap-2">
+                          <input
+                            value={presetNameDraft}
+                            onChange={e => setPresetNameDraft(e.target.value)}
+                            onBlur={() => patchPreset({ name: presetNameDraft || ep.name })}
+                            className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-[11px] text-gray-200"
+                            placeholder="Preset name"
+                          />
+                        </div>
+
+                        {/* Base theme */}
+                        <div className="space-y-1.5">
+                          <div className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold">Base Theme</div>
+                          <select
+                            value={ep.baseThemeId}
+                            onChange={e => { patchPreset({ baseThemeId: e.target.value }); setSelectedThemeId(e.target.value); }}
+                            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-[11px] text-gray-200"
+                          >
+                            {CINEMA_THEMES.map(t => (
+                              <option key={t.id} value={t.id}>{t.emoji} {t.name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Node color overrides */}
+                        <div className="space-y-1.5">
+                          <div className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold">Node colours</div>
+                          <div className="text-[9px] text-gray-700">Override base theme · empty = use theme default</div>
+                          <div className="space-y-1">
+                            {NODE_TYPES_EDITABLE.map(type => {
+                              const current = ep.nodeColorOverrides[type] ?? '';
+                              const themeDefault = currentTheme.nodeColors[type] ?? '#4b5563';
+                              return (
+                                <div key={type} className="flex items-center gap-2">
+                                  <span className="text-[10px] text-gray-500 w-16 shrink-0">{NODE_TYPE_LABELS[type]}</span>
+                                  <input type="color"
+                                    value={current || themeDefault}
+                                    onChange={e => patchPreset({ nodeColorOverrides: { ...ep.nodeColorOverrides, [type]: e.target.value } })}
+                                    className="w-7 h-5 rounded cursor-pointer border-0 bg-transparent shrink-0"
+                                  />
+                                  {current && (
+                                    <button
+                                      onClick={() => {
+                                        const next = { ...ep.nodeColorOverrides };
+                                        delete next[type];
+                                        patchPreset({ nodeColorOverrides: next });
+                                      }}
+                                      className="text-[9px] text-gray-700 hover:text-gray-400">↺</button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Background / Sky Sphere */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold">Background</div>
+                            <div className="flex gap-1">
+                              {(['solid','skySphere'] as const).map(m => (
+                                <button key={m} onClick={() => patchSky({ mode: m })}
+                                  className={`px-2 py-0.5 rounded text-[10px] transition-colors ${ep.background.mode === m ? 'bg-gray-700 text-white' : 'text-gray-600 hover:text-gray-400'}`}
+                                >{m === 'solid' ? 'Solid' : '🌌 Sky'}</button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {ep.background.mode === 'skySphere' && (<>
+                            {/* Image upload */}
+                            <div className="space-y-1.5">
+                              {ep.background.imageDataUrl ? (
+                                <div className="relative">
+                                  <img src={ep.background.imageDataUrl} alt="Sky preview"
+                                    className="w-full h-16 object-cover rounded border border-gray-700" />
+                                  <button
+                                    onClick={() => patchSky({ imageDataUrl: '' })}
+                                    className="absolute top-1 right-1 bg-gray-900/80 text-gray-400 hover:text-white rounded px-1 text-[10px]">✕</button>
+                                </div>
+                              ) : (
+                                <label className="flex flex-col items-center justify-center gap-1 border border-dashed border-gray-700 rounded p-3 text-[10px] text-gray-600 hover:border-gray-500 hover:text-gray-400 cursor-pointer transition-colors">
+                                  <span>🖼 Upload sky image</span>
+                                  <span className="text-[9px] text-gray-700">JPG/PNG/WEBP · max 2048px · auto-resized</span>
+                                  <input type="file" accept="image/*" className="hidden"
+                                    onChange={async e => {
+                                      const file = e.target.files?.[0]; if (!file) return;
+                                      try {
+                                        const dataUrl = await processImageFile(file);
+                                        patchSky({ imageDataUrl: dataUrl });
+                                      } catch { alert('Could not load image'); }
+                                      e.target.value = '';
+                                    }} />
+                                </label>
+                              )}
+                            </div>
+
+                            {/* Rotation */}
+                            <div className="space-y-1">
+                              <div className="text-[10px] text-gray-600">Rotation speed (radians/frame)</div>
+                              {(['rotX','rotY','rotZ'] as const).map(axis => (
+                                <div key={axis} className="flex items-center gap-2">
+                                  <span className="text-[10px] text-gray-600 w-6 shrink-0">{axis.slice(-1).toUpperCase()}</span>
+                                  <input type="range" min={-0.002} max={0.002} step={0.0001} value={ep.background[axis]}
+                                    onChange={e => patchSky({ [axis]: Number(e.target.value) })}
+                                    className="flex-1 accent-indigo-500" />
+                                  <span className="text-[9px] text-gray-600 w-12 text-right">{ep.background[axis].toFixed(4)}</span>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Image adjustments */}
+                            <div className="space-y-1">
+                              <div className="text-[10px] text-gray-600">Image adjustments (applied on next rebuild)</div>
+                              {([
+                                { key: 'brightness',  label: 'Brightness', min: 0, max: 2, step: 0.05 },
+                                { key: 'contrast',    label: 'Contrast',   min: 0, max: 3, step: 0.05 },
+                                { key: 'saturation',  label: 'Saturation', min: 0, max: 3, step: 0.05 },
+                                { key: 'hueShift',    label: 'Hue shift',  min: 0, max: 360, step: 5 },
+                                { key: 'blur',        label: 'Blur',       min: 0, max: 20, step: 1 },
+                                { key: 'opacity',     label: 'Opacity',    min: 0, max: 1, step: 0.05 },
+                              ] as const).map(({ key, label, min, max, step }) => (
+                                <div key={key} className="flex items-center gap-2">
+                                  <span className="text-[10px] text-gray-500 w-16 shrink-0">{label}</span>
+                                  <input type="range" min={min} max={max} step={step} value={ep.background[key]}
+                                    onChange={e => patchSky({ [key]: Number(e.target.value) })}
+                                    className="flex-1 accent-purple-500" />
+                                  <span className="text-[9px] text-gray-600 w-8 text-right">{Number(ep.background[key]).toFixed(key === 'hueShift' ? 0 : 2)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </>)}
+                        </div>
+
+                        {/* Artist color profiles */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold">Artist Colours</div>
+                            <button
+                              onClick={() => patchArtist({ enabled: !ep.artistProfiles.enabled })}
+                              className={`text-[10px] px-2 py-0.5 rounded transition-colors ${ep.artistProfiles.enabled ? 'bg-indigo-900 text-indigo-300' : 'bg-gray-800 text-gray-500'}`}
+                            >{ep.artistProfiles.enabled ? 'on' : 'off'}</button>
+                          </div>
+                          {ep.artistProfiles.enabled && (
+                            <div className="space-y-1.5">
+                              <div className="text-[9px] text-gray-700">Sets the node colour for every song/album from that band</div>
+                              {(scopes?.bands ?? []).map(band => {
+                                const profile = ep.artistProfiles.profiles[band.id];
+                                return (
+                                  <div key={band.id} className="flex items-center gap-2">
+                                    <span className="text-[10px] text-gray-400 flex-1 truncate">{band.name}</span>
+                                    <input type="color"
+                                      value={profile?.primary ?? '#6366f1'}
+                                      onChange={e => patchArtist({
+                                        profiles: {
+                                          ...ep.artistProfiles.profiles,
+                                          [band.id]: { primary: e.target.value, glow: profile?.glow ?? e.target.value },
+                                        },
+                                      })}
+                                      title="Node colour"
+                                      className="w-7 h-5 rounded cursor-pointer border-0 bg-transparent shrink-0"
+                                    />
+                                    {profile?.primary && (
+                                      <button
+                                        onClick={() => {
+                                          const next = { ...ep.artistProfiles.profiles };
+                                          delete next[band.id];
+                                          patchArtist({ profiles: next });
+                                        }}
+                                        className="text-[9px] text-gray-700 hover:text-gray-400">↺</button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>);
+              })()}
 
               </div>
             </div>
