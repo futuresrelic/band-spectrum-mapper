@@ -34,6 +34,7 @@ import {
   type UserPreset, loadUserPresets, saveUserPresets, makeUserPreset,
   processImageFile, applyImageFilters,
 } from '../cinema/userPresets';
+import { ensureSeedPresets } from '../cinema/seedPresets';
 import TourPlanner from '../cinema/TourPlanner';
 import CameraDirector from '../cinema/CameraDirector';
 
@@ -548,7 +549,7 @@ export default function CinemaPage() {
   const [configTab, setConfigTab] = useState<'arrange' | 'nodes' | 'labels' | 'lyrics' | 'fx' | 'style'>('arrange');
 
   // ── User presets ─────────────────────────────────────────────────────────────
-  const [userPresets, setUserPresets]           = useState<UserPreset[]>(() => loadUserPresets());
+  const [userPresets, setUserPresets]           = useState<UserPreset[]>(() => { ensureSeedPresets(); return loadUserPresets(); });
   const [activeUserPresetId, setActiveUserPresetId] = useState<string | null>(null);
   const [editingPresetId, setEditingPresetId]   = useState<string | null>(null);
   const [presetNameDraft, setPresetNameDraft]   = useState('');
