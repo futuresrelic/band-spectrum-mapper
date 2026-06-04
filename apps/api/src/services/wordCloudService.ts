@@ -331,6 +331,8 @@ export async function findWordClusters(
   opts: {
     bandIds?: string[];
     minSongs?: number;
+    maxSongs?: number;    // upper bound: skip clusters shared by more songs than this
+    minWords?: number;    // minimum word group size to emit (default 2)
     maxGroupSize?: number;
     topN?: number;
     vocabLimit?: number; // max candidate words to consider — guards perf
@@ -339,6 +341,8 @@ export async function findWordClusters(
   const {
     bandIds,
     minSongs = 3,
+    maxSongs,
+    minWords = 2,
     maxGroupSize = 4,
     topN = 25,
     vocabLimit = 70,
@@ -448,15 +452,19 @@ export async function findWordClusters(
         if (coSongs.size < minSongs) continue;
 
         const newWords = [...cluster.words, nextWord];
-        const songs = buildSongList(coSongs);
 
-        allResults.push({
-          words: newWords,
-          songs,
-          songCount: songs.length,
-          wordCount: newWords.length,
-          score: songs.length * newWords.length,
-        });
+        // Emit only when within bounds; still expand regardless of maxSongs
+        // so narrower triples/quads can qualify even if a pair was too common.
+        if (newWords.length >= minWords && (maxSongs === undefined || coSongs.size <= maxSongs)) {
+          const songs = buildSongList(coSongs);
+          allResults.push({
+            words: newWords,
+            songs,
+            songCount: songs.length,
+            wordCount: newWords.length,
+            score: songs.length * newWords.length,
+          });
+        }
 
         nextLayer.push({ words: newWords, songIds: coSongs, startIdx: i + 1 });
       }

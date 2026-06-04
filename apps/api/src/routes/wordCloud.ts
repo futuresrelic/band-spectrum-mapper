@@ -124,12 +124,16 @@ wordCloudRouter.get('/clusters', async (req, res, next): Promise<void> => {
     const bandIds = bandIdsRaw ? bandIdsRaw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
 
     const minSongs     = Math.max(2, parseInt((req.query['minSongs']     as string) ?? '3',  10) || 3);
+    const maxSongsRaw  = parseInt((req.query['maxSongs']     as string) ?? '0',  10) || 0;
+    const minWords     = Math.max(2, parseInt((req.query['minWords']     as string) ?? '2',  10) || 2);
     const maxGroupSize = Math.min(5, Math.max(2, parseInt((req.query['maxGroupSize'] as string) ?? '4', 10) || 4));
-    const topN         = Math.min(50, parseInt((req.query['topN']        as string) ?? '25', 10) || 25);
+    const topN         = Math.min(200, parseInt((req.query['topN']       as string) ?? '25', 10) || 25);
 
     const result = await findWordClusters({
       ...(bandIds ? { bandIds } : {}),
       minSongs,
+      ...(maxSongsRaw > 0 ? { maxSongs: maxSongsRaw } : {}),
+      minWords,
       maxGroupSize,
       topN,
     });

@@ -112,14 +112,18 @@ export const wordCloudApi = {
   findClusters(params: {
     bandIds?: string[];
     minSongs?: number;
+    maxSongs?: number;
+    minWords?: number;
     maxGroupSize?: number;
     topN?: number;
   }): Promise<WordClustersResult> {
     const qs = new URLSearchParams();
-    if (params.bandIds?.length) qs.set('bandIds', params.bandIds.join(','));
-    if (params.minSongs)     qs.set('minSongs',     String(params.minSongs));
-    if (params.maxGroupSize) qs.set('maxGroupSize', String(params.maxGroupSize));
-    if (params.topN)         qs.set('topN',         String(params.topN));
+    if (params.bandIds?.length)                  qs.set('bandIds',     params.bandIds.join(','));
+    if (params.minSongs)                         qs.set('minSongs',     String(params.minSongs));
+    if (params.maxSongs && params.maxSongs > 0)  qs.set('maxSongs',     String(params.maxSongs));
+    if (params.minWords)                         qs.set('minWords',     String(params.minWords));
+    if (params.maxGroupSize)                     qs.set('maxGroupSize', String(params.maxGroupSize));
+    if (params.topN)                             qs.set('topN',         String(params.topN));
     return api.get(`/api/word-cloud/clusters?${qs}`);
   },
 };
