@@ -35,6 +35,10 @@ import {
   processImageFile, applyImageFilters,
 } from '../cinema/userPresets';
 import { ensureSeedPresets } from '../cinema/seedPresets';
+import {
+  type ConfigSnapshot, makeConfigSnapshot, loadConfigSnapshots, saveConfigSnapshots,
+  DEFAULT_SNAPSHOT_VALUES,
+} from '../cinema/configSnapshots';
 import TourPlanner from '../cinema/TourPlanner';
 import CameraDirector from '../cinema/CameraDirector';
 
@@ -547,7 +551,12 @@ export default function CinemaPage() {
   const artworkSphereModeRef = useRef(false);
   useEffect(() => { artworkSphereModeRef.current = artworkSphereMode; }, [artworkSphereMode]);
 
-  const [configTab, setConfigTab] = useState<'arrange' | 'nodes' | 'labels' | 'lyrics' | 'fx' | 'style'>('arrange');
+  const [configTab, setConfigTab] = useState<'arrange' | 'nodes' | 'labels' | 'lyrics' | 'fx' | 'style' | 'saves'>('arrange');
+
+  // ── Config snapshots ─────────────────────────────────────────────────────────
+  const [configSnapshots, setConfigSnapshots]   = useState<ConfigSnapshot[]>(() => loadConfigSnapshots());
+  const [snapshotNameDraft, setSnapshotNameDraft] = useState('');
+  useEffect(() => { saveConfigSnapshots(configSnapshots); }, [configSnapshots]);
 
   // ── User presets ─────────────────────────────────────────────────────────────
   const [userPresets, setUserPresets]           = useState<UserPreset[]>(() => { ensureSeedPresets(); return loadUserPresets(); });
@@ -3490,6 +3499,7 @@ export default function CinemaPage() {
                   { id: 'lyrics',  label: '♫ Lyrics' },
                   { id: 'fx',      label: '◈ FX' },
                   { id: 'style',   label: '🎨 Style' },
+                  { id: 'saves',   label: '💾 Saves' },
                 ] as const).map(({ id, label }) => (
                   <button key={id} onClick={() => setConfigTab(id)}
                     className={`flex-1 text-[9px] py-1 rounded transition-colors ${
@@ -4690,6 +4700,161 @@ export default function CinemaPage() {
                     );
                   })()}
                 </>);
+              })()}
+
+              {/* ── SAVES tab ── */}
+              {configTab === 'saves' && (() => {
+                const loadSnapshot = (s: ConfigSnapshot) => {
+                  setSelectedThemeId(s.themeId);
+                  setCinemaControls(s.controls);
+                  setHiddenTypes(new Set(s.hiddenTypes));
+                  setNodeOpacityUser(s.nodeOpacity);
+                  setLoopScene(s.loopScene);
+                  setNodeLimit(s.nodeLimit);
+                  reArrange(s.arrangeMode);
+                };
+
+                const saveSnapshot = () => {
+                  const name = snapshotNameDraft.trim() || `Config ${configSnapshots.length + 1}`;
+                  const snap = makeConfigSnapshot(name, {
+                    themeId:     selectedThemeId,
+                    controls:    { ...cinemaControls },
+                    arrangeMode: activeArrangeMode,
+                    hiddenTypes: [...hiddenTypes],
+                    nodeOpacity: nodeOpacityUser,
+                    loopScene,
+                    nodeLimit,
+                  });
+                  setConfigSnapshots(prev => [...prev, snap]);
+                  setSnapshotNameDraft('');
+                };
+
+                const deleteSnapshot = (id: string) => {
+                  if (!confirm('Delete this config snapshot?')) return;
+                  setConfigSnapshots(prev => prev.filter(s => s.id !== id));
+                };
+
+                const resetToDefaults = () => {
+                  if (!confirm('Reset all camera and display settings to defaults?')) return;
+                  setCinemaControls({ ...DEFAULT_SNAPSHOT_VALUES.controls });
+                  setNodeOpacityUser(DEFAULT_SNAPSHOT_VALUES.nodeOpacity);
+                  setLoopScene(DEFAULT_SNAPSHOT_VALUES.loopScene);
+                  setHiddenTypes(new Set(DEFAULT_SNAPSHOT_VALUES.hiddenTypes));
+                };
+
+                return (
+                  <div className="space-y-3">
+                    {/* Save current config */}
+                    <div className="space-y-1.5">
+                      <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Save Current Setup</div>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          placeholder="Name (optional)"
+                          value={snapshotNameDraft}
+                          onChange={e => setSnapshotNameDraft(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveSnapshot(); }}
+                          className="flex-1 text-[11px] bg-gray-800/60 border border-gray-700 rounded px-2 py-1 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-indigo-500"
+                        />
+                        <button
+                          onClick={saveSnapshot}
+                          className="text-[10px] bg-indigo-700/60 hover:bg-indigo-600/70 text-indigo-200 px-2.5 py-1 rounded transition-colors shrink-0"
+                        >
+                          💾 Save
+                        </button>
+                      </div>
+                      <div className="text-[9px] text-gray-600 leading-tight">
+                        Saves: theme, camera controls, arrangement, visible node types, loop toggle.
+                      </div>
+                    </div>
+
+                    {/* Saved list */}
+                    {configSnapshots.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Saved Configs</div>
+                        {configSnapshots.map(s => (
+                          <div key={s.id}
+                            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-gray-800/50 text-[11px]"
+                          >
+                            <button
+                              onClick={() => loadSnapshot(s)}
+                              className="flex-1 text-left text-gray-300 hover:text-white truncate transition-colors"
+                              title={`Load "${s.name}"`}
+                            >
+                              {s.name}
+                            </button>
+                            <span className="text-[9px] text-gray-700 shrink-0 mr-1" title={s.createdAt}>
+                              {s.arrangeMode}
+                            </span>
+                            <button
+                              onClick={() => loadSnapshot(s)}
+                              title="Load"
+                              className="text-gray-600 hover:text-indigo-400 px-1 transition-colors"
+                            >▶</button>
+                            <button
+                              onClick={() => {
+                                const json = JSON.stringify(s, null, 2);
+                                const blob = new Blob([json], { type: 'application/json' });
+                                const url  = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `${s.name.replace(/\s+/g, '-').toLowerCase()}-config.json`;
+                                a.click();
+                                URL.revokeObjectURL(url);
+                              }}
+                              title="Export JSON"
+                              className="text-gray-600 hover:text-gray-300 px-1 transition-colors"
+                            >↓</button>
+                            <button
+                              onClick={() => deleteSnapshot(s.id)}
+                              title="Delete"
+                              className="text-gray-600 hover:text-red-400 px-1 transition-colors"
+                            >✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {configSnapshots.length === 0 && (
+                      <div className="text-[10px] text-gray-600 px-1">No saved configs yet. Dial in your settings then click Save.</div>
+                    )}
+
+                    {/* Import */}
+                    <label className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-[10px] text-gray-600 hover:text-gray-400 cursor-pointer bg-gray-800/30 hover:bg-gray-800/60 transition-colors">
+                      <span>↑ Import JSON</span>
+                      <input type="file" accept=".json" className="hidden"
+                        onChange={e => {
+                          const file = e.target.files?.[0]; if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = ev => {
+                            try {
+                              const raw = JSON.parse(ev.target?.result as string) as ConfigSnapshot;
+                              const imported: ConfigSnapshot = {
+                                ...DEFAULT_SNAPSHOT_VALUES,
+                                ...raw,
+                                controls: { ...DEFAULT_SNAPSHOT_VALUES.controls, ...raw.controls },
+                                id: `cfg-${Date.now()}`,
+                              };
+                              setConfigSnapshots(prev => [...prev, imported]);
+                            } catch { alert('Invalid config JSON'); }
+                          };
+                          reader.readAsText(file);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+
+                    {/* Reset to defaults */}
+                    <div className="border-t border-gray-800 pt-2">
+                      <button
+                        onClick={resetToDefaults}
+                        className="w-full text-[10px] text-gray-600 hover:text-red-400 transition-colors py-1.5 rounded-lg hover:bg-red-950/20 border border-transparent hover:border-red-900/30"
+                      >
+                        ↺ Reset camera &amp; display to defaults
+                      </button>
+                    </div>
+                  </div>
+                );
               })()}
 
               </div>
