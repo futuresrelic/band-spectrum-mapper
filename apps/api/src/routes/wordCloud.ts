@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
-import { buildWordCloud, findSimilarSongs, lookupWordInSongs, type CloudScope } from '../services/wordCloudService.js';
+import { buildWordCloud, findSimilarSongs, lookupWordInSongs, findWordClusters, type CloudScope } from '../services/wordCloudService.js';
 
 export const wordCloudRouter = Router();
 
@@ -113,6 +113,26 @@ wordCloudRouter.get('/lookup', async (req, res, next): Promise<void> => {
     const bandIds = bandIdsRaw ? bandIdsRaw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
 
     const result = await lookupWordInSongs(word, { ...(bandIds ? { bandIds } : {}) });
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// GET /api/word-cloud/clusters?bandIds=id1,id2&minSongs=3&maxGroupSize=4&topN=25
+wordCloudRouter.get('/clusters', async (req, res, next): Promise<void> => {
+  try {
+    const bandIdsRaw = (req.query['bandIds'] as string) ?? '';
+    const bandIds = bandIdsRaw ? bandIdsRaw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+
+    const minSongs     = Math.max(2, parseInt((req.query['minSongs']     as string) ?? '3',  10) || 3);
+    const maxGroupSize = Math.min(5, Math.max(2, parseInt((req.query['maxGroupSize'] as string) ?? '4', 10) || 4));
+    const topN         = Math.min(50, parseInt((req.query['topN']        as string) ?? '25', 10) || 25);
+
+    const result = await findWordClusters({
+      ...(bandIds ? { bandIds } : {}),
+      minSongs,
+      maxGroupSize,
+      topN,
+    });
     res.json(result);
   } catch (err) { next(err); }
 });

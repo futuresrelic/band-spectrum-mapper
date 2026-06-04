@@ -46,6 +46,20 @@ export interface WordLookupResult {
   songs: { id: string; title: string; band: string; albumTitle: string | null }[];
 }
 
+export interface WordCluster {
+  words: string[];
+  songs: { id: string; title: string; band: string; albumTitle: string | null }[];
+  songCount: number;
+  wordCount: number;
+  score: number;
+}
+
+export interface WordClustersResult {
+  clusters: WordCluster[];
+  totalSongs: number;
+  candidateWords: number;
+}
+
 export const wordCloudApi = {
   getData(params: {
     scope: string;
@@ -93,5 +107,19 @@ export const wordCloudApi = {
     const qs = new URLSearchParams({ word: params.word });
     if (params.bandIds?.length) qs.set('bandIds', params.bandIds.join(','));
     return api.get(`/api/word-cloud/lookup?${qs}`);
+  },
+
+  findClusters(params: {
+    bandIds?: string[];
+    minSongs?: number;
+    maxGroupSize?: number;
+    topN?: number;
+  }): Promise<WordClustersResult> {
+    const qs = new URLSearchParams();
+    if (params.bandIds?.length) qs.set('bandIds', params.bandIds.join(','));
+    if (params.minSongs)     qs.set('minSongs',     String(params.minSongs));
+    if (params.maxGroupSize) qs.set('maxGroupSize', String(params.maxGroupSize));
+    if (params.topN)         qs.set('topN',         String(params.topN));
+    return api.get(`/api/word-cloud/clusters?${qs}`);
   },
 };

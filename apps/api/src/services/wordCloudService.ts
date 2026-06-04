@@ -310,6 +310,175 @@ export async function buildWordCloud(
 }
 
 // ---------------------------------------------------------------------------
+// Word clusters — find groups of words that co-appear across the most songs
+// ---------------------------------------------------------------------------
+
+export interface WordCluster {
+  words: string[];
+  songs: { id: string; title: string; band: string; albumTitle: string | null }[];
+  songCount: number;
+  wordCount: number;
+  score: number; // songCount * wordCount — primary sort key
+}
+
+export interface WordClustersResult {
+  clusters: WordCluster[];
+  totalSongs: number;
+  candidateWords: number; // how many words were searched
+}
+
+export async function findWordClusters(
+  opts: {
+    bandIds?: string[];
+    minSongs?: number;
+    maxGroupSize?: number;
+    topN?: number;
+    vocabLimit?: number; // max candidate words to consider — guards perf
+  } = {},
+): Promise<WordClustersResult> {
+  const {
+    bandIds,
+    minSongs = 3,
+    maxGroupSize = 4,
+    topN = 25,
+    vocabLimit = 70,
+  } = opts;
+
+  const customStopwords = await getCustomStopwords();
+
+  // Fetch primary lyrics for selected bands
+  const lyrics = await prisma.lyric.findMany({
+    where: {
+      isPrimary: true,
+      ...(bandIds?.length ? { song: { bandId: { in: bandIds } } } : {}),
+    },
+    select: {
+      text: true,
+      song: {
+        select: {
+          id: true, title: true,
+          band:  { select: { name: true } },
+          album: { select: { title: true } },
+        },
+      },
+    },
+  });
+
+  if (lyrics.length === 0) return { clusters: [], totalSongs: 0, candidateWords: 0 };
+
+  // Build per-song word sets and metadata
+  const songWordSets = new Map<string, Set<string>>();
+  const songMeta = new Map<string, { id: string; title: string; band: string; albumTitle: string | null }>();
+
+  for (const lyric of lyrics) {
+    const words = tokenize(lyric.text).filter((w) => !customStopwords.has(w));
+    const set = songWordSets.get(lyric.song.id) ?? new Set<string>();
+    for (const w of words) set.add(w);
+    songWordSets.set(lyric.song.id, set);
+    if (!songMeta.has(lyric.song.id)) {
+      songMeta.set(lyric.song.id, {
+        id: lyric.song.id,
+        title: lyric.song.title,
+        band: lyric.song.band.name,
+        albumTitle: lyric.song.album?.title ?? null,
+      });
+    }
+  }
+
+  const totalSongs = songWordSets.size;
+
+  // Build inverted index: word → Set<songId>
+  const wordToSongs = new Map<string, Set<string>>();
+  for (const [songId, words] of songWordSets) {
+    for (const word of words) {
+      const set = wordToSongs.get(word) ?? new Set<string>();
+      set.add(songId);
+      wordToSongs.set(word, set);
+    }
+  }
+
+  // Candidate words: appear in ≥ minSongs songs, limited by vocabLimit (most frequent first)
+  const candidates: string[] = [...wordToSongs.entries()]
+    .filter(([, s]) => s.size >= minSongs)
+    .sort((a, b) => b[1].size - a[1].size)
+    .slice(0, vocabLimit)
+    .map(([w]) => w);
+
+  if (candidates.length < 2) {
+    return { clusters: [], totalSongs, candidateWords: candidates.length };
+  }
+
+  // Intersection helper — always iterates the smaller set
+  function intersect(a: Set<string>, b: Set<string>): Set<string> {
+    const result = new Set<string>();
+    const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+    for (const id of small) { if (large.has(id)) result.add(id); }
+    return result;
+  }
+
+  function buildSongList(ids: Set<string>) {
+    return [...ids]
+      .map((id) => songMeta.get(id))
+      .filter((s): s is NonNullable<typeof s> => s !== undefined)
+      .sort((a, b) => a.band.localeCompare(b.band) || a.title.localeCompare(b.title));
+  }
+
+  // Iterative bottom-up layer expansion
+  // Each layer entry: { words, songIds, candidateStartIdx }
+  interface Layer { words: string[]; songIds: Set<string>; startIdx: number }
+
+  const allResults: WordCluster[] = [];
+
+  // Layer 1: single candidate words (just scaffolding — not emitted)
+  let currentLayer: Layer[] = candidates.map((w, i) => ({
+    words: [w],
+    songIds: wordToSongs.get(w)!,
+    startIdx: i + 1,
+  }));
+
+  for (let size = 2; size <= maxGroupSize; size++) {
+    const nextLayer: Layer[] = [];
+
+    for (const cluster of currentLayer) {
+      for (let i = cluster.startIdx; i < candidates.length; i++) {
+        const nextWord = candidates[i]!;
+        const nextSongs = wordToSongs.get(nextWord);
+        if (!nextSongs) continue;
+        const coSongs = intersect(cluster.songIds, nextSongs);
+        if (coSongs.size < minSongs) continue;
+
+        const newWords = [...cluster.words, nextWord];
+        const songs = buildSongList(coSongs);
+
+        allResults.push({
+          words: newWords,
+          songs,
+          songCount: songs.length,
+          wordCount: newWords.length,
+          score: songs.length * newWords.length,
+        });
+
+        nextLayer.push({ words: newWords, songIds: coSongs, startIdx: i + 1 });
+      }
+    }
+
+    currentLayer = nextLayer;
+    if (currentLayer.length === 0) break;
+  }
+
+  // Sort: highest score first, then most songs, then most words
+  allResults.sort((a, b) =>
+    b.score - a.score || b.songCount - a.songCount || b.wordCount - a.wordCount,
+  );
+
+  return {
+    clusters: allResults.slice(0, topN),
+    totalSongs,
+    candidateWords: candidates.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Word lookup — find every song whose lyrics contain a given word/phrase
 // ---------------------------------------------------------------------------
 

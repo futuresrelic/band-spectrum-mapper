@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { wordCloudApi, type CloudWord, type WordCloudData, type SimilarSong, type SimilarSongsResult, type WordLookupResult } from '../api/wordCloud';
+import { wordCloudApi, type CloudWord, type WordCloudData, type SimilarSong, type SimilarSongsResult, type WordLookupResult, type WordClustersResult } from '../api/wordCloud';
 import SocialChatPanel from '../components/social/SocialChatPanel';
 
 // ---------------------------------------------------------------------------
@@ -477,6 +477,15 @@ export default function WordCloudPage() {
   const [lookupResult, setLookupResult]     = useState<WordLookupResult | null>(null);
   const [lookupLoading, setLookupLoading]   = useState(false);
 
+  // Word clusters
+  const [clusterBandIds, setClusterBandIds]         = useState<string[]>([]);
+  const [clusterMinSongs, setClusterMinSongs]       = useState(3);
+  const [clusterMaxGroup, setClusterMaxGroup]       = useState(4);
+  const [clusterTopN, setClusterTopN]               = useState(25);
+  const [clusterResult, setClusterResult]           = useState<WordClustersResult | null>(null);
+  const [clusterLoading, setClusterLoading]         = useState(false);
+  const [clusterExpanded, setClusterExpanded]       = useState<number | null>(null);
+
   const svgRef = useRef<SVGSVGElement>(null);
 
   // Case-insensitive set of words to exclude from display
@@ -568,6 +577,23 @@ export default function WordCloudPage() {
       setSimResult(result);
     } catch { /* ignore — user sees empty results */ }
     finally { setSimLoading(false); }
+  }
+
+  async function runClusters() {
+    if (clusterBandIds.length === 0) return;
+    setClusterLoading(true);
+    setClusterResult(null);
+    setClusterExpanded(null);
+    try {
+      const result = await wordCloudApi.findClusters({
+        bandIds: clusterBandIds,
+        minSongs: clusterMinSongs,
+        maxGroupSize: clusterMaxGroup,
+        topN: clusterTopN,
+      });
+      setClusterResult(result);
+    } catch { /* ignore */ }
+    finally { setClusterLoading(false); }
   }
 
   async function runLookup() {
@@ -929,6 +955,102 @@ export default function WordCloudPage() {
               </div>
             )}
           </div>
+
+          {/* ── Word Clusters ── */}
+          <div className="border-t border-surface-700 pt-4 space-y-3">
+            <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider">
+              🧩 Word Clusters
+            </div>
+            <p className="text-[10px] text-surface-600 leading-tight">
+              Find groups of words that appear together across multiple songs — e.g. "these 4 words appear in 6 songs".
+            </p>
+
+            {/* Artist picker */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-[10px] text-surface-500 uppercase tracking-wider">Artists (required)</div>
+                {clusterBandIds.length > 0 && (
+                  <button className="text-[10px] text-surface-500 hover:text-surface-200" onClick={() => setClusterBandIds([])}>Clear</button>
+                )}
+              </div>
+              <div className="space-y-0.5 max-h-28 overflow-y-auto">
+                {(scopes?.bands ?? []).map((b) => (
+                  <label key={b.id} className="flex items-center gap-2 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={clusterBandIds.includes(b.id)}
+                      onChange={() =>
+                        setClusterBandIds((prev) =>
+                          prev.includes(b.id) ? prev.filter((x) => x !== b.id) : [...prev, b.id],
+                        )
+                      }
+                      className="accent-indigo-500"
+                    />
+                    <span className={`text-xs transition-colors ${clusterBandIds.includes(b.id) ? 'text-white' : 'text-surface-400 group-hover:text-surface-200'}`}>
+                      {b.name}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Min songs */}
+            <div>
+              <div className="flex justify-between text-[10px] text-surface-500 mb-1">
+                <span>Min songs sharing a group</span>
+                <span className="font-mono text-indigo-400">{clusterMinSongs}</span>
+              </div>
+              <input type="range" min={2} max={10} value={clusterMinSongs}
+                onChange={(e) => setClusterMinSongs(Number(e.target.value))}
+                className="w-full accent-indigo-500" />
+            </div>
+
+            {/* Max group size */}
+            <div>
+              <div className="flex justify-between text-[10px] text-surface-500 mb-1">
+                <span>Max words per group</span>
+                <span className="font-mono text-indigo-400">{clusterMaxGroup}</span>
+              </div>
+              <input type="range" min={2} max={5} value={clusterMaxGroup}
+                onChange={(e) => setClusterMaxGroup(Number(e.target.value))}
+                className="w-full accent-indigo-500" />
+            </div>
+
+            {/* Top N */}
+            <div>
+              <div className="flex justify-between text-[10px] text-surface-500 mb-1">
+                <span>Max results</span>
+                <span className="font-mono text-indigo-400">{clusterTopN}</span>
+              </div>
+              <input type="range" min={10} max={50} step={5} value={clusterTopN}
+                onChange={(e) => setClusterTopN(Number(e.target.value))}
+                className="w-full accent-indigo-500" />
+            </div>
+
+            <button
+              onClick={runClusters}
+              disabled={clusterBandIds.length === 0 || clusterLoading}
+              className={`w-full py-2 rounded text-xs font-semibold transition-colors ${
+                clusterBandIds.length > 0 && !clusterLoading
+                  ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                  : 'bg-surface-800 text-surface-600 cursor-not-allowed'
+              }`}
+            >
+              {clusterLoading ? 'Searching…' : '🧩 Find Clusters'}
+            </button>
+
+            {clusterResult && (
+              <div className="text-[10px] text-surface-500 space-y-0.5">
+                <div>
+                  {clusterResult.clusters.length === 0
+                    ? <span className="text-red-400">No clusters found — try lowering "Min songs"</span>
+                    : <><span className="text-indigo-300">{clusterResult.clusters.length}</span> cluster{clusterResult.clusters.length !== 1 ? 's' : ''} found</>
+                  }
+                </div>
+                <div>{clusterResult.totalSongs} songs · {clusterResult.candidateWords} candidate words</div>
+              </div>
+            )}
+          </div>
         </aside>
 
         {/* ── Main ── */}
@@ -1138,6 +1260,96 @@ export default function WordCloudPage() {
                   </div>
                 ));
               })()}
+            </div>
+          )}
+
+          {/* ── Word Cluster Results ── */}
+          {clusterResult && clusterResult.clusters.length > 0 && (
+            <div className="mt-8">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-white">
+                  Word Clusters
+                  <span className="ml-2 text-xs font-normal text-surface-500">
+                    {clusterResult.clusters.length} groups · {clusterResult.totalSongs} songs · ≥{clusterMinSongs} songs per group
+                  </span>
+                </h3>
+                <button onClick={() => setClusterResult(null)} className="text-xs text-surface-600 hover:text-surface-300 transition-colors">✕ Close</button>
+              </div>
+
+              <div className="space-y-2">
+                {clusterResult.clusters.map((cluster, idx) => (
+                  <div key={idx} className="bg-surface-900 border border-surface-800 rounded-lg overflow-hidden">
+                    {/* Header row */}
+                    <div className="flex items-center gap-3 px-4 py-2.5">
+                      {/* Score badge */}
+                      <div className="shrink-0 w-12 h-10 rounded-lg bg-indigo-900/60 flex flex-col items-center justify-center">
+                        <span className="text-sm font-bold text-indigo-300 leading-none">{cluster.songCount}</span>
+                        <span className="text-[8px] text-indigo-500 leading-none mt-0.5">songs</span>
+                      </div>
+
+                      {/* Word chips */}
+                      <div className="flex-1 flex flex-wrap gap-1.5 min-w-0">
+                        {cluster.words.map((w) => (
+                          <span
+                            key={w}
+                            className="text-xs bg-indigo-800/50 text-indigo-200 border border-indigo-700/40 rounded px-2 py-0.5 cursor-pointer hover:bg-indigo-700/60 transition-colors"
+                            onClick={() => setHighlightWord(highlightWord === w ? null : w)}
+                            title="Click to highlight in cloud"
+                          >
+                            {w}
+                          </span>
+                        ))}
+                        <span className="text-[10px] text-surface-600 self-center">
+                          {cluster.wordCount} word{cluster.wordCount !== 1 ? 's' : ''} · score {cluster.score}
+                        </span>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex gap-1.5 shrink-0">
+                        <button
+                          onClick={() => {
+                            setIncludeOnlyWords(cluster.words.join(', '));
+                            setIncludeOnlyMode(true);
+                          }}
+                          className="text-[10px] bg-indigo-700/60 hover:bg-indigo-600/70 text-indigo-200 px-2 py-1 rounded transition-colors"
+                          title="Load into Include-only filter and build a cloud with these words"
+                        >
+                          ☁ Cloud
+                        </button>
+                        <button
+                          onClick={() => navigator.clipboard?.writeText(cluster.words.join(', '))}
+                          className="text-[10px] bg-surface-700 hover:bg-surface-600 text-surface-300 px-2 py-1 rounded transition-colors"
+                          title="Copy words to clipboard"
+                        >
+                          ⧉ Copy
+                        </button>
+                        <button
+                          onClick={() => setClusterExpanded(clusterExpanded === idx ? null : idx)}
+                          className="text-[10px] text-surface-600 hover:text-surface-300 px-1 py-1 transition-colors"
+                          title="Show songs"
+                        >
+                          {clusterExpanded === idx ? '▲' : '▼'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Songs (expanded) */}
+                    {clusterExpanded === idx && (
+                      <div className="px-4 pb-3 border-t border-surface-800">
+                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1">
+                          {cluster.songs.map((s) => (
+                            <div key={s.id} className="text-xs text-surface-300">
+                              <span className="text-surface-500">{s.band}</span>
+                              {' — '}{s.title}
+                              {s.albumTitle && <span className="text-surface-600"> ({s.albumTitle})</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </main>
