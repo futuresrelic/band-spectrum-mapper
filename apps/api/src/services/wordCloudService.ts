@@ -35,19 +35,28 @@ export interface WordCloudData {
 // ---------------------------------------------------------------------------
 
 const BUILTIN_STOPWORDS = new Set([
+  // Articles, conjunctions, prepositions
   'the','a','an','and','or','but','in','on','at','to','for','of','with','by',
-  'from','as','is','was','are','were','be','been','being','have','has','had',
-  'do','does','did','will','would','could','should','may','might','shall',
+  'from','as','about','into','through','if','because','so','than',
+  // Auxiliary / copula verbs
+  'is','was','are','were','be','been','being','have','has','had',
+  'do','does','did','will','would','could','should','may','might','shall','can',
+  // Pronouns and possessives
   'i','you','he','she','it','we','they','me','him','her','us','them',
-  'my','your','his','its','our','their','this','that','these','those',
-  'what','which','who','when','where','how','all','each','every','both',
-  'more','most','other','some','such','no','not','only','same','so','than',
-  'too','very','just','because','if','up','out','about','into','through',
-  'then','there','here','now','can','get','go','come','know','like','see',
-  'one','two','three','time','way','day','man','new','old','s','t','re',
-  'don','didn','doesn','won','wouldn','can\'t','cannot','i\'m','it\'s',
-  'let','us','come','back','down','got','even','still','know','said',
-  'im','its','youre','thats','dont','cant','wont','isnt','are','were',
+  'my','your','his','its','our','their',
+  // Demonstratives / interrogatives / quantifiers
+  'this','that','these','those',
+  'what','which','who','when','where','how',
+  'all','each','every','both','more','most','other','some','such',
+  'no','not','only','same','too','very','just',
+  // Discourse / filler (non-semantic in lyrics context)
+  'then','there','here','up','out',
+  // Numbers as words
+  'one','two','three',
+  // Tokenizer fragments (apostrophe splits)
+  's','t','re','don','didn','doesn','won','wouldn',
+  // Informal / contracted forms
+  'im','its','youre','thats','dont','cant','wont','isnt',
 ]);
 
 function tokenize(text: string): string[] {
