@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
-import { buildWordCloud, findSimilarSongs, type CloudScope } from '../services/wordCloudService.js';
+import { buildWordCloud, findSimilarSongs, lookupWordInSongs, type CloudScope } from '../services/wordCloudService.js';
 
 export const wordCloudRouter = Router();
 
@@ -100,5 +100,19 @@ wordCloudRouter.get('/songs', async (req, res, next): Promise<void> => {
       orderBy: { title: 'asc' },
     });
     res.json(songs);
+  } catch (err) { next(err); }
+});
+
+// GET /api/word-cloud/lookup?word=sky&bandIds=id1,id2 — songs whose lyrics contain a word
+wordCloudRouter.get('/lookup', async (req, res, next): Promise<void> => {
+  try {
+    const word = ((req.query['word'] as string) ?? '').trim();
+    if (!word) { res.status(400).json({ error: 'word is required' }); return; }
+
+    const bandIdsRaw = (req.query['bandIds'] as string) ?? '';
+    const bandIds = bandIdsRaw ? bandIdsRaw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+
+    const result = await lookupWordInSongs(word, { ...(bandIds ? { bandIds } : {}) });
+    res.json(result);
   } catch (err) { next(err); }
 });

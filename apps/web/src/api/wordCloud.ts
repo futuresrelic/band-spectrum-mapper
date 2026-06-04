@@ -41,6 +41,11 @@ export interface SimilarSongsResult {
   similar: SimilarSong[];
 }
 
+export interface WordLookupResult {
+  word: string;
+  songs: { id: string; title: string; band: string; albumTitle: string | null }[];
+}
+
 export const wordCloudApi = {
   getData(params: {
     scope: string;
@@ -82,5 +87,11 @@ export const wordCloudApi = {
     if (params.bandIds?.length)    qs.set('bandIds',   params.bandIds.join(','));
     if (params.minShared !== undefined) qs.set('minShared', String(params.minShared));
     return api.get(`/api/word-cloud/similar?${qs}`);
+  },
+
+  lookup(params: { word: string; bandIds?: string[] }): Promise<WordLookupResult> {
+    const qs = new URLSearchParams({ word: params.word });
+    if (params.bandIds?.length) qs.set('bandIds', params.bandIds.join(','));
+    return api.get(`/api/word-cloud/lookup?${qs}`);
   },
 };

@@ -468,6 +468,8 @@ export default function SongNodesPage() {
   const [showStylePanel, setShowStylePanel] = useState(false);
   const [showAllLabels, setShowAllLabels] = useState(false);
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
+  const [nodeSearch, setNodeSearch] = useState('');
+  const [nodeSearchCount, setNodeSearchCount] = useState<number | null>(null);
   const vStyleRef         = useRef<VisualStyle>(vStyle);
   const showAllLabelsRef  = useRef(false);
   const selectedNodeIdRef = useRef<string | null>(null);
@@ -513,6 +515,8 @@ export default function SongNodesPage() {
     setLegendNodeFilter(null);
     setLegendEdgeFilter(null);
     setSelectionMode('pan');
+    setNodeSearch('');
+    setNodeSearchCount(null);
 
     const elements = buildElements(graphData.nodes, graphData.edges);
     if (!elements.length) return;
@@ -1273,6 +1277,38 @@ export default function SongNodesPage() {
     });
   }
 
+  // ── Node search ───────────────────────────────────────────────────────────
+
+  const applyNodeSearch = useCallback((query: string) => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    if (!query || query.trim().length < 2) {
+      cy.elements().removeClass('highlighted faded');
+      setNodeSearchCount(null);
+      return;
+    }
+    const q = query.trim().toLowerCase();
+    const matches = cy.nodes().filter((n) => {
+      const label = ((n.data('fullLabel') as string | undefined) ?? (n.data('label') as string | undefined) ?? '').toLowerCase();
+      return label.includes(q);
+    });
+    cy.elements().removeClass('highlighted faded');
+    if (matches.length === 0) {
+      setNodeSearchCount(0);
+      return;
+    }
+    matches.addClass('highlighted');
+    cy.nodes().not(matches).addClass('faded');
+    cy.edges().addClass('faded');
+    setNodeSearchCount(matches.length);
+  }, []);
+
+  function clearNodeSearch() {
+    setNodeSearch('');
+    setNodeSearchCount(null);
+    cyRef.current?.elements().removeClass('highlighted faded');
+  }
+
   // ── Legend filter controls ────────────────────────────────────────────────
 
   function handleLegendNodeType(type: NodeType) {
@@ -1535,6 +1571,36 @@ export default function SongNodesPage() {
                   </p>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Node search */}
+          {cyReady && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Search nodes</div>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={nodeSearch}
+                  onChange={(e) => { setNodeSearch(e.target.value); applyNodeSearch(e.target.value); }}
+                  placeholder="Type a word or song…"
+                  className="w-full bg-surface-800 border border-surface-700 rounded px-2.5 py-1.5 text-xs text-white placeholder-surface-600 focus:outline-none focus:border-indigo-500 pr-7"
+                />
+                {nodeSearch && (
+                  <button
+                    onClick={clearNodeSearch}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-surface-500 hover:text-white text-xs"
+                  >✕</button>
+                )}
+              </div>
+              {nodeSearchCount !== null && (
+                <p className={`text-xs ${nodeSearchCount === 0 ? 'text-red-400' : 'text-indigo-400'}`}>
+                  {nodeSearchCount === 0 ? 'No matches' : `${nodeSearchCount} node${nodeSearchCount !== 1 ? 's' : ''} matched`}
+                </p>
+              )}
+              {nodeSearch.length > 0 && nodeSearch.trim().length < 2 && (
+                <p className="text-xs text-surface-600">Type at least 2 characters</p>
+              )}
             </div>
           )}
 

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { wordCloudApi, type CloudWord, type WordCloudData, type SimilarSong, type SimilarSongsResult } from '../api/wordCloud';
+import { wordCloudApi, type CloudWord, type WordCloudData, type SimilarSong, type SimilarSongsResult, type WordLookupResult } from '../api/wordCloud';
 import SocialChatPanel from '../components/social/SocialChatPanel';
 
 // ---------------------------------------------------------------------------
@@ -469,7 +469,13 @@ export default function WordCloudPage() {
   const [simMinShared, setSimMinShared] = useState(5);
   const [simResult, setSimResult]   = useState<SimilarSongsResult | null>(null);
   const [simLoading, setSimLoading] = useState(false);
-  const [simExpanded, setSimExpanded] = useState<string | null>(null); // expanded row id
+  const [simExpanded, setSimExpanded] = useState<string | null>(null);
+
+  // Word lookup
+  const [lookupWord, setLookupWord]         = useState('');
+  const [lookupBandIds, setLookupBandIds]   = useState<string[]>([]);
+  const [lookupResult, setLookupResult]     = useState<WordLookupResult | null>(null);
+  const [lookupLoading, setLookupLoading]   = useState(false);
 
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -562,6 +568,21 @@ export default function WordCloudPage() {
       setSimResult(result);
     } catch { /* ignore — user sees empty results */ }
     finally { setSimLoading(false); }
+  }
+
+  async function runLookup() {
+    const word = lookupWord.trim();
+    if (!word) return;
+    setLookupLoading(true);
+    setLookupResult(null);
+    try {
+      const result = await wordCloudApi.lookup({
+        word,
+        ...(lookupBandIds.length ? { bandIds: lookupBandIds } : {}),
+      });
+      setLookupResult(result);
+    } catch { /* ignore */ }
+    finally { setLookupLoading(false); }
   }
 
   /** Load the shared-words list from a similarity result into the include-only filter,
@@ -835,6 +856,79 @@ export default function WordCloudPage() {
               </div>
             )}
           </div>
+
+          {/* ── Word Lookup ── */}
+          <div className="border-t border-surface-700 pt-4 space-y-3">
+            <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider">
+              🔎 Word Lookup
+            </div>
+            <p className="text-[10px] text-surface-600 leading-tight">
+              Find every song that contains a word — no cloud needed.
+            </p>
+
+            {/* Artist filter */}
+            {(scopes?.bands ?? []).length > 1 && (
+              <div>
+                <div className="text-[10px] text-surface-500 uppercase tracking-wider mb-1">Filter by artist</div>
+                <div className="space-y-0.5 max-h-28 overflow-y-auto">
+                  {(scopes?.bands ?? []).map((b) => (
+                    <label key={b.id} className="flex items-center gap-2 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={lookupBandIds.includes(b.id)}
+                        onChange={() =>
+                          setLookupBandIds((prev) =>
+                            prev.includes(b.id) ? prev.filter((x) => x !== b.id) : [...prev, b.id],
+                          )
+                        }
+                        className="accent-indigo-500"
+                      />
+                      <span className={`text-xs transition-colors ${lookupBandIds.includes(b.id) ? 'text-white' : 'text-surface-400 group-hover:text-surface-200'}`}>
+                        {b.name}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {lookupBandIds.length > 0 && (
+                  <button
+                    className="text-[10px] text-surface-500 hover:text-surface-200 transition-colors mt-1"
+                    onClick={() => setLookupBandIds([])}
+                  >Clear filter</button>
+                )}
+              </div>
+            )}
+
+            {/* Word input */}
+            <input
+              type="text"
+              value={lookupWord}
+              onChange={(e) => setLookupWord(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') runLookup(); }}
+              placeholder="e.g. sky"
+              className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white placeholder-surface-600 focus:outline-none focus:border-indigo-500"
+            />
+
+            <button
+              onClick={runLookup}
+              disabled={!lookupWord.trim() || lookupLoading}
+              className={`w-full py-2 rounded text-xs font-semibold transition-colors ${
+                lookupWord.trim() && !lookupLoading
+                  ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                  : 'bg-surface-800 text-surface-600 cursor-not-allowed'
+              }`}
+            >
+              {lookupLoading ? 'Searching…' : '🔎 Find songs'}
+            </button>
+
+            {lookupResult && (
+              <div className="text-[10px] text-surface-500">
+                {lookupResult.songs.length === 0
+                  ? <span className="text-red-400">No songs found for "{lookupResult.word}"</span>
+                  : <><span className="text-indigo-300">{lookupResult.songs.length}</span> song{lookupResult.songs.length !== 1 ? 's' : ''} contain "{lookupResult.word}"</>
+                }
+              </div>
+            )}
+          </div>
         </aside>
 
         {/* ── Main ── */}
@@ -996,6 +1090,54 @@ export default function WordCloudPage() {
             <div className="mt-8 text-center text-surface-500 text-sm py-8 border border-surface-800 rounded-lg">
               No songs found sharing ≥ {simMinShared} words with <span className="text-indigo-400">{simResult.seed.title}</span>.
               <br/><span className="text-xs text-surface-600 mt-1 block">Try lowering "Min shared words" or switching scope to "All artists".</span>
+            </div>
+          )}
+
+          {/* ── Word Lookup Results ── */}
+          {lookupResult && lookupResult.songs.length > 0 && (
+            <div className="mt-8">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-white">
+                  Songs containing{' '}
+                  <span className="text-indigo-400 font-mono">"{lookupResult.word}"</span>
+                  <span className="ml-2 text-xs font-normal text-surface-500">
+                    {lookupResult.songs.length} result{lookupResult.songs.length !== 1 ? 's' : ''}
+                    {lookupBandIds.length > 0 && ' (filtered by artist)'}
+                  </span>
+                </h3>
+                <button
+                  onClick={() => setLookupResult(null)}
+                  className="text-xs text-surface-600 hover:text-surface-300 transition-colors"
+                >✕ Close</button>
+              </div>
+
+              {/* Group by band */}
+              {(() => {
+                const byBand = new Map<string, typeof lookupResult.songs>();
+                for (const s of lookupResult.songs) {
+                  const list = byBand.get(s.band) ?? [];
+                  list.push(s);
+                  byBand.set(s.band, list);
+                }
+                return [...byBand.entries()].map(([band, songs]) => (
+                  <div key={band} className="mb-4">
+                    <div className="text-xs font-semibold text-indigo-400 uppercase tracking-wider mb-2">{band}</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {songs.map((s) => (
+                        <div
+                          key={s.id}
+                          className="bg-surface-900 border border-surface-800 rounded px-3 py-2 text-xs"
+                        >
+                          <div className="text-white font-medium truncate">{s.title}</div>
+                          {s.albumTitle && (
+                            <div className="text-surface-500 truncate mt-0.5">{s.albumTitle}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ));
+              })()}
             </div>
           )}
         </main>

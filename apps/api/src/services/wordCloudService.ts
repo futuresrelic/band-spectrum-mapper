@@ -301,6 +301,62 @@ export async function buildWordCloud(
 }
 
 // ---------------------------------------------------------------------------
+// Word lookup — find every song whose lyrics contain a given word/phrase
+// ---------------------------------------------------------------------------
+
+export interface WordLookupResult {
+  word: string;
+  songs: { id: string; title: string; band: string; albumTitle: string | null }[];
+}
+
+export async function lookupWordInSongs(
+  word: string,
+  opts: { bandIds?: string[] } = {},
+): Promise<WordLookupResult> {
+  const { bandIds } = opts;
+  const customStopwords = await getCustomStopwords();
+
+  // Tokenize the query so stopwords + punctuation are handled the same way as lyrics
+  const searchTokens = tokenize(word).filter((w) => !customStopwords.has(w));
+  if (searchTokens.length === 0) return { word, songs: [] };
+
+  const lyrics = await prisma.lyric.findMany({
+    where: {
+      isPrimary: true,
+      ...(bandIds?.length ? { song: { bandId: { in: bandIds } } } : {}),
+    },
+    select: {
+      text: true,
+      song: {
+        select: {
+          id: true,
+          title: true,
+          band: { select: { name: true } },
+          album: { select: { title: true } },
+        },
+      },
+    },
+  });
+
+  const matchingSongs: { id: string; title: string; band: string; albumTitle: string | null }[] = [];
+
+  for (const lyric of lyrics) {
+    const tokenSet = new Set(tokenize(lyric.text).filter((w) => !customStopwords.has(w)));
+    if (searchTokens.every((t) => tokenSet.has(t))) {
+      matchingSongs.push({
+        id: lyric.song.id,
+        title: lyric.song.title,
+        band: lyric.song.band.name,
+        albumTitle: lyric.song.album?.title ?? null,
+      });
+    }
+  }
+
+  matchingSongs.sort((a, b) => a.band.localeCompare(b.band) || a.title.localeCompare(b.title));
+  return { word: searchTokens.join(' '), songs: matchingSongs };
+}
+
+// ---------------------------------------------------------------------------
 // Song similarity — find songs sharing the most words with a seed song
 // ---------------------------------------------------------------------------
 
