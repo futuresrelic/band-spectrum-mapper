@@ -186,10 +186,15 @@ publicRouter.get('/albums/:albumId/spectrum', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// GET /api/public/cloud — all songs with tags, genre scores, and axis scores for the song cloud
-publicRouter.get('/cloud', async (_req, res, next) => {
+// GET /api/public/cloud — songs with tags, genre scores, and axis scores for the song cloud
+// Query params: bandIds=id1,id2 (optional comma-separated band filter)
+publicRouter.get('/cloud', async (req, res, next) => {
   try {
+    const bandIdsRaw = (req.query['bandIds'] as string) ?? '';
+    const bandIds = bandIdsRaw ? bandIdsRaw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+
     const songs = await prisma.song.findMany({
+      where: bandIds?.length ? { bandId: { in: bandIds } } : {},
       include: {
         band: { select: { name: true, slug: true } },
         songTags: { include: { tag: { select: { name: true, slug: true } } } },
