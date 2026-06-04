@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
-import { buildWordCloud, type CloudScope } from '../services/wordCloudService.js';
+import { buildWordCloud, findSimilarSongs, type CloudScope } from '../services/wordCloudService.js';
 
 export const wordCloudRouter = Router();
 
@@ -60,6 +60,22 @@ wordCloudRouter.get('/scopes', async (_req, res, next): Promise<void> => {
       }),
     ]);
     res.json({ bands, albums });
+  } catch (err) { next(err); }
+});
+
+// GET /api/word-cloud/similar?songId=xxx&limit=30&bandIds=a,b&minShared=3
+wordCloudRouter.get('/similar', async (req, res, next): Promise<void> => {
+  try {
+    const songId = (req.query['songId'] as string) ?? '';
+    if (!songId) { res.status(400).json({ error: 'songId is required' }); return; }
+
+    const limit     = Math.min(100, parseInt((req.query['limit']     as string) ?? '30', 10) || 30);
+    const minShared = Math.max(1,   parseInt((req.query['minShared'] as string) ?? '3',  10) || 3);
+    const bandIdsRaw = (req.query['bandIds'] as string) ?? '';
+    const bandIds = bandIdsRaw ? bandIdsRaw.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+
+    const result = await findSimilarSongs(songId, { limit, minShared, ...(bandIds ? { bandIds } : {}) });
+    res.json(result);
   } catch (err) { next(err); }
 });
 

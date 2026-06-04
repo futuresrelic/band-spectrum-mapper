@@ -299,3 +299,102 @@ export async function buildWordCloud(
     uniqueWords: wordFreq.size,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Song similarity — find songs sharing the most words with a seed song
+// ---------------------------------------------------------------------------
+
+export interface SimilarSong {
+  song: { id: string; title: string; band: string; albumTitle: string | null };
+  sharedWords: string[];
+  sharedCount: number;
+  seedWordCount: number;
+  targetWordCount: number;
+}
+
+export interface SimilarSongsResult {
+  seed: { id: string; title: string; band: string };
+  similar: SimilarSong[];
+}
+
+export async function findSimilarSongs(
+  seedSongId: string,
+  opts: { limit?: number; bandIds?: string[]; minShared?: number } = {},
+): Promise<SimilarSongsResult> {
+  const { limit = 30, bandIds, minShared = 3 } = opts;
+
+  const seed = await prisma.song.findUnique({
+    where: { id: seedSongId },
+    include: { band: true },
+  });
+  if (!seed) throw new Error('Song not found');
+
+  // All other songs that have primary lyrics, optionally filtered by band
+  const candidateSongs = await prisma.song.findMany({
+    where: {
+      id:       { not: seedSongId },
+      lyrics:   { some: { isPrimary: true } },
+      ...(bandIds?.length ? { bandId: { in: bandIds } } : {}),
+    },
+    select: {
+      id: true, title: true,
+      band:  { select: { name: true } },
+      album: { select: { title: true } },
+    },
+  });
+
+  // Load lyrics for seed + candidates in one query
+  const allIds = [seedSongId, ...candidateSongs.map((s) => s.id)];
+  const [allLyrics, customStopwords] = await Promise.all([
+    prisma.lyric.findMany({
+      where: { songId: { in: allIds }, isPrimary: true },
+      select: { songId: true, text: true },
+    }),
+    getCustomStopwords(),
+  ]);
+
+  // Build unique-word sets per song (use Set to avoid double-counting same word)
+  const songWordSets = new Map<string, Set<string>>();
+  for (const lyric of allLyrics) {
+    const words = tokenize(lyric.text).filter((w) => !customStopwords.has(w));
+    const set = songWordSets.get(lyric.songId) ?? new Set<string>();
+    for (const w of words) set.add(w);
+    songWordSets.set(lyric.songId, set);
+  }
+
+  const seedWords = songWordSets.get(seedSongId) ?? new Set<string>();
+  const seedWordCount = seedWords.size;
+
+  // Intersect seed word set with each candidate
+  const similar: SimilarSong[] = [];
+  for (const song of candidateSongs) {
+    const targetWords = songWordSets.get(song.id);
+    if (!targetWords || targetWords.size === 0) continue;
+
+    const shared: string[] = [];
+    for (const w of seedWords) {
+      if (targetWords.has(w)) shared.push(w);
+    }
+    if (shared.length < minShared) continue;
+
+    similar.push({
+      song: {
+        id:         song.id,
+        title:      song.title,
+        band:       song.band.name,
+        albumTitle: song.album?.title ?? null,
+      },
+      sharedWords:     shared.sort(),
+      sharedCount:     shared.length,
+      seedWordCount,
+      targetWordCount: targetWords.size,
+    });
+  }
+
+  similar.sort((a, b) => b.sharedCount - a.sharedCount);
+
+  return {
+    seed: { id: seed.id, title: seed.title, band: seed.band.name },
+    similar: similar.slice(0, limit),
+  };
+}

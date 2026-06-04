@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { wordCloudApi, type CloudWord, type WordCloudData } from '../api/wordCloud';
+import { wordCloudApi, type CloudWord, type WordCloudData, type SimilarSong, type SimilarSongsResult } from '../api/wordCloud';
 import SocialChatPanel from '../components/social/SocialChatPanel';
 
 // ---------------------------------------------------------------------------
@@ -457,6 +457,20 @@ export default function WordCloudPage() {
   const [selectedWord, setSelectedWord] = useState<CloudWord | null>(null);
   const [highlightWord, setHighlightWord] = useState<string | null>(null);
   const [ignoreWords, setIgnoreWords] = useState('');
+
+  // Include-only / whitelist filter
+  const [includeOnlyMode, setIncludeOnlyMode] = useState(false);
+  const [includeOnlyWords, setIncludeOnlyWords] = useState('');
+
+  // Similarity finder
+  const [simBandId, setSimBandId]   = useState('');
+  const [simSongId, setSimSongId]   = useState('');
+  const [simScope,  setSimScope]    = useState<'all' | 'artist'>('all');
+  const [simMinShared, setSimMinShared] = useState(5);
+  const [simResult, setSimResult]   = useState<SimilarSongsResult | null>(null);
+  const [simLoading, setSimLoading] = useState(false);
+  const [simExpanded, setSimExpanded] = useState<string | null>(null); // expanded row id
+
   const svgRef = useRef<SVGSVGElement>(null);
 
   // Case-insensitive set of words to exclude from display
@@ -464,12 +478,29 @@ export default function WordCloudPage() {
     ignoreWords.split(/[\s,]+/).map(w => w.trim().toLowerCase()).filter(Boolean),
   ), [ignoreWords]);
 
+  const includeOnlySet = useMemo(() => new Set(
+    includeOnlyWords.split(/[\s,]+/).map(w => w.trim().toLowerCase()).filter(Boolean),
+  ), [includeOnlyWords]);
+
   // Derive effective id and canQuery based on scope
   const effectiveId = scope === 'artist' ? selectedBandIds.join(',') : scopeId;
   const canQuery =
     scope === 'universe' ||
     (scope === 'artist' && selectedBandIds.length > 0) ||
     (scope !== 'artist' && !!scopeId);
+
+  // Shared scopes cache (same key as ScopeSelector — no extra network request)
+  const { data: scopes } = useQuery({
+    queryKey: ['word-cloud-scopes'],
+    queryFn:  wordCloudApi.getScopes,
+  });
+
+  // Lazy-load songs for the similarity band picker
+  const { data: simBandSongs, isFetching: simSongsFetching } = useQuery({
+    queryKey: ['word-cloud-songs', simBandId],
+    queryFn:  () => wordCloudApi.getSongsByBand(simBandId),
+    enabled:  !!simBandId,
+  });
 
   const { data, isFetching, error } = useQuery<WordCloudData>({
     queryKey: ['word-cloud', scope, effectiveId, minFreq, maxFreq, limit, includeLyrics, includeThemes, includeTags],
@@ -507,12 +538,43 @@ export default function WordCloudPage() {
   }
 
   const rawWords = data?.words ?? [];
-  const words = useMemo(
-    () => ignoreSet.size > 0
-      ? rawWords.filter(w => !ignoreSet.has(w.text.toLowerCase()))
-      : rawWords,
-    [rawWords, ignoreSet],
-  );
+  const words = useMemo(() => {
+    let filtered = rawWords;
+    // Exclude-list (ignore words)
+    if (ignoreSet.size > 0)
+      filtered = filtered.filter(w => !ignoreSet.has(w.text.toLowerCase()));
+    // Include-only (whitelist) — takes precedence if mode is on and list has entries
+    if (includeOnlyMode && includeOnlySet.size > 0)
+      filtered = filtered.filter(w => includeOnlySet.has(w.text.toLowerCase()));
+    return filtered;
+  }, [rawWords, ignoreSet, includeOnlyMode, includeOnlySet]);
+
+  async function runSimilarity() {
+    if (!simSongId) return;
+    setSimLoading(true);
+    setSimResult(null);
+    try {
+      const result = await wordCloudApi.getSimilar({
+        songId: simSongId,
+        minShared: simMinShared,
+        ...(simScope === 'artist' && simBandId ? { bandIds: [simBandId] } : {}),
+      });
+      setSimResult(result);
+    } catch { /* ignore — user sees empty results */ }
+    finally { setSimLoading(false); }
+  }
+
+  /** Load the shared-words list from a similarity result into the include-only filter,
+   *  then switch scope to the seed song so the cloud reflects the seed's vocabulary. */
+  function useSharedWords(row: SimilarSong) {
+    setIncludeOnlyWords(row.sharedWords.join(', '));
+    setIncludeOnlyMode(true);
+    // Switch main cloud to seed song scope if not already
+    if (simResult && scope !== 'song') {
+      setScope('song');
+      setScopeId(simResult.seed.id);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -620,8 +682,44 @@ export default function WordCloudPage() {
             <p className="text-[10px] text-surface-600 mt-0.5 leading-tight">
               Comma or space separated · not case-sensitive
               {ignoreSet.size > 0 && rawWords.length > words.length && (
-                <span className="text-indigo-400"> · {rawWords.length - words.length} word{rawWords.length - words.length !== 1 ? 's' : ''} hidden</span>
+                <span className="text-indigo-400"> · {rawWords.length - words.length} hidden</span>
               )}
+            </p>
+          </div>
+
+          {/* Include-only / whitelist filter */}
+          <div>
+            <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeOnlyMode}
+                onChange={e => setIncludeOnlyMode(e.target.checked)}
+                className="accent-indigo-500"
+              />
+              <span className={`text-xs font-semibold uppercase tracking-wider transition-colors ${includeOnlyMode ? 'text-indigo-400' : 'text-surface-400'}`}>
+                Show only these words
+              </span>
+              {includeOnlyMode && includeOnlySet.size > 0 && (
+                <button
+                  className="ml-auto text-xs text-surface-500 hover:text-surface-200 transition-colors"
+                  onClick={() => setIncludeOnlyWords('')}
+                >Clear</button>
+              )}
+            </label>
+            <textarea
+              rows={3}
+              value={includeOnlyWords}
+              onChange={e => setIncludeOnlyWords(e.target.value)}
+              placeholder="fear, hope, time, love…"
+              disabled={!includeOnlyMode}
+              className={`w-full bg-surface-800 border rounded px-2 py-1.5 text-xs text-white placeholder-surface-600 resize-none focus:outline-none transition-colors ${
+                includeOnlyMode ? 'border-indigo-600 focus:border-indigo-400' : 'border-surface-700 opacity-50 cursor-not-allowed'
+              }`}
+            />
+            <p className="text-[10px] text-surface-600 mt-0.5 leading-tight">
+              {includeOnlyMode && includeOnlySet.size > 0
+                ? <span className="text-indigo-400">{includeOnlySet.size} word{includeOnlySet.size !== 1 ? 's' : ''} allowed · {words.length} shown</span>
+                : 'Tick the box to whitelist specific words only.'}
             </p>
           </div>
 
@@ -654,6 +752,89 @@ export default function WordCloudPage() {
           {selectedWord && (
             <WordDetail word={selectedWord} onClose={clearHighlight} />
           )}
+
+          {/* ── Song Similarity Finder ── */}
+          <div className="border-t border-surface-700 pt-4 space-y-3">
+            <div className="text-xs font-semibold text-surface-400 uppercase tracking-wider">
+              🔍 Find Similar Songs
+            </div>
+            <p className="text-[10px] text-surface-600 leading-tight">
+              Pick a seed song, then find others sharing the most words — great for guessing-game clouds.
+            </p>
+
+            {/* Band picker */}
+            <select
+              className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white"
+              value={simBandId}
+              onChange={e => { setSimBandId(e.target.value); setSimSongId(''); setSimResult(null); }}
+            >
+              <option value="">— pick an artist —</option>
+              {(scopes?.bands ?? []).map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+
+            {/* Song picker */}
+            {simBandId && (
+              <select
+                className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white"
+                value={simSongId}
+                onChange={e => { setSimSongId(e.target.value); setSimResult(null); }}
+                disabled={simSongsFetching}
+              >
+                <option value="">{simSongsFetching ? 'Loading…' : '— pick a song —'}</option>
+                {(simBandSongs ?? []).map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.album ? `${s.album.title} / ${s.title}` : s.title}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {/* Search scope */}
+            <div className="space-y-1">
+              <div className="text-[10px] text-surface-500 uppercase tracking-wider">Compare against</div>
+              <div className="flex gap-1.5">
+                {(['all', 'artist'] as const).map(s => (
+                  <button key={s}
+                    onClick={() => setSimScope(s)}
+                    className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                      simScope === s ? 'bg-indigo-600 text-white' : 'bg-surface-800 text-surface-400 hover:bg-surface-700'
+                    }`}
+                  >
+                    {s === 'all' ? 'All artists' : 'Same artist'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Min shared words */}
+            <div>
+              <div className="text-[10px] text-surface-500 mb-1">Min shared words: {simMinShared}</div>
+              <input type="range" min={2} max={20} value={simMinShared}
+                onChange={e => setSimMinShared(Number(e.target.value))}
+                className="w-full accent-indigo-500" />
+            </div>
+
+            <button
+              onClick={runSimilarity}
+              disabled={!simSongId || simLoading}
+              className={`w-full py-2 rounded text-xs font-semibold transition-colors ${
+                simSongId && !simLoading
+                  ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                  : 'bg-surface-800 text-surface-600 cursor-not-allowed'
+              }`}
+            >
+              {simLoading ? 'Searching…' : '🔍 Find Similar'}
+            </button>
+
+            {simResult && (
+              <div className="text-[10px] text-surface-500">
+                {simResult.similar.length} song{simResult.similar.length !== 1 ? 's' : ''} found
+                {' '}sharing ≥ {simMinShared} words with <span className="text-indigo-300">{simResult.seed.title}</span>
+              </div>
+            )}
+          </div>
         </aside>
 
         {/* ── Main ── */}
@@ -719,6 +900,102 @@ export default function WordCloudPage() {
               Click any word to see which songs contain it. Sized by{' '}
               {[includeLyrics && 'lyric frequency', includeThemes && 'AI theme strength', includeTags && 'tag weight']
                 .filter(Boolean).join(' + ') || 'combined score'}.
+            </div>
+          )}
+
+          {/* ── Similarity Results ── */}
+          {simResult && simResult.similar.length > 0 && (
+            <div className="mt-8">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-white">
+                  Songs most similar to <span className="text-indigo-400">{simResult.seed.title}</span>
+                  <span className="ml-2 text-xs font-normal text-surface-500">by shared vocabulary</span>
+                </h3>
+                <button
+                  onClick={() => setSimResult(null)}
+                  className="text-xs text-surface-600 hover:text-surface-300 transition-colors"
+                >✕ Close</button>
+              </div>
+
+              <div className="space-y-2">
+                {simResult.similar.map((row) => (
+                  <div key={row.song.id}
+                    className="bg-surface-900 border border-surface-800 rounded-lg overflow-hidden"
+                  >
+                    {/* Summary row */}
+                    <div className="flex items-center gap-3 px-4 py-2.5">
+                      {/* Shared count badge */}
+                      <div className="shrink-0 w-10 h-10 rounded-lg bg-indigo-900/60 flex flex-col items-center justify-center">
+                        <span className="text-sm font-bold text-indigo-300 leading-none">{row.sharedCount}</span>
+                        <span className="text-[8px] text-indigo-500 leading-none mt-0.5">words</span>
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-white truncate">{row.song.title}</div>
+                        <div className="text-xs text-surface-500">
+                          {row.song.band}
+                          {row.song.albumTitle && <span className="ml-1">· {row.song.albumTitle}</span>}
+                          <span className="ml-2 text-surface-600">
+                            {row.sharedCount}/{row.seedWordCount} seed words · {row.targetWordCount} target words
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex gap-1.5 shrink-0">
+                        <button
+                          onClick={() => useSharedWords(row)}
+                          className="text-[10px] bg-indigo-700/60 hover:bg-indigo-600/70 text-indigo-200 px-2 py-1 rounded transition-colors"
+                          title="Load shared words into the Include-only filter and build the cloud"
+                        >
+                          ☁ Build cloud
+                        </button>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard?.writeText(row.sharedWords.join(', '));
+                          }}
+                          className="text-[10px] bg-surface-700 hover:bg-surface-600 text-surface-300 px-2 py-1 rounded transition-colors"
+                          title="Copy shared words to clipboard"
+                        >
+                          ⧉ Copy
+                        </button>
+                        <button
+                          onClick={() => setSimExpanded(simExpanded === row.song.id ? null : row.song.id)}
+                          className="text-[10px] text-surface-600 hover:text-surface-300 px-1 py-1 transition-colors"
+                          title="Show all shared words"
+                        >
+                          {simExpanded === row.song.id ? '▲' : '▼'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Shared word chips (first 10 in collapsed, all when expanded) */}
+                    <div className="px-4 pb-2.5">
+                      <div className="flex flex-wrap gap-1">
+                        {(simExpanded === row.song.id ? row.sharedWords : row.sharedWords.slice(0, 12)).map(w => (
+                          <span key={w}
+                            className="text-[10px] bg-indigo-950/60 text-indigo-300 border border-indigo-800/40 rounded px-1.5 py-0.5 cursor-pointer hover:bg-indigo-800/40 transition-colors"
+                            onClick={() => setHighlightWord(highlightWord === w ? null : w)}
+                            title="Click to highlight in cloud"
+                          >
+                            {w}
+                          </span>
+                        ))}
+                        {simExpanded !== row.song.id && row.sharedWords.length > 12 && (
+                          <span className="text-[10px] text-surface-600">+{row.sharedWords.length - 12} more</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {simResult && simResult.similar.length === 0 && (
+            <div className="mt-8 text-center text-surface-500 text-sm py-8 border border-surface-800 rounded-lg">
+              No songs found sharing ≥ {simMinShared} words with <span className="text-indigo-400">{simResult.seed.title}</span>.
+              <br/><span className="text-xs text-surface-600 mt-1 block">Try lowering "Min shared words" or switching scope to "All artists".</span>
             </div>
           )}
         </main>

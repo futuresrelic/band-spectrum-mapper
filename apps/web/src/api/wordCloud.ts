@@ -28,6 +28,19 @@ export interface BandSong {
   album: { title: string } | null;
 }
 
+export interface SimilarSong {
+  song: { id: string; title: string; band: string; albumTitle: string | null };
+  sharedWords: string[];
+  sharedCount: number;
+  seedWordCount: number;
+  targetWordCount: number;
+}
+
+export interface SimilarSongsResult {
+  seed: { id: string; title: string; band: string };
+  similar: SimilarSong[];
+}
+
 export const wordCloudApi = {
   getData(params: {
     scope: string;
@@ -56,5 +69,18 @@ export const wordCloudApi = {
 
   getSongsByBand(bandId: string): Promise<BandSong[]> {
     return api.get(`/api/word-cloud/songs?bandId=${encodeURIComponent(bandId)}`);
+  },
+
+  getSimilar(params: {
+    songId: string;
+    limit?: number;
+    bandIds?: string[];
+    minShared?: number;
+  }): Promise<SimilarSongsResult> {
+    const qs = new URLSearchParams({ songId: params.songId });
+    if (params.limit)              qs.set('limit',     String(params.limit));
+    if (params.bandIds?.length)    qs.set('bandIds',   params.bandIds.join(','));
+    if (params.minShared !== undefined) qs.set('minShared', String(params.minShared));
+    return api.get(`/api/word-cloud/similar?${qs}`);
   },
 };
