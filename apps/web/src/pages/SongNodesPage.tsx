@@ -127,6 +127,21 @@ function StyleSlider({ label, value, min, max, step, onChange, format }: {
 }
 
 // ---------------------------------------------------------------------------
+// Faded-node interaction helpers
+// Faded nodes must not be draggable or selectable — otherwise background
+// nodes interrupt the user while they're examining a selection.
+// ---------------------------------------------------------------------------
+
+function lockFadedNodes(cy: Core): void {
+  cy.nodes('.faded').ungrabify().unselectify();
+  cy.nodes(':not(.faded)').grabify().selectify();
+}
+
+function unlockAllNodes(cy: Core): void {
+  cy.nodes().grabify().selectify();
+}
+
+// ---------------------------------------------------------------------------
 // Cytoscape style
 // ---------------------------------------------------------------------------
 
@@ -586,6 +601,7 @@ export default function SongNodesPage() {
       const neighbourhood = node.closedNeighborhood();
       neighbourhood.addClass('highlighted');
       cy.elements().not(neighbourhood).addClass('faded');
+      lockFadedNodes(cy);
       selectedNodeIdRef.current = node.id();
       applyLabelCascade(cy, node.id(), vStyleRef.current, showAllLabelsRef.current);
       setSelectedNode(cy.$(`#${CSS.escape(node.id())}`));
@@ -595,6 +611,7 @@ export default function SongNodesPage() {
     cy.on('tap', (evt: EventObject) => {
       if (evt.target === cy) {
         cy.elements().removeClass('highlighted faded');
+        unlockAllNodes(cy);
         selectedNodeIdRef.current = null;
         applyLabelCascade(cy, null, vStyleRef.current, showAllLabelsRef.current);
         setSelectedNode(null);
@@ -1284,6 +1301,7 @@ export default function SongNodesPage() {
     if (!cy) return;
     if (!query || query.trim().length < 2) {
       cy.elements().removeClass('highlighted faded');
+      unlockAllNodes(cy);
       setNodeSearchCount(null);
       return;
     }
@@ -1294,19 +1312,24 @@ export default function SongNodesPage() {
     });
     cy.elements().removeClass('highlighted faded');
     if (matches.length === 0) {
+      unlockAllNodes(cy);
       setNodeSearchCount(0);
       return;
     }
     matches.addClass('highlighted');
     cy.nodes().not(matches).addClass('faded');
     cy.edges().addClass('faded');
+    lockFadedNodes(cy);
     setNodeSearchCount(matches.length);
   }, []);
 
   function clearNodeSearch() {
     setNodeSearch('');
     setNodeSearchCount(null);
-    cyRef.current?.elements().removeClass('highlighted faded');
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.elements().removeClass('highlighted faded');
+    unlockAllNodes(cy);
   }
 
   // ── Legend filter controls ────────────────────────────────────────────────
@@ -1316,12 +1339,14 @@ export default function SongNodesPage() {
     if (!cy) return;
     if (legendNodeFilter === type) {
       cy.elements().removeClass('highlighted faded');
+      unlockAllNodes(cy);
       setLegendNodeFilter(null);
     } else {
       cy.elements().removeClass('highlighted faded');
       cy.nodes(`[type = "${type}"]`).addClass('highlighted');
       cy.nodes().not(`[type = "${type}"]`).addClass('faded');
       cy.edges().addClass('faded');
+      lockFadedNodes(cy);
       setLegendNodeFilter(type);
       setLegendEdgeFilter(null);
     }
@@ -1332,6 +1357,7 @@ export default function SongNodesPage() {
     if (!cy) return;
     if (legendEdgeFilter === type) {
       cy.elements().removeClass('highlighted faded');
+      unlockAllNodes(cy);
       setLegendEdgeFilter(null);
     } else {
       cy.elements().removeClass('highlighted faded');
@@ -1340,13 +1366,17 @@ export default function SongNodesPage() {
       cy.nodes().addClass('faded');
       // Reveal the nodes that participate in this edge type
       cy.edges(`[edgeType = "${type}"]`).connectedNodes().removeClass('faded').addClass('highlighted');
+      lockFadedNodes(cy);
       setLegendEdgeFilter(type);
       setLegendNodeFilter(null);
     }
   }
 
   function clearLegendFilter() {
-    cyRef.current?.elements().removeClass('highlighted faded');
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.elements().removeClass('highlighted faded');
+    unlockAllNodes(cy);
     setLegendNodeFilter(null);
     setLegendEdgeFilter(null);
   }
@@ -1693,7 +1723,8 @@ export default function SongNodesPage() {
           {selectedNode && selectedNode.length > 0 && (
             <NodeDetailPanel node={selectedNode} onClose={() => {
               setSelectedNode(null);
-              cyRef.current?.elements().removeClass('highlighted faded');
+              const cy = cyRef.current;
+              if (cy) { cy.elements().removeClass('highlighted faded'); unlockAllNodes(cy); }
             }} />
           )}
 
