@@ -37,7 +37,7 @@ const TYPE_ICONS: Record<string, string> = {
 const TYPE_ORDER = ['artist', 'album', 'song', 'keyword', 'theme', 'tag', 'emotion'];
 const DWELL_PRESETS  = [2000, 4000, 6000, 8000, 10000, 15000, 20000, 30000, 60000];
 const FLY_IN_PRESETS = [600, 1000, 1800, 2800, 4000, 6000, 10000];
-const ORBIT_SPEED_OPTIONS = [0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0, 3.0];
+const ORBIT_SPEED_OPTIONS = [0.02, 0.05, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0, 3.0];
 
 function dwellLabel(ms: number) {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(0)}s`;
@@ -130,7 +130,7 @@ function StepRow({
           {/* Approach distance */}
           <div className="flex items-center gap-2">
             <span className="text-gray-500 w-20 shrink-0">Distance</span>
-            <input type="range" min={30} max={500} step={10}
+            <input type="range" min={30} max={800} step={10}
               value={step.approachDist ?? 120}
               onChange={e => onChange({ approachDist: Number(e.target.value) })}
               className="flex-1 accent-indigo-500" />

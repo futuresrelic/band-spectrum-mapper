@@ -352,6 +352,7 @@ export default function CinemaPage() {
   // ── Cinema state ─────────────────────────────────────────────────────────────
   const [currentSceneIdx, setCurrentSceneIdx]     = useState(0);
   const [isPlaying, setIsPlaying]                 = useState(false);
+  const [loopScene, setLoopScene]                 = useState(false);
   const [transitionOpacity, setTransitionOpacity] = useState(0);
   const [sceneProgress, setSceneProgress]         = useState(0);
   const [socialMode, setSocialMode]               = useState(false);
@@ -742,6 +743,7 @@ export default function CinemaPage() {
   const isPlayingRef    = useRef(false);
   const tourModeRef     = useRef(false);
   const isTransRef      = useRef(false);
+  const loopSceneRef    = useRef(false);
   const simNodesRef     = useRef<CinemaNode[]>([]);
   // O(1) node lookup for rAF loops (updated whenever simNodes changes)
   const nodeMapRef      = useRef<Map<string, CinemaNode>>(new Map());
@@ -833,6 +835,7 @@ export default function CinemaPage() {
     }
   }, [isPlaying]);
   useEffect(() => { currentIdxRef.current = currentSceneIdx; }, [currentSceneIdx]);
+  useEffect(() => { loopSceneRef.current  = loopScene; },      [loopScene]);
   useEffect(() => {
     simNodesRef.current = simNodes;
     nodeMapRef.current  = new Map(simNodes.map(n => [n.id, n]));
@@ -1042,7 +1045,12 @@ export default function CinemaPage() {
   }, [activateScene]);
 
   const advanceScene = useCallback(() => {
-    transitionTo((currentIdxRef.current + 1) % CINEMA_SCENES.length);
+    if (loopSceneRef.current) {
+      // Loop: restart the same scene without a visual transition
+      sceneStartRef.current = performance.now();
+    } else {
+      transitionTo((currentIdxRef.current + 1) % CINEMA_SCENES.length);
+    }
   }, [transitionTo]);
 
   const retreatScene = useCallback(() => {
@@ -1558,23 +1566,29 @@ export default function CinemaPage() {
             if (step) {
               const node = simNodesRef.current.find(n => n.id === step.nodeId);
               if (node && node.x != null) {
-                // Blend per-step overrides into global controls for this shot
+                // Blend per-step overrides into global controls for this shot.
+                // speedMultiplier scales BOTH dwell duration AND orbit angular velocity
+                // so "slow playback" genuinely slows everything — not just when it advances.
+                const baseOrbitSpeed = step.orbitSpeed ?? controls.orbitSpeed;
                 const stepControls: CinemaControls = {
                   ...controls,
-                  ...(step.orbitSpeed   !== undefined ? { orbitSpeed:      step.orbitSpeed   } : {}),
                   ...(step.approachDist !== undefined ? { approachDist:    step.approachDist } : {}),
                   ...(step.elevation    !== undefined ? { elevationOffset: step.elevation    } : {}),
                   ...(step.orbitMode    !== undefined ? { orbitMode:       step.orbitMode    } : {}),
+                  orbitSpeed: baseOrbitSpeed * controls.speedMultiplier,
                 };
                 if (!tourOrbitRef.current) {
                   const prevLookAt = tourPrevTargetRef.current ?? { x: 0, y: 0, z: 0 };
-                  const dwellMs    = Math.round(step.dwellMs / stepControls.speedMultiplier);
+                  const dwellMs    = Math.round(step.dwellMs / controls.speedMultiplier);
+                  // Scale fly-in duration by playback speed so fast transitions
+                  // don't look like an orbit speed "spike" after a slow dwell.
+                  const flyInMs    = Math.round((step.flyInMs ?? 1800) / controls.speedMultiplier);
                   tourOrbitRef.current = initOrbitState(
                     node.x, node.y ?? 0, node.z ?? 0,
                     camera.position.x, camera.position.y, camera.position.z,
                     elapsed, dwellMs,
                     prevLookAt.x, prevLookAt.y, prevLookAt.z,
-                    step.flyInMs ?? 1800,
+                    flyInMs,
                   );
                   applyHighlightRef.current(step.nodeId);
                 }
@@ -1620,7 +1634,13 @@ export default function CinemaPage() {
             // Scene KF loop or free cam disables built-in scene tick
             if (!sceneKfPlayRef.current && !freeCamRef.current) {
               const scene = CINEMA_SCENES[currentIdxRef.current];
-              scene?.tick?.(fg, simNodesRef.current, adjRef.current, elapsed, sceneStateRef.current, controls);
+              // speedMultiplier also scales orbit angular velocity so "slow playback"
+              // genuinely slows the camera — not just how long before the next scene.
+              const sceneControls: CinemaControls = {
+                ...controls,
+                orbitSpeed: controls.orbitSpeed * controls.speedMultiplier,
+              };
+              scene?.tick?.(fg, simNodesRef.current, adjRef.current, elapsed, sceneStateRef.current, sceneControls);
             }
           }
         }
@@ -3523,9 +3543,9 @@ export default function CinemaPage() {
                   <label className="block space-y-1">
                     <div className="flex justify-between text-[10px] text-gray-400">
                       <span>{cinemaControls.orbitMode === 'breathe' ? 'Breathe rate' : 'Orbit speed'}</span>
-                      <span>{cinemaControls.orbitSpeed.toFixed(1)}×</span>
+                      <span>{cinemaControls.orbitSpeed.toFixed(2)}×</span>
                     </div>
-                    <input type="range" min="0.1" max="5" step="0.1" value={cinemaControls.orbitSpeed}
+                    <input type="range" min="0.02" max="5" step="0.01" value={cinemaControls.orbitSpeed}
                       onChange={e => updateControl('orbitSpeed', Number(e.target.value))}
                       className="w-full accent-indigo-500" />
                   </label>
@@ -3533,7 +3553,7 @@ export default function CinemaPage() {
                     <div className="flex justify-between text-[10px] text-gray-400">
                       <span>Approach dist</span><span>{cinemaControls.approachDist}</span>
                     </div>
-                    <input type="range" min="30" max="400" step="5" value={cinemaControls.approachDist}
+                    <input type="range" min="30" max="800" step="5" value={cinemaControls.approachDist}
                       onChange={e => updateControl('approachDist', Number(e.target.value))}
                       className="w-full accent-indigo-500" />
                   </label>
@@ -3549,7 +3569,7 @@ export default function CinemaPage() {
                     <div className="flex justify-between text-[10px] text-gray-400">
                       <span>Playback speed</span><span>{cinemaControls.speedMultiplier.toFixed(1)}×</span>
                     </div>
-                    <input type="range" min="0.25" max="4" step="0.25" value={cinemaControls.speedMultiplier}
+                    <input type="range" min="0.05" max="4" step="0.05" value={cinemaControls.speedMultiplier}
                       onChange={e => updateControl('speedMultiplier', Number(e.target.value))}
                       className="w-full accent-indigo-500" />
                   </label>
@@ -4953,9 +4973,14 @@ export default function CinemaPage() {
                 </button>
               )}
 
-              {!tourMode && !railMode && (
+              {!tourMode && !railMode && (<>
+                <button
+                  onClick={() => setLoopScene(v => !v)}
+                  title={loopScene ? 'Loop on — click to turn off' : 'Loop off — click to loop current scene forever'}
+                  className={`text-base transition-colors px-1 ${loopScene ? 'text-indigo-400' : 'text-gray-600 hover:text-gray-400'}`}
+                >🔁</button>
                 <button onClick={advanceScene} className="text-gray-500 hover:text-white transition-colors text-lg" title="Next (L / →)">⏭</button>
-              )}
+              </>)}
             </div>
 
             <div className="flex items-center gap-2">
