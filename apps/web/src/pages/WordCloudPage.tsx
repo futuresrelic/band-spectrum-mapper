@@ -478,16 +478,22 @@ export default function WordCloudPage() {
   const [lookupLoading, setLookupLoading]   = useState(false);
 
   // Word clusters
-  const [clusterBandIds, setClusterBandIds]         = useState<string[]>([]);
-  const [clusterMinSongs, setClusterMinSongs]       = useState(3);
-  const [clusterMaxSongs, setClusterMaxSongs]       = useState(0); // 0 = no upper limit
-  const [clusterMinWords, setClusterMinWords]       = useState(2);
-  const [clusterMaxGroup, setClusterMaxGroup]       = useState(4);
-  const [clusterTopN, setClusterTopN]               = useState(25);
-  const [clusterSortBy, setClusterSortBy]           = useState<'score' | 'songs' | 'words'>('score');
-  const [clusterResult, setClusterResult]           = useState<WordClustersResult | null>(null);
-  const [clusterLoading, setClusterLoading]         = useState(false);
-  const [clusterExpanded, setClusterExpanded]       = useState<string | null>(null);
+  const [clusterBandIds, setClusterBandIds]                 = useState<string[]>([]);
+  const [clusterMinSongs, setClusterMinSongs]               = useState(3);
+  const [clusterMaxSongs, setClusterMaxSongs]               = useState(0); // 0 = no upper limit
+  const [clusterMinWords, setClusterMinWords]               = useState(2);
+  const [clusterMaxGroup, setClusterMaxGroup]               = useState(4);
+  const [clusterTopN, setClusterTopN]                       = useState(25);
+  const [clusterExcludeWords, setClusterExcludeWords]       = useState('');
+  const [clusterRequireCrossBand, setClusterRequireCrossBand]   = useState(false);
+  const [clusterRequireCrossAlbum, setClusterRequireCrossAlbum] = useState(false);
+  const [clusterSortBy, setClusterSortBy]                   = useState<'score' | 'songs' | 'words'>('score');
+  const [clusterResult, setClusterResult]                   = useState<WordClustersResult | null>(null);
+  const [clusterLoading, setClusterLoading]                 = useState(false);
+  const [clusterExpanded, setClusterExpanded]               = useState<string | null>(null);
+  const [clusterPage, setClusterPage]                       = useState(1);
+  const [clusterFilterExclude, setClusterFilterExclude]     = useState('');
+  const [clusterFilterMustHave, setClusterFilterMustHave]   = useState('');
 
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -500,13 +506,34 @@ export default function WordCloudPage() {
     includeOnlyWords.split(/[\s,]+/).map(w => w.trim().toLowerCase()).filter(Boolean),
   ), [includeOnlyWords]);
 
+  const CLUSTERS_PER_PAGE = 25;
+
   const sortedClusters = useMemo(() => {
     if (!clusterResult) return [];
-    const arr = [...clusterResult.clusters];
-    if (clusterSortBy === 'songs')  arr.sort((a, b) => b.songCount - a.songCount || b.wordCount - a.wordCount);
-    if (clusterSortBy === 'words')  arr.sort((a, b) => b.wordCount - a.wordCount || b.songCount - a.songCount);
-    return arr; // 'score' already sorted server-side
-  }, [clusterResult, clusterSortBy]);
+    const excludeFilters = clusterFilterExclude
+      .split(/[\s,]+/).map((w) => w.trim().toLowerCase()).filter(Boolean);
+    const mustHave = clusterFilterMustHave.trim().toLowerCase();
+
+    let arr = clusterResult.clusters;
+    if (excludeFilters.length > 0) {
+      arr = arr.filter((c) => !excludeFilters.some((fw) => c.words.some((w) => w.toLowerCase() === fw)));
+    }
+    if (mustHave) {
+      arr = arr.filter((c) => c.words.some((w) => w.toLowerCase() === mustHave));
+    }
+
+    const sorted = [...arr];
+    if (clusterSortBy === 'songs') sorted.sort((a, b) => b.songCount - a.songCount || b.wordCount - a.wordCount);
+    if (clusterSortBy === 'words') sorted.sort((a, b) => b.wordCount - a.wordCount || b.songCount - a.songCount);
+    return sorted; // 'score' already sorted server-side
+  }, [clusterResult, clusterSortBy, clusterFilterExclude, clusterFilterMustHave]);
+
+  const clusterTotalPages = Math.max(1, Math.ceil(sortedClusters.length / CLUSTERS_PER_PAGE));
+
+  const paginatedClusters = useMemo(
+    () => sortedClusters.slice((clusterPage - 1) * CLUSTERS_PER_PAGE, clusterPage * CLUSTERS_PER_PAGE),
+    [sortedClusters, clusterPage],
+  );
 
   // Derive effective id and canQuery based on scope
   const effectiveId = scope === 'artist' ? selectedBandIds.join(',') : scopeId;
@@ -595,6 +622,9 @@ export default function WordCloudPage() {
     setClusterLoading(true);
     setClusterResult(null);
     setClusterExpanded(null);
+    setClusterPage(1);
+    const excludeList = clusterExcludeWords
+      .split(/[\s,]+/).map((w) => w.trim().toLowerCase()).filter(Boolean);
     try {
       const result = await wordCloudApi.findClusters({
         bandIds: clusterBandIds,
@@ -603,6 +633,9 @@ export default function WordCloudPage() {
         minWords: clusterMinWords,
         maxGroupSize: clusterMaxGroup,
         topN: clusterTopN,
+        ...(excludeList.length       ? { excludeWords:    excludeList } : {}),
+        ...(clusterRequireCrossBand  ? { requireCrossBand:  true }      : {}),
+        ...(clusterRequireCrossAlbum ? { requireCrossAlbum: true }      : {}),
       });
       setClusterResult(result);
     } catch { /* ignore */ }
@@ -1085,6 +1118,58 @@ export default function WordCloudPage() {
                 className="w-full accent-indigo-500" />
             </div>
 
+            {/* Exclude words from candidates */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-[10px] text-surface-500 uppercase tracking-wider">Exclude words</div>
+                {clusterExcludeWords.trim() && (
+                  <button className="text-[10px] text-surface-500 hover:text-surface-200" onClick={() => setClusterExcludeWords('')}>Clear</button>
+                )}
+              </div>
+              <textarea
+                rows={2}
+                value={clusterExcludeWords}
+                onChange={(e) => setClusterExcludeWords(e.target.value)}
+                placeholder="fear, time, life…"
+                className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white placeholder-surface-600 resize-none focus:outline-none focus:border-red-600"
+              />
+              <p className="text-[10px] text-surface-600 mt-0.5 leading-tight">
+                These words are excluded from the candidate pool — requires re-run
+              </p>
+            </div>
+
+            {/* Diversity checkboxes */}
+            <div className="space-y-2">
+              <div className="text-[10px] text-surface-500 uppercase tracking-wider">Diversity</div>
+              <label className="flex items-start gap-2 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={clusterRequireCrossBand}
+                  onChange={(e) => setClusterRequireCrossBand(e.target.checked)}
+                  className="accent-indigo-500 mt-0.5"
+                />
+                <span className="text-[11px] text-surface-400 group-hover:text-surface-200 leading-tight transition-colors">
+                  Only clusters spanning multiple bands
+                </span>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={clusterRequireCrossAlbum}
+                  onChange={(e) => setClusterRequireCrossAlbum(e.target.checked)}
+                  className="accent-indigo-500 mt-0.5"
+                />
+                <span className="text-[11px] text-surface-400 group-hover:text-surface-200 leading-tight transition-colors">
+                  Only clusters spanning multiple albums
+                </span>
+              </label>
+              {(clusterRequireCrossBand || clusterRequireCrossAlbum) && (
+                <p className="text-[10px] text-indigo-400/70 leading-tight">
+                  Great for social posts — avoids same-album repetition.
+                </p>
+              )}
+            </div>
+
             <button
               onClick={runClusters}
               disabled={clusterBandIds.length === 0 || clusterLoading}
@@ -1324,23 +1409,27 @@ export default function WordCloudPage() {
           {/* ── Word Cluster Results ── */}
           {clusterResult && clusterResult.clusters.length > 0 && (
             <div className="mt-8">
+              {/* Header: title + sort + close */}
               <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
                 <div>
                   <h3 className="text-sm font-semibold text-white">
                     Word Clusters
                     <span className="ml-2 text-xs font-normal text-surface-500">
-                      {clusterResult.clusters.length} groups · {clusterResult.totalSongs} songs
+                      {sortedClusters.length !== clusterResult.clusters.length
+                        ? `${sortedClusters.length} of ${clusterResult.clusters.length} groups`
+                        : `${clusterResult.clusters.length} groups`}
+                      {' · '}{clusterResult.totalSongs} songs
                     </span>
                   </h3>
                   <p className="text-[10px] text-surface-600 mt-0.5">
-                    ☁ to generate cloud · click a word to look it up · click a song to view its cloud
+                    ☁ generates cloud · word chip looks it up · song row opens its cloud
                   </p>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0 flex-wrap">
                   <span className="text-[10px] text-surface-500">Sort:</span>
                   {(['score', 'songs', 'words'] as const).map((s) => (
                     <button key={s}
-                      onClick={() => setClusterSortBy(s)}
+                      onClick={() => { setClusterSortBy(s); setClusterPage(1); }}
                       className={`px-2 py-0.5 text-[10px] rounded transition-colors ${
                         clusterSortBy === s
                           ? 'bg-indigo-600 text-white'
@@ -1350,102 +1439,173 @@ export default function WordCloudPage() {
                       {s === 'score' ? '★ Score' : s === 'songs' ? '♫ Songs' : '# Words'}
                     </button>
                   ))}
-                  <button onClick={() => setClusterResult(null)} className="text-xs text-surface-600 hover:text-surface-300 transition-colors ml-2">✕</button>
+                  <button onClick={() => setClusterResult(null)} className="text-xs text-surface-600 hover:text-surface-300 transition-colors ml-1">✕</button>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                {sortedClusters.map((cluster) => {
-                  const clusterKey = cluster.words.join('|');
-                  return (
-                    <div key={clusterKey} className="bg-surface-900 border border-surface-800 rounded-lg overflow-hidden">
-                      {/* Header row */}
-                      <div className="flex items-center gap-3 px-4 py-2.5">
-                        {/* Song count badge */}
-                        <div className="shrink-0 w-12 h-10 rounded-lg bg-indigo-900/60 flex flex-col items-center justify-center">
-                          <span className="text-sm font-bold text-indigo-300 leading-none">{cluster.songCount}</span>
-                          <span className="text-[8px] text-indigo-500 leading-none mt-0.5">songs</span>
-                        </div>
+              {/* Client-side result filters */}
+              <div className="flex gap-2 mb-3 flex-wrap">
+                <div className="flex-1 min-w-32">
+                  <input
+                    type="text"
+                    value={clusterFilterMustHave}
+                    onChange={(e) => { setClusterFilterMustHave(e.target.value); setClusterPage(1); }}
+                    placeholder="Must include word…"
+                    className="w-full bg-surface-800 border border-surface-700 rounded px-2 py-1.5 text-xs text-white placeholder-surface-600 focus:outline-none focus:border-indigo-500"
+                    title="Only show clusters that contain this word"
+                  />
+                </div>
+                <div className="flex-1 min-w-32">
+                  <input
+                    type="text"
+                    value={clusterFilterExclude}
+                    onChange={(e) => { setClusterFilterExclude(e.target.value); setClusterPage(1); }}
+                    placeholder="Hide clusters with word…"
+                    className="w-full bg-surface-800 border border-red-900/50 rounded px-2 py-1.5 text-xs text-white placeholder-surface-600 focus:outline-none focus:border-red-600"
+                    title="Hide any cluster that contains this word (comma-separated)"
+                  />
+                </div>
+                {(clusterFilterMustHave || clusterFilterExclude) && (
+                  <button
+                    onClick={() => { setClusterFilterMustHave(''); setClusterFilterExclude(''); setClusterPage(1); }}
+                    className="text-[10px] text-surface-500 hover:text-surface-200 transition-colors px-1"
+                  >Clear filters</button>
+                )}
+              </div>
 
-                        {/* Word chips — click to look up that word */}
-                        <div className="flex-1 flex flex-wrap gap-1.5 min-w-0">
-                          {cluster.words.map((w) => (
-                            <span
-                              key={w}
-                              className="text-xs bg-indigo-800/50 text-indigo-200 border border-indigo-700/40 rounded px-2 py-0.5 cursor-pointer hover:bg-indigo-600/60 transition-colors"
-                              onClick={() => runLookupFor(w, clusterBandIds.length ? clusterBandIds : undefined)}
-                              title="Click to look up which songs contain this word"
-                            >
-                              {w}
-                            </span>
-                          ))}
-                          <span className="text-[10px] text-surface-600 self-center">
-                            {cluster.wordCount} word{cluster.wordCount !== 1 ? 's' : ''} · score {cluster.score}
-                          </span>
-                        </div>
+              {/* Cluster list */}
+              {sortedClusters.length === 0 ? (
+                <div className="text-center text-surface-500 text-sm py-8 border border-surface-800 rounded-lg">
+                  No clusters match your filters.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {paginatedClusters.map((cluster) => {
+                    const clusterKey = cluster.words.join('|');
+                    return (
+                      <div key={clusterKey} className="bg-surface-900 border border-surface-800 rounded-lg overflow-hidden">
+                        {/* Header row */}
+                        <div className="flex items-center gap-3 px-4 py-2.5">
+                          {/* Song count badge */}
+                          <div className="shrink-0 w-12 h-10 rounded-lg bg-indigo-900/60 flex flex-col items-center justify-center">
+                            <span className="text-sm font-bold text-indigo-300 leading-none">{cluster.songCount}</span>
+                            <span className="text-[8px] text-indigo-500 leading-none mt-0.5">songs</span>
+                          </div>
 
-                        {/* Actions */}
-                        <div className="flex gap-1.5 shrink-0">
-                          <button
-                            onClick={() => {
-                              setScope('artist');
-                              setSelectedBandIds(clusterBandIds);
-                              setIncludeOnlyWords(cluster.words.join(', '));
-                              setIncludeOnlyMode(true);
-                              window.scrollTo({ top: 0, behavior: 'smooth' });
-                            }}
-                            className="text-[10px] bg-indigo-700/60 hover:bg-indigo-600/70 text-indigo-200 px-2 py-1 rounded transition-colors"
-                            title="Generate word cloud for these words across the selected artists"
-                          >
-                            ☁ Cloud
-                          </button>
-                          <button
-                            onClick={() => navigator.clipboard?.writeText(cluster.words.join(', '))}
-                            className="text-[10px] bg-surface-700 hover:bg-surface-600 text-surface-300 px-2 py-1 rounded transition-colors"
-                            title="Copy words to clipboard"
-                          >
-                            ⧉ Copy
-                          </button>
-                          <button
-                            onClick={() => setClusterExpanded(clusterExpanded === clusterKey ? null : clusterKey)}
-                            className="text-[10px] text-surface-600 hover:text-surface-300 px-1 py-1 transition-colors"
-                            title="Show songs"
-                          >
-                            {clusterExpanded === clusterKey ? '▲' : '▼'}
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Songs (expanded) — click a song to view its cloud */}
-                      {clusterExpanded === clusterKey && (
-                        <div className="px-4 pb-3 border-t border-surface-800">
-                          <p className="mt-2 mb-1.5 text-[10px] text-surface-600">
-                            Click a song to view its word cloud with the cluster words highlighted.
-                          </p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
-                            {cluster.songs.map((s) => (
-                              <div
-                                key={s.id}
-                                className="text-xs text-surface-300 cursor-pointer hover:text-white hover:bg-surface-800/60 rounded px-1.5 py-1 transition-colors"
-                                onClick={() => {
-                                  setScope('song');
-                                  setScopeId(s.id);
-                                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                                }}
-                                title="Click to view this song's word cloud"
+                          {/* Word chips — click to look up that word */}
+                          <div className="flex-1 flex flex-wrap gap-1.5 min-w-0">
+                            {cluster.words.map((w) => (
+                              <span
+                                key={w}
+                                className="text-xs bg-indigo-800/50 text-indigo-200 border border-indigo-700/40 rounded px-2 py-0.5 cursor-pointer hover:bg-indigo-600/60 transition-colors"
+                                onClick={() => runLookupFor(w, clusterBandIds.length ? clusterBandIds : undefined)}
+                                title="Click to look up which songs contain this word"
                               >
-                                <span className="text-surface-500">{s.band}</span>
-                                {' — '}{s.title}
-                                {s.albumTitle && <span className="text-surface-600"> ({s.albumTitle})</span>}
-                              </div>
+                                {w}
+                              </span>
                             ))}
+                            <span className="text-[10px] text-surface-600 self-center">
+                              {cluster.wordCount} word{cluster.wordCount !== 1 ? 's' : ''} · score {cluster.score}
+                            </span>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex gap-1.5 shrink-0">
+                            <button
+                              onClick={() => {
+                                setScope('artist');
+                                setSelectedBandIds(clusterBandIds);
+                                setIncludeOnlyWords(cluster.words.join(', '));
+                                setIncludeOnlyMode(true);
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                              }}
+                              className="text-[10px] bg-indigo-700/60 hover:bg-indigo-600/70 text-indigo-200 px-2 py-1 rounded transition-colors"
+                              title="Generate word cloud for these words across the selected artists"
+                            >
+                              ☁ Cloud
+                            </button>
+                            <button
+                              onClick={() => navigator.clipboard?.writeText(cluster.words.join(', '))}
+                              className="text-[10px] bg-surface-700 hover:bg-surface-600 text-surface-300 px-2 py-1 rounded transition-colors"
+                              title="Copy words to clipboard"
+                            >
+                              ⧉ Copy
+                            </button>
+                            <button
+                              onClick={() => setClusterExpanded(clusterExpanded === clusterKey ? null : clusterKey)}
+                              className="text-[10px] text-surface-600 hover:text-surface-300 px-1 py-1 transition-colors"
+                              title="Show songs"
+                            >
+                              {clusterExpanded === clusterKey ? '▲' : '▼'}
+                            </button>
                           </div>
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+
+                        {/* Songs (expanded) — click a song to view its cloud */}
+                        {clusterExpanded === clusterKey && (
+                          <div className="px-4 pb-3 border-t border-surface-800">
+                            <p className="mt-2 mb-1.5 text-[10px] text-surface-600">
+                              Click a song to view its word cloud with the cluster words highlighted.
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                              {cluster.songs.map((s) => (
+                                <div
+                                  key={s.id}
+                                  className="text-xs text-surface-300 cursor-pointer hover:text-white hover:bg-surface-800/60 rounded px-1.5 py-1 transition-colors"
+                                  onClick={() => {
+                                    setScope('song');
+                                    setScopeId(s.id);
+                                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                                  }}
+                                  title="Click to view this song's word cloud"
+                                >
+                                  <span className="text-surface-500">{s.band}</span>
+                                  {' — '}{s.title}
+                                  {s.albumTitle && <span className="text-surface-600"> ({s.albumTitle})</span>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Pagination */}
+              {clusterTotalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 pt-3 border-t border-surface-800">
+                  <button
+                    onClick={() => setClusterPage((p) => Math.max(1, p - 1))}
+                    disabled={clusterPage === 1}
+                    className={`px-3 py-1.5 text-xs rounded transition-colors ${
+                      clusterPage === 1
+                        ? 'text-surface-700 cursor-not-allowed'
+                        : 'bg-surface-800 text-surface-300 hover:bg-surface-700'
+                    }`}
+                  >
+                    ← Prev
+                  </button>
+                  <div className="text-xs text-surface-500">
+                    Page {clusterPage} of {clusterTotalPages}
+                    <span className="ml-2 text-surface-600">
+                      ({(clusterPage - 1) * CLUSTERS_PER_PAGE + 1}–{Math.min(clusterPage * CLUSTERS_PER_PAGE, sortedClusters.length)} of {sortedClusters.length})
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setClusterPage((p) => Math.min(clusterTotalPages, p + 1))}
+                    disabled={clusterPage === clusterTotalPages}
+                    className={`px-3 py-1.5 text-xs rounded transition-colors ${
+                      clusterPage === clusterTotalPages
+                        ? 'text-surface-700 cursor-not-allowed'
+                        : 'bg-surface-800 text-surface-300 hover:bg-surface-700'
+                    }`}
+                  >
+                    Next →
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </main>

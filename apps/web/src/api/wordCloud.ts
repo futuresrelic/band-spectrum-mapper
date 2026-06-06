@@ -116,14 +116,20 @@ export const wordCloudApi = {
     minWords?: number;
     maxGroupSize?: number;
     topN?: number;
+    excludeWords?: string[];
+    requireCrossBand?: boolean;
+    requireCrossAlbum?: boolean;
   }): Promise<WordClustersResult> {
     const qs = new URLSearchParams();
-    if (params.bandIds?.length)                  qs.set('bandIds',     params.bandIds.join(','));
-    if (params.minSongs)                         qs.set('minSongs',     String(params.minSongs));
-    if (params.maxSongs && params.maxSongs > 0)  qs.set('maxSongs',     String(params.maxSongs));
-    if (params.minWords)                         qs.set('minWords',     String(params.minWords));
-    if (params.maxGroupSize)                     qs.set('maxGroupSize', String(params.maxGroupSize));
-    if (params.topN)                             qs.set('topN',         String(params.topN));
+    if (params.bandIds?.length)                  qs.set('bandIds',          params.bandIds.join(','));
+    if (params.minSongs)                         qs.set('minSongs',          String(params.minSongs));
+    if (params.maxSongs && params.maxSongs > 0)  qs.set('maxSongs',          String(params.maxSongs));
+    if (params.minWords)                         qs.set('minWords',          String(params.minWords));
+    if (params.maxGroupSize)                     qs.set('maxGroupSize',      String(params.maxGroupSize));
+    if (params.topN)                             qs.set('topN',              String(params.topN));
+    if (params.excludeWords?.length)             qs.set('excludeWords',      params.excludeWords.join(','));
+    if (params.requireCrossBand)                 qs.set('requireCrossBand',  'true');
+    if (params.requireCrossAlbum)                qs.set('requireCrossAlbum', 'true');
     return api.get(`/api/word-cloud/clusters?${qs}`);
   },
 };

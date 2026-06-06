@@ -336,6 +336,9 @@ export async function findWordClusters(
     maxGroupSize?: number;
     topN?: number;
     vocabLimit?: number; // max candidate words to consider — guards perf
+    excludeWords?: string[];     // remove these words from candidates entirely
+    requireCrossBand?: boolean;  // only emit clusters spanning ≥2 bands
+    requireCrossAlbum?: boolean; // only emit clusters spanning ≥2 albums
   } = {},
 ): Promise<WordClustersResult> {
   const {
@@ -346,6 +349,9 @@ export async function findWordClusters(
     maxGroupSize = 4,
     topN = 25,
     vocabLimit = 70,
+    excludeWords,
+    requireCrossBand = false,
+    requireCrossAlbum = false,
   } = opts;
 
   const customStopwords = await getCustomStopwords();
@@ -401,9 +407,10 @@ export async function findWordClusters(
     }
   }
 
-  // Candidate words: appear in ≥ minSongs songs, limited by vocabLimit (most frequent first)
+  // Candidate words: appear in ≥ minSongs songs, not in the exclude list, limited by vocabLimit
+  const excludeSet = new Set((excludeWords ?? []).map((w) => w.toLowerCase()));
   const candidates: string[] = [...wordToSongs.entries()]
-    .filter(([, s]) => s.size >= minSongs)
+    .filter(([w, s]) => s.size >= minSongs && !excludeSet.has(w))
     .sort((a, b) => b[1].size - a[1].size)
     .slice(0, vocabLimit)
     .map(([w]) => w);
@@ -453,17 +460,34 @@ export async function findWordClusters(
 
         const newWords = [...cluster.words, nextWord];
 
-        // Emit only when within bounds; still expand regardless of maxSongs
-        // so narrower triples/quads can qualify even if a pair was too common.
+        // Emit only when within bounds — still expand regardless so narrower
+        // sub-groups can qualify even if a parent cluster was too common / too big.
         if (newWords.length >= minWords && (maxSongs === undefined || coSongs.size <= maxSongs)) {
-          const songs = buildSongList(coSongs);
-          allResults.push({
-            words: newWords,
-            songs,
-            songCount: songs.length,
-            wordCount: newWords.length,
-            score: songs.length * newWords.length,
-          });
+          // Diversity guard: check band/album spread across the matched songs
+          let diversityOk = true;
+          if (requireCrossBand || requireCrossAlbum) {
+            const bandSet  = new Set<string>();
+            const albumSet = new Set<string>();
+            for (const id of coSongs) {
+              const meta = songMeta.get(id);
+              if (meta) {
+                bandSet.add(meta.band);
+                if (meta.albumTitle) albumSet.add(meta.albumTitle);
+              }
+            }
+            if (requireCrossBand  && bandSet.size  < 2) diversityOk = false;
+            if (requireCrossAlbum && albumSet.size < 2) diversityOk = false;
+          }
+          if (diversityOk) {
+            const songs = buildSongList(coSongs);
+            allResults.push({
+              words: newWords,
+              songs,
+              songCount: songs.length,
+              wordCount: newWords.length,
+              score: songs.length * newWords.length,
+            });
+          }
         }
 
         nextLayer.push({ words: newWords, songIds: coSongs, startIdx: i + 1 });

@@ -129,13 +129,23 @@ wordCloudRouter.get('/clusters', async (req, res, next): Promise<void> => {
     const maxGroupSize = Math.min(5, Math.max(2, parseInt((req.query['maxGroupSize'] as string) ?? '4', 10) || 4));
     const topN         = Math.min(200, parseInt((req.query['topN']       as string) ?? '25', 10) || 25);
 
+    const excludeWordsRaw = (req.query['excludeWords'] as string) ?? '';
+    const excludeWords = excludeWordsRaw
+      ? excludeWordsRaw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+      : undefined;
+    const requireCrossBand  = (req.query['requireCrossBand']  as string) === 'true';
+    const requireCrossAlbum = (req.query['requireCrossAlbum'] as string) === 'true';
+
     const result = await findWordClusters({
-      ...(bandIds ? { bandIds } : {}),
+      ...(bandIds    ? { bandIds }    : {}),
+      ...(excludeWords?.length ? { excludeWords } : {}),
       minSongs,
       ...(maxSongsRaw > 0 ? { maxSongs: maxSongsRaw } : {}),
       minWords,
       maxGroupSize,
       topN,
+      ...(requireCrossBand  ? { requireCrossBand:  true } : {}),
+      ...(requireCrossAlbum ? { requireCrossAlbum: true } : {}),
     });
     res.json(result);
   } catch (err) { next(err); }
