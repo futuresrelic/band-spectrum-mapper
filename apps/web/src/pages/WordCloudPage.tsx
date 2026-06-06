@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { wordCloudApi, type CloudWord, type WordCloudData, type SimilarSong, type SimilarSongsResult, type WordLookupResult, type WordClustersResult } from '../api/wordCloud';
 import SocialChatPanel from '../components/social/SocialChatPanel';
+import { pushCinemaHandoff } from '../cinema/cinemaHandoff';
 
 // ---------------------------------------------------------------------------
 // Word cloud layout algorithm
@@ -445,6 +447,7 @@ function WordDetail({ word, onClose }: { word: CloudWord; onClose: () => void })
 const CANVAS_SIZE = 880;
 
 export default function WordCloudPage() {
+  const navigate = useNavigate();
   const [scope, setScope] = useState<ScopeType>('universe');
   const [scopeId, setScopeId] = useState('');
   const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
@@ -1187,6 +1190,21 @@ export default function WordCloudPage() {
               {clusterLoading ? 'Searching…' : '🧩 Find Clusters'}
             </button>
 
+            {clusterBandIds.length > 0 && (
+              <button
+                onClick={() => {
+                  pushCinemaHandoff({
+                    label: `Word Cloud · ${clusterBandIds.length} artist${clusterBandIds.length !== 1 ? 's' : ''}`,
+                    bandIds: clusterBandIds,
+                  });
+                  navigate('/cinema');
+                }}
+                className="w-full py-1.5 rounded text-[10px] font-medium bg-violet-900/60 hover:bg-violet-800/70 text-violet-300 transition-colors"
+              >
+                🎬 Explore in Cinema
+              </button>
+            )}
+
             {clusterResult && (
               <div className="text-[10px] text-surface-500 space-y-0.5">
                 <div>
@@ -1260,10 +1278,26 @@ export default function WordCloudPage() {
           )}
 
           {!isFetching && words.length > 0 && (
-            <div className="mt-4 text-xs text-surface-600 text-center">
-              Click any word to see which songs contain it. Sized by{' '}
-              {[includeLyrics && 'lyric frequency', includeThemes && 'AI theme strength', includeTags && 'tag weight']
-                .filter(Boolean).join(' + ') || 'combined score'}.
+            <div className="mt-4 flex items-center justify-center gap-4">
+              <div className="text-xs text-surface-600 text-center">
+                Click any word to see which songs contain it. Sized by{' '}
+                {[includeLyrics && 'lyric frequency', includeThemes && 'AI theme strength', includeTags && 'tag weight']
+                  .filter(Boolean).join(' + ') || 'combined score'}.
+              </div>
+              {selectedBandIds.length > 0 && (
+                <button
+                  onClick={() => {
+                    pushCinemaHandoff({
+                      label: `Word Cloud · ${selectedBandIds.length} artist${selectedBandIds.length !== 1 ? 's' : ''}`,
+                      bandIds: selectedBandIds,
+                    });
+                    navigate('/cinema');
+                  }}
+                  className="shrink-0 text-[10px] bg-violet-900/60 hover:bg-violet-800/70 text-violet-300 rounded px-3 py-1.5 transition-colors whitespace-nowrap"
+                >
+                  🎬 Cinema
+                </button>
+              )}
             </div>
           )}
 

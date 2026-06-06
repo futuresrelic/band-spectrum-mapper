@@ -41,6 +41,8 @@ import {
 } from '../cinema/configSnapshots';
 import TourPlanner from '../cinema/TourPlanner';
 import CameraDirector from '../cinema/CameraDirector';
+import LyricPathPanel from '../cinema/LyricPathPanel';
+import { type CinemaHandoff, popCinemaHandoff } from '../cinema/cinemaHandoff';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -631,6 +633,14 @@ export default function CinemaPage() {
   const [lyricsReaderSong, setLyricsReaderSong] = useState('');
   const [lyricsReaderBand, setLyricsReaderBand] = useState('');
   const [lyricsReaderReveal, setLyricsReaderReveal] = useState(0);
+
+  // ── Lyric Path Mode ─────────────────────────────────────────────────────────
+  const [lyricPathSongId,    setLyricPathSongId]    = useState<string | null>(null);
+  const [lyricPathSongLabel, setLyricPathSongLabel] = useState('');
+
+  // ── Cinema Handoff (incoming from Word Cloud / Pattern Lab) ─────────────────
+  const [cinemaHandoff, setCinemaHandoff] = useState<CinemaHandoff | null>(null);
+  useEffect(() => { setCinemaHandoff(popCinemaHandoff()); }, []);
 
   // Per-node visual overrides: custom color + size multiplier, persisted in localStorage
   const [nodeOverrides, setNodeOverridesRaw] = useState<Record<string, { color?: string; sizeMultiplier?: number }>>(() => {
@@ -3152,6 +3162,30 @@ export default function CinemaPage() {
             </Link>
           </div>
 
+          {/* Cinema Handoff banner — incoming tour from Word Cloud / Pattern Lab */}
+          {cinemaHandoff && (
+            <div className="absolute top-14 left-1/2 -translate-x-1/2 z-40
+              bg-indigo-950/95 border border-indigo-700/60 rounded-xl px-4 py-2.5
+              backdrop-blur-sm shadow-2xl flex items-center gap-3 max-w-xs">
+              <span className="text-indigo-300 text-[11px] flex-1 leading-snug">
+                🎬 {cinemaHandoff.label}
+              </span>
+              <button
+                onClick={() => {
+                  setSelectedBandIds(cinemaHandoff.bandIds);
+                  setCinemaHandoff(null);
+                }}
+                className="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white rounded px-2 py-1 whitespace-nowrap shrink-0 transition-colors"
+              >
+                Apply bands
+              </button>
+              <button
+                onClick={() => setCinemaHandoff(null)}
+                className="text-indigo-600 hover:text-indigo-300 text-xs shrink-0 transition-colors"
+              >✕</button>
+            </div>
+          )}
+
           {/* Top-center: scene/tour label */}
           {isPlaying && !tourMode && currentScene && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 text-center pointer-events-none">
@@ -5134,14 +5168,24 @@ export default function CinemaPage() {
                 </div>
               )}
 
-              {/* Lyrics Reader button — song nodes with lyrics */}
+              {/* Lyrics Reader button + Lyric Path button — song nodes with lyrics */}
               {selectedNode.id.startsWith('song:') && lyricsReaderText.length > 0 && (
-                <div className="mb-3 border-t border-gray-800 pt-2">
+                <div className="mb-3 border-t border-gray-800 pt-2 space-y-1.5">
                   <button
                     onClick={() => { setLyricsReaderReveal(0); setShowLyricsReader(true); }}
                     className="w-full text-[10px] bg-indigo-900/60 hover:bg-indigo-800/70 text-indigo-300 rounded px-2 py-1.5 transition-colors text-center"
                   >
                     Read Lyrics
+                  </button>
+                  <button
+                    onClick={() => {
+                      const songId = selectedNode.id.slice('song:'.length);
+                      setLyricPathSongId(songId);
+                      setLyricPathSongLabel(selectedNode.label);
+                    }}
+                    className="w-full text-[10px] bg-violet-900/60 hover:bg-violet-800/70 text-violet-300 rounded px-2 py-1.5 transition-colors text-center"
+                  >
+                    Lyric Path ∿
                   </button>
                 </div>
               )}
@@ -5621,6 +5665,15 @@ export default function CinemaPage() {
       {socialMode && (
         <div className="absolute inset-0 pointer-events-none z-20"
           style={{ boxShadow: 'inset 0 0 0 2px rgba(255,255,255,0.04)' }} />
+      )}
+
+      {/* ── Lyric Path overlay ── */}
+      {lyricPathSongId && (
+        <LyricPathPanel
+          songId={lyricPathSongId}
+          songLabel={lyricPathSongLabel}
+          onClose={() => setLyricPathSongId(null)}
+        />
       )}
     </div>
   );

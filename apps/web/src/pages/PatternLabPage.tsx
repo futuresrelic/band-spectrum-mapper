@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   patternLabApi,
@@ -11,6 +12,7 @@ import {
   type UniversalConnectorsResult,
   type PatternLabScopes,
 } from '../api/patternLab';
+import { pushCinemaHandoff } from '../cinema/cinemaHandoff';
 
 // ---------------------------------------------------------------------------
 // Export helpers
@@ -211,6 +213,7 @@ function WordTable({ words, onWordClick }: { words: WordOccurrence[]; onWordClic
 // ---------------------------------------------------------------------------
 
 function RecurrenceTab({ scopes }: { scopes: PatternLabScopes }) {
+  const navigate = useNavigate();
   const [bandIds, setBandIds]               = useState<string[]>([]);
   const [albumIds, setAlbumIds]             = useState<string[]>([]);
   const [minSongs, setMinSongs]             = useState(2);
@@ -303,13 +306,26 @@ function RecurrenceTab({ scopes }: { scopes: PatternLabScopes }) {
           </div>
         </div>
 
-        <button
-          onClick={run}
-          disabled={!canRun || isFetching}
-          className={`px-4 py-2 rounded text-xs font-semibold transition-colors ${canRun && !isFetching ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-surface-800 text-surface-600 cursor-not-allowed'}`}
-        >
-          {isFetching ? 'Searching…' : '🔁 Find Recurring Words'}
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={run}
+            disabled={!canRun || isFetching}
+            className={`px-4 py-2 rounded text-xs font-semibold transition-colors ${canRun && !isFetching ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-surface-800 text-surface-600 cursor-not-allowed'}`}
+          >
+            {isFetching ? 'Searching…' : '🔁 Find Recurring Words'}
+          </button>
+          {bandIds.length > 0 && (
+            <button
+              onClick={() => {
+                pushCinemaHandoff({ label: `Pattern Lab: Recurrence · ${bandIds.length} artist${bandIds.length !== 1 ? 's' : ''}`, bandIds });
+                navigate('/cinema');
+              }}
+              className="px-3 py-2 rounded text-xs font-medium bg-violet-900/60 hover:bg-violet-800/70 text-violet-300 transition-colors"
+            >
+              🎬 Cinema
+            </button>
+          )}
+        </div>
       </div>
 
       {isFetching && <Spinner />}
@@ -341,6 +357,7 @@ function RecurrenceTab({ scopes }: { scopes: PatternLabScopes }) {
 // ---------------------------------------------------------------------------
 
 function PhrasesTab({ scopes }: { scopes: PatternLabScopes }) {
+  const navigate = useNavigate();
   const [bandIds, setBandIds]           = useState<string[]>([]);
   const [phraseLength, setPhraseLength] = useState(2);
   const [minSongCount, setMin]          = useState(2);
@@ -390,13 +407,26 @@ function PhrasesTab({ scopes }: { scopes: PatternLabScopes }) {
           </div>
         </div>
 
-        <button
-          onClick={() => { if (bandIds.length) setParams({ bandIds, phraseLength, minSongCount, limit }); }}
-          disabled={!bandIds.length || isFetching}
-          className={`px-4 py-2 rounded text-xs font-semibold transition-colors ${bandIds.length && !isFetching ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-surface-800 text-surface-600 cursor-not-allowed'}`}
-        >
-          {isFetching ? 'Searching…' : '🗣 Find Phrases'}
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => { if (bandIds.length) setParams({ bandIds, phraseLength, minSongCount, limit }); }}
+            disabled={!bandIds.length || isFetching}
+            className={`px-4 py-2 rounded text-xs font-semibold transition-colors ${bandIds.length && !isFetching ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-surface-800 text-surface-600 cursor-not-allowed'}`}
+          >
+            {isFetching ? 'Searching…' : '🗣 Find Phrases'}
+          </button>
+          {bandIds.length > 0 && (
+            <button
+              onClick={() => {
+                pushCinemaHandoff({ label: `Pattern Lab: Phrases · ${bandIds.length} artist${bandIds.length !== 1 ? 's' : ''}`, bandIds });
+                navigate('/cinema');
+              }}
+              className="px-3 py-2 rounded text-xs font-medium bg-violet-900/60 hover:bg-violet-800/70 text-violet-300 transition-colors"
+            >
+              🎬 Cinema
+            </button>
+          )}
+        </div>
       </div>
 
       {isFetching && <Spinner />}
@@ -491,6 +521,7 @@ function PhraseRow({ p }: { p: PhraseOccurrence }) {
 // ---------------------------------------------------------------------------
 
 function AlbumDnaTab({ scopes }: { scopes: PatternLabScopes }) {
+  const navigate = useNavigate();
   const [bandId, setBandId]   = useState('');
   const [albumId, setAlbumId] = useState('');
   const [params, setParams]   = useState<string | null>(null);
@@ -539,13 +570,26 @@ function AlbumDnaTab({ scopes }: { scopes: PatternLabScopes }) {
           )}
         </div>
 
-        <button
-          onClick={() => { if (albumId) setParams(albumId); }}
-          disabled={!albumId || isFetching}
-          className={`px-4 py-2 rounded text-xs font-semibold transition-colors ${albumId && !isFetching ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-surface-800 text-surface-600 cursor-not-allowed'}`}
-        >
-          {isFetching ? 'Analyzing…' : '💿 Analyze Album'}
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => { if (albumId) setParams(albumId); }}
+            disabled={!albumId || isFetching}
+            className={`px-4 py-2 rounded text-xs font-semibold transition-colors ${albumId && !isFetching ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-surface-800 text-surface-600 cursor-not-allowed'}`}
+          >
+            {isFetching ? 'Analyzing…' : '💿 Analyze Album'}
+          </button>
+          {bandId && (
+            <button
+              onClick={() => {
+                pushCinemaHandoff({ label: `Pattern Lab: Album DNA · ${scopes.bands.find(b => b.id === bandId)?.name ?? 'Artist'}`, bandIds: [bandId] });
+                navigate('/cinema');
+              }}
+              className="px-3 py-2 rounded text-xs font-medium bg-violet-900/60 hover:bg-violet-800/70 text-violet-300 transition-colors"
+            >
+              🎬 Cinema
+            </button>
+          )}
+        </div>
       </div>
 
       {isFetching && <Spinner />}
@@ -596,6 +640,7 @@ function AlbumDnaTab({ scopes }: { scopes: PatternLabScopes }) {
 // ---------------------------------------------------------------------------
 
 function ArtistDnaTab({ scopes }: { scopes: PatternLabScopes }) {
+  const navigate = useNavigate();
   const [bandIds, setBandIds] = useState<string[]>([]);
   const [params, setParams]   = useState<string[] | null>(null);
 
@@ -618,13 +663,26 @@ function ArtistDnaTab({ scopes }: { scopes: PatternLabScopes }) {
 
         <BandPicker scopes={scopes} selected={bandIds} setSelected={setBandIds} />
 
-        <button
-          onClick={() => { if (bandIds.length) setParams([...bandIds]); }}
-          disabled={!bandIds.length || isFetching}
-          className={`px-4 py-2 rounded text-xs font-semibold transition-colors ${bandIds.length && !isFetching ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-surface-800 text-surface-600 cursor-not-allowed'}`}
-        >
-          {isFetching ? 'Analyzing…' : '🎸 Analyze Artist'}
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => { if (bandIds.length) setParams([...bandIds]); }}
+            disabled={!bandIds.length || isFetching}
+            className={`px-4 py-2 rounded text-xs font-semibold transition-colors ${bandIds.length && !isFetching ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-surface-800 text-surface-600 cursor-not-allowed'}`}
+          >
+            {isFetching ? 'Analyzing…' : '🎸 Analyze Artist'}
+          </button>
+          {bandIds.length > 0 && (
+            <button
+              onClick={() => {
+                pushCinemaHandoff({ label: `Pattern Lab: Artist DNA · ${bandIds.length} artist${bandIds.length !== 1 ? 's' : ''}`, bandIds });
+                navigate('/cinema');
+              }}
+              className="px-3 py-2 rounded text-xs font-medium bg-violet-900/60 hover:bg-violet-800/70 text-violet-300 transition-colors"
+            >
+              🎬 Cinema
+            </button>
+          )}
+        </div>
       </div>
 
       {isFetching && <Spinner />}
@@ -712,6 +770,7 @@ function ArtistDnaTab({ scopes }: { scopes: PatternLabScopes }) {
 // ---------------------------------------------------------------------------
 
 function ConnectorsTab({ scopes }: { scopes: PatternLabScopes }) {
+  const navigate = useNavigate();
   const [bandIds, setBandIds] = useState<string[]>([]);
   const [params, setParams]   = useState<string[] | null>(null);
 
@@ -739,13 +798,26 @@ function ConnectorsTab({ scopes }: { scopes: PatternLabScopes }) {
           <p className="text-[10px] text-amber-500">Select at least two artists to compare.</p>
         )}
 
-        <button
-          onClick={() => { if (bandIds.length >= 2) setParams([...bandIds]); }}
-          disabled={bandIds.length < 2 || isFetching}
-          className={`px-4 py-2 rounded text-xs font-semibold transition-colors ${bandIds.length >= 2 && !isFetching ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-surface-800 text-surface-600 cursor-not-allowed'}`}
-        >
-          {isFetching ? 'Analyzing…' : '🔗 Find Connectors'}
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => { if (bandIds.length >= 2) setParams([...bandIds]); }}
+            disabled={bandIds.length < 2 || isFetching}
+            className={`px-4 py-2 rounded text-xs font-semibold transition-colors ${bandIds.length >= 2 && !isFetching ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-surface-800 text-surface-600 cursor-not-allowed'}`}
+          >
+            {isFetching ? 'Analyzing…' : '🔗 Find Connectors'}
+          </button>
+          {bandIds.length >= 2 && (
+            <button
+              onClick={() => {
+                pushCinemaHandoff({ label: `Pattern Lab: Connectors · ${bandIds.length} artists`, bandIds });
+                navigate('/cinema');
+              }}
+              className="px-3 py-2 rounded text-xs font-medium bg-violet-900/60 hover:bg-violet-800/70 text-violet-300 transition-colors"
+            >
+              🎬 Cinema
+            </button>
+          )}
+        </div>
       </div>
 
       {isFetching && <Spinner />}
