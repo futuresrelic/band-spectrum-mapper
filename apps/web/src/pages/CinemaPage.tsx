@@ -517,6 +517,26 @@ export default function CinemaPage() {
   const lyricsStyleRef = useRef<'default'|'cinema'|'light-card'|'subtitle'|'glow'|'theatrical'|'neon'>('default');
   useEffect(() => { lyricsStyleRef.current = lyricsStyle; }, [lyricsStyle]);
 
+  // Lyric typography overrides (applied on top of the style preset)
+  // '' = use whatever the preset sets; explicit value = override it
+  const [lyricsFontFamily, setLyricsFontFamily] = useState('');
+  const [lyricsFontWeight, setLyricsFontWeight] = useState('');
+  const lyricsFontFamilyRef = useRef('');
+  const lyricsFontWeightRef = useRef('');
+  useEffect(() => { lyricsFontFamilyRef.current = lyricsFontFamily; }, [lyricsFontFamily]);
+  useEffect(() => { lyricsFontWeightRef.current = lyricsFontWeight; }, [lyricsFontWeight]);
+
+  // Lyric background override: 'preset' = keep style default, 'off' = no bg, 'custom' = use the values below
+  const [lyricsBgMode, setLyricsBgMode]       = useState<'preset'|'off'|'custom'>('preset');
+  const [lyricsBgColor, setLyricsBgColor]     = useState('#030712');
+  const [lyricsBgOpacity, setLyricsBgOpacity] = useState(0.5);
+  const lyricsBgModeRef    = useRef<'preset'|'off'|'custom'>('preset');
+  const lyricsBgColorRef   = useRef('#030712');
+  const lyricsBgOpacityRef = useRef(0.5);
+  useEffect(() => { lyricsBgModeRef.current    = lyricsBgMode;    }, [lyricsBgMode]);
+  useEffect(() => { lyricsBgColorRef.current   = lyricsBgColor;   }, [lyricsBgColor]);
+  useEffect(() => { lyricsBgOpacityRef.current = lyricsBgOpacity; }, [lyricsBgOpacity]);
+
   // Lyric sprite text size
   const [lyricsTextSize, setLyricsTextSize] = useState(2.8);
   const lyricsTextSizeRef = useRef(2.8);
@@ -2297,7 +2317,8 @@ export default function CinemaPage() {
       cleanupLyricsSprites();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showLyrics, simNodes, lyricsMaxLines, ringLyricsMode, lyricsUniverseMode, lyricsStyle]);
+  }, [showLyrics, simNodes, lyricsMaxLines, ringLyricsMode, lyricsUniverseMode, lyricsStyle,
+      lyricsFontFamily, lyricsFontWeight, lyricsBgMode, lyricsBgColor, lyricsBgOpacity]);
 
   // ── Social mode ───────────────────────────────────────────────────────────────
 
@@ -2924,6 +2945,7 @@ export default function CinemaPage() {
 
   // Apply the chosen lyric visual style to a freshly-created SpriteText.
   // Called at sprite creation time; sprites are destroyed+rebuilt on style change.
+  // After setting the preset, user overrides (font, weight, bg) are applied on top.
   function applyLyricsStyle(sp: any, style: typeof lyricsStyleRef.current, isRing: boolean) {
     switch (style) {
       case 'cinema':
@@ -2974,6 +2996,22 @@ export default function CinemaPage() {
         sp.fontFace        = 'Georgia, serif';
         break;
     }
+
+    // ── User overrides (applied on top of the preset) ─────────────────────────
+    // Background
+    if (lyricsBgModeRef.current === 'off') {
+      sp.backgroundColor = false;
+    } else if (lyricsBgModeRef.current === 'custom') {
+      const hex = lyricsBgColorRef.current;
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      sp.backgroundColor = `rgba(${r},${g},${b},${lyricsBgOpacityRef.current.toFixed(2)})`;
+    }
+    // Font family
+    if (lyricsFontFamilyRef.current) sp.fontFace = lyricsFontFamilyRef.current;
+    // Font weight (prepend 'bold '/'italic bold ' etc. so fontFace renders correctly in canvas)
+    if (lyricsFontWeightRef.current) sp.fontWeight = lyricsFontWeightRef.current;
   }
 
   function cleanupLyricsSprites() {
@@ -4166,6 +4204,83 @@ export default function CinemaPage() {
                   <div className="text-[9px] text-gray-700 leading-snug px-0.5">Style applies to all lyric sprites · rebuilds on change</div>
                 </div>
 
+                {/* Typography overrides */}
+                <div className="border-t border-gray-800 pt-3 space-y-2">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Typography</div>
+
+                  <div className="space-y-1">
+                    <div className="text-[10px] text-gray-400">Font</div>
+                    <select
+                      className="w-full bg-gray-900 border border-gray-700 rounded text-[11px] text-gray-200 px-2 py-1"
+                      value={lyricsFontFamily}
+                      onChange={e => setLyricsFontFamily(e.target.value)}
+                    >
+                      <option value="">— style default —</option>
+                      <option value="Georgia, serif">Georgia (Serif)</option>
+                      <option value="'Times New Roman', serif">Times New Roman</option>
+                      <option value="Palatino, 'Palatino Linotype', serif">Palatino</option>
+                      <option value="Garamond, serif">Garamond</option>
+                      <option value="system-ui, sans-serif">System UI (Sans)</option>
+                      <option value="Arial, Helvetica, sans-serif">Arial / Helvetica</option>
+                      <option value="Verdana, sans-serif">Verdana</option>
+                      <option value="Futura, 'Century Gothic', sans-serif">Futura / Gothic</option>
+                      <option value="monospace">Monospace</option>
+                      <option value="'Courier New', monospace">Courier New</option>
+                      <option value="Impact, Haettenschweiler, sans-serif">Impact</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="text-[10px] text-gray-400">Weight</div>
+                    <div className="flex gap-1">
+                      {([['', 'Default'], ['300', 'Light'], ['400', 'Regular'], ['700', 'Bold'], ['900', 'Heavy']] as [string, string][]).map(([v, label]) => (
+                        <button
+                          key={v}
+                          onClick={() => setLyricsFontWeight(v)}
+                          className={`flex-1 text-[10px] rounded px-1 py-1 transition-colors ${lyricsFontWeight === v ? 'bg-indigo-700 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
+                        >{label}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Background override */}
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] text-gray-400">Background</div>
+                    <div className="flex gap-1">
+                      {([['preset', 'Preset'], ['custom', 'Custom'], ['off', 'Off']] as [typeof lyricsBgMode, string][]).map(([v, label]) => (
+                        <button
+                          key={v}
+                          onClick={() => setLyricsBgMode(v)}
+                          className={`flex-1 text-[10px] rounded px-1 py-1 transition-colors ${lyricsBgMode === v ? 'bg-indigo-700 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
+                        >{label}</button>
+                      ))}
+                    </div>
+                    {lyricsBgMode === 'custom' && (
+                      <div className="space-y-1.5 pl-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-gray-400 w-10">Color</span>
+                          <input
+                            type="color"
+                            value={lyricsBgColor}
+                            onChange={e => setLyricsBgColor(e.target.value)}
+                            className="w-8 h-6 rounded cursor-pointer bg-transparent border-0"
+                          />
+                          <span className="text-[10px] text-gray-500">{lyricsBgColor}</span>
+                        </div>
+                        <label className="block space-y-1">
+                          <div className="flex justify-between text-[10px] text-gray-400">
+                            <span>Opacity</span><span>{Math.round(lyricsBgOpacity * 100)}%</span>
+                          </div>
+                          <input type="range" min={0} max={1} step={0.05} value={lyricsBgOpacity}
+                            onChange={e => setLyricsBgOpacity(Number(e.target.value))}
+                            className="w-full accent-indigo-500" />
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-[9px] text-gray-700">Overrides apply on top of style preset · rebuilds on change</div>
+                </div>
+
                 <div className="border-t border-gray-800 pt-3 space-y-2">
                   <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Proximity</div>
                   <label className="block space-y-1">
@@ -4173,7 +4288,7 @@ export default function CinemaPage() {
                       <span>Lyrics show distance</span>
                       <span>{lyricsShowDist}</span>
                     </div>
-                    <input type="range" min={50} max={600} step={10} value={lyricsShowDist}
+                    <input type="range" min={50} max={1500} step={25} value={lyricsShowDist}
                       onChange={e => setLyricsShowDist(Number(e.target.value))}
                       className="w-full accent-indigo-500" />
                   </label>
