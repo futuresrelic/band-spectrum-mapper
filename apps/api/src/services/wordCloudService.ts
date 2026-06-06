@@ -463,20 +463,25 @@ export async function findWordClusters(
         // Emit only when within bounds — still expand regardless so narrower
         // sub-groups can qualify even if a parent cluster was too common / too big.
         if (newWords.length >= minWords && (maxSongs === undefined || coSongs.size <= maxSongs)) {
-          // Diversity guard: check band/album spread across the matched songs
+          // Diversity guard: ensure no album (or band) contributes more than one song.
+          // This is stricter than "at least 2 distinct" — each album/band can appear only once.
           let diversityOk = true;
           if (requireCrossBand || requireCrossAlbum) {
-            const bandSet  = new Set<string>();
-            const albumSet = new Set<string>();
+            const bandCounts  = new Map<string, number>();
+            const albumCounts = new Map<string, number>();
             for (const id of coSongs) {
               const meta = songMeta.get(id);
-              if (meta) {
-                bandSet.add(meta.band);
-                if (meta.albumTitle) albumSet.add(meta.albumTitle);
+              if (!meta) continue;
+              if (requireCrossBand) {
+                bandCounts.set(meta.band, (bandCounts.get(meta.band) ?? 0) + 1);
+              }
+              if (requireCrossAlbum) {
+                const albumKey = meta.albumTitle ?? '__no_album__';
+                albumCounts.set(albumKey, (albumCounts.get(albumKey) ?? 0) + 1);
               }
             }
-            if (requireCrossBand  && bandSet.size  < 2) diversityOk = false;
-            if (requireCrossAlbum && albumSet.size < 2) diversityOk = false;
+            if (requireCrossBand  && [...bandCounts.values()].some((v) => v > 1))  diversityOk = false;
+            if (requireCrossAlbum && [...albumCounts.values()].some((v) => v > 1)) diversityOk = false;
           }
           if (diversityOk) {
             const songs = buildSongList(coSongs);

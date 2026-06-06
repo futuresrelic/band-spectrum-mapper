@@ -1102,9 +1102,14 @@ export default function WordCloudPage() {
                 <span>Max words per group</span>
                 <span className="font-mono text-indigo-400">{clusterMaxGroup}</span>
               </div>
-              <input type="range" min={2} max={5} value={clusterMaxGroup}
+              <input type="range" min={2} max={8} value={clusterMaxGroup}
                 onChange={(e) => setClusterMaxGroup(Number(e.target.value))}
                 className="w-full accent-indigo-500" />
+              {clusterMaxGroup > 5 && (
+                <p className="text-[10px] text-amber-600 mt-0.5 leading-tight">
+                  High values with low min-songs can be slow — keep min-songs ≥ 4 for best results.
+                </p>
+              )}
             </div>
 
             {/* Top N */}
@@ -1149,7 +1154,7 @@ export default function WordCloudPage() {
                   className="accent-indigo-500 mt-0.5"
                 />
                 <span className="text-[11px] text-surface-400 group-hover:text-surface-200 leading-tight transition-colors">
-                  Only clusters spanning multiple bands
+                  No two songs from the same band
                 </span>
               </label>
               <label className="flex items-start gap-2 cursor-pointer group">
@@ -1160,12 +1165,12 @@ export default function WordCloudPage() {
                   className="accent-indigo-500 mt-0.5"
                 />
                 <span className="text-[11px] text-surface-400 group-hover:text-surface-200 leading-tight transition-colors">
-                  Only clusters spanning multiple albums
+                  No two songs from the same album
                 </span>
               </label>
               {(clusterRequireCrossBand || clusterRequireCrossAlbum) && (
                 <p className="text-[10px] text-indigo-400/70 leading-tight">
-                  Great for social posts — avoids same-album repetition.
+                  Each matched song must come from a different {clusterRequireCrossBand && clusterRequireCrossAlbum ? 'band and album' : clusterRequireCrossBand ? 'band' : 'album'}.
                 </p>
               )}
             </div>

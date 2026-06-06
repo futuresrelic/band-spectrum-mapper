@@ -126,7 +126,7 @@ wordCloudRouter.get('/clusters', async (req, res, next): Promise<void> => {
     const minSongs     = Math.max(2, parseInt((req.query['minSongs']     as string) ?? '3',  10) || 3);
     const maxSongsRaw  = parseInt((req.query['maxSongs']     as string) ?? '0',  10) || 0;
     const minWords     = Math.max(2, parseInt((req.query['minWords']     as string) ?? '2',  10) || 2);
-    const maxGroupSize = Math.min(5, Math.max(2, parseInt((req.query['maxGroupSize'] as string) ?? '4', 10) || 4));
+    const maxGroupSize = Math.min(8, Math.max(2, parseInt((req.query['maxGroupSize'] as string) ?? '4', 10) || 4));
     const topN         = Math.min(200, parseInt((req.query['topN']       as string) ?? '25', 10) || 25);
 
     const excludeWordsRaw = (req.query['excludeWords'] as string) ?? '';
