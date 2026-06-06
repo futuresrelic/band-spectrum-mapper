@@ -59,7 +59,7 @@ const BUILTIN_STOPWORDS = new Set([
   'im','its','youre','thats','dont','cant','wont','isnt',
 ]);
 
-function tokenize(text: string): string[] {
+export function tokenize(text: string): string[] {
   return text
     .toLowerCase()
     .replace(/\[[^\]]*\]/g, ' ')   // strip [bracketed annotations]
@@ -69,7 +69,7 @@ function tokenize(text: string): string[] {
     .filter((w) => w.length >= 3 && !BUILTIN_STOPWORDS.has(w));
 }
 
-async function getCustomStopwords(): Promise<Set<string>> {
+export async function getCustomStopwords(): Promise<Set<string>> {
   const rows = await prisma.customStopword.findMany({ select: { word: true } });
   return new Set(rows.map((r) => r.word.toLowerCase()));
 }

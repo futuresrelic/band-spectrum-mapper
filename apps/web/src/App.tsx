@@ -59,6 +59,7 @@ import AdminDataGridPage from './pages/AdminDataGridPage';
 import AdminHubPage from './pages/AdminHubPage';
 import AdminBootlegsPage from './pages/AdminBootlegsPage';
 import DataHealthPage from './pages/DataHealthPage';
+import PatternLabPage from './pages/PatternLabPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -168,6 +169,7 @@ export default function App() {
           <Route path="admin/hub" element={<AdminHubPage />} />
           <Route path="admin/bootlegs" element={<AdminBootlegsPage />} />
           <Route path="admin/data-health" element={<DataHealthPage />} />
+          <Route path="pattern-lab" element={<PatternLabPage />} />
         </Route>
       </Routes>
     </AuthProvider>

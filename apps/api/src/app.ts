@@ -28,6 +28,7 @@ import { socialRouter } from './routes/social.js';
 import { socialPlannerRouter } from './routes/socialPlanner.js';
 import { songSpectrumRouter } from './routes/songSpectrum.js';
 import { wordCloudRouter } from './routes/wordCloud.js';
+import { patternLabRouter } from './routes/patternLab.js';
 import { songNodesRouter } from './routes/songNodes.js';
 import { gameRouter } from './routes/game.js';
 import { triviaRouter } from './routes/trivia.js';
@@ -107,6 +108,9 @@ export function createApp() {
 
   // Word Cloud — aggregated lyric + theme word data (admin only)
   app.use('/api/word-cloud', wordCloudRouter);
+
+  // Pattern Lab — admin-only deep analysis and content creation tools
+  app.use('/api/pattern-lab', patternLabRouter);
 
   // Song Nodes — Cytoscape.js graph data (admin only)
   app.use('/api/song-nodes', songNodesRouter);

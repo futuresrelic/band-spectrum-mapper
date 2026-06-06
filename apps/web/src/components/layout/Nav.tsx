@@ -59,6 +59,7 @@ const adminSections: NavSection[] = [
   {
     heading: 'Batch & Analysis',
     links: [
+      { to: '/pattern-lab',          label: 'Pattern Lab' },
       { to: '/admin/ai-batch',      label: 'AI Batch Runner' },
       { to: '/admin/data-health',   label: 'Data Health' },
       { to: '/admin/lyrics-batch',  label: 'Lyrics Batch Fetch' },
