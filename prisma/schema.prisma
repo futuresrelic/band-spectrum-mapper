@@ -42,6 +42,13 @@ enum AlbumType {
   bootleg
   single
   demo
+  lp
+  remix
+  mixtape
+  boxset
+  soundtrack
+  acoustic
+  instrumental
 }
 
 model Album {

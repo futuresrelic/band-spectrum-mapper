@@ -4,6 +4,7 @@ import { albumService } from '../services/albumService.js';
 import { songService } from '../services/songService.js';
 import { validateBody } from '../middleware/validate.js';
 import { createBandSchema, updateBandSchema, createAlbumSchema, createSongSchema } from '@band-spectrum-mapper/shared';
+import { fetchWikiSummary } from '../lib/wikiSummary.js';
 
 export const bandsRouter = Router();
 
@@ -37,6 +38,15 @@ bandsRouter.delete('/:id', async (req, res, next) => {
   try {
     await bandService.delete(req.params['id']!);
     res.status(204).end();
+  } catch (e) { next(e); }
+});
+
+// GET /api/bands/:id/wiki — fetch a Wikipedia intro summary for the artist
+bandsRouter.get('/:id/wiki', async (req, res, next): Promise<void> => {
+  try {
+    const band = await bandService.getById(req.params['id']!);
+    const result = await fetchWikiSummary(`${band.name} band`);
+    res.json(result);
   } catch (e) { next(e); }
 });
 

@@ -8,7 +8,7 @@ import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
 import EmptyState from '../components/layout/EmptyState';
 import type { CreateSongInput } from '@band-spectrum-mapper/shared';
-import { ALBUM_TYPES } from '@band-spectrum-mapper/shared';
+import { ALBUM_TYPES, ALBUM_TYPE_LABELS } from '@band-spectrum-mapper/shared';
 
 export default function AlbumDetailPage() {
   const { albumId } = useParams<{ albumId: string }>();
@@ -30,6 +30,8 @@ export default function AlbumDetailPage() {
   const [editAlbumType, setEditAlbumType] = useState<string>('');
   const [editError, setEditError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState('');
+  const [wikiFetching, setWikiFetching] = useState(false);
+  const [wikiMsg, setWikiMsg] = useState('');
 
   // Artwork search state
   const [showArtSearch, setShowArtSearch] = useState(false);
@@ -326,13 +328,41 @@ export default function AlbumDetailPage() {
               <select className="input" value={editAlbumType} onChange={(e) => setEditAlbumType(e.target.value)}>
                 <option value="">— unset —</option>
                 {ALBUM_TYPES.map((t) => (
-                  <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                  <option key={t} value={t}>{ALBUM_TYPE_LABELS[t]}</option>
                 ))}
               </select>
             </div>
             <div>
               <label className="label">Notes</label>
-              <textarea className="textarea w-full" rows={2} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Optional notes" />
+              <textarea className="textarea w-full" rows={3} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Optional notes" />
+              <div className="flex items-center gap-2 mt-1">
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  disabled={wikiFetching}
+                  onClick={async () => {
+                    setWikiFetching(true);
+                    setWikiMsg('');
+                    try {
+                      const res = await fetch(`/api/albums/${albumId}/wiki`);
+                      const data = await res.json() as { found: boolean; extract: string; pageUrl: string };
+                      if (data.found && data.extract) {
+                        setEditNotes(data.extract);
+                        setWikiMsg('Fetched from Wikipedia');
+                      } else {
+                        setWikiMsg('Not found on Wikipedia');
+                      }
+                    } catch {
+                      setWikiMsg('Wikipedia fetch failed');
+                    } finally {
+                      setWikiFetching(false);
+                    }
+                  }}
+                >
+                  {wikiFetching ? 'Fetching…' : 'Fetch from Wikipedia'}
+                </button>
+                {wikiMsg && <span className="text-xs text-surface-400">{wikiMsg}</span>}
+              </div>
             </div>
             {editError && <p className="text-red-600 text-sm">{editError}</p>}
             <div className="flex gap-2">

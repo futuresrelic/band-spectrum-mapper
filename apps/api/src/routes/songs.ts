@@ -6,6 +6,7 @@ import { aiLyricService } from '../services/aiLyricService.js';
 import { validateBody } from '../middleware/validate.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
+import { fetchWikiSummary } from '../lib/wikiSummary.js';
 import {
   updateSongSchema,
   createLyricSchema,
@@ -80,6 +81,17 @@ songsRouter.get('/:id', async (req, res, next) => {
 songsRouter.patch('/:id', validateBody(updateSongSchema), async (req, res, next) => {
   try {
     res.json(await songService.update(req.params['id']!, req.body));
+  } catch (e) { next(e); }
+});
+
+// GET /api/songs/:id/wiki — fetch a Wikipedia intro summary for the song
+songsRouter.get('/:id/wiki', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const song = await songService.getById(req.params['id']!);
+    const band = (song as any).band?.name ?? (song as any).album?.band?.name ?? '';
+    const query = band ? `${song.title} song ${band}` : `${song.title} song`;
+    const result = await fetchWikiSummary(query);
+    res.json(result);
   } catch (e) { next(e); }
 });
 

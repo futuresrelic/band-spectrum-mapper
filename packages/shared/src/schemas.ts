@@ -41,7 +41,27 @@ export type UpdateBandInput = z.infer<typeof updateBandSchema>;
 // Album schemas
 // ---------------------------------------------------------------------------
 
-export const ALBUM_TYPES = ['studio', 'ep', 'live', 'compilation', 'bootleg', 'single', 'demo'] as const;
+export const ALBUM_TYPES = [
+  'studio', 'ep', 'live', 'compilation', 'bootleg', 'single', 'demo',
+  'lp', 'remix', 'mixtape', 'boxset', 'soundtrack', 'acoustic', 'instrumental',
+] as const;
+
+export const ALBUM_TYPE_LABELS: Record<typeof ALBUM_TYPES[number], string> = {
+  studio: 'Studio Album',
+  ep: 'EP',
+  live: 'Live Album',
+  compilation: 'Compilation',
+  bootleg: 'Bootleg',
+  single: 'Single',
+  demo: 'Demo',
+  lp: 'LP',
+  remix: 'Remix Album',
+  mixtape: 'Mixtape',
+  boxset: 'Box Set',
+  soundtrack: 'Soundtrack',
+  acoustic: 'Acoustic / Unplugged',
+  instrumental: 'Instrumental',
+};
 export type AlbumTypeValue = typeof ALBUM_TYPES[number];
 
 export const createAlbumSchema = z.object({

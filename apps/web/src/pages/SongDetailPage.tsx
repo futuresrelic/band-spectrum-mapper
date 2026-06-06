@@ -441,6 +441,8 @@ export default function SongDetailPage() {
   const [editTrack, setEditTrack] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [editError, setEditError] = useState('');
+  const [wikiFetching, setWikiFetching] = useState(false);
+  const [wikiMsg, setWikiMsg] = useState('');
   const [editIsRemix, setEditIsRemix] = useState(false);
   const [editRemixOfId, setEditRemixOfId] = useState<string | null>(null);
   const [remixSearch, setRemixSearch] = useState('');
@@ -676,7 +678,35 @@ export default function SongDetailPage() {
             </div>
             <div>
               <label className="label">Notes</label>
-              <textarea className="textarea w-full" rows={2} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Optional notes" />
+              <textarea className="textarea w-full" rows={3} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Optional notes" />
+              <div className="flex items-center gap-2 mt-1">
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  disabled={wikiFetching}
+                  onClick={async () => {
+                    setWikiFetching(true);
+                    setWikiMsg('');
+                    try {
+                      const res = await fetch(`/api/songs/${songId}/wiki`);
+                      const data = await res.json() as { found: boolean; extract: string; pageUrl: string };
+                      if (data.found && data.extract) {
+                        setEditNotes(data.extract);
+                        setWikiMsg('Fetched from Wikipedia');
+                      } else {
+                        setWikiMsg('Not found on Wikipedia');
+                      }
+                    } catch {
+                      setWikiMsg('Wikipedia fetch failed');
+                    } finally {
+                      setWikiFetching(false);
+                    }
+                  }}
+                >
+                  {wikiFetching ? 'Fetching…' : 'Fetch from Wikipedia'}
+                </button>
+                {wikiMsg && <span className="text-xs text-surface-400">{wikiMsg}</span>}
+              </div>
             </div>
             <div className="border-t border-surface-200 pt-3">
               <label className="flex items-center gap-2 cursor-pointer select-none">

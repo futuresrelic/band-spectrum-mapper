@@ -62,7 +62,8 @@ const TYPE_ICONS: Record<string, string> = {
 };
 const ALL_TYPES = ['artist', 'album', 'song', 'keyword', 'theme', 'tag', 'emotion', 'genre'];
 
-const HIGHLIGHT_COLOR = '#ffffff';
+// kept for potential external use; selected node color is now '#ffffff' inline
+// const HIGHLIGHT_COLOR = '#ffffff';
 
 const DEFAULT_ALBUM_TYPE_COLORS: Record<string, string> = {
   bootleg:     '#f97316',
@@ -629,10 +630,15 @@ export default function CinemaPage() {
   const [genreSource, setGenreSource] = useState<GenreSource>('priority');
 
   // Album type filter — empty = all types
-  const ALL_ALBUM_TYPES = ['studio', 'ep', 'live', 'compilation', 'bootleg', 'single', 'demo'] as const;
+  const ALL_ALBUM_TYPES = [
+    'studio', 'ep', 'live', 'compilation', 'bootleg', 'single', 'demo',
+    'lp', 'remix', 'mixtape', 'boxset', 'soundtrack', 'acoustic', 'instrumental',
+  ] as const;
   const ALBUM_TYPE_LABELS: Record<string, string> = {
     studio: 'Studio', ep: 'EP', live: 'Live', compilation: 'Compilation',
     bootleg: 'Bootleg', single: 'Single', demo: 'Demo',
+    lp: 'LP', remix: 'Remix', mixtape: 'Mixtape', boxset: 'Box Set',
+    soundtrack: 'Soundtrack', acoustic: 'Acoustic', instrumental: 'Instrumental',
   };
   const [selectedAlbumTypes, setSelectedAlbumTypes] = useState<string[]>([]);
   const [nodeLimit, setNodeLimit] = useState(600);
@@ -745,6 +751,9 @@ export default function CinemaPage() {
   const fgRef           = useRef<any>(null);
   const selectedNodeRef = useRef<CinemaNode | null>(null);
   const adjRef          = useRef<Map<string, Set<string>>>(new Map());
+  // Soft-selection: descendants of the focused node + the effective chain (ancestor path)
+  const softSelectedIdsRef = useRef<Set<string>>(new Set());
+  const effectiveChainRef  = useRef<CinemaNode[]>([]);
   const orbitAnimRef    = useRef<OrbitAnim | null>(null);
   const sceneStateRef   = useRef<unknown>(null);
   const sceneStartRef   = useRef<number>(0);
@@ -915,6 +924,84 @@ export default function CinemaPage() {
     // Always refresh so sphere colors update even when no node is selected
     fgRef.current?.refresh();
   }, [selectionDim]);
+
+  // Recompute effective chain (ancestor path) + soft-selected descendants whenever
+  // the selected node or tour highlight changes. Works for both normal selection
+  // and Tour/Path director playback — effectiveChainRef replaces the old per-mode
+  // selectedChainRef / tourHighlightedId branches throughout the render callbacks.
+  useEffect(() => {
+    // Build the ancestor path [artist → album → ... → nodeId] by following
+    // the hierarchy upward through the bidirectional adjacency map.
+    const buildChain = (nodeId: string): CinemaNode[] => {
+      const PARENT_TYPE: Record<string, string> = {
+        song: 'album', album: 'artist',
+        keyword: 'song', tag: 'song', theme: 'song', emotion: 'song', genre: 'song',
+      };
+      const node = nodeMapRef.current.get(nodeId);
+      if (!node) return [];
+      const chain: CinemaNode[] = [node];
+      let cur = node;
+      for (let d = 0; d < 4; d++) {
+        const parentType = PARENT_TYPE[cur.type];
+        if (!parentType) break;
+        let found: CinemaNode | undefined;
+        for (const nid of adjRef.current.get(cur.id) ?? []) {
+          const nb = nodeMapRef.current.get(nid);
+          if (nb?.type === parentType) { found = nb; break; }
+        }
+        if (!found) break;
+        chain.unshift(found);
+        cur = found;
+      }
+      return chain;
+    };
+
+    // BFS downward through the node-type hierarchy to find all descendants.
+    const computeDescendants = (nodeId: string): Set<string> => {
+      const CHILD_TYPES: Record<string, string[]> = {
+        artist: ['album'], album: ['song'],
+        song: ['keyword', 'tag', 'theme', 'emotion', 'genre'],
+      };
+      const result = new Set<string>();
+      const queue = [nodeId];
+      const seen  = new Set<string>([nodeId]);
+      while (queue.length > 0) {
+        const cur = queue.shift()!;
+        const curNode = nodeMapRef.current.get(cur);
+        if (!curNode) continue;
+        const childTypes = CHILD_TYPES[curNode.type] ?? [];
+        for (const nid of adjRef.current.get(cur) ?? []) {
+          if (seen.has(nid)) continue;
+          seen.add(nid);
+          const nb = nodeMapRef.current.get(nid);
+          if (!nb || !childTypes.includes(nb.type)) continue;
+          result.add(nid);
+          queue.push(nid);
+        }
+      }
+      return result;
+    };
+
+    let chain: CinemaNode[];
+    let focusId: string | null;
+
+    if (tourMode && tourHighlightedId) {
+      // Tour mode: build chain for the currently-highlighted node
+      chain = buildChain(tourHighlightedId);
+      focusId = tourHighlightedId;
+    } else if (selectedChainRef.current.length > 0) {
+      // Normal mode: use the existing selection chain (already contains ancestors)
+      chain = selectedChainRef.current;
+      focusId = chain[chain.length - 1]?.id ?? null;
+    } else {
+      chain = [];
+      focusId = null;
+    }
+
+    effectiveChainRef.current = chain;
+    softSelectedIdsRef.current = focusId ? computeDescendants(focusId) : new Set();
+    fgRef.current?.refresh();
+  }, [tourHighlightedId, selectedNode, tourMode, simReady]);
 
   // Update existing label sprites when per-type sizes or label-state scales change
   useEffect(() => {
@@ -1669,15 +1756,16 @@ export default function CinemaPage() {
         if (camera) {
           const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
           const ld = labelDistancesRef.current;
-          // Build O(1) lookup for selected chain nodes (shared by label + lyrics sections)
-          const selectedChainSet = new Set(selectedChainRef.current.map(c => c.id));
+          // Build O(1) lookups for effective chain + soft-selected (covers tour mode too)
+          const effectiveChainSet = new Set(effectiveChainRef.current.map(c => c.id));
           for (const n of simNodesRef.current) {
             const sprite = labelMapRef.current.get(n.id);
             if (!sprite) continue;
             if (hiddenTypesRef.current.has(n.type)) { sprite.visible = false; continue; }
             if (n.x == null) { sprite.visible = false; continue; }
 
-            const isSelected = selectedChainSet.has(n.id);
+            const isSelected    = effectiveChainSet.has(n.id);
+            const isSoftSelected = softSelectedIdsRef.current.has(n.id);
             const showDist = n.type === 'artist' ? ld.artist
               : n.type === 'album' ? ld.album
               : n.type === 'song'  ? ld.song : ld.other;
@@ -1713,17 +1801,27 @@ export default function CinemaPage() {
               const range = Math.max(1, showDist - fullDist);
               opacity = Math.max(0, Math.min(1, 1 - (dist - fullDist) / range));
               if (!isSelected) {
-                opacity *= unselectedLabelOpacityRef.current;
-                // When something is selected, selectionDim also fades unselected labels
-                if (selectedChainSet.size > 0 && !tourModeRef.current) {
-                  opacity *= Math.max(0, 1 - selectionDimRef.current);
+                if (isSoftSelected) {
+                  // Soft-selected (descendants): partially dim — more visible than unselected
+                  opacity *= Math.max(0.5, unselectedLabelOpacityRef.current);
+                  if (effectiveChainSet.size > 0) {
+                    opacity *= Math.max(0, 1 - selectionDimRef.current * 0.3);
+                  }
+                } else {
+                  opacity *= unselectedLabelOpacityRef.current;
+                  // Full dim for truly unselected nodes when something is focused
+                  if (effectiveChainSet.size > 0) {
+                    opacity *= Math.max(0, 1 - selectionDimRef.current);
+                  }
                 }
               }
             }
             const a         = Math.round(opacity * 255).toString(16).padStart(2, '0');
             const baseColor = isSelected
-              ? (selectedLabelColorOverrideRef.current   || labelTextColorRef.current)
-              : (unselectedLabelColorOverrideRef.current || labelTextColorRef.current);
+              ? (selectedLabelColorOverrideRef.current || labelTextColorRef.current)
+              : isSoftSelected && effectiveChainSet.size > 0
+                ? '#7dd3fc'  // soft-selected descendants: ice-blue tint
+                : (unselectedLabelColorOverrideRef.current || labelTextColorRef.current);
             sprite.color = `${baseColor}${a}`;
             (sprite as any).backgroundColor = labelShowBgRef.current
               ? `rgba(3,7,18,${(labelBgOpacityRef.current * opacity).toFixed(2)})` : false;
@@ -1912,9 +2010,9 @@ export default function CinemaPage() {
               const songId = sp._songId as string;
               // Nearest-N node limiter (prevents stacking when near multiple nodes)
               if (eligibleLyricSet && !eligibleLyricSet.has(songId)) { sp.visible = false; continue; }
-              // Per-mode selected-only filter (uses shared selectedChainSet)
-              if (isRingMode  && ringSelectedOnlyRef.current && !selectedChainSet.has(songId)) { sp.visible = false; continue; }
-              if (!isRingMode && selectedOnly                && !selectedChainSet.has(songId)) { sp.visible = false; continue; }
+              // Per-mode selected-only filter
+              if (isRingMode  && ringSelectedOnlyRef.current && !effectiveChainSet.has(songId)) { sp.visible = false; continue; }
+              if (!isRingMode && selectedOnly                && !effectiveChainSet.has(songId)) { sp.visible = false; continue; }
               inProximity.add(songId);
               if (isRingMode) {
                 // Ring rotation provides the "reveal" effect — always show all words
@@ -2244,7 +2342,6 @@ export default function CinemaPage() {
 
   const nodeColor = useCallback((node: object) => {
     const n = node as CinemaNode;
-    if (tourMode && n.id === tourHighlightedId) return HIGHLIGHT_COLOR;
     const override = nodeOverridesRef.current[n.id];
     const albumType = n.type === 'album' ? (n.data?.['albumType'] as string | undefined) : undefined;
     const albumTypeColor = albumType ? (albumTypeColorsRef.current[albumType] || undefined) : undefined;
@@ -2262,47 +2359,79 @@ export default function CinemaPage() {
       else if (n.type === 'album') baseColor = override?.color ?? albumTypeColor ?? '#d97706';
       else if (n.type === 'song') baseColor = override?.color ?? (n.data?.isRemix ? '#9ca3af' : '#3b82f6');
     }
-    const chain = selectedChainRef.current;
-    if (chain.length > 0 && !tourModeRef.current) {
+    // 3-tier selection: chain (selected/ancestors) → soft-selected (descendants) → dimmed
+    // effectiveChainRef works for both normal selection and Tour/Path playback.
+    const chain = effectiveChainRef.current;
+    if (chain.length > 0) {
       const chainIdx = chain.findIndex(c => c.id === n.id);
       if (chainIdx >= 0) {
-        return chainIdx === chain.length - 1 ? '#ffffff' : '#7dd3fc';
+        // Last in chain = the focused/selected node → bright white
+        // Earlier members = ancestor path → periwinkle
+        return chainIdx === chain.length - 1 ? '#ffffff' : '#93c5fd';
       }
+      // Descendants of the focused node → ice blue (soft highlight)
+      if (softSelectedIdsRef.current.has(n.id)) return '#7dd3fc';
+      // Direct neighbours of the focused node → cyan hint
       const lastId = chain[chain.length - 1]!.id;
       if (adjRef.current.get(lastId)?.has(n.id)) return '#22d3ee';
+      // Everything else → dim toward background
       return blendHex(baseColor, '#0d1117', selectionDimRef.current);
     }
     return baseColor;
-  }, [tourMode, tourHighlightedId, currentTheme, albumTypeColors, activeUserPresetId]);
+  }, [tourHighlightedId, currentTheme, albumTypeColors, activeUserPresetId]);
 
   const nodeVal = useCallback((node: object) => {
     const n = node as CinemaNode;
     const sizeMult = nodeOverridesRef.current[n.id]?.sizeMultiplier ?? 1;
-    if (tourMode && n.id === tourHighlightedId) return 12 * sizeMult;
-    const chain = selectedChainRef.current;
     if (activeArrangeModeRef.current === 'galactic-cinema') {
       if (n.type === 'artist') return 14 * sizeMult;
       if (n.type === 'album')  return 5 * sizeMult;
       if (n.type === 'song')   return (n.data?.isRemix ? 1.2 : 2) * sizeMult;
     }
-    if (chain.length > 0 && !tourModeRef.current) {
-      // Chain nodes (selected path): biggest
-      const inChain = chain.some(c => c.id === n.id);
-      if (inChain) return nodeValFor(n.type) * 2.8 * sizeMult;
-      // Directly connected to the last chain node: also big
+    const chain = effectiveChainRef.current;
+    if (chain.length > 0) {
+      // Focused node (last in chain): biggest
+      if (n.id === chain[chain.length - 1]?.id) return nodeValFor(n.type) * 3.5 * sizeMult;
+      // Ancestor path nodes: large
+      if (chain.some(c => c.id === n.id)) return nodeValFor(n.type) * 2.8 * sizeMult;
+      // Descendants (soft-selected): medium
+      if (softSelectedIdsRef.current.has(n.id)) return nodeValFor(n.type) * 1.8 * sizeMult;
+      // Direct neighbours of focused node: slightly enlarged
       const lastId = chain[chain.length - 1]!.id;
       if (adjRef.current.get(lastId)?.has(n.id)) return nodeValFor(n.type) * 2.0 * sizeMult;
-      // Everything else: shrink so the highlighted nodes stand out
+      // Everything else: shrink so the hierarchy stands out
       return nodeValFor(n.type) * 0.55 * currentTheme.nodeValMultiplier * sizeMult;
     }
     return nodeValFor(n.type) * currentTheme.nodeValMultiplier * sizeMult;
-  }, [tourMode, tourHighlightedId, currentTheme]);
+  }, [tourHighlightedId, currentTheme]);
 
-  // Link highlighting: bright white for active node's edges, indigo for all tour-node edges
+  // Link highlighting: uses effectiveChainRef so it works in both tour and normal modes
   const linkColor = useCallback((link: object) => {
     const l     = link as { source: string | { id: string }; target: string | { id: string } };
     const srcId = typeof l.source === 'string' ? l.source : (l.source as any).id as string;
     const tgtId = typeof l.target === 'string' ? l.target : (l.target as any).id as string;
+    const chain = effectiveChainRef.current;
+    if (chain.length > 0) {
+      // Bright white for the ancestor path links
+      for (let i = 0; i < chain.length - 1; i++) {
+        const a = chain[i]!.id, b = chain[i + 1]!.id;
+        if ((srcId === a && tgtId === b) || (srcId === b && tgtId === a)) {
+          return 'rgba(255,255,255,0.85)';
+        }
+      }
+      // Tour node set: dim indigo so the tour path stays visible
+      if (tourMode && tourNodeIds.size > 0 && (tourNodeIds.has(srcId) || tourNodeIds.has(tgtId))) {
+        return 'rgba(165,180,252,0.35)';
+      }
+      // Links from the focused node: cyan hint
+      const lastId = chain[chain.length - 1]!.id;
+      if (srcId === lastId || tgtId === lastId) return 'rgba(34,211,238,0.4)';
+      // Links touching soft-selected (descendant) nodes: faint blue
+      if (softSelectedIdsRef.current.has(srcId) || softSelectedIdsRef.current.has(tgtId)) {
+        return 'rgba(125,195,252,0.2)';
+      }
+      return 'rgba(15,15,30,0.08)';
+    }
     if (tourMode) {
       if (tourHighlightedId && (srcId === tourHighlightedId || tgtId === tourHighlightedId)) {
         return 'rgba(255,255,255,0.75)';
@@ -2311,20 +2440,6 @@ export default function CinemaPage() {
         return 'rgba(165,180,252,0.55)';
       }
     }
-    const chain = selectedChainRef.current;
-    if (chain.length > 0 && !tourModeRef.current) {
-      // Bright white for links that are part of the chain path
-      for (let i = 0; i < chain.length - 1; i++) {
-        const a = chain[i]!.id, b = chain[i + 1]!.id;
-        if ((srcId === a && tgtId === b) || (srcId === b && tgtId === a)) {
-          return 'rgba(255,255,255,0.85)';
-        }
-      }
-      // Dim cyan for links from the last chain node (possible next hops)
-      const lastId = chain[chain.length - 1]!.id;
-      if (srcId === lastId || tgtId === lastId) return 'rgba(34,211,238,0.4)';
-      return 'rgba(15,15,30,0.08)';
-    }
     return currentThemeRef.current.linkColor;
   }, [tourMode, tourHighlightedId, tourNodeIds, currentTheme]);
 
@@ -2332,18 +2447,20 @@ export default function CinemaPage() {
     const l     = link as { source: string | { id: string }; target: string | { id: string } };
     const srcId = typeof l.source === 'string' ? l.source : (l.source as any).id as string;
     const tgtId = typeof l.target === 'string' ? l.target : (l.target as any).id as string;
-    if (tourMode) {
-      if (tourHighlightedId && (srcId === tourHighlightedId || tgtId === tourHighlightedId)) return 2;
-      if (tourNodeIds.size > 0 && (tourNodeIds.has(srcId) || tourNodeIds.has(tgtId))) return 1;
-    }
-    const chain = selectedChainRef.current;
-    if (chain.length > 0 && !tourModeRef.current) {
+    const chain = effectiveChainRef.current;
+    if (chain.length > 0) {
+      // Ancestor path: thick
       for (let i = 0; i < chain.length - 1; i++) {
         const a = chain[i]!.id, b = chain[i + 1]!.id;
         if ((srcId === a && tgtId === b) || (srcId === b && tgtId === a)) return 2.5;
       }
+      // Tour path nodes: slightly visible
+      if (tourMode && tourNodeIds.size > 0 && (tourNodeIds.has(srcId) || tourNodeIds.has(tgtId))) return 0.6;
+      // Links from focused node: medium
       const lastId = chain[chain.length - 1]!.id;
       if (srcId === lastId || tgtId === lastId) return 1;
+      // Soft-selected (descendant) links: thin but visible
+      if (softSelectedIdsRef.current.has(srcId) || softSelectedIdsRef.current.has(tgtId)) return 0.4;
       return 0.12;
     }
     return 0.4 * currentThemeRef.current.linkWidthMultiplier;
@@ -2380,7 +2497,13 @@ export default function CinemaPage() {
       const imageUrl = n.data?.imageUrl
         ? toProxiedImageUrl(n.data.imageUrl as string)
         : undefined;
-      const opacity = nodeOpacityUserRef.current;
+      const artChain   = effectiveChainRef.current;
+      const artInChain = artChain.length > 0 && artChain.some(c => c.id === n.id);
+      const artSoftSel = softSelectedIdsRef.current.has(n.id);
+      const artDim     = artChain.length > 0 && !artInChain
+        ? artSoftSel ? Math.max(0.25, 1 - selectionDimRef.current * 0.5) : Math.max(0, 1 - selectionDimRef.current)
+        : 1;
+      const opacity = nodeOpacityUserRef.current * artDim;
       if ((n.type === 'album' || n.type === 'artist') && imageUrl) {
         const tex = getCachedTexture(imageUrl, () => fgRef.current?.refresh());
         const geo = new THREE.SphereGeometry(r, 24, 24);
@@ -2404,10 +2527,13 @@ export default function CinemaPage() {
       ? toProxiedImageUrl(n.data.imageUrl as string)
       : undefined;
 
-    const chain = selectedChainRef.current;
-    const isInChain = chain.length > 0 && chain.some(c => c.id === n.id);
-    const dimFactor = (chain.length > 0 && !isInChain && !tourModeRef.current)
-      ? Math.max(0, 1 - selectionDimRef.current)
+    const effChain    = effectiveChainRef.current;
+    const isInChain   = effChain.length > 0 && effChain.some(c => c.id === n.id);
+    const isSoftSel   = softSelectedIdsRef.current.has(n.id);
+    const dimFactor   = effChain.length > 0 && !isInChain
+      ? isSoftSel
+        ? Math.max(0.25, 1 - selectionDimRef.current * 0.5) // descendants: partial dim
+        : Math.max(0, 1 - selectionDimRef.current)           // unrelated: full dim
       : 1;
     const opacity = nodeOpacityUserRef.current * dimFactor;
     if (n.type === 'song') {

@@ -34,6 +34,8 @@ export default function BandDetailPage() {
   const [editDescription, setEditDescription] = useState('');
   const [editLogoUrl, setEditLogoUrl] = useState('');
   const [editError, setEditError] = useState('');
+  const [wikiFetching, setWikiFetching] = useState(false);
+  const [wikiMsg, setWikiMsg] = useState('');
 
   const { data: band, isLoading, error } = useQuery({
     queryKey: ['band', bandId],
@@ -166,7 +168,41 @@ export default function BandDetailPage() {
             </div>
             <div>
               <label className="label">Description</label>
-              <input className="input" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder="Optional" />
+              <div className="flex gap-2 items-start">
+                <textarea
+                  className="input flex-1"
+                  rows={3}
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  placeholder="Optional"
+                />
+                <button
+                  type="button"
+                  className="btn-secondary text-xs whitespace-nowrap"
+                  disabled={wikiFetching}
+                  onClick={async () => {
+                    setWikiFetching(true);
+                    setWikiMsg('');
+                    try {
+                      const res = await fetch(`/api/bands/${bandId}/wiki`);
+                      const data = await res.json() as { found: boolean; extract: string; pageUrl: string };
+                      if (data.found && data.extract) {
+                        setEditDescription(data.extract);
+                        setWikiMsg(`Fetched from Wikipedia`);
+                      } else {
+                        setWikiMsg('Not found on Wikipedia');
+                      }
+                    } catch {
+                      setWikiMsg('Wikipedia fetch failed');
+                    } finally {
+                      setWikiFetching(false);
+                    }
+                  }}
+                >
+                  {wikiFetching ? 'Fetching…' : 'Wikipedia'}
+                </button>
+              </div>
+              {wikiMsg && <p className="text-xs text-surface-400 mt-1">{wikiMsg}</p>}
             </div>
             <div>
               <label className="label">Logo URL <span className="text-surface-400 font-normal">(shown in Cinema Visual Node Mode)</span></label>
