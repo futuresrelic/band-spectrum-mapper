@@ -163,20 +163,38 @@ export function applyImageFilters(
       canvas.width  = img.naturalWidth;
       canvas.height = img.naturalHeight;
       const ctx = canvas.getContext('2d')!;
-      // Apply blur separately (blur needs a slightly different approach to avoid edge fade)
       if (opts.blur > 0) {
-        // Expand canvas so blur edges don't fade to transparent
-        const b = Math.ceil(opts.blur * 2);
-        canvas.width  = img.naturalWidth  + b * 2;
-        canvas.height = img.naturalHeight + b * 2;
-        ctx.filter = `brightness(${opts.brightness}) contrast(${opts.contrast}) saturate(${opts.saturation}) hue-rotate(${opts.hueShift}deg) blur(${opts.blur}px)`;
-        ctx.drawImage(img, b, b, img.naturalWidth, img.naturalHeight);
-        // Crop back to original size
+        const W = img.naturalWidth;
+        const H = img.naturalHeight;
+        // Use 3× blur radius so the Gaussian kernel has plenty of room.
+        const b = Math.ceil(opts.blur * 3);
+
+        // Sky-sphere textures wrap horizontally at u=0/u=1. Without tiling, the
+        // blur bleeds into the empty left/right margins, producing faded edges that
+        // show as a dark vertical seam where the texture joins on the sphere.
+        // Fix: pre-fill margins with wrapped copies of the image so the blur sees
+        // real neighbouring pixels on both sides before the filter is applied.
+        const src = document.createElement('canvas');
+        src.width  = W + b * 2;
+        src.height = H + b * 2;
+        const sc = src.getContext('2d')!;
+        sc.drawImage(img, b - W, b, W, H); // left margin ← right side of image
+        sc.drawImage(img, b,     b, W, H); // centre
+        sc.drawImage(img, b + W, b, W, H); // right margin ← left side of image
+
+        // Apply all filters + blur in one pass on the tiled source
+        const dst = document.createElement('canvas');
+        dst.width  = W + b * 2;
+        dst.height = H + b * 2;
+        const dc = dst.getContext('2d')!;
+        dc.filter = `brightness(${opts.brightness}) contrast(${opts.contrast}) saturate(${opts.saturation}) hue-rotate(${opts.hueShift}deg) blur(${opts.blur}px)`;
+        dc.drawImage(src, 0, 0);
+
+        // Crop back to original dimensions
         const cropped = document.createElement('canvas');
-        cropped.width  = img.naturalWidth;
-        cropped.height = img.naturalHeight;
-        const cx = cropped.getContext('2d')!;
-        cx.drawImage(canvas, -b, -b);
+        cropped.width  = W;
+        cropped.height = H;
+        cropped.getContext('2d')!.drawImage(dst, -b, -b);
         resolve(cropped);
       } else {
         ctx.filter = `brightness(${opts.brightness}) contrast(${opts.contrast}) saturate(${opts.saturation}) hue-rotate(${opts.hueShift}deg)`;
