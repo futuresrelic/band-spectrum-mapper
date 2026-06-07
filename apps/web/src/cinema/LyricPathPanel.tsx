@@ -4,19 +4,27 @@
  * a 3-D word-sequence graph.
  *
  * Each word is a node pinned to a helix position; consecutive words are linked.
- * The auto-play tour flies the camera through the helix word-by-word.
+ *
+ * Two playback modes (switchable via the 📍/🛤 toggle in the controls bar):
+ *   Step mode  — camera jumps to each word on a timer (original behaviour)
+ *   Rail mode  — camera flows continuously along a CatmullRom spline through
+ *                all word positions without stopping (new smooth flythrough)
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
+import * as THREE from 'three';
 import { api } from '../lib/api';
 
 // ── Helix geometry constants ──────────────────────────────────────────────────
 
-const HELIX_RADIUS     = 28;   // world units
-const HELIX_ANGLE_STEP = 0.52; // radians per word (≈ 12 words per full turn)
-const HELIX_Y_STEP     = 3.8;  // vertical rise per word
+const HELIX_RADIUS     = 28;
+const HELIX_ANGLE_STEP = 0.52;
+const HELIX_Y_STEP     = 3.8;
+
+// How long the smooth rail spends on each word at speed = 1× (seconds)
+const SECS_PER_WORD_AT_1X = 1.3;
 
 // ── Colour gradient: indigo → cyan ────────────────────────────────────────────
 
@@ -74,9 +82,21 @@ export default function LyricPathPanel({ songId, songLabel, onClose }: Props) {
   const orbitDistRef = useRef(55);
   const nodesRef = useRef<LyricWord[]>([]);
 
-  useEffect(() => { speedRef.current    = speed;     }, [speed]);
-  useEffect(() => { orbitDistRef.current = orbitDist; }, [orbitDist]);
-  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
+  // Rail mode toggle
+  const [smoothRail, setSmoothRail]   = useState(false);
+  const smoothRailRef                 = useRef(false);
+
+  // Smooth rail internals
+  const railTRef           = useRef(0);                              // 0→1 position along the path
+  const railRafRef         = useRef<number | null>(null);            // rAF handle
+  const railLastTimeRef    = useRef<number>(0);                      // timestamp for delta
+  const railPosCurveRef    = useRef<THREE.CatmullRomCurve3 | null>(null);
+  const railLookCurveRef   = useRef<THREE.CatmullRomCurve3 | null>(null);
+
+  useEffect(() => { speedRef.current      = speed;      }, [speed]);
+  useEffect(() => { orbitDistRef.current  = orbitDist;  }, [orbitDist]);
+  useEffect(() => { isPlayingRef.current  = isPlaying;  }, [isPlaying]);
+  useEffect(() => { smoothRailRef.current = smoothRail; }, [smoothRail]);
 
   // ── Load lyrics and build graph ───────────────────────────────────────────
 
@@ -85,9 +105,11 @@ export default function LyricPathPanel({ songId, songLabel, onClose }: Props) {
     setLoadError('');
     setCurrentIdx(0);
     currentIdxRef.current = 0;
+    railTRef.current = 0;
     setIsPlaying(false);
     isPlayingRef.current = false;
     if (tourTimerRef.current) clearTimeout(tourTimerRef.current);
+    if (railRafRef.current)   cancelAnimationFrame(railRafRef.current);
 
     api.get<{ id: string; text: string; isPrimary: boolean }[]>(`/api/songs/${songId}/lyrics`)
       .then((lyrics) => {
@@ -130,7 +152,27 @@ export default function LyricPathPanel({ songId, songLabel, onClose }: Props) {
       .catch(() => { setLoadError('Failed to load lyrics.'); setLoading(false); });
   }, [songId]);
 
-  // ── Camera fly-to ─────────────────────────────────────────────────────────
+  // ── Build smooth-rail curves whenever nodes or orbit distance changes ────────
+
+  useEffect(() => {
+    const nodes = nodesRef.current;
+    if (nodes.length < 2) {
+      railPosCurveRef.current  = null;
+      railLookCurveRef.current = null;
+      return;
+    }
+    const dist = orbitDistRef.current;
+    const posVecs  = nodes.map(n => new THREE.Vector3(
+      n.fx + Math.cos(n.theta) * dist,
+      n.fy + dist * 0.22,
+      n.fz + Math.sin(n.theta) * dist,
+    ));
+    const lookVecs = nodes.map(n => new THREE.Vector3(n.fx, n.fy, n.fz));
+    railPosCurveRef.current  = new THREE.CatmullRomCurve3(posVecs,  false, 'catmullrom', 0.5);
+    railLookCurveRef.current = new THREE.CatmullRomCurve3(lookVecs, false, 'catmullrom', 0.5);
+  }, [graphData, orbitDist]);
+
+  // ── Camera fly-to (step mode) ─────────────────────────────────────────────
 
   const flyToWord = useCallback((idx: number, durationMs?: number) => {
     const node = nodesRef.current[idx];
@@ -149,6 +191,7 @@ export default function LyricPathPanel({ songId, songLabel, onClose }: Props) {
   // Initial camera position after load
   useEffect(() => {
     if (!loading && graphData.nodes.length > 0) {
+      railTRef.current = 0;
       const timer = setTimeout(() => flyToWord(0, 1400), 350);
       return () => clearTimeout(timer);
     }
@@ -159,7 +202,73 @@ export default function LyricPathPanel({ songId, songLabel, onClose }: Props) {
     fgRef.current?.refresh();
   }, [currentIdx]);
 
-  // ── Tour playback ─────────────────────────────────────────────────────────
+  // ── Smooth rail RAF loop ───────────────────────────────────────────────────
+
+  const railTick = useCallback((now: number) => {
+    if (!isPlayingRef.current || !smoothRailRef.current) return;
+
+    const dtSec = railLastTimeRef.current > 0
+      ? Math.min((now - railLastTimeRef.current) / 1000, 0.1) // cap at 100ms to handle tab switches
+      : 1 / 60;
+    railLastTimeRef.current = now;
+
+    const totalSecs = (nodesRef.current.length * SECS_PER_WORD_AT_1X) / speedRef.current;
+    railTRef.current = Math.min(1, railTRef.current + dtSec / totalSecs);
+
+    // Move camera directly via Three.js
+    const camera = fgRef.current?.camera?.();
+    const ctrl   = fgRef.current?.controls?.() as Record<string, any> | undefined;
+    if (camera && railPosCurveRef.current && railLookCurveRef.current) {
+      const pos  = railPosCurveRef.current.getPoint(railTRef.current);
+      const look = railLookCurveRef.current.getPoint(railTRef.current);
+      camera.position.copy(pos);
+      if (ctrl?.target) {
+        (ctrl.target as THREE.Vector3).copy(look);
+      } else {
+        camera.lookAt(look);
+      }
+    }
+
+    // Sync highlighted word
+    const n = nodesRef.current.length;
+    const newIdx = Math.min(n - 1, Math.floor(railTRef.current * n));
+    if (newIdx !== currentIdxRef.current) {
+      currentIdxRef.current = newIdx;
+      setCurrentIdx(newIdx);
+      fgRef.current?.refresh();
+    }
+
+    if (railTRef.current < 1) {
+      railRafRef.current = requestAnimationFrame(railTick);
+    } else {
+      // Reached end — stop
+      isPlayingRef.current = false;
+      setIsPlaying(false);
+    }
+  }, []);
+
+  const startSmoothRail = useCallback(() => {
+    if (railRafRef.current) cancelAnimationFrame(railRafRef.current);
+    railLastTimeRef.current = 0;
+    // If we're already at the end, restart from beginning
+    if (railTRef.current >= 1) {
+      railTRef.current = 0;
+      currentIdxRef.current = 0;
+      setCurrentIdx(0);
+    }
+    isPlayingRef.current = true;
+    setIsPlaying(true);
+    railRafRef.current = requestAnimationFrame(railTick);
+  }, [railTick]);
+
+  const stopSmoothRail = useCallback(() => {
+    if (railRafRef.current) cancelAnimationFrame(railRafRef.current);
+    railRafRef.current = null;
+    isPlayingRef.current = false;
+    setIsPlaying(false);
+  }, []);
+
+  // ── Step-mode tour playback ───────────────────────────────────────────────
 
   const scheduleTick = useCallback(() => {
     if (tourTimerRef.current) clearTimeout(tourTimerRef.current);
@@ -171,28 +280,78 @@ export default function LyricPathPanel({ songId, songLabel, onClose }: Props) {
       if (!total) return;
       const next = (currentIdxRef.current + 1) % total;
       currentIdxRef.current = next;
+      railTRef.current = total > 1 ? next / (total - 1) : 0;
       setCurrentIdx(next);
       flyToWord(next);
       scheduleTick();
     }, delay);
   }, [flyToWord]);
 
-  useEffect(() => {
-    if (isPlaying) {
-      scheduleTick();
-    } else {
-      if (tourTimerRef.current) clearTimeout(tourTimerRef.current);
-    }
-    return () => { if (tourTimerRef.current) clearTimeout(tourTimerRef.current); };
-  }, [isPlaying, scheduleTick]);
+  // ── Route play/pause to correct mode ─────────────────────────────────────
 
-  useEffect(() => () => { if (tourTimerRef.current) clearTimeout(tourTimerRef.current); }, []);
+  useEffect(() => {
+    if (smoothRailRef.current) {
+      // Smooth rail mode
+      if (isPlaying) {
+        if (!railRafRef.current) {
+          railLastTimeRef.current = 0;
+          railRafRef.current = requestAnimationFrame(railTick);
+        }
+      } else {
+        if (railRafRef.current) cancelAnimationFrame(railRafRef.current);
+        railRafRef.current = null;
+      }
+    } else {
+      // Step mode
+      if (isPlaying) {
+        scheduleTick();
+      } else {
+        if (tourTimerRef.current) clearTimeout(tourTimerRef.current);
+      }
+    }
+    return () => {
+      if (tourTimerRef.current) clearTimeout(tourTimerRef.current);
+    };
+  }, [isPlaying, scheduleTick, railTick]);
+
+  // Cleanup on unmount
+  useEffect(() => () => {
+    if (tourTimerRef.current) clearTimeout(tourTimerRef.current);
+    if (railRafRef.current)   cancelAnimationFrame(railRafRef.current);
+  }, []);
+
+  // ── Mode switch ───────────────────────────────────────────────────────────
+
+  const switchMode = useCallback((toRail: boolean) => {
+    // Stop whatever is currently running
+    if (isPlayingRef.current) {
+      if (railRafRef.current) cancelAnimationFrame(railRafRef.current);
+      railRafRef.current = null;
+      if (tourTimerRef.current) clearTimeout(tourTimerRef.current);
+      isPlayingRef.current = false;
+      setIsPlaying(false);
+    }
+    smoothRailRef.current = toRail;
+    setSmoothRail(toRail);
+  }, []);
+
+  // ── Unified play / pause handler ─────────────────────────────────────────
+
+  const handlePlayPause = useCallback(() => {
+    if (smoothRailRef.current) {
+      if (isPlayingRef.current) { stopSmoothRail(); } else { startSmoothRail(); }
+    } else {
+      setIsPlaying(v => !v);
+    }
+  }, [startSmoothRail, stopSmoothRail]);
 
   // ── Step controls ─────────────────────────────────────────────────────────
 
   const stepTo = useCallback((idx: number, dur = 400) => {
     const clamped = Math.max(0, Math.min(nodesRef.current.length - 1, idx));
     currentIdxRef.current = clamped;
+    // Keep railT in sync so smooth rail resumes from the right position
+    railTRef.current = nodesRef.current.length > 1 ? clamped / (nodesRef.current.length - 1) : 0;
     setCurrentIdx(clamped);
     flyToWord(clamped, dur);
   }, [flyToWord]);
@@ -314,7 +473,7 @@ export default function LyricPathPanel({ songId, songLabel, onClose }: Props) {
 
             {/* Play / pause */}
             <button
-              onClick={() => setIsPlaying(v => !v)}
+              onClick={handlePlayPause}
               className="text-white text-base w-8 text-center hover:text-indigo-300 transition-colors"
             >
               {isPlaying ? '⏸' : '▶'}
@@ -326,6 +485,26 @@ export default function LyricPathPanel({ songId, songLabel, onClose }: Props) {
               className="text-gray-400 hover:text-white text-sm transition-colors"
               title="Next word"
             >⏭</button>
+
+            <div className="w-px h-5 bg-gray-700 mx-1" />
+
+            {/* Camera mode toggle */}
+            <div className="flex items-center gap-1 bg-gray-800/70 rounded-lg p-0.5" title="Camera mode">
+              <button
+                onClick={() => switchMode(false)}
+                className={`px-2 py-1 rounded text-[10px] transition-colors ${
+                  !smoothRail ? 'bg-indigo-700/80 text-white' : 'text-gray-500 hover:text-gray-300'
+                }`}
+                title="Step mode — camera jumps to each word"
+              >📍 Step</button>
+              <button
+                onClick={() => switchMode(true)}
+                className={`px-2 py-1 rounded text-[10px] transition-colors ${
+                  smoothRail ? 'bg-indigo-700/80 text-white' : 'text-gray-500 hover:text-gray-300'
+                }`}
+                title="Rail mode — camera flows smoothly through all words"
+              >🛤 Rail</button>
+            </div>
 
             <div className="w-px h-5 bg-gray-700 mx-1" />
 
@@ -349,7 +528,7 @@ export default function LyricPathPanel({ songId, songLabel, onClose }: Props) {
                 value={orbitDist}
                 onChange={e => {
                   setOrbitDist(Number(e.target.value));
-                  flyToWord(currentIdxRef.current, 250);
+                  if (!smoothRailRef.current) flyToWord(currentIdxRef.current, 250);
                 }}
                 className="w-20 accent-indigo-500"
               />
