@@ -191,7 +191,9 @@ npx prisma db seed --schema=prisma/schema.prisma
 
 ### Visualization
 - [x] Explore Graph (Cytoscape.js 2D + Three.js 3D): Artist Universe, Album Cluster, Tag Constellation, Emotional Similarity, Lyrical DNA, and more
-- [x] Cinema Mode: cinematic 3D autoplay showcase with 16+ scenes, Social Mode, Director Mode, AI Director, progressive lyrics, Lyrics Universe
+- [x] **Cinema Mode** — cinematic 3D showcase with tiered access:
+  - *Admin*: 16+ scenes, Director Mode, AI Director, Tour Planner, Camera Rails, Setlist tours, Config panel, Social Mode, Lyric Path, Visual Node / Vinyl mode with per-album artwork and duration scaling, server-persisted settings
+  - *Regular users*: browse & orbit, band filter, scene autoplay, camera rails, curated playbacks published by admin — with branding watermark
 - [x] Spectrum Studio: 12 chart types across 31 data fields
 - [x] Word cloud (lyric frequency + AI theme weighting)
 - [x] Song Nodes admin view
@@ -220,4 +222,6 @@ npx prisma db seed --schema=prisma/schema.prisma
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Development Guide](docs/DEV_GUIDE.md)
+- [User Guide](docs/USER_GUIDE.md)
+- [Changelog](docs/CHANGELOG.md)
 - [Changelog](docs/CHANGELOG.md)

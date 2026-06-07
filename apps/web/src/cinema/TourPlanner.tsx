@@ -28,6 +28,8 @@ interface TourPlannerProps {
   onSaveSequence: (name: string) => void;
   onLoadSequence: (seq: NodeSequence) => void;
   onDeleteSequence: (id: string) => void;
+  /** Admin-only: toggle isPublic on a saved sequence. */
+  onTogglePublic?: (id: string, currentIsPublic: boolean) => void;
 }
 
 const TYPE_ICONS: Record<string, string> = {
@@ -209,7 +211,7 @@ export default function TourPlanner({
   nodes, steps, isPlaying, currentStepIdx, isAddMode,
   onAddStep, onRemoveStep, onStepChange, onMoveStep,
   onPlay, onStop, onClear, onToggleAddMode,
-  savedSequences, onSaveSequence, onLoadSequence, onDeleteSequence,
+  savedSequences, onSaveSequence, onLoadSequence, onDeleteSequence, onTogglePublic,
 }: TourPlannerProps) {
   const [typeFilter, setTypeFilter]   = useState<string>('all');
   const [search, setSearch]           = useState('');
@@ -354,6 +356,15 @@ export default function TourPlanner({
               <div key={seq.id} className="flex items-center gap-1.5 px-2 py-1 bg-gray-800/60 rounded-lg text-[11px]">
                 <span className="flex-1 truncate text-gray-400" title={seq.name}>{seq.name}</span>
                 <span className="text-gray-700 text-[10px] shrink-0">{seq.steps.length} stops</span>
+                {onTogglePublic && (
+                  <button
+                    onClick={() => onTogglePublic(seq.id, seq.isPublic ?? false)}
+                    title={seq.isPublic ? 'Published — click to make private' : 'Private — click to publish for all users'}
+                    className={`shrink-0 text-[11px] transition-colors ${seq.isPublic ? 'text-green-400 hover:text-gray-500' : 'text-gray-700 hover:text-green-500'}`}
+                  >
+                    🌐
+                  </button>
+                )}
                 <button
                   onClick={() => onLoadSequence(seq)}
                   className="shrink-0 text-indigo-500 hover:text-indigo-300 text-[10px] transition-colors"

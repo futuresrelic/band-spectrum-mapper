@@ -1,31 +1,48 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { requireAdmin } from '../middleware/requireAdmin.js';
 
 export const nodeSequencesRouter = Router();
 nodeSequencesRouter.use(requireAuth);
 
-function formatSeq(s: { id: string; name: string; stepsJson: string; updatedAt: Date }) {
+function formatSeq(s: {
+  id: string; name: string; stepsJson: string; isPublic: boolean; updatedAt: Date;
+}) {
   return {
-    id: s.id,
-    name: s.name,
-    steps: JSON.parse(s.stepsJson) as unknown[],
-    savedAt: s.updatedAt.toISOString(),
+    id:       s.id,
+    name:     s.name,
+    steps:    JSON.parse(s.stepsJson) as unknown[],
+    isPublic: s.isPublic,
+    savedAt:  s.updatedAt.toISOString(),
   };
 }
 
 // GET /api/node-sequences
+// Admins: their own sequences.
+// Regular users: only sequences that an admin has marked public.
 nodeSequencesRouter.get('/', async (req, res): Promise<void> => {
-  const userId = req.user!.userId;
+  const userId  = req.user!.userId;
+  const isAdmin = req.user!.isAdmin === true;
+
+  if (isAdmin) {
+    const seqs = await prisma.userNodeSequence.findMany({
+      where:   { userId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    res.json(seqs.map(formatSeq)); return;
+  }
+
+  // Non-admin: public sequences only (created by anyone with isPublic=true)
   const seqs = await prisma.userNodeSequence.findMany({
-    where: { userId },
+    where:   { isPublic: true },
     orderBy: { updatedAt: 'desc' },
   });
   res.json(seqs.map(formatSeq)); return;
 });
 
-// POST /api/node-sequences
-nodeSequencesRouter.post('/', async (req, res): Promise<void> => {
+// POST /api/node-sequences  (admin only — regular users cannot create sequences)
+nodeSequencesRouter.post('/', requireAdmin, async (req, res): Promise<void> => {
   const userId = req.user!.userId;
   const { name, steps } = req.body as { name: string; steps: unknown[] };
   if (!name || !Array.isArray(steps)) {
@@ -37,14 +54,15 @@ nodeSequencesRouter.post('/', async (req, res): Promise<void> => {
   res.status(201).json(formatSeq(seq)); return;
 });
 
-// PUT /api/node-sequences/:id
-nodeSequencesRouter.put('/:id', async (req, res): Promise<void> => {
+// PUT /api/node-sequences/:id  (admin only)
+nodeSequencesRouter.put('/:id', requireAdmin, async (req, res): Promise<void> => {
   const userId = req.user!.userId;
+  const seqId  = req.params['id'] ?? '';
   const { name, steps } = req.body as { name?: string; steps?: unknown[] };
   const result = await prisma.userNodeSequence.updateMany({
-    where: { id: req.params['id'], userId },
+    where: { id: seqId, userId },
     data: {
-      ...(name ? { name: name.trim() } : {}),
+      ...(name  ? { name: name.trim() }               : {}),
       ...(steps ? { stepsJson: JSON.stringify(steps) } : {}),
     },
   });
@@ -52,11 +70,24 @@ nodeSequencesRouter.put('/:id', async (req, res): Promise<void> => {
   res.status(204).end(); return;
 });
 
-// DELETE /api/node-sequences/:id
-nodeSequencesRouter.delete('/:id', async (req, res): Promise<void> => {
+// PATCH /api/node-sequences/:id/toggle-public  (admin only)
+// Toggles isPublic on the sequence; returns the new value.
+nodeSequencesRouter.patch('/:id/toggle-public', requireAdmin, async (req, res): Promise<void> => {
   const userId = req.user!.userId;
-  await prisma.userNodeSequence.deleteMany({
-    where: { id: req.params['id'], userId },
+  const seqId  = req.params['id'] ?? '';
+  const seq = await prisma.userNodeSequence.findFirst({ where: { id: seqId, userId } });
+  if (!seq) { res.status(404).json({ error: 'Not found' }); return; }
+  const updated = await prisma.userNodeSequence.update({
+    where: { id: seq.id },
+    data:  { isPublic: !seq.isPublic },
   });
+  res.json({ isPublic: updated.isPublic }); return;
+});
+
+// DELETE /api/node-sequences/:id  (admin only)
+nodeSequencesRouter.delete('/:id', requireAdmin, async (req, res): Promise<void> => {
+  const userId = req.user!.userId;
+  const seqId  = req.params['id'] ?? '';
+  await prisma.userNodeSequence.deleteMany({ where: { id: seqId, userId } });
   res.status(204).end(); return;
 });

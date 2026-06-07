@@ -441,11 +441,13 @@ model UserNodeSequence {
   userId    String
   name      String
   stepsJson String   // JSON-serialised TourStep[]
+  isPublic  Boolean  @default(false) // admin can publish for all users to play
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([isPublic])
   @@map("user_node_sequences")
 }
 

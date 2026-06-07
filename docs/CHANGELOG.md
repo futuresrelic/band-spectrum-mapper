@@ -4,6 +4,97 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Cinema: admin/user access split, public playbacks, watermark, docs (2026-06-06)
+
+### Added
+
+- **Cinema access tiers** — Cinema Mode now serves both admin and regular users, with the UI trimmed to match each tier:
+
+  | Feature | Admin | Regular user |
+  |---|---|---|
+  | Browse nodes, click info | ✓ | ✓ |
+  | Filter by band | ✓ | ✓ |
+  | Scene autoplay (Scenes mode) | ✓ | ✓ |
+  | Camera rails (Rail mode) | ✓ | ✓ |
+  | Curated Playbacks (pre-built tours) | ✓ | ✓ |
+  | ⚙ Config panel (themes, controls, visibility) | ✓ | — |
+  | 📽️ Director Mode | ✓ | — |
+  | 🤖 AI Director | ✓ | — |
+  | 🗺 Tour Planner (build sequences) | ✓ | — |
+  | 🛤 Path mode | ✓ | — |
+  | 🎤 Setlist panel | ✓ | — |
+  | 🎬 Social Mode | ✓ | — |
+  | ✦ Arrange | ✓ | — |
+  | Visual Node Mode / Artwork Spheres | ✓ | — |
+
+- **Public / Curated Playbacks** — Admin can mark any saved tour sequence as "public" via the 🌐 globe button in the Tour Planner's Saved Sequences list. Public sequences appear in a "✨ Curated Playbacks" panel for all logged-in users — they can pick one and press ▶ to watch the pre-built camera tour without building it themselves.
+
+- **Non-admin watermark** — Regular users always see a subtle "Band Spectrum Mapper" watermark in the bottom-right corner of Cinema Mode, giving the platform credit when viewers are watching the visualizer.
+
+- **Backend**: `isPublic Boolean @default(false)` added to `UserNodeSequence` schema. `GET /api/node-sequences` now returns public sequences for non-admins and the user's own sequences for admins. New `PATCH /api/node-sequences/:id/toggle-public` endpoint (admin only).
+
+- **User Guide** (`docs/USER_GUIDE.md`) — New plain-English guide for non-admin users covering: browsing Cinema, filtering bands, using rails, playing curated tours, and contributing via the library.
+
+### Changed
+
+- `POST /api/node-sequences`, `PUT`, `DELETE` — restricted to admin users only (regular users can only read public sequences, not create or delete them).
+
+---
+
+## Cinema: mobile touch fixes (2026-06-06)
+
+### Fixed
+
+- **Two-finger spinning** — `TrackballControls.staticMoving` now set to `true` after graph loads, so the camera stops the instant fingers lift instead of spinning with momentum. `rotateSpeed` reduced from `1.0` to `0.5`, `panSpeed` to `0.5` for calmer phone navigation.
+- **Node jumping to tap position** — Added `enableNodeDrag={false}` to the main `ForceGraph3D`. Nodes are fixed-position in Cinema; the default `true` caused the nearest node to teleport to a tap point when touched.
+
+---
+
+## Cinema: server-side persistence for admin account (2026-06-06)
+
+### Added
+
+- **`UserCinemaData` Prisma model** — One row per admin user storing all Cinema session data as JSON blobs (presets, config snapshots, director keyframes, per-scene keyframes, node overrides). Applied via `prisma db push` on Railway restart.
+
+- **REST API** at `/api/cinema/` (admin-only):
+  - `GET /data` — returns all Cinema data in one payload
+  - `PUT /presets` — replaces stored visual presets list
+  - `PUT /snapshots` — replaces stored config snapshots list
+  - `PUT /director-keyframes` — replaces director keyframe sequence
+  - `PUT /scene-keyframes` — replaces per-scene keyframe map
+  - `PUT /node-overrides` — replaces per-node colour/size overrides
+
+- **Frontend sync** (`apps/web/src/cinema/cinemaPersistence.ts`) — On Cinema mount the app fetches server data and hydrates state (server is authoritative). If server is empty on first use, local data is pushed up automatically. Every edit triggers a 2-second debounced save to the server; localStorage continues to work as offline fallback.
+
+---
+
+## Cinema: vinyl records with per-album tint + artwork labels + duration scaling (2026-06-05)
+
+### Added / Changed
+
+- **Vinyl records** — In Visual Node Mode, song nodes render as textured vinyl disks instead of plain spheres.
+- **Per-album tint** — Each album deterministically maps to one of 12 palette colours (hash of albumId → palette index) so every album is visually distinct and stable across sessions.
+- **Album artwork label** — A circular crop of the album artwork appears in the vinyl's centre label area, correctly oriented with the disk (no longer a camera-facing billboard that cuts through tilted records).
+- **Duration scaling** — Disk radius scales proportionally to `sqrt(durationSeconds / 210)` (reference: 3:30 = 1×), clamped 0.65× – 2.0×.
+
+---
+
+## Cinema: Lyric Path Mode (2026-06-05)
+
+### Added
+
+- **Lyric Path Mode** (`apps/web/src/cinema/LyricPathPanel.tsx`) — Full-screen 3D overlay that renders a song's lyrics as a word-sequence helix graph. Each word is a node; consecutive words are linked. An auto-play tour flies the camera word by word. Controls: play/pause, step prev/next, speed (0.2–5×), orbit distance (15–220). Opened from the "Lyric Path ∿" button in the Cinema node info panel.
+
+---
+
+## Cinema: Send-to-Cinema handoff from Word Cloud & Pattern Lab (2026-06-05)
+
+### Added
+
+- **Cinema Handoff** (`apps/web/src/cinema/cinemaHandoff.ts`) — `pushCinemaHandoff(bandIds, label)` saves a band filter to localStorage; `popCinemaHandoff()` consumes it (5-minute TTL). Word Cloud and Pattern Lab both gained a "🎬 Cinema" button that uses this to send the active band selection straight to Cinema Mode, where a banner lets the admin apply it instantly.
+
+---
+
 ## Song Source Linker — bulk-link live/bootleg/demo recordings to studio originals (2026-06-03)
 
 ### Added

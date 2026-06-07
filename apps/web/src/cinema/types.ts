@@ -111,6 +111,8 @@ export interface NodeSequence {
   name: string;
   steps: TourStep[];
   savedAt: string;
+  /** Admin-published sequences are visible to all logged-in users for playback. */
+  isPublic?: boolean;
 }
 
 /** A camera keyframe for Director Mode. */

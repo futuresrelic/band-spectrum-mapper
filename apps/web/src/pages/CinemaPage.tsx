@@ -19,6 +19,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import ForceGraph3D from 'react-force-graph-3d';
+import { useAuth } from '../contexts/AuthContext';
 import SpriteText from 'three-spritetext';
 import * as THREE from 'three';
 import { api } from '../lib/api';
@@ -364,6 +365,10 @@ function vinylScale(durationSeconds: number | undefined): number {
 }
 
 export default function CinemaPage() {
+  // ── Auth ─────────────────────────────────────────────────────────────────────
+  const { user } = useAuth();
+  const isAdmin = user?.isAdmin === true;
+
   // ── Data ─────────────────────────────────────────────────────────────────────
   const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
   const [selectedNode, setSelectedNode]       = useState<CinemaNode | null>(null);
@@ -791,6 +796,8 @@ export default function CinemaPage() {
   // ── Tour mode ─────────────────────────────────────────────────────────────────
   const [tourMode, setTourMode]               = useState(false);
   const [showTourPlanner, setShowTourPlanner] = useState(false);
+  // Non-admin curated playbacks panel (shows public sequences)
+  const [showPublicPlaybacks, setShowPublicPlaybacks] = useState(false);
   const [tourSteps, setTourSteps]             = useState<TourStep[]>([]);
   const [tourStepIdx, setTourStepIdx]         = useState(0);
   const [tourAddMode, setTourAddMode]         = useState(false);
@@ -1614,6 +1621,18 @@ export default function CinemaPage() {
     setTourSteps(seq.steps);
     stopTour();
   }, [stopTour]);
+
+  const handleTogglePublic = useCallback(async (seqId: string, currentIsPublic: boolean) => {
+    try {
+      const result = await api.patch<{ isPublic: boolean }>(`/api/node-sequences/${seqId}/toggle-public`, {});
+      setSavedSequencesRaw(prev => {
+        const updated = prev.map(s => s.id === seqId ? { ...s, isPublic: result.isPublic } : s);
+        try { localStorage.setItem('cinema-node-sequences', JSON.stringify(updated)); } catch { /* ignore */ }
+        return updated;
+      });
+    } catch { /* ignore — offline or not admin */ }
+    void currentIsPublic; // suppress lint warning
+  }, []);
 
   const handleDeleteSequence = useCallback((id: string) => {
     api.delete(`/api/node-sequences/${id}`)
@@ -3397,97 +3416,113 @@ export default function CinemaPage() {
 
           {/* Top-right */}
           <div className="absolute top-4 right-4 z-30 flex gap-2">
-            <button
-              onClick={() => reArrange()}
-              disabled={!simReady}
-              title={`Re-apply ${currentScene?.name ?? ''} arrangement`}
-              className="text-xs bg-gray-900/80 border border-gray-700 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              ✦ Arrange
-            </button>
-            <button
-              onClick={() => { setShowDirector(v => !v); setShowAiDirector(false); setShowBandPicker(false); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); setShowSetlistPanel(false); }}
-              title="Director Mode — build a custom camera sequence"
-              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
-                showDirector || directorPlaying ? 'bg-amber-900/60 border-amber-700 text-amber-300' : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
-              }`}
-            >
-              📽️{directorPlaying ? ' ●' : ''}
-            </button>
-            <button
-              onClick={() => { setShowAiDirector(v => !v); setShowDirector(false); setShowBandPicker(false); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); setShowSetlistPanel(false); }}
-              title="AI Director — describe the view you want"
-              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
-                showAiDirector ? 'bg-purple-900/60 border-purple-700 text-purple-300' : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
-              }`}
-            >
-              🤖 AI
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => reArrange()}
+                disabled={!simReady}
+                title={`Re-apply ${currentScene?.name ?? ''} arrangement`}
+                className="text-xs bg-gray-900/80 border border-gray-700 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                ✦ Arrange
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                onClick={() => { setShowDirector(v => !v); setShowAiDirector(false); setShowBandPicker(false); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); setShowSetlistPanel(false); }}
+                title="Director Mode — build a custom camera sequence"
+                className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                  showDirector || directorPlaying ? 'bg-amber-900/60 border-amber-700 text-amber-300' : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+                }`}
+              >
+                📽️{directorPlaying ? ' ●' : ''}
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                onClick={() => { setShowAiDirector(v => !v); setShowDirector(false); setShowBandPicker(false); setShowControls(false); setShowPlaylist(false); setShowTourPlanner(false); setShowSetlistPanel(false); }}
+                title="AI Director — describe the view you want"
+                className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                  showAiDirector ? 'bg-purple-900/60 border-purple-700 text-purple-300' : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+                }`}
+              >
+                🤖 AI
+              </button>
+            )}
             <button
               onClick={() => { setShowBandPicker(v => !v); setShowControls(false); setShowDirector(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); setShowSetlistPanel(false); }}
               className="text-xs bg-gray-900/80 border border-gray-700 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors"
             >
               Bands{selectedBandIds.length > 0 ? ` (${selectedBandIds.length})` : ''}
             </button>
-            <button
-              onClick={() => {
-                const opening = !showTourPlanner;
-                setShowTourPlanner(opening);
-                if (opening) { setTourMode(true); setShowControls(false); setShowDirector(false); setShowBandPicker(false); setShowPlaylist(false); setShowAiDirector(false); setShowSetlistPanel(false); }
-              }}
-              title="Node Sequence — fly the camera between nodes"
-              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
-                showTourPlanner || (tourMode && tourSteps.length > 0)
-                  ? 'bg-indigo-900/60 border-indigo-700 text-indigo-300'
-                  : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
-              }`}
-            >
-              🗺{tourSteps.length > 0 ? ` ${tourSteps.length}` : ''}
-            </button>
-            <button
-              onClick={() => {
-                const opening = !showPathPanel;
-                setShowPathPanel(opening);
-                if (opening) { setPathMode(true); pathModeRef.current = true; setShowControls(false); setShowDirector(false); setShowBandPicker(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); setShowSetlistPanel(false); }
-              }}
-              title="Path mode — click nodes to build a labeled path"
-              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
-                pathMode || showPathPanel
-                  ? 'bg-amber-900/60 border-amber-700 text-amber-300'
-                  : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
-              }`}
-            >
-              🛤{pathNodes.length > 0 ? ` ${pathNodes.length}` : ''}
-            </button>
-            <button
-              onClick={() => { setShowSetlistPanel(v => !v); setShowControls(false); setShowDirector(false); setShowBandPicker(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); setShowPathPanel(false); }}
-              title="Concert setlists — generate a Cinema tour from a real setlist"
-              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
-                showSetlistPanel
-                  ? 'bg-green-900/60 border-green-700 text-green-300'
-                  : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
-              }`}
-            >
-              🎤
-            </button>
-            <button
-              onClick={() => { setShowControls(v => !v); setShowBandPicker(false); setShowDirector(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); setShowSetlistPanel(false); }}
-              title="Camera controls & node visibility"
-              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
-                showControls || hiddenTypes.size > 0
-                  ? 'bg-indigo-900/60 border-indigo-700 text-indigo-300'
-                  : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
-              }`}
-            >
-              ⚙{hiddenTypes.size > 0 ? ` −${hiddenTypes.size}` : ''}
-            </button>
-            <button
-              onClick={toggleSocialMode}
-              title="Social Mode (F)"
-              className="text-xs bg-gray-900/80 border border-gray-700 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors"
-            >
-              🎬
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => {
+                  const opening = !showTourPlanner;
+                  setShowTourPlanner(opening);
+                  if (opening) { setTourMode(true); setShowControls(false); setShowDirector(false); setShowBandPicker(false); setShowPlaylist(false); setShowAiDirector(false); setShowSetlistPanel(false); }
+                }}
+                title="Node Sequence — fly the camera between nodes"
+                className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                  showTourPlanner || (tourMode && tourSteps.length > 0)
+                    ? 'bg-indigo-900/60 border-indigo-700 text-indigo-300'
+                    : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+                }`}
+              >
+                🗺{tourSteps.length > 0 ? ` ${tourSteps.length}` : ''}
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                onClick={() => {
+                  const opening = !showPathPanel;
+                  setShowPathPanel(opening);
+                  if (opening) { setPathMode(true); pathModeRef.current = true; setShowControls(false); setShowDirector(false); setShowBandPicker(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); setShowSetlistPanel(false); }
+                }}
+                title="Path mode — click nodes to build a labeled path"
+                className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                  pathMode || showPathPanel
+                    ? 'bg-amber-900/60 border-amber-700 text-amber-300'
+                    : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+                }`}
+              >
+                🛤{pathNodes.length > 0 ? ` ${pathNodes.length}` : ''}
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                onClick={() => { setShowSetlistPanel(v => !v); setShowControls(false); setShowDirector(false); setShowBandPicker(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); setShowPathPanel(false); }}
+                title="Concert setlists — generate a Cinema tour from a real setlist"
+                className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                  showSetlistPanel
+                    ? 'bg-green-900/60 border-green-700 text-green-300'
+                    : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+                }`}
+              >
+                🎤
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                onClick={() => { setShowControls(v => !v); setShowBandPicker(false); setShowDirector(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); setShowSetlistPanel(false); }}
+                title="Camera controls & node visibility"
+                className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                  showControls || hiddenTypes.size > 0
+                    ? 'bg-indigo-900/60 border-indigo-700 text-indigo-300'
+                    : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+                }`}
+              >
+                ⚙{hiddenTypes.size > 0 ? ` −${hiddenTypes.size}` : ''}
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                onClick={toggleSocialMode}
+                title="Social Mode (F)"
+                className="text-xs bg-gray-900/80 border border-gray-700 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors"
+              >
+                🎬
+              </button>
+            )}
           </div>
 
           {/* AI Director panel */}
@@ -5511,17 +5546,27 @@ export default function CinemaPage() {
           )}
           <div className="flex items-center justify-between px-4 py-3 gap-3 bg-gradient-to-t from-gray-950/90 to-transparent backdrop-blur-sm">
             <div className="flex items-center gap-2">
-              {/* Mode switcher: Scenes · Tour · Rail */}
+              {/* Mode switcher: Scenes · Tour (admin) / Playbacks (user) · Rail */}
               <div className="flex bg-gray-800/60 rounded-lg p-0.5 text-[10px]">
-                <button onClick={() => { setTourMode(false); setRailMode(false); if (railPlaying) stopRail(); }}
+                <button onClick={() => { setTourMode(false); setRailMode(false); setShowPublicPlaybacks(false); if (railPlaying) stopRail(); }}
                   className={`px-2 py-1 rounded transition-colors ${!tourMode && !railMode ? 'bg-gray-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
                   Scenes
                 </button>
-                <button onClick={() => { setTourMode(true); setRailMode(false); if (railPlaying) stopRail(); }}
-                  className={`px-2 py-1 rounded transition-colors ${tourMode ? 'bg-gray-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
-                  Tour
-                </button>
-                <button onClick={() => { setRailMode(true); setTourMode(false); setShowRailPanel(true); }}
+                {isAdmin ? (
+                  <button onClick={() => { setTourMode(true); setRailMode(false); if (railPlaying) stopRail(); }}
+                    className={`px-2 py-1 rounded transition-colors ${tourMode ? 'bg-gray-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+                    Tour
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => { setTourMode(true); setRailMode(false); setShowPublicPlaybacks(v => !v); if (railPlaying) stopRail(); }}
+                    className={`px-2 py-1 rounded transition-colors ${showPublicPlaybacks ? 'bg-indigo-600 text-white' : tourMode ? 'bg-gray-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+                    title="Curated playbacks"
+                  >
+                    ✨ Playbacks
+                  </button>
+                )}
+                <button onClick={() => { setRailMode(true); setTourMode(false); setShowPublicPlaybacks(false); setShowRailPanel(true); }}
                   className={`px-2 py-1 rounded transition-colors ${railMode ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
                   🛤 Rail
                 </button>
@@ -5539,8 +5584,8 @@ export default function CinemaPage() {
                 </button>
               )}
 
-              {/* Tour planner (Tour mode) */}
-              {tourMode && (
+              {/* Tour planner (Tour mode — admin only) */}
+              {tourMode && isAdmin && (
                 <button
                   onClick={() => { setShowTourPlanner(v => !v); setShowPlaylist(false); setShowBandPicker(false); setShowControls(false); setShowRailPanel(false); }}
                   className={`text-xs transition-colors flex items-center gap-1.5 ${showTourPlanner ? 'text-indigo-400' : 'text-gray-500 hover:text-gray-300'}`}
@@ -5611,7 +5656,7 @@ export default function CinemaPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              {isPlaying && !railMode && (
+              {isAdmin && isPlaying && !railMode && (
                 <button
                   onClick={() => setFreeCam(v => !v)}
                   title={freeCam ? 'Free cam — click to restore scene camera' : 'Lock camera to scene path'}
@@ -5623,8 +5668,8 @@ export default function CinemaPage() {
               {railPlaying && (
                 <span className="text-[10px] text-indigo-400 animate-pulse">● Rail</span>
               )}
-              <span className="hidden md:inline text-[10px] text-gray-700">Space · F · ⚙</span>
-              <button onClick={toggleSocialMode} title="Social Mode (F)" className="text-xs text-gray-600 hover:text-gray-300 transition-colors">🎬</button>
+              {isAdmin && <span className="hidden md:inline text-[10px] text-gray-700">Space · F · ⚙</span>}
+              {isAdmin && <button onClick={toggleSocialMode} title="Social Mode (F)" className="text-xs text-gray-600 hover:text-gray-300 transition-colors">🎬</button>}
             </div>
           </div>
         </div>
@@ -5726,6 +5771,7 @@ export default function CinemaPage() {
             onSaveSequence={handleSaveSequence}
             onLoadSequence={handleLoadSequence}
             onDeleteSequence={handleDeleteSequence}
+            onTogglePublic={handleTogglePublic}
           />
         </div>
       )}
@@ -5851,6 +5897,51 @@ export default function CinemaPage() {
           songLabel={lyricPathSongLabel}
           onClose={() => setLyricPathSongId(null)}
         />
+      )}
+
+      {/* ── Non-admin watermark — always visible for non-admins ── */}
+      {!isAdmin && !socialMode && (
+        <div className="absolute bottom-20 right-4 z-20 pointer-events-none select-none">
+          <div className="text-right">
+            <div className="text-[11px] font-semibold text-white/18 tracking-widest uppercase">Band Spectrum Mapper</div>
+            <div className="text-[9px] text-white/10 mt-0.5 tracking-wide">Music Intelligence Platform</div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Curated Playbacks panel — non-admin only ── */}
+      {!isAdmin && showPublicPlaybacks && !socialMode && (
+        <div className="absolute bottom-20 left-4 z-40 bg-gray-900/97 border border-indigo-800/50 rounded-xl p-3 backdrop-blur-sm w-72 shadow-2xl">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wide">✨ Curated Playbacks</div>
+            <button onClick={() => setShowPublicPlaybacks(false)} className="text-gray-600 hover:text-gray-400 text-xs">✕</button>
+          </div>
+          <div className="text-[10px] text-gray-600 mb-2 leading-snug">
+            Select a curated tour and press ▶ to play it.
+          </div>
+          {savedSequences.length === 0 ? (
+            <p className="text-[11px] text-gray-600 text-center py-3 italic">No curated playbacks yet.</p>
+          ) : (
+            <div className="space-y-1 max-h-60 overflow-y-auto">
+              {savedSequences.map(seq => (
+                <div key={seq.id} className="flex items-center gap-2 px-2 py-1.5 bg-gray-800/60 rounded-lg text-[11px]">
+                  <span className="flex-1 text-gray-300 truncate" title={seq.name}>{seq.name}</span>
+                  <span className="text-gray-600 text-[10px] shrink-0">{seq.steps.length} stops</span>
+                  <button
+                    onClick={() => {
+                      handleLoadSequence(seq);
+                      setTourMode(true);
+                      setShowPublicPlaybacks(false);
+                    }}
+                    className="shrink-0 text-indigo-400 hover:text-indigo-200 text-[10px] transition-colors font-medium"
+                  >
+                    ▶ Play
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

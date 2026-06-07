@@ -532,3 +532,47 @@ The existing per-theme `bokehOverlay` still works; DoF overrides the blur and ra
 - `'tour'` — (reserved for setlist-generated tours)
 
 Clips are added via "🎞 Add to Final Cut" buttons in Director Mode and Node Sequence panels, or by adding the current scene from inside the Final Cut panel. State is persisted to `localStorage` (`cinema-final-cut`). The panel supports: reorder, duration edit (per clip), remove individual, clear all, and displays total runtime.
+
+---
+
+## Cinema Access Control
+
+Cinema Mode applies a two-tier access model based on the `isAdmin` flag in the authenticated user's JWT token.
+
+### Admin tier
+Full access to all Cinema features: scene editing, camera Director Mode, AI Director, Tour Planner (building sequences), Path mode, Setlist panel, Config panel (themes, controls, node visibility, visual node mode, artwork spheres), Social Mode, and per-node colour/size overrides.
+
+### Regular user tier
+Read-only showcase experience:
+- Browse nodes (click for info, orbit, zoom)
+- Filter by band (band picker)
+- Watch scenes in Scenes mode (autoplay)
+- Play camera rails (Rail mode)
+- Play curated sequences published by admin (Playbacks mode)
+- A persistent "Band Spectrum Mapper" watermark is shown at all times
+
+### Public sequences (`UserNodeSequence.isPublic`)
+Admins can mark any saved tour sequence as **public** (🌐 toggle in Tour Planner → Saved Sequences). Public sequences are returned by `GET /api/node-sequences` for all authenticated users (not just the owner). This is the mechanism for curating showcase tours that regular users can play back.
+
+### Enforcement points
+| Layer | Mechanism |
+|---|---|
+| API routes | `requireAdmin` middleware on `POST/PUT/DELETE /api/node-sequences`, `PATCH /api/node-sequences/:id/toggle-public`, all `/api/cinema/*` endpoints |
+| Frontend | `user?.isAdmin === true` check in CinemaPage; admin-only buttons conditionally rendered |
+| Sequences read | `GET /api/node-sequences` branches on `req.user.isAdmin`: admin sees own sequences, non-admin sees `isPublic=true` sequences |
+
+---
+
+## Cinema Server Persistence (`UserCinemaData`)
+
+All Cinema user customisation data for the admin account is stored server-side in the `user_cinema_data` table (one row per user, JSON blobs per data type). This makes settings available across all devices.
+
+| Column | Content |
+|---|---|
+| `presetsJson` | `UserPreset[]` — visual presets (colour overrides, sky sphere, artist profiles) |
+| `snapshotsJson` | `ConfigSnapshot[]` — camera/arrangement config snapshots |
+| `directorKfsJson` | `CinemaKeyframe[]` — Director Mode global sequence |
+| `sceneKfsJson` | `Record<string, CinemaKeyframe[]>` — per-scene looping keyframes |
+| `nodeOverridesJson` | `Record<string, NodeOverride>` — per-node colour/size overrides |
+
+**Sync strategy:** On mount, the frontend fetches `GET /api/cinema/data`. Server data is authoritative — if the server has data it is applied to state and written to localStorage as a cache. If the server row is empty (first use of this feature), local data is pushed up. After each user edit, a 2-second debounced PUT request saves the changed data type to the server. All server calls fail silently — localStorage always works as an offline fallback.
