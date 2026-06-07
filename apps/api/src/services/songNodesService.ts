@@ -54,6 +54,8 @@ export interface GraphNode {
     size?: number;
     count?: number;
     imageUrl?: string;
+    albumArtworkUrl?: string;
+    durationSeconds?: number;
   };
 }
 
@@ -108,8 +110,9 @@ function tokenize(text: string): string[] {
 
 function songNode(s: {
   id: string; title: string;
+  durationSeconds?: number | null;
   band: { id: string; name: string };
-  album: { id: string; title: string } | null;
+  album: { id: string; title: string; artworkUrl?: string | null } | null;
   score: { aggression: number; complexity: number; atmosphere: number;
            emotion: number; psychedelic: number; concept: number } | null;
   isRemix?: boolean;
@@ -123,6 +126,8 @@ function songNode(s: {
       bandId: s.band.id,
       bandName: s.band.name,
       ...(s.album ? { albumId: s.album.id, albumTitle: s.album.title } : {}),
+      ...(s.album?.artworkUrl ? { albumArtworkUrl: s.album.artworkUrl } : {}),
+      ...(s.durationSeconds ? { durationSeconds: s.durationSeconds } : {}),
       ...(s.score ? { scores: {
         aggression: s.score.aggression, complexity: s.score.complexity,
         atmosphere: s.score.atmosphere, emotion: s.score.emotion,

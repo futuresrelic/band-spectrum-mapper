@@ -281,36 +281,78 @@ function getCachedTexture(url: string, onLoad?: () => void): THREE.Texture {
   return tex;
 }
 
-// Vinyl record canvas texture — drawn once, reused for all song nodes
-let _vinylTex: THREE.CanvasTexture | null = null;
-function getVinylTexture(): THREE.CanvasTexture {
-  if (_vinylTex) return _vinylTex;
+// ── Per-album vinyl tint palette ─────────────────────────────────────────────
+// 12 visually distinct colours; deterministically assigned per albumId hash.
+const ALBUM_TINT_PALETTE = [
+  '#4f46e5', // indigo
+  '#7c3aed', // violet
+  '#db2777', // pink
+  '#dc2626', // red
+  '#d97706', // amber
+  '#059669', // emerald
+  '#0891b2', // cyan
+  '#1d4ed8', // blue
+  '#9333ea', // purple
+  '#65a30d', // lime
+  '#b45309', // orange-brown
+  '#0f766e', // teal
+] as const;
+
+function albumTintColor(albumId: string | undefined): string {
+  if (!albumId) return ALBUM_TINT_PALETTE[0]!;
+  let h = 0;
+  for (const ch of albumId) h = (Math.imul(31, h) + ch.charCodeAt(0)) | 0;
+  return ALBUM_TINT_PALETTE[Math.abs(h) % ALBUM_TINT_PALETTE.length]!;
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+}
+
+// Vinyl record canvas texture — one per tint colour, cached
+const _vinylTexCache = new Map<string, THREE.CanvasTexture>();
+function getVinylTexture(tintHex = '#4f46e5'): THREE.CanvasTexture {
+  if (_vinylTexCache.has(tintHex)) return _vinylTexCache.get(tintHex)!;
   const size = 256;
   const canvas = document.createElement('canvas');
   canvas.width = size; canvas.height = size;
   const ctx = canvas.getContext('2d')!;
   const cx = size / 2, cy = size / 2;
+  const [tr, tg, tb] = hexToRgb(tintHex);
   ctx.fillStyle = '#0a0a0a';
   ctx.beginPath(); ctx.arc(cx, cy, cx, 0, Math.PI * 2); ctx.fill();
-  // Groove rings
+  // Groove rings — tinted with album colour at low opacity
   for (let r = 12; r < cx - 8; r += 3.5) {
-    const alpha = 0.08 + 0.04 * Math.sin(r * 0.4);
-    ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+    const alpha = 0.07 + 0.04 * Math.sin(r * 0.4);
+    ctx.strokeStyle = `rgba(${tr},${tg},${tb},${alpha})`;
     ctx.lineWidth = 0.8;
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
   }
-  // Label area
+  // Outer edge highlight ring (tint colour, brighter)
+  ctx.strokeStyle = `rgba(${tr},${tg},${tb},0.35)`;
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx, cy, cx - 4, 0, Math.PI * 2); ctx.stroke();
+  // Centre label circle — tint-coloured gradient
   const labelR = cx * 0.3;
   const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, labelR);
-  grad.addColorStop(0, '#4f46e5');
-  grad.addColorStop(1, '#1e1b4b');
+  grad.addColorStop(0, `rgba(${Math.min(255, tr + 70)},${Math.min(255, tg + 70)},${Math.min(255, tb + 70)},1)`);
+  grad.addColorStop(1, tintHex);
   ctx.fillStyle = grad;
   ctx.beginPath(); ctx.arc(cx, cy, labelR, 0, Math.PI * 2); ctx.fill();
-  // Center hole
+  // Centre hole
   ctx.fillStyle = '#0a0a0a';
   ctx.beginPath(); ctx.arc(cx, cy, cx * 0.04, 0, Math.PI * 2); ctx.fill();
-  _vinylTex = new THREE.CanvasTexture(canvas);
-  return _vinylTex;
+  const tex = new THREE.CanvasTexture(canvas);
+  _vinylTexCache.set(tintHex, tex);
+  return tex;
+}
+
+// Vinyl duration scale — longer songs get proportionally bigger disks
+// Reference: 210 s (3:30) = 1.0×  |  Min 0.65×  |  Max 2.0×
+function vinylScale(durationSeconds: number | undefined): number {
+  if (!durationSeconds) return 1.0;
+  return Math.max(0.65, Math.min(2.0, Math.sqrt(durationSeconds / 210)));
 }
 
 export default function CinemaPage() {
@@ -2568,13 +2610,28 @@ export default function CinemaPage() {
       : 1;
     const opacity = nodeOpacityUserRef.current * dimFactor;
     if (n.type === 'song') {
-      // Vinyl record disk
-      const diskR = r * 2.5;
+      // Vinyl record disk — per-album tint + duration-based size + album art centre
+      const albumId      = n.data?.albumId as string | undefined;
+      const artworkUrl   = n.data?.albumArtworkUrl as string | undefined;
+      const durSeconds   = n.data?.durationSeconds as number | undefined;
+      const tintHex      = albumTintColor(albumId);
+      const scale        = vinylScale(durSeconds);
+      const diskR        = r * 2.5;
       const geo  = new THREE.CylinderGeometry(diskR, diskR, r * 0.25, 48);
-      const mat  = new THREE.MeshLambertMaterial({ map: getVinylTexture(), transparent: opacity < 1, opacity });
+      const mat  = new THREE.MeshLambertMaterial({ map: getVinylTexture(tintHex), transparent: opacity < 1, opacity });
       const disk = new THREE.Mesh(geo, mat);
       disk.rotation.x = Math.PI / 12; // slight tilt so grooves are visible
       group.add(disk);
+      // Centre art — album artwork sprite floats over the label area
+      if (artworkUrl) {
+        const artTex = getCachedTexture(toProxiedImageUrl(artworkUrl), () => fgRef.current?.refresh());
+        const artMat = new THREE.SpriteMaterial({ map: artTex, transparent: true, opacity: opacity * 0.92 });
+        const artSp  = new THREE.Sprite(artMat);
+        const artSz  = diskR * 0.56; // fits within centre label circle
+        artSp.scale.set(artSz, artSz, 1);
+        group.add(artSp);
+      }
+      group.scale.setScalar(scale);
     } else if ((n.type === 'album' || n.type === 'artist') && imageUrl) {
       // Artwork / logo square sprite
       const size = r * 3.2;
