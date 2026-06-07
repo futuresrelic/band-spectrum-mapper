@@ -177,8 +177,14 @@ const GENRE_SOURCE_LABELS: Record<GenreSource, string> = {
   ai:        '🤖 AI',
 };
 
-function fetchCinemaGraph(bandIds: string[], genreSource: GenreSource = 'priority', albumTypes: string[] = [], nodeLimit = 600): Promise<GraphData> {
-  const qs = new URLSearchParams({ preset: 'artist-universe', genreSource });
+function fetchCinemaGraph(
+  bandIds: string[],
+  genreSource: GenreSource = 'priority',
+  albumTypes: string[] = [],
+  nodeLimit = 600,
+  graphPreset: 'artist-universe' | 'lyrical-dna' = 'artist-universe',
+): Promise<GraphData> {
+  const qs = new URLSearchParams({ preset: graphPreset, genreSource });
   if (bandIds.length) qs.set('bandIds', bandIds.join(','));
   if (albumTypes.length) qs.set('albumTypes', albumTypes.join(','));
   qs.set('nodeLimit', String(nodeLimit));
@@ -757,6 +763,7 @@ export default function CinemaPage() {
   };
   const [selectedAlbumTypes, setSelectedAlbumTypes] = useState<string[]>([]);
   const [nodeLimit, setNodeLimit] = useState(200);
+  const [graphPreset, setGraphPreset] = useState<'artist-universe' | 'lyrical-dna'>('artist-universe');
   const toggleAlbumType = (type: string) => {
     setSelectedAlbumTypes(prev =>
       prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
@@ -1272,8 +1279,8 @@ export default function CinemaPage() {
   const { data: scopes } = useQuery({ queryKey: ['cinema-scopes'], queryFn: fetchScopes });
 
   const { data: graphData, isFetching } = useQuery({
-    queryKey: ['cinema-graph', selectedBandIds.join(','), genreSource, selectedAlbumTypes.join(','), nodeLimit],
-    queryFn: () => fetchCinemaGraph(selectedBandIds, genreSource, selectedAlbumTypes, nodeLimit),
+    queryKey: ['cinema-graph', selectedBandIds.join(','), genreSource, selectedAlbumTypes.join(','), nodeLimit, graphPreset],
+    queryFn: () => fetchCinemaGraph(selectedBandIds, genreSource, selectedAlbumTypes, nodeLimit, graphPreset),
     staleTime: Infinity,        // never auto-stale in Cinema — prevents background refetches
     refetchOnWindowFocus: false, // clicking browser/devtools and back must not reset node positions
   });
@@ -3438,18 +3445,22 @@ export default function CinemaPage() {
           {cinemaHandoff && (
             <div className="absolute top-14 left-1/2 -translate-x-1/2 z-40
               bg-indigo-950/95 border border-indigo-700/60 rounded-xl px-4 py-2.5
-              backdrop-blur-sm shadow-2xl flex items-center gap-3 max-w-xs">
-              <span className="text-indigo-300 text-[11px] flex-1 leading-snug">
-                🎬 {cinemaHandoff.label}
-              </span>
+              backdrop-blur-sm shadow-2xl flex items-center gap-3 max-w-sm">
+              <div className="flex-1 min-w-0">
+                <div className="text-indigo-300 text-[11px] leading-snug">🎬 {cinemaHandoff.label}</div>
+                {cinemaHandoff.preset === 'lyrical-dna' && (
+                  <div className="text-indigo-600 text-[9px] mt-0.5">Words → Songs · Lyrical DNA view</div>
+                )}
+              </div>
               <button
                 onClick={() => {
                   setSelectedBandIds(cinemaHandoff.bandIds);
+                  if (cinemaHandoff.preset) setGraphPreset(cinemaHandoff.preset);
                   setCinemaHandoff(null);
                 }}
                 className="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white rounded px-2 py-1 whitespace-nowrap shrink-0 transition-colors"
               >
-                Apply bands
+                {cinemaHandoff.preset === 'lyrical-dna' ? '🧬 Load' : 'Apply bands'}
               </button>
               <button
                 onClick={() => setCinemaHandoff(null)}
@@ -3522,6 +3533,15 @@ export default function CinemaPage() {
                 }`}
               >
                 🤖 AI
+              </button>
+            )}
+            {graphPreset === 'lyrical-dna' && (
+              <button
+                onClick={() => setGraphPreset('artist-universe')}
+                title="Exit Lyrical DNA — return to full universe"
+                className="text-xs bg-teal-900/60 border border-teal-700/60 text-teal-300 hover:bg-teal-800/70 px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors"
+              >
+                🧬 DNA ✕
               </button>
             )}
             <button

@@ -1196,12 +1196,13 @@ export default function WordCloudPage() {
                   pushCinemaHandoff({
                     label: `Word Cloud · ${clusterBandIds.length} artist${clusterBandIds.length !== 1 ? 's' : ''}`,
                     bandIds: clusterBandIds,
+                    preset: 'lyrical-dna',
                   });
                   navigate('/cinema');
                 }}
                 className="w-full py-1.5 rounded text-[10px] font-medium bg-violet-900/60 hover:bg-violet-800/70 text-violet-300 transition-colors"
               >
-                🎬 Explore in Cinema
+                🧬 Lyrical DNA in Cinema
               </button>
             )}
 
@@ -1290,12 +1291,13 @@ export default function WordCloudPage() {
                     pushCinemaHandoff({
                       label: `Word Cloud · ${selectedBandIds.length} artist${selectedBandIds.length !== 1 ? 's' : ''}`,
                       bandIds: selectedBandIds,
+                      preset: 'lyrical-dna',
                     });
                     navigate('/cinema');
                   }}
                   className="shrink-0 text-[10px] bg-violet-900/60 hover:bg-violet-800/70 text-violet-300 rounded px-3 py-1.5 transition-colors whitespace-nowrap"
                 >
-                  🎬 Cinema
+                  🧬 Lyrical DNA
                 </button>
               )}
             </div>

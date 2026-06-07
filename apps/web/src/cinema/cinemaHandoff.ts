@@ -3,6 +3,8 @@
 export interface CinemaHandoff {
   label: string;
   bandIds: string[];
+  /** Optional graph preset to load. Defaults to 'artist-universe' if absent. */
+  preset?: 'lyrical-dna';
   createdAt: string;
 }
 
