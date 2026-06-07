@@ -406,10 +406,30 @@ model User {
   gameScores           GameScore[]
   wordHuntScores       WordHuntScore[]
   nodeSequences        UserNodeSequence[]
+  cinemaData           UserCinemaData?
   tagProposals         TagProposal[]
   tagVotes             TagVote[]
 
   @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// User Cinema persistence — presets, snapshots, keyframes, node overrides
+// One row per admin user; each column is a JSON blob.
+// ---------------------------------------------------------------------------
+
+model UserCinemaData {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  presetsJson       String   @default("[]")  // JSON: UserPreset[]
+  snapshotsJson     String   @default("[]")  // JSON: ConfigSnapshot[]
+  directorKfsJson   String   @default("[]")  // JSON: CinemaKeyframe[]
+  sceneKfsJson      String   @default("{}")  // JSON: Record<string, CinemaKeyframe[]>
+  nodeOverridesJson String   @default("{}")  // JSON: Record<string, NodeOverride>
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_cinema_data")
 }
 
 // ---------------------------------------------------------------------------

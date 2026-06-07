@@ -31,7 +31,7 @@ import { DEFAULT_CINEMA_CONTROLS } from '../cinema/types';
 import { CINEMA_THEMES, getTheme, DEFAULT_THEME_ID, type CinemaTheme } from '../cinema/themes';
 import { buildRailWaypoints, RAIL_DEFS, type RailType } from '../cinema/cameraRails';
 import {
-  type UserPreset, loadUserPresets, saveUserPresets, makeUserPreset,
+  type UserPreset, loadUserPresets, saveUserPresets, makeUserPreset, DEFAULT_SKY,
   processImageFile, applyImageFilters,
 } from '../cinema/userPresets';
 import { ensureSeedPresets } from '../cinema/seedPresets';
@@ -43,6 +43,14 @@ import TourPlanner from '../cinema/TourPlanner';
 import CameraDirector from '../cinema/CameraDirector';
 import LyricPathPanel from '../cinema/LyricPathPanel';
 import { type CinemaHandoff, popCinemaHandoff } from '../cinema/cinemaHandoff';
+import {
+  fetchCinemaServerData,
+  savePresetsToServer,
+  saveSnapshotsToServer,
+  saveDirectorKeyframesToServer,
+  saveSceneKeyframesToServer,
+  saveNodeOverridesToServer,
+} from '../cinema/cinemaPersistence';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -621,7 +629,11 @@ export default function CinemaPage() {
   // ── Config snapshots ─────────────────────────────────────────────────────────
   const [configSnapshots, setConfigSnapshots]   = useState<ConfigSnapshot[]>(() => loadConfigSnapshots());
   const [snapshotNameDraft, setSnapshotNameDraft] = useState('');
-  useEffect(() => { saveConfigSnapshots(configSnapshots); }, [configSnapshots]);
+  useEffect(() => {
+    saveConfigSnapshots(configSnapshots);
+    if (snapshotsServerTimerRef.current) clearTimeout(snapshotsServerTimerRef.current);
+    snapshotsServerTimerRef.current = setTimeout(() => void saveSnapshotsToServer(configSnapshots), 2000);
+  }, [configSnapshots]);
 
   // ── User presets ─────────────────────────────────────────────────────────────
   const [userPresets, setUserPresets]           = useState<UserPreset[]>(() => { ensureSeedPresets(); return loadUserPresets(); });
@@ -630,7 +642,11 @@ export default function CinemaPage() {
   const [presetNameDraft, setPresetNameDraft]   = useState('');
   const userPresetsRef = useRef<UserPreset[]>([]);
   useEffect(() => { userPresetsRef.current = userPresets; }, [userPresets]);
-  useEffect(() => { saveUserPresets(userPresets); }, [userPresets]);
+  useEffect(() => {
+    saveUserPresets(userPresets);
+    if (presetsServerTimerRef.current) clearTimeout(presetsServerTimerRef.current);
+    presetsServerTimerRef.current = setTimeout(() => void savePresetsToServer(userPresets), 2000);
+  }, [userPresets]);
 
   const activeUserPreset  = useMemo(() => userPresets.find(p => p.id === activeUserPresetId)  ?? null, [userPresets, activeUserPresetId]);
   const editingPreset     = useMemo(() => userPresets.find(p => p.id === editingPresetId)     ?? null, [userPresets, editingPresetId]);
@@ -684,6 +700,13 @@ export default function CinemaPage() {
   const [cinemaHandoff, setCinemaHandoff] = useState<CinemaHandoff | null>(null);
   useEffect(() => { setCinemaHandoff(popCinemaHandoff()); }, []);
 
+  // ── Server persistence timers (debounced saves, 2 s after each change) ────────
+  const presetsServerTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const snapshotsServerTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirKfsServerTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sceneKfsServerTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const overridesServerTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Per-node visual overrides: custom color + size multiplier, persisted in localStorage
   const [nodeOverrides, setNodeOverridesRaw] = useState<Record<string, { color?: string; sizeMultiplier?: number }>>(() => {
     try {
@@ -696,6 +719,8 @@ export default function CinemaPage() {
     nodeOverridesRef.current = overrides;
     setNodeOverridesRaw(overrides);
     try { localStorage.setItem('cinema-node-overrides', JSON.stringify(overrides)); } catch { /* ignore */ }
+    if (overridesServerTimerRef.current) clearTimeout(overridesServerTimerRef.current);
+    overridesServerTimerRef.current = setTimeout(() => void saveNodeOverridesToServer(overrides), 2000);
   }, []);
 
   // Genre source selector
@@ -732,6 +757,8 @@ export default function CinemaPage() {
   const setDirectorKeyframes = useCallback((kfs: CinemaKeyframe[]) => {
     setDirectorKeyframesRaw(kfs);
     try { localStorage.setItem('cinema-director-keyframes', JSON.stringify(kfs)); } catch { /* ignore */ }
+    if (dirKfsServerTimerRef.current) clearTimeout(dirKfsServerTimerRef.current);
+    dirKfsServerTimerRef.current = setTimeout(() => void saveDirectorKeyframesToServer(kfs), 2000);
   }, []);
 
   // Per-scene camera keyframes (looping, override scene tick when set)
@@ -744,6 +771,8 @@ export default function CinemaPage() {
   const setSceneKeyframesMap = useCallback((map: Record<string, CinemaKeyframe[]>) => {
     setSceneKeyframesMapRaw(map);
     try { localStorage.setItem('cinema-scene-keyframes', JSON.stringify(map)); } catch { /* ignore */ }
+    if (sceneKfsServerTimerRef.current) clearTimeout(sceneKfsServerTimerRef.current);
+    sceneKfsServerTimerRef.current = setTimeout(() => void saveSceneKeyframesToServer(map), 2000);
   }, []);
   const [sceneKfPlaying, setSceneKfPlaying] = useState(false);
 
@@ -788,6 +817,82 @@ export default function CinemaPage() {
       })
       .catch(() => { /* not logged in or API unavailable — keep localStorage sequences */ });
   }, []);
+
+  // ── Server sync on mount ─────────────────────────────────────────────────────
+  // Fetch all persisted Cinema data from the server and hydrate state.
+  // Server is authoritative.  If server has no data yet, push local data up.
+  useEffect(() => {
+    fetchCinemaServerData().then(serverData => {
+      if (!serverData) return; // offline or not admin — localStorage is fine
+
+      // ── Presets ──
+      if (serverData.presets.length > 0) {
+        const hydrated = serverData.presets.map(p => ({
+          ...makeUserPreset(p.name, p.baseThemeId),
+          ...p,
+          background: { ...DEFAULT_SKY, ...p.background },
+        }));
+        setUserPresets(hydrated);
+        saveUserPresets(hydrated);
+      } else {
+        const local = loadUserPresets();
+        if (local.length > 0) void savePresetsToServer(local);
+      }
+
+      // ── Config snapshots ──
+      if (serverData.snapshots.length > 0) {
+        const hydrated = serverData.snapshots.map(s => ({
+          ...DEFAULT_SNAPSHOT_VALUES,
+          ...s,
+          controls: { ...DEFAULT_CINEMA_CONTROLS, ...s.controls },
+        }));
+        setConfigSnapshots(hydrated);
+        saveConfigSnapshots(hydrated);
+      } else {
+        const local = loadConfigSnapshots();
+        if (local.length > 0) void saveSnapshotsToServer(local);
+      }
+
+      // ── Director keyframes ──
+      if (serverData.directorKeyframes.length > 0) {
+        setDirectorKeyframesRaw(serverData.directorKeyframes);
+        try { localStorage.setItem('cinema-director-keyframes', JSON.stringify(serverData.directorKeyframes)); } catch { /* ignore */ }
+      } else {
+        try {
+          const stored = localStorage.getItem('cinema-director-keyframes');
+          const local: CinemaKeyframe[] = stored ? (JSON.parse(stored) as CinemaKeyframe[]) : [];
+          if (local.length > 0) void saveDirectorKeyframesToServer(local);
+        } catch { /* ignore */ }
+      }
+
+      // ── Scene keyframes ──
+      if (Object.keys(serverData.sceneKeyframes).length > 0) {
+        setSceneKeyframesMapRaw(serverData.sceneKeyframes);
+        try { localStorage.setItem('cinema-scene-keyframes', JSON.stringify(serverData.sceneKeyframes)); } catch { /* ignore */ }
+      } else {
+        try {
+          const stored = localStorage.getItem('cinema-scene-keyframes');
+          const local: Record<string, CinemaKeyframe[]> = stored ? (JSON.parse(stored) as Record<string, CinemaKeyframe[]>) : {};
+          if (Object.keys(local).length > 0) void saveSceneKeyframesToServer(local);
+        } catch { /* ignore */ }
+      }
+
+      // ── Node overrides ──
+      if (Object.keys(serverData.nodeOverrides).length > 0) {
+        nodeOverridesRef.current = serverData.nodeOverrides;
+        setNodeOverridesRaw(serverData.nodeOverrides);
+        try { localStorage.setItem('cinema-node-overrides', JSON.stringify(serverData.nodeOverrides)); } catch { /* ignore */ }
+      } else {
+        try {
+          const stored = localStorage.getItem('cinema-node-overrides');
+          const local: Record<string, { color?: string; sizeMultiplier?: number }> = stored
+            ? (JSON.parse(stored) as Record<string, { color?: string; sizeMultiplier?: number }>)
+            : {};
+          if (Object.keys(local).length > 0) void saveNodeOverridesToServer(local);
+        } catch { /* ignore */ }
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Highlighted node — current tour stop; turns white + oversized
   const [tourHighlightedId, setTourHighlightedId] = useState<string | null>(null);

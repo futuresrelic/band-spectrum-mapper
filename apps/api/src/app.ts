@@ -35,6 +35,7 @@ import { triviaRouter } from './routes/trivia.js';
 import { wordHuntRouter } from './routes/wordHunt.js';
 import { spectrumStudioRouter } from './routes/spectrumStudio.js';
 import { nodeSequencesRouter } from './routes/nodeSequences.js';
+import { cinemaPersistenceRouter } from './routes/cinemaPersistence.js';
 import { dataGridRouter } from './routes/dataGrid.js';
 import { setlistsRouter } from './routes/setlists.js';
 import { bootlegsRouter } from './routes/bootlegs.js';
@@ -123,6 +124,9 @@ export function createApp() {
 
   // Cinema node sequences — per-user saved tour paths
   app.use('/api/node-sequences', nodeSequencesRouter);
+
+  // Cinema persistence — presets, snapshots, keyframes, node overrides (admin only)
+  app.use('/api/cinema', cinemaPersistenceRouter);
 
   // Spectrum Studio — visual data explorer (admin only)
   app.use('/api/spectrum-studio', spectrumStudioRouter);
