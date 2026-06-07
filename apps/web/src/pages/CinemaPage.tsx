@@ -2346,10 +2346,13 @@ export default function CinemaPage() {
     applyImageFilters(sky.imageDataUrl, sky).then(filteredCanvas => {
       if (cancelled) return;
       const texture  = new THREE.CanvasTexture(filteredCanvas);
-      // Fix UV seam: mirror horizontally so the 0°/360° join is hidden
-      texture.wrapS   = THREE.RepeatWrapping;
-      texture.repeat.x = -1;
-      texture.offset.x =  1;
+      const tileX = sky.tileX ?? 1;
+      const tileY = sky.tileY ?? 1;
+      // Mirror horizontally per-tile so the 0°/360° UV seam is hidden regardless of tile count
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(-tileX, tileY);
+      texture.offset.set(tileX, 0);
       const geometry = new THREE.SphereGeometry(8000, 64, 64);
       const material = new THREE.MeshBasicMaterial({
         map: texture,
@@ -2383,6 +2386,19 @@ export default function CinemaPage() {
     if (!mesh) return;
     (mesh.material as THREE.MeshBasicMaterial).opacity = sky?.opacity ?? 0.65;
   }, [sky?.opacity]);
+
+  // Live-update tiling without rebuilding the sphere
+  useEffect(() => {
+    const mesh = skyMeshRef.current;
+    if (!mesh) return;
+    const texture = (mesh.material as THREE.MeshBasicMaterial).map;
+    if (!texture) return;
+    const tileX = sky?.tileX ?? 1;
+    const tileY = sky?.tileY ?? 1;
+    texture.repeat.set(-tileX, tileY);
+    texture.offset.set(tileX, 0);
+    texture.needsUpdate = true;
+  }, [sky?.tileX, sky?.tileY]);
 
   // ── Cursor auto-hide ──────────────────────────────────────────────────────────
 
@@ -5137,6 +5153,24 @@ export default function CinemaPage() {
                                     onChange={e => patchSky({ [axis]: Number(e.target.value) })}
                                     className="flex-1 accent-indigo-500" />
                                   <span className="text-[9px] text-gray-600 w-12 text-right">{ep.background[axis].toFixed(4)}</span>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Tiling */}
+                            <div className="space-y-1">
+                              <div className="text-[10px] text-gray-600">Texture tiling — live · tile any image to fill the sphere</div>
+                              {([
+                                { key: 'tileX' as const, label: 'Horiz ×', tip: 'Repeat horizontally' },
+                                { key: 'tileY' as const, label: 'Vert ×',  tip: 'Repeat vertically' },
+                              ]).map(({ key, label, tip }) => (
+                                <div key={key} className="flex items-center gap-2">
+                                  <span className="text-[10px] text-gray-500 w-16 shrink-0" title={tip}>{label}</span>
+                                  <input type="range" min={1} max={8} step={1}
+                                    value={ep.background[key] ?? 1}
+                                    onChange={e => patchSky({ [key]: Number(e.target.value) })}
+                                    className="flex-1 accent-cyan-500" />
+                                  <span className="text-[9px] text-gray-600 w-8 text-right">×{ep.background[key] ?? 1}</span>
                                 </div>
                               ))}
                             </div>

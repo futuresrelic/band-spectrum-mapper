@@ -21,6 +21,8 @@ export interface SkyBackground {
   hueShift: number;        // degrees 0–360
   blur: number;            // pixels 0–20
   opacity: number;         // 0–1
+  tileX: number;           // horizontal repeats: 1 = single wrap, 2 = two tiles, etc.
+  tileY: number;           // vertical repeats
 }
 
 export interface ArtistColorProfile {
@@ -62,6 +64,8 @@ export const DEFAULT_SKY: SkyBackground = {
   hueShift: 0,
   blur: 8,
   opacity: 0.65,
+  tileX: 1,
+  tileY: 1,
 };
 
 // ---------------------------------------------------------------------------
