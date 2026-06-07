@@ -49,7 +49,7 @@ export const DEFAULT_SNAPSHOT_VALUES: Omit<ConfigSnapshot, 'id' | 'name' | 'crea
   themeId:     'default',
   controls:    { ...DEFAULT_CINEMA_CONTROLS },
   arrangeMode: 'radial',
-  hiddenTypes: ['genre', 'emotion', 'theme'],
+  hiddenTypes: ['genre', 'emotion', 'theme', 'lyric'],
   nodeOpacity: 0.92,
   loopScene:   false,
   nodeLimit:   600,

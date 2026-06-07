@@ -444,8 +444,8 @@ export default function CinemaPage() {
   useEffect(() => { labelDistancesRef.current = labelDistances; }, [labelDistances]);
 
   // Hidden node types (show/hide in graph)
-  const [hiddenTypes, setHiddenTypes]   = useState<Set<string>>(new Set(['genre', 'emotion', 'theme']));
-  const hiddenTypesRef                  = useRef<Set<string>>(new Set(['genre', 'emotion', 'theme']));
+  const [hiddenTypes, setHiddenTypes]   = useState<Set<string>>(new Set(['genre', 'emotion', 'theme', 'lyric']));
+  const hiddenTypesRef                  = useRef<Set<string>>(new Set(['genre', 'emotion', 'theme', 'lyric']));
   useEffect(() => { hiddenTypesRef.current = hiddenTypes; }, [hiddenTypes]);
 
   // ── Lyrics overlay ───────────────────────────────────────────────────────────
@@ -1227,7 +1227,12 @@ export default function CinemaPage() {
     if (hiddenTypes.size === 0) {
       return { nodes: simNodes as object[], links: simLinks as object[] };
     }
-    const visSet = new Set(simNodes.filter(n => !hiddenTypes.has(n.type)).map(n => n.id));
+    const visSet = new Set(simNodes.filter(n => {
+      if (hiddenTypes.has(n.type)) return false;
+      // Lyric nodes are satellites of song nodes — hide them whenever songs are hidden
+      if (n.type === 'lyric' && hiddenTypes.has('song')) return false;
+      return true;
+    }).map(n => n.id));
     const visNodes = simNodes.filter(n => visSet.has(n.id)) as object[];
     const visLinks = simLinks.filter(l => {
       const srcId = typeof l.source === 'string' ? l.source : (l.source as CinemaNode).id;
@@ -1960,7 +1965,8 @@ export default function CinemaPage() {
           for (const n of simNodesRef.current) {
             const sprite = labelMapRef.current.get(n.id);
             if (!sprite) continue;
-            if (hiddenTypesRef.current.has(n.type)) { sprite.visible = false; continue; }
+            if (hiddenTypesRef.current.has(n.type) ||
+                (n.type === 'lyric' && hiddenTypesRef.current.has('song'))) { sprite.visible = false; continue; }
             if (n.x == null) { sprite.visible = false; continue; }
 
             const isSelected    = effectiveChainSet.has(n.id);
@@ -2829,7 +2835,9 @@ export default function CinemaPage() {
     if (!mode) return;
     if (overrideMode) setActiveArrangeMode(overrideMode);
     else if (scene?.arrangeMode) setActiveArrangeMode(scene.arrangeMode);
-    const visNodes = simNodesRef.current.filter(n => !hiddenTypesRef.current.has(n.type));
+    const visNodes = simNodesRef.current.filter(n =>
+      !hiddenTypesRef.current.has(n.type) &&
+      !(n.type === 'lyric' && hiddenTypesRef.current.has('song')));
     const adj      = adjRef.current;
     if (mode === 'natural') {
       visNodes.forEach(n => { n.fx = undefined; n.fy = undefined; n.fz = undefined; });
