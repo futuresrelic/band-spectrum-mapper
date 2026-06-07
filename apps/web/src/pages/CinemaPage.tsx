@@ -2773,6 +2773,14 @@ export default function CinemaPage() {
       didFitRef.current = true;
       fgRef.current?.zoomToFit(800, 80);
     }
+    // Tune TrackballControls for mobile — stop momentum-based spinning and
+    // dial down rotate speed so one-finger drag doesn't feel twitchy on phone.
+    const ctrl = fgRef.current?.controls() as Record<string, unknown> | undefined;
+    if (ctrl) {
+      ctrl['staticMoving'] = true;  // camera stops instantly when fingers lift (no spin)
+      ctrl['rotateSpeed']  = 0.5;   // less twitchy single-finger rotation
+      ctrl['panSpeed']     = 0.5;   // calmer two-finger pan
+    }
     setSimReady(true);
   }, [simNodes]);
 
@@ -3256,6 +3264,7 @@ export default function CinemaPage() {
           warmupTicks={simReady ? 0 : 80}
           cooldownTicks={simReady ? 0 : 120}
           d3VelocityDecay={0.4}
+          enableNodeDrag={false}
           onEngineStop={onEngineStop}
           onNodeClick={onNodeClick}
           onBackgroundClick={onBackgroundClick}
