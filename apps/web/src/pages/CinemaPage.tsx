@@ -2611,26 +2611,32 @@ export default function CinemaPage() {
     const opacity = nodeOpacityUserRef.current * dimFactor;
     if (n.type === 'song') {
       // Vinyl record disk — per-album tint + duration-based size + album art centre
-      const albumId      = n.data?.albumId as string | undefined;
-      const artworkUrl   = n.data?.albumArtworkUrl as string | undefined;
-      const durSeconds   = n.data?.durationSeconds as number | undefined;
-      const tintHex      = albumTintColor(albumId);
-      const scale        = vinylScale(durSeconds);
-      const diskR        = r * 2.5;
+      const albumId    = n.data?.albumId as string | undefined;
+      const artworkUrl = n.data?.albumArtworkUrl as string | undefined;
+      const durSeconds = n.data?.durationSeconds as number | undefined;
+      const tintHex    = albumTintColor(albumId);
+      const scale      = vinylScale(durSeconds);
+      const diskR      = r * 2.5;
       const geo  = new THREE.CylinderGeometry(diskR, diskR, r * 0.25, 48);
       const mat  = new THREE.MeshLambertMaterial({ map: getVinylTexture(tintHex), transparent: opacity < 1, opacity });
       const disk = new THREE.Mesh(geo, mat);
       disk.rotation.x = Math.PI / 12; // slight tilt so grooves are visible
       group.add(disk);
-      // Centre art — album artwork sprite floats over the label area
+
+      // Centre label art — a child of disk so it inherits the disk tilt.
+      // CircleGeometry lies in the XY plane (normal +Z); rotating by -PI/2 makes
+      // it lie flat in the XZ plane (normal +Y) matching the cylinder top cap.
+      // Positioned just above the top face (y = diskHeight/2 + tiny gap) to avoid z-fighting.
       if (artworkUrl) {
         const artTex = getCachedTexture(toProxiedImageUrl(artworkUrl), () => fgRef.current?.refresh());
-        const artMat = new THREE.SpriteMaterial({ map: artTex, transparent: true, opacity: opacity * 0.92 });
-        const artSp  = new THREE.Sprite(artMat);
-        const artSz  = diskR * 0.56; // fits within centre label circle
-        artSp.scale.set(artSz, artSz, 1);
-        group.add(artSp);
+        const artGeo = new THREE.CircleGeometry(diskR * 0.275, 48);
+        const artMat = new THREE.MeshBasicMaterial({ map: artTex, transparent: true, opacity: opacity * 0.92 });
+        const artMesh = new THREE.Mesh(artGeo, artMat);
+        artMesh.rotation.x = -Math.PI / 2;        // lie flat on the disk face
+        artMesh.position.y = r * 0.13;             // just above cylinder top cap (r * 0.125)
+        disk.add(artMesh);                          // child of disk — inherits disk.rotation.x
       }
+
       group.scale.setScalar(scale);
     } else if ((n.type === 'album' || n.type === 'artist') && imageUrl) {
       // Artwork / logo square sprite
