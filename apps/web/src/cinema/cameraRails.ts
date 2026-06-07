@@ -21,7 +21,10 @@ export type RailType =
   | 'warp-jumps'      // launch from far, decelerate at each album — cinematic hyperjumps
   | 'slow-drift'      // ambient, unhurried drift through the full node cloud
   | 'corkscrew'       // helical rise up through the graph from below
-  | 'pendulum';       // wide side-to-side sweep across the galaxy
+  | 'pendulum'        // wide side-to-side sweep across the galaxy
+  | 'lyrics-tour'     // close flyby of every lyric node in chronological album order
+  | 'song-journey'    // all songs in chronological release order
+  | 'lyric-weave';    // alternates between song and its lyric node for intimate reading
 
 export interface RailWaypoint {
   position: { x: number; y: number; z: number };
@@ -110,6 +113,30 @@ export const RAIL_DEFS: RailDef[] = [
     loop: true,
     defaultSpeedPerSec: 0.04,
   },
+  {
+    type: 'lyrics-tour',
+    label: 'Lyrics Tour',
+    emoji: '📖',
+    description: 'Close flyby of every lyric node in chronological album order — oldest song to newest, reading-pace.',
+    loop: false,
+    defaultSpeedPerSec: 0.055,
+  },
+  {
+    type: 'song-journey',
+    label: 'Song Journey',
+    emoji: '🎵',
+    description: 'Chronological tour of every song from the oldest album to the newest — the complete discography at song level.',
+    loop: false,
+    defaultSpeedPerSec: 0.065,
+  },
+  {
+    type: 'lyric-weave',
+    label: 'Lyric Weave',
+    emoji: '🧵',
+    description: 'Weaves between each song and its lyric node — approach the song, then dive to its opening line.',
+    loop: false,
+    defaultSpeedPerSec: 0.05,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -170,6 +197,29 @@ function sortedAlbums(nodes: CinemaNode[]): CinemaNode[] {
       const yb = (b.data?.year as number | undefined) ?? 9999;
       return ya !== yb ? ya - yb : a.label.localeCompare(b.label);
     });
+}
+
+/** Build a Map<albumId, releaseYear> from the node list. */
+function buildAlbumYearMap(nodes: CinemaNode[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const n of nodes) {
+    if (n.type === 'album') {
+      const year = n.data?.year as number | undefined;
+      if (year != null) m.set(n.id.slice('album:'.length), year);
+    }
+  }
+  return m;
+}
+
+/** Sort nodes by (album release year, node label). */
+function chronoSort(nodes: CinemaNode[], albumYears: Map<string, number>): CinemaNode[] {
+  return [...nodes].sort((a, b) => {
+    const aId  = a.data?.albumId as string | undefined;
+    const bId  = b.data?.albumId as string | undefined;
+    const aY   = aId ? (albumYears.get(aId) ?? 9999) : 9999;
+    const bY   = bId ? (albumYears.get(bId) ?? 9999) : 9999;
+    return aY !== bY ? aY - bY : a.label.localeCompare(b.label);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -418,6 +468,66 @@ export function buildRailWaypoints(
         label:    entry.a.label,
       };
     });
+  }
+
+  // ── Lyrics Tour ───────────────────────────────────────────────────────────────
+  if (type === 'lyrics-tour') {
+    const lyricNodes = placed.filter(n => n.type === 'lyric');
+    if (lyricNodes.length === 0) return [];
+    const albumYears = buildAlbumYearMap(placed);
+    const sorted     = chronoSort(lyricNodes, albumYears);
+    const lyricDist  = Math.max(35, approachDist * 0.38);
+    return sorted.map(n => ({
+      position: outerCamPos(n.x ?? 0, n.y ?? 0, n.z ?? 0, cx, cz, lyricDist, elevation * 0.35),
+      lookAt:   { x: n.x ?? 0, y: n.y ?? 0, z: n.z ?? 0 },
+      label:    n.label,
+    }));
+  }
+
+  // ── Song Journey ──────────────────────────────────────────────────────────────
+  if (type === 'song-journey') {
+    const songNodes  = placed.filter(n => n.type === 'song');
+    if (songNodes.length === 0) return [];
+    const albumYears = buildAlbumYearMap(placed);
+    // Thin to ≤80 waypoints on very large libraries so the rail stays navigable
+    const sorted     = chronoSort(songNodes, albumYears);
+    const sampled    = sorted.length > 80
+      ? sorted.filter((_, i) => i % Math.ceil(sorted.length / 80) === 0)
+      : sorted;
+    return sampled.map(n => ({
+      position: outerCamPos(n.x ?? 0, n.y ?? 0, n.z ?? 0, cx, cz, approachDist * 0.65, elevation * 0.75),
+      lookAt:   { x: n.x ?? 0, y: n.y ?? 0, z: n.z ?? 0 },
+      label:    n.label,
+    }));
+  }
+
+  // ── Lyric Weave ───────────────────────────────────────────────────────────────
+  if (type === 'lyric-weave') {
+    const songNodes  = placed.filter(n => n.type === 'song');
+    const lyricIndex = new Map(placed.filter(n => n.type === 'lyric').map(n => [n.id, n]));
+    if (lyricIndex.size === 0) return [];
+    const albumYears = buildAlbumYearMap(placed);
+    const sorted     = chronoSort(songNodes, albumYears)
+      .filter(s => lyricIndex.has(`lyric:${s.id.slice('song:'.length)}`));
+    if (sorted.length === 0) return [];
+    const lyricDist  = Math.max(35, approachDist * 0.38);
+    const result: RailWaypoint[] = [];
+    for (const song of sorted) {
+      const lyricNode = lyricIndex.get(`lyric:${song.id.slice('song:'.length)}`)!;
+      // 1 — approach the song from the outside
+      result.push({
+        position: outerCamPos(song.x ?? 0, song.y ?? 0, song.z ?? 0, cx, cz, approachDist * 0.6, elevation * 0.7),
+        lookAt:   { x: song.x ?? 0, y: song.y ?? 0, z: song.z ?? 0 },
+        label:    song.label,
+      });
+      // 2 — dive in close to the lyric node
+      result.push({
+        position: outerCamPos(lyricNode.x ?? 0, lyricNode.y ?? 0, lyricNode.z ?? 0, cx, cz, lyricDist, elevation * 0.25),
+        lookAt:   { x: lyricNode.x ?? 0, y: lyricNode.y ?? 0, z: lyricNode.z ?? 0 },
+        label:    lyricNode.label,
+      });
+    }
+    return result;
   }
 
   return [];

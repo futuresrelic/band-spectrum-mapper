@@ -1398,10 +1398,13 @@ export default function CinemaPage() {
     // Adaptive base speed: target a sensible dwell time at each waypoint regardless of graph size.
     // The RAF loop multiplies this by railSpeedRef.current so the slider works live.
     const TARGET_SECS_PER_WP: Record<RailType, number> = {
-      'album-circuit': 8,
-      'nonagon':       10,
-      'spiral-in':     2,
-      'perimeter':     5,
+      'album-circuit':  8,
+      'nonagon':        10,
+      'spiral-in':      2,
+      'perimeter':      5,
+      'lyrics-tour':    14,
+      'song-journey':   7,
+      'lyric-weave':    11,
       'warp-jumps':    5,
       'slow-drift':    4,
       'corkscrew':     2,
@@ -5899,6 +5902,36 @@ export default function CinemaPage() {
           {/* Description of selected type */}
           <div className="text-[9px] text-gray-600 leading-snug mb-3">
             {RAIL_DEFS.find(d => d.type === railType)?.description}
+          </div>
+
+          {/* Quick node-layer visibility toggles */}
+          <div className="mb-3">
+            <div className="text-[10px] text-gray-500 mb-1.5">Visible node layers</div>
+            <div className="grid grid-cols-3 gap-1">
+              {([
+                { type: 'artist',  label: '🎸 Artist' },
+                { type: 'album',   label: '💿 Album'  },
+                { type: 'song',    label: '🎵 Song'   },
+                { type: 'lyric',   label: '📝 Lyrics' },
+                { type: 'tag',     label: '🏷 Tag'    },
+                { type: 'keyword', label: '🔑 Kwd'    },
+              ] as const).map(({ type: t, label }) => {
+                const hidden = hiddenTypes.has(t);
+                return (
+                  <button key={t}
+                    onClick={() => setHiddenTypes(prev => {
+                      const next = new Set(prev);
+                      if (next.has(t)) next.delete(t); else next.add(t);
+                      return next;
+                    })}
+                    className={`px-1.5 py-1 rounded text-[9px] transition-colors ${
+                      hidden ? 'bg-gray-800 text-gray-700 line-through' : 'bg-gray-700/60 text-gray-300'
+                    }`}
+                  >{label}</button>
+                );
+              })}
+            </div>
+            <div className="text-[9px] text-gray-700 mt-1">Click a layer to toggle it on/off in the graph</div>
           </div>
 
           {/* Launch / Stop */}
