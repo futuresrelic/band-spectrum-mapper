@@ -360,9 +360,9 @@ export default function TourPlanner({
                   <button
                     onClick={() => onTogglePublic(seq.id, seq.isPublic ?? false)}
                     title={seq.isPublic ? 'Published — click to make private' : 'Private — click to publish for all users'}
-                    className={`shrink-0 text-[11px] transition-colors ${seq.isPublic ? 'text-green-400 hover:text-gray-500' : 'text-gray-700 hover:text-green-500'}`}
+                    className="shrink-0 text-[11px] transition-opacity hover:opacity-60"
                   >
-                    🌐
+                    {seq.isPublic ? '🌐' : '🔒'}
                   </button>
                 )}
                 <button
