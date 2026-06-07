@@ -811,6 +811,8 @@ export default function CinemaPage() {
   const [showTourPlanner, setShowTourPlanner] = useState(false);
   // Non-admin curated playbacks panel (shows public sequences)
   const [showPublicPlaybacks, setShowPublicPlaybacks] = useState(false);
+  const [publicSequences, setPublicSequences]         = useState<NodeSequence[]>([]);
+  const [publicSeqsLoading, setPublicSeqsLoading]     = useState(false);
   const [tourSteps, setTourSteps]             = useState<TourStep[]>([]);
   const [tourStepIdx, setTourStepIdx]         = useState(0);
   const [tourAddMode, setTourAddMode]         = useState(false);
@@ -837,6 +839,16 @@ export default function CinemaPage() {
       })
       .catch(() => { /* not logged in or API unavailable — keep localStorage sequences */ });
   }, []);
+
+  // Fetch public sequences fresh each time the non-admin Curated Playbacks panel opens
+  useEffect(() => {
+    if (!showPublicPlaybacks || isAdmin) return;
+    setPublicSeqsLoading(true);
+    api.get<NodeSequence[]>('/api/node-sequences')
+      .then(seqs => setPublicSequences(seqs))
+      .catch(() => setPublicSequences([]))
+      .finally(() => setPublicSeqsLoading(false));
+  }, [showPublicPlaybacks, isAdmin]);
 
   // ── Server sync on mount ─────────────────────────────────────────────────────
   // Fetch all persisted Cinema data from the server and hydrate state.
@@ -6044,11 +6056,17 @@ export default function CinemaPage() {
           <div className="text-[10px] text-gray-600 mb-2 leading-snug">
             Select a curated tour and press ▶ to play it.
           </div>
-          {savedSequences.length === 0 ? (
+          {publicSeqsLoading ? (
+            <div className="flex justify-center py-3">
+              <div className="flex gap-1">
+                {[0,1,2].map(i => <div key={i} className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
+              </div>
+            </div>
+          ) : publicSequences.length === 0 ? (
             <p className="text-[11px] text-gray-600 text-center py-3 italic">No curated playbacks yet.</p>
           ) : (
             <div className="space-y-1 max-h-60 overflow-y-auto">
-              {savedSequences.map(seq => (
+              {publicSequences.map(seq => (
                 <div key={seq.id} className="flex items-center gap-2 px-2 py-1.5 bg-gray-800/60 rounded-lg text-[11px]">
                   <span className="flex-1 text-gray-300 truncate" title={seq.name}>{seq.name}</span>
                   <span className="text-gray-600 text-[10px] shrink-0">{seq.steps.length} stops</span>
