@@ -59,19 +59,19 @@ const TYPE_COLOR: Record<string, string> = {
   song: '#6366f1', keyword: '#374151',
   album: '#8b5cf6', artist: '#f59e0b',
   theme: '#10b981', tag: '#06b6d4', emotion: '#ec4899',
-  genre: '#f97316',
+  genre: '#f97316', lyric: '#94a3b8',
 };
 const TYPE_LABELS: Record<string, string> = {
   artist: '🎸 Artist', album: '💿 Album', song: '🎵 Song',
   keyword: '🔑 Keyword', theme: '🌿 Theme', tag: '🏷 Tag', emotion: '💜 Emotion',
-  genre: '🎼 Genre',
+  genre: '🎼 Genre', lyric: '📝 Lyrics',
 };
 const TYPE_ICONS: Record<string, string> = {
   artist: '🎸', album: '💿', song: '🎵',
   keyword: '🔑', theme: '🌿', tag: '🏷', emotion: '💜',
-  genre: '🎼',
+  genre: '🎼', lyric: '📝',
 };
-const ALL_TYPES = ['artist', 'album', 'song', 'keyword', 'theme', 'tag', 'emotion', 'genre'];
+const ALL_TYPES = ['artist', 'album', 'song', 'keyword', 'theme', 'tag', 'emotion', 'genre', 'lyric'];
 
 // kept for potential external use; selected node color is now '#ffffff' inline
 // const HIGHLIGHT_COLOR = '#ffffff';
@@ -3084,6 +3084,30 @@ export default function CinemaPage() {
       return;
     }
 
+    // Lyric node: redirect click to parent song node and open lyrics reader
+    if (n.id.startsWith('lyric:')) {
+      const songId = n.id.slice('lyric:'.length);
+      const songNode = nodeMapRef.current.get(`song:${songId}`);
+      if (songNode) {
+        selectedChainRef.current = [songNode];
+        selectedNodeRef.current  = songNode;
+        setSelectedNode(songNode);
+        setShowLyricsReader(true);
+        fgRef.current?.refresh();
+        if (!isPlayingRef.current && songNode.x != null) {
+          const ctrl = fgRef.current?.controls?.();
+          if (ctrl) {
+            orbitAnimRef.current = {
+              sx: ctrl.target.x, sy: ctrl.target.y, sz: ctrl.target.z,
+              tx: songNode.x, ty: songNode.y ?? 0, tz: songNode.z ?? 0,
+              t0: performance.now(), dur: 600,
+            };
+          }
+        }
+      }
+      return;
+    }
+
     const chain = selectedChainRef.current;
 
     // Click on node already in chain → truncate to it (or remove if it's the last)
@@ -5677,8 +5701,14 @@ export default function CinemaPage() {
 
       {/* ── Scene playlist ── */}
       {showPlaylist && !socialMode && !tourMode && (
-        <div className="absolute bottom-20 left-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-2 backdrop-blur-sm w-64 shadow-2xl">
-          <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide px-2 pb-1">Scenes</div>
+        <div
+          className="absolute bottom-20 left-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl backdrop-blur-sm w-64 shadow-2xl flex flex-col overflow-hidden"
+          style={{ maxHeight: 'calc(100dvh - 140px)' }}
+        >
+          <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 shrink-0 border-b border-gray-800">
+            Scenes
+          </div>
+          <div className="overflow-y-auto p-2">
           {CINEMA_SCENES.map((scene, idx) => (
             <button key={scene.id}
               onClick={() => { transitionTo(idx); setShowPlaylist(false); }}
@@ -5698,6 +5728,7 @@ export default function CinemaPage() {
               )}
             </button>
           ))}
+          </div>
         </div>
       )}
 

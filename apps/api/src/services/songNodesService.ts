@@ -17,7 +17,7 @@ import { prisma } from '../lib/prisma.js';
 // Types
 // ---------------------------------------------------------------------------
 
-export type NodeType = 'song' | 'album' | 'artist' | 'theme' | 'tag' | 'keyword' | 'emotion';
+export type NodeType = 'song' | 'album' | 'artist' | 'theme' | 'tag' | 'keyword' | 'emotion' | 'lyric';
 export type EdgeType =
   | 'same_artist'
   | 'same_album'
@@ -25,7 +25,8 @@ export type EdgeType =
   | 'similar_radar'
   | 'conceptual'
   | 'shared_word'
-  | 'remix_of';
+  | 'remix_of'
+  | 'has_lyrics';
 
 export type GraphLayoutPreset =
   | 'artist-universe'
@@ -88,6 +89,7 @@ const NODE_COLORS: Record<NodeType, string> = {
   tag:      '#06b6d4',
   keyword:  '#64748b',
   emotion:  '#ec4899',
+  lyric:    '#94a3b8',
 };
 
 function cosineSim(a: number[], b: number[]): number {
@@ -238,6 +240,28 @@ async function buildArtistUniverse(bandIds: string[], albumTypes?: string[], nod
         id: `e${edgeIdx++}`, source: `song:${s.id}`,
         target: `song:${s.remixOfSongId}`, type: 'remix_of', weight: 0.8,
       });
+    }
+
+    // lyric node — first meaningful line of primary lyrics, connected to its song
+    const lyricText = s.lyrics[0]?.text ?? '';
+    if (lyricText.trim()) {
+      const firstLine = lyricText
+        .split('\n')
+        .map(l => l.trim())
+        .find(l => l.length >= 4) ?? '';
+      if (firstLine) {
+        const label = firstLine.length > 35 ? firstLine.slice(0, 34) + '…' : firstLine;
+        nodes.push({
+          id: `lyric:${s.id}`,
+          type: 'lyric',
+          label,
+          data: { color: NODE_COLORS.lyric, bandId: s.band.id, ...(s.album ? { albumId: s.album.id } : {}) },
+        });
+        edges.push({
+          id: `e${edgeIdx++}`, source: `song:${s.id}`,
+          target: `lyric:${s.id}`, type: 'has_lyrics', weight: 0.7,
+        });
+      }
     }
 
   }
