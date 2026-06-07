@@ -52,7 +52,7 @@ export const DEFAULT_SNAPSHOT_VALUES: Omit<ConfigSnapshot, 'id' | 'name' | 'crea
   hiddenTypes: ['genre', 'emotion', 'theme', 'lyric'],
   nodeOpacity: 0.92,
   loopScene:   false,
-  nodeLimit:   600,
+  nodeLimit:   200,
 };
 
 // ---------------------------------------------------------------------------

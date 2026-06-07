@@ -370,7 +370,20 @@ export default function CinemaPage() {
   const isAdmin = user?.isAdmin === true;
 
   // ── Data ─────────────────────────────────────────────────────────────────────
-  const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
+  const [selectedBandIds, setSelectedBandIdsRaw] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem('cinema-last-band-ids');
+      if (stored) return JSON.parse(stored) as string[];
+    } catch { /* ignore */ }
+    return [];
+  });
+  const setSelectedBandIds = (ids: string[] | ((prev: string[]) => string[])) => {
+    setSelectedBandIdsRaw(prev => {
+      const next = typeof ids === 'function' ? ids(prev) : ids;
+      try { localStorage.setItem('cinema-last-band-ids', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
   const [selectedNode, setSelectedNode]       = useState<CinemaNode | null>(null);
   const [selectedNodeTags, setSelectedNodeTags] = useState<{ name: string; description: string }[]>([]);
   const [simNodes, setSimNodes]               = useState<CinemaNode[]>([]);
@@ -743,7 +756,7 @@ export default function CinemaPage() {
     soundtrack: 'Soundtrack', acoustic: 'Acoustic', instrumental: 'Instrumental',
   };
   const [selectedAlbumTypes, setSelectedAlbumTypes] = useState<string[]>([]);
-  const [nodeLimit, setNodeLimit] = useState(600);
+  const [nodeLimit, setNodeLimit] = useState(200);
   const toggleAlbumType = (type: string) => {
     setSelectedAlbumTypes(prev =>
       prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
@@ -3613,8 +3626,13 @@ export default function CinemaPage() {
 
           {/* Band picker */}
           {showBandPicker && scopes && (
-            <div className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-3 backdrop-blur-sm w-56 shadow-2xl max-h-72 overflow-y-auto">
+            <div className="absolute top-12 right-4 z-40 bg-gray-900/95 border border-gray-700 rounded-xl p-3 backdrop-blur-sm w-56 shadow-2xl max-h-80 overflow-y-auto">
               <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Filter by band</div>
+              {selectedBandIds.length === 0 && (
+                <div className="text-[9px] text-amber-600/80 leading-snug mb-2 px-1">
+                  All bands — pick one or more below for a faster, focused graph.
+                </div>
+              )}
               <button
                 onClick={() => setSelectedBandIds([])}
                 className={`w-full text-left text-xs px-2 py-1.5 rounded-lg mb-1 transition-colors ${
@@ -3635,6 +3653,7 @@ export default function CinemaPage() {
                   {b.name}
                 </button>
               ))}
+              <div className="text-[9px] text-gray-700 mt-2 px-1">Selection remembered between visits.</div>
             </div>
           )}
 
@@ -4234,7 +4253,7 @@ export default function CinemaPage() {
                   <div className="flex items-center gap-2 px-1">
                     <input
                       type="number" min={100} max={3000} step={100} value={nodeLimit}
-                      onChange={e => setNodeLimit(Math.max(100, Math.min(3000, Number(e.target.value) || 600)))}
+                      onChange={e => setNodeLimit(Math.max(100, Math.min(3000, Number(e.target.value) || 200)))}
                       className="w-20 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-[11px] text-gray-200 text-right"
                     />
                     <span className="text-[10px] text-gray-500">songs max</span>
