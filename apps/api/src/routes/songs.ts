@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { prisma } from '../lib/prisma.js';
 import { songService } from '../services/songService.js';
 import { lyricService } from '../services/lyricService.js';
 import { scoreService } from '../services/scoreService.js';
@@ -15,6 +16,30 @@ import {
 } from '@band-spectrum-mapper/shared';
 
 export const songsRouter = Router();
+
+// GET /api/songs/yt-previews?bandIds=id1,id2
+// Returns { [songId]: youtubeUrl } for songs that have a linked SongSpectrumAnalysis with a YouTube URL.
+// Used by Cinema proximity audio to know which nodes can play audio.
+songsRouter.get('/yt-previews', async (req, res, next) => {
+  try {
+    const raw = typeof req.query['bandIds'] === 'string' ? req.query['bandIds'] : '';
+    const bandIds = raw ? raw.split(',').filter(Boolean) : [];
+    const analyses = await prisma.songSpectrumAnalysis.findMany({
+      where: {
+        youtubeUrl: { not: null },
+        song: {
+          ...(bandIds.length ? { bandId: { in: bandIds } } : {}),
+        },
+      },
+      select: { songId: true, youtubeUrl: true },
+    });
+    const map: Record<string, string> = {};
+    for (const a of analyses) {
+      if (a.songId && a.youtubeUrl) map[a.songId] = a.youtubeUrl;
+    }
+    res.json(map);
+  } catch (e) { next(e); }
+});
 
 // Global song search
 songsRouter.get('/search', async (req, res, next) => {

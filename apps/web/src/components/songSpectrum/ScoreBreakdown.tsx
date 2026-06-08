@@ -15,21 +15,22 @@ const AXIS_META: Record<string, { label: string; color: string; description: str
   concept:     { label: 'Concept',     color: '#10b981', description: 'Narrative depth and compositional ambition' },
 };
 
-function ConfidenceBar({ value }: { value: number }) {
+/** Score progress bar — width represents score/100 in the axis colour. */
+function ScoreBar({ score, color, confidence }: { score: number; color: string; confidence: number }) {
   return (
     <div className="flex items-center gap-2">
-      <div className="h-1 flex-1 bg-surface-700 rounded-full overflow-hidden">
+      <div className="h-1.5 flex-1 bg-surface-700 rounded-full overflow-hidden">
         <div
           className="h-full rounded-full transition-all"
-          style={{
-            width: `${Math.round(value * 100)}%`,
-            backgroundColor: value > 0.7 ? '#22c55e' : value > 0.4 ? '#f59e0b' : '#ef4444',
-          }}
+          style={{ width: `${score}%`, backgroundColor: color }}
         />
       </div>
-      <span className="text-xs text-surface-400 shrink-0 w-8 text-right">
-        {Math.round(value * 100)}%
-      </span>
+      <span className="text-xs text-surface-400 shrink-0 w-6 text-right font-mono">{score}</span>
+      {confidence < 1 && (
+        <span className="text-[10px] text-surface-600 shrink-0">
+          {Math.round(confidence * 100)}% conf
+        </span>
+      )}
     </div>
   );
 }
@@ -38,7 +39,9 @@ export default function ScoreBreakdown({ axis, detail }: Props) {
   const [open, setOpen] = useState(false);
   const meta = AXIS_META[axis] ?? { label: axis, color: '#6366f1', description: '' };
 
-  const arcAngle = (detail.score / 100) * 251.2; // circumference of r=40 circle
+  // r=20 on the SVG → circumference = 2π×20 ≈ 125.66
+  const circumference = 125.66;
+  const arcAngle = (detail.score / 100) * circumference;
 
   return (
     <div className="bg-surface-800 rounded-lg overflow-hidden">
@@ -54,7 +57,7 @@ export default function ScoreBreakdown({ axis, detail }: Props) {
             fill="none"
             stroke={meta.color}
             strokeWidth="6"
-            strokeDasharray={`${arcAngle} 251.2`}
+            strokeDasharray={`${arcAngle} ${circumference}`}
             strokeLinecap="round"
             transform="rotate(-90 26 26)"
           />
@@ -68,7 +71,7 @@ export default function ScoreBreakdown({ axis, detail }: Props) {
             <span className="text-sm font-semibold text-white">{meta.label}</span>
             <span className="text-xs text-surface-400">· {meta.description}</span>
           </div>
-          <ConfidenceBar value={detail.confidence} />
+          <ScoreBar score={detail.score} color={meta.color} confidence={detail.confidence} />
         </div>
 
         <span className="text-surface-500 text-sm">{open ? '▲' : '▼'}</span>

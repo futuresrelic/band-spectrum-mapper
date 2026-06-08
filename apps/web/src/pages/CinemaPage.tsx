@@ -44,6 +44,7 @@ import TourPlanner from '../cinema/TourPlanner';
 import CameraDirector from '../cinema/CameraDirector';
 import LyricPathPanel from '../cinema/LyricPathPanel';
 import { type CinemaHandoff, popCinemaHandoff } from '../cinema/cinemaHandoff';
+import { ProximityAudio } from '../cinema/ProximityAudio';
 import {
   fetchCinemaServerData,
   savePresetsToServer,
@@ -764,6 +765,14 @@ export default function CinemaPage() {
   const [selectedAlbumTypes, setSelectedAlbumTypes] = useState<string[]>([]);
   const [nodeLimit, setNodeLimit] = useState(200);
   const [graphPreset, setGraphPreset] = useState<'artist-universe' | 'lyrical-dna'>('artist-universe');
+
+  // ── Proximity Audio ───────────────────────────────────────────────────────────
+  const [proximityAudioOn, setProximityAudioOn]     = useState(false);
+  const proximityAudioRef                            = useRef<ProximityAudio | null>(null);
+  const ytPreviewMapRef                              = useRef<Map<string, string>>(new Map()); // songId → youtubeUrl
+  const [proximityNowPlaying, setProximityNowPlaying] = useState<string | null>(null); // song label
+  const proximityNowPlayingRef                        = useRef<string | null>(null);
+  const PROX_AUDIO_DIST = 120; // units — start hearing at this distance
   const toggleAlbumType = (type: string) => {
     setSelectedAlbumTypes(prev =>
       prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
@@ -1303,6 +1312,17 @@ export default function CinemaPage() {
     simLinksRef.current = links;
     adjRef.current = buildAdj(links);
   }, [graphData]);
+
+  // Fetch YouTube preview URLs for all songs in the current graph
+  useEffect(() => {
+    const qs = selectedBandIds.length ? `?bandIds=${selectedBandIds.join(',')}` : '';
+    api.get<Record<string, string>>(`/api/songs/yt-previews${qs}`)
+      .then(map => { ytPreviewMapRef.current = new Map(Object.entries(map)); })
+      .catch(() => { /* offline or no previews — fail silently */ });
+  }, [selectedBandIds, graphPreset]);
+
+  // Dispose proximity audio on unmount
+  useEffect(() => () => { proximityAudioRef.current?.dispose(); }, []);
 
   // ── Scene activation ──────────────────────────────────────────────────────────
 
@@ -1991,6 +2011,34 @@ export default function CinemaPage() {
         // Proximity label opacity
         if (camera) {
           const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+
+          // ── Proximity audio ───────────────────────────────────────────────────
+          if (proximityAudioRef.current) {
+            let nearestUrl: string | null = null;
+            let nearestLabel: string | null = null;
+            let nearestDist = Infinity;
+            for (const n of simNodesRef.current) {
+              if (n.type !== 'song' || n.x == null) continue;
+              const songId = n.id.slice('song:'.length);
+              const url = ytPreviewMapRef.current.get(songId);
+              if (!url) continue;
+              const dx = (n.x ?? 0) - cx, dy = (n.y ?? 0) - cy, dz = (n.z ?? 0) - cz;
+              const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+              if (d < nearestDist) { nearestDist = d; nearestUrl = url; nearestLabel = n.label; }
+            }
+            const threshold = PROX_AUDIO_DIST;
+            const vol = nearestUrl && nearestDist < threshold
+              ? Math.max(0, 1 - nearestDist / threshold)
+              : 0;
+            proximityAudioRef.current.update(vol > 0.02 ? nearestUrl : null, vol);
+            const newLabel = vol > 0.05 ? nearestLabel : null;
+            if (newLabel !== proximityNowPlayingRef.current) {
+              proximityNowPlayingRef.current = newLabel;
+              setProximityNowPlaying(newLabel);
+            }
+          }
+          // ─────────────────────────────────────────────────────────────────────
+
           const ld = labelDistancesRef.current;
           // Build O(1) lookups for effective chain + soft-selected (covers tour mode too)
           const effectiveChainSet = new Set(effectiveChainRef.current.map(c => c.id));
@@ -3469,6 +3517,15 @@ export default function CinemaPage() {
             </div>
           )}
 
+          {/* Proximity audio now-playing chip */}
+          {proximityAudioOn && proximityNowPlaying && (
+            <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-none
+              flex items-center gap-1.5 bg-black/70 border border-green-800/50 rounded-full px-3 py-1 backdrop-blur-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />
+              <span className="text-[10px] text-green-300 truncate max-w-[160px]">{proximityNowPlaying}</span>
+            </div>
+          )}
+
           {/* Top-center: scene/tour label */}
           {isPlaying && !tourMode && currentScene && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 text-center pointer-events-none">
@@ -3544,6 +3601,30 @@ export default function CinemaPage() {
                 🧬 DNA ✕
               </button>
             )}
+            <button
+              title={proximityAudioOn ? 'Proximity Audio ON — click to turn off' : 'Proximity Audio — hear songs as you approach nodes'}
+              onClick={() => {
+                if (!proximityAudioOn) {
+                  const pa = new ProximityAudio();
+                  pa.init();
+                  proximityAudioRef.current = pa;
+                  setProximityAudioOn(true);
+                } else {
+                  proximityAudioRef.current?.dispose();
+                  proximityAudioRef.current = null;
+                  setProximityAudioOn(false);
+                  setProximityNowPlaying(null);
+                  proximityNowPlayingRef.current = null;
+                }
+              }}
+              className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                proximityAudioOn
+                  ? 'bg-green-900/60 border-green-700/60 text-green-300'
+                  : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+              }`}
+            >
+              🎵{proximityAudioOn ? ' ●' : ''}
+            </button>
             <button
               onClick={() => { setShowBandPicker(v => !v); setShowControls(false); setShowDirector(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); setShowSetlistPanel(false); }}
               className="text-xs bg-gray-900/80 border border-gray-700 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg backdrop-blur-sm transition-colors"

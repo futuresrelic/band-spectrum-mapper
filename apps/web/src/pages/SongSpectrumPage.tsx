@@ -46,7 +46,7 @@ function SpectrumRadar({ scores }: { scores: Record<string, number> }) {
   const gridLevels = [0.25, 0.5, 0.75, 1.0];
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H}>
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ overflow: 'visible' }}>
       {/* Grid rings */}
       {gridLevels.map((lvl) => {
         const pts = SCORE_AXES.map((_, i) => `${px(i, lvl)},${py(i, lvl)}`).join(' ');
@@ -983,6 +983,29 @@ export default function SongSpectrumPage() {
                   </div>
                 </div>
               )}
+
+              {/* YouTube embed — shown when the analysis has a YouTube source */}
+              {activeAnalysis.youtubeUrl && (() => {
+                const vidId = activeAnalysis.youtubeUrl.match(
+                  /(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{11})/
+                )?.[1];
+                return vidId ? (
+                  <div>
+                    <h3 className="text-sm font-bold text-surface-300 uppercase tracking-wider mb-3">
+                      YouTube Source
+                    </h3>
+                    <div className="rounded-xl overflow-hidden aspect-video bg-surface-900">
+                      <iframe
+                        src={`https://www.youtube.com/embed/${vidId}`}
+                        title="YouTube player"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        className="w-full h-full"
+                      />
+                    </div>
+                  </div>
+                ) : null;
+              })()}
 
               {/* Audio visualizations */}
               {audioAnalysis && (
