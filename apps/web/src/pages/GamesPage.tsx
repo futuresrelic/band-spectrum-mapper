@@ -42,6 +42,19 @@ const GAMES = [
     btnColor: 'bg-indigo-700 hover:bg-indigo-600',
     accentText: 'text-indigo-400',
   },
+  {
+    id: 'lyricchain',
+    icon: '🔗',
+    title: 'Lyric Chain',
+    subtitle: 'Build the longest word-song chain',
+    desc: 'Pick a word — find a song containing it — pick a new word from that song — keep going. How long a chain can you build before hitting a dead end?',
+    rules: ['Each word and each song can only be used once', 'Chain ends when no connecting songs remain', 'Hard mode: no same album twice'],
+    href: '/play/lyric-chain',
+    cta: 'Start Chaining',
+    color: 'border-violet-500/40 hover:border-violet-400/70',
+    btnColor: 'bg-violet-700 hover:bg-violet-600',
+    accentText: 'text-violet-400',
+  },
 ];
 
 export default function GamesPage() {

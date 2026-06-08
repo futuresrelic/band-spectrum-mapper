@@ -405,6 +405,7 @@ model User {
   contributionReviews  PendingContribution[] @relation("ContributionReviewer")
   gameScores           GameScore[]
   wordHuntScores       WordHuntScore[]
+  lyricChainScores     LyricChainScore[]
   nodeSequences        UserNodeSequence[]
   cinemaData           UserCinemaData?
   tagProposals         TagProposal[]
@@ -906,6 +907,26 @@ model WordHuntScore {
   @@index([score])
   @@index([userId])
   @@map("word_hunt_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Lyric Chain game scores — one row per completed chain
+// score = chainLength (number of word→song pairs completed)
+// ---------------------------------------------------------------------------
+
+model LyricChainScore {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chainLength Int      // number of (word, song) pairs completed
+  chainJson   String   // JSON-serialised chain steps for review
+  bandScope   String?  // comma-sep band IDs; null = all
+  hardMode    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([chainLength])
+  @@index([userId])
+  @@map("lyric_chain_scores")
 }
 
 // ---------------------------------------------------------------------------

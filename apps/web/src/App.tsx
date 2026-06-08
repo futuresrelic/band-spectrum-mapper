@@ -48,6 +48,7 @@ import PlayPage from './pages/PlayPage';
 import AdminGamePage from './pages/AdminGamePage';
 import ExplorePage from './pages/ExplorePage';
 import WordHuntPage from './pages/WordHuntPage';
+import LyricChainPage from './pages/LyricChainPage';
 import LeaderboardPage from './pages/LeaderboardPage';
 import GamesPage from './pages/GamesPage';
 import GraphHuntPage from './pages/GraphHuntPage';
@@ -123,6 +124,7 @@ export default function App() {
         </Route>
         <Route path="/play" element={<PlayPage />} />
         <Route path="/play/word-hunt" element={<WordHuntPage />} />
+        <Route path="/play/lyric-chain" element={<LyricChainPage />} />
 
         {/* ── ADMIN: full app, isAdmin required ── */}
         <Route

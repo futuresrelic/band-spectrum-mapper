@@ -33,6 +33,7 @@ import { songNodesRouter } from './routes/songNodes.js';
 import { gameRouter } from './routes/game.js';
 import { triviaRouter } from './routes/trivia.js';
 import { wordHuntRouter } from './routes/wordHunt.js';
+import { lyricChainRouter } from './routes/lyricChain.js';
 import { spectrumStudioRouter } from './routes/spectrumStudio.js';
 import { nodeSequencesRouter } from './routes/nodeSequences.js';
 import { cinemaPersistenceRouter } from './routes/cinemaPersistence.js';
@@ -121,6 +122,9 @@ export function createApp() {
 
   // Word Hunt game scores (auth required for POST)
   app.use('/api/word-hunt', wordHuntRouter);
+
+  // Lyric Chain game — GET/POST game flow + leaderboard
+  app.use('/api/lyric-chain', lyricChainRouter);
 
   // Cinema node sequences — per-user saved tour paths
   app.use('/api/node-sequences', nodeSequencesRouter);
