@@ -44,7 +44,7 @@ import TourPlanner from '../cinema/TourPlanner';
 import CameraDirector from '../cinema/CameraDirector';
 import LyricPathPanel from '../cinema/LyricPathPanel';
 import { type CinemaHandoff, popCinemaHandoff } from '../cinema/cinemaHandoff';
-import { ProximityAudio } from '../cinema/ProximityAudio';
+import { MultiProximityAudio } from '../cinema/MultiProximityAudio';
 import {
   fetchCinemaServerData,
   savePresetsToServer,
@@ -766,13 +766,22 @@ export default function CinemaPage() {
   const [nodeLimit, setNodeLimit] = useState(200);
   const [graphPreset, setGraphPreset] = useState<'artist-universe' | 'lyrical-dna'>('artist-universe');
 
-  // ── Proximity Audio ───────────────────────────────────────────────────────────
-  const [proximityAudioOn, setProximityAudioOn]     = useState(false);
-  const proximityAudioRef                            = useRef<ProximityAudio | null>(null);
-  const ytPreviewMapRef                              = useRef<Map<string, string>>(new Map()); // songId → youtubeUrl
-  const [proximityNowPlaying, setProximityNowPlaying] = useState<string | null>(null); // song label
-  const proximityNowPlayingRef                        = useRef<string | null>(null);
-  const PROX_AUDIO_DIST = 120; // units — start hearing at this distance
+  // ── Proximity Audio (multi-track spatial mix) ─────────────────────────────────
+  const [proximityAudioOn, setProximityAudioOn]       = useState(false);
+  const proximityAudioRef                              = useRef<MultiProximityAudio | null>(null);
+  const ytPreviewMapRef                                = useRef<Map<string, string>>(new Map()); // songId → youtubeUrl
+  const [proximityNowPlaying, setProximityNowPlaying]  = useState<string | null>(null);
+  const proximityNowPlayingRef                         = useRef<string | null>(null);
+  const [proximityAudioDist, setProximityAudioDist]    = useState(120); // configurable falloff distance
+  const proximityAudioDistRef                          = useRef(120);
+  useEffect(() => { proximityAudioDistRef.current = proximityAudioDist; }, [proximityAudioDist]);
+
+  // ── Fly Mode (WASD + right-drag camera) ───────────────────────────────────────
+  const [flyModeOn, setFlyModeOn]   = useState(false);
+  const flyModeRef                  = useRef(false);
+  const keysHeldRef                 = useRef(new Set<string>());
+  const rightDragRef                = useRef(false);
+  const prevMouseRef                = useRef({ x: 0, y: 0 });
   const toggleAlbumType = (type: string) => {
     setSelectedAlbumTypes(prev =>
       prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
@@ -1323,6 +1332,95 @@ export default function CinemaPage() {
 
   // Dispose proximity audio on unmount
   useEffect(() => () => { proximityAudioRef.current?.dispose(); }, []);
+
+  // Sync fly mode ref + disable TrackballControls right-click pan when fly mode on
+  useEffect(() => {
+    flyModeRef.current = flyModeOn;
+    const ctrl = fgRef.current?.controls?.() as Record<string, unknown> | undefined;
+    if (ctrl) ctrl['noPan'] = flyModeOn; // disable TC right-click pan so our right-drag works
+    if (!flyModeOn) {
+      keysHeldRef.current.clear();
+      rightDragRef.current = false;
+    }
+  }, [flyModeOn]);
+
+  // Keyboard events for fly mode WASD
+  useEffect(() => {
+    if (!flyModeOn) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement).matches?.('input,textarea,[contenteditable="true"]')) return;
+      const k = e.key.toLowerCase();
+      keysHeldRef.current.add(k);
+      if (['w','s','a','d','q','e',' '].includes(k)) e.preventDefault();
+    };
+    const onKeyUp = (e: KeyboardEvent) => { keysHeldRef.current.delete(e.key.toLowerCase()); };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup',   onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup',   onKeyUp);
+      keysHeldRef.current.clear();
+    };
+  }, [flyModeOn]);
+
+  // Right-drag orbit + scroll zoom — attach directly to the renderer canvas
+  useEffect(() => {
+    if (!flyModeOn) return;
+    const canvas = fgRef.current?.renderer?.()?.domElement as HTMLCanvasElement | undefined;
+    if (!canvas) return;
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 2) return;
+      e.preventDefault();
+      rightDragRef.current = true;
+      prevMouseRef.current = { x: e.clientX, y: e.clientY };
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      if (!rightDragRef.current) return;
+      const dx = e.clientX - prevMouseRef.current.x;
+      const dy = e.clientY - prevMouseRef.current.y;
+      prevMouseRef.current = { x: e.clientX, y: e.clientY };
+      const cam  = fgRef.current?.camera?.()  as THREE.Camera | undefined;
+      const ctrl = fgRef.current?.controls?.() as { target: THREE.Vector3 } | undefined;
+      if (!cam || !ctrl) return;
+      const SENS = 0.004;
+      const offset = (cam as THREE.PerspectiveCamera).position.clone().sub(ctrl.target);
+      const sph = new THREE.Spherical().setFromVector3(offset);
+      sph.theta -= dx * SENS;
+      sph.phi   -= dy * SENS;
+      sph.phi = Math.max(0.05, Math.min(Math.PI - 0.05, sph.phi));
+      offset.setFromSpherical(sph);
+      (cam as THREE.PerspectiveCamera).position.copy(ctrl.target).add(offset);
+      cam.lookAt(ctrl.target);
+    };
+    const onMouseUp  = (e: MouseEvent) => { if (e.button === 2) rightDragRef.current = false; };
+    const onContextMenu = (e: MouseEvent) => e.preventDefault();
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const cam  = fgRef.current?.camera?.()  as THREE.PerspectiveCamera | undefined;
+      const ctrl = fgRef.current?.controls?.() as { target: THREE.Vector3 } | undefined;
+      if (!cam || !ctrl) return;
+      const dir = cam.position.clone().sub(ctrl.target).normalize();
+      cam.position.addScaledVector(dir, e.deltaY * 0.25);
+    };
+
+    canvas.addEventListener('mousedown',   onMouseDown);
+    window.addEventListener('mousemove',   onMouseMove);
+    window.addEventListener('mouseup',     onMouseUp);
+    canvas.addEventListener('contextmenu', onContextMenu);
+    canvas.addEventListener('wheel',       onWheel, { passive: false });
+
+    return () => {
+      canvas.removeEventListener('mousedown',   onMouseDown);
+      window.removeEventListener('mousemove',   onMouseMove);
+      window.removeEventListener('mouseup',     onMouseUp);
+      canvas.removeEventListener('contextmenu', onContextMenu);
+      canvas.removeEventListener('wheel',       onWheel);
+      rightDragRef.current = false;
+    };
+  // simReady ensures the canvas exists when this runs
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flyModeOn, simReady]);
 
   // ── Scene activation ──────────────────────────────────────────────────────────
 
@@ -2008,36 +2106,69 @@ export default function CinemaPage() {
           if (raw >= 1) orbitAnimRef.current = null;
         }
 
+        // ── Fly mode WASD movement ───────────────────────────────────────────────
+        if (flyModeRef.current && camera && ctrl) {
+          const keys = keysHeldRef.current;
+          if (keys.size > 0) {
+            const speed = keys.has('shift') ? 5 : 1.5;
+            const forward = new THREE.Vector3();
+            (camera as THREE.PerspectiveCamera).getWorldDirection(forward);
+            const worldUp = new THREE.Vector3(0, 1, 0);
+            const right   = new THREE.Vector3().crossVectors(forward, worldUp).normalize();
+            const delta   = new THREE.Vector3();
+            if (keys.has('w') || keys.has('arrowup'))    delta.addScaledVector(forward,  speed);
+            if (keys.has('s') || keys.has('arrowdown'))  delta.addScaledVector(forward, -speed);
+            if (keys.has('a') || keys.has('arrowleft'))  delta.addScaledVector(right,   -speed);
+            if (keys.has('d') || keys.has('arrowright')) delta.addScaledVector(right,    speed);
+            if (keys.has('q') || keys.has('r'))          delta.y += speed;
+            if (keys.has('e') || keys.has('f'))          delta.y -= speed;
+            if (delta.lengthSq() > 0) {
+              (camera as THREE.PerspectiveCamera).position.add(delta);
+              (ctrl as { target: THREE.Vector3 }).target.add(delta);
+            }
+          }
+        }
+        // ────────────────────────────────────────────────────────────────────────
+
         // Proximity label opacity
         if (camera) {
           const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
 
-          // ── Proximity audio ───────────────────────────────────────────────────
+          // ── Proximity audio (multi-track spatial mix) ─────────────────────────
           if (proximityAudioRef.current) {
-            let nearestUrl: string | null = null;
-            let nearestLabel: string | null = null;
-            let nearestDist = Infinity;
+            const audioEntries   = new Map<string, number>();
+            const videoIdToLabel = new Map<string, string>();
+            const threshold = proximityAudioDistRef.current;
+
             for (const n of simNodesRef.current) {
               if (n.type !== 'song' || n.x == null) continue;
               const songId = n.id.slice('song:'.length);
-              const url = ytPreviewMapRef.current.get(songId);
+              const url    = ytPreviewMapRef.current.get(songId);
               if (!url) continue;
+              const videoId = url.match(/(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{11})/)?.[1];
+              if (!videoId) continue;
+              videoIdToLabel.set(videoId, n.label);
+
               const dx = (n.x ?? 0) - cx, dy = (n.y ?? 0) - cy, dz = (n.z ?? 0) - cz;
-              const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-              if (d < nearestDist) { nearestDist = d; nearestUrl = url; nearestLabel = n.label; }
+              const d  = Math.sqrt(dx * dx + dy * dy + dz * dz);
+              if (d < threshold + 40) { // +40 for smooth fade-out margin beyond edge
+                const raw = Math.max(0, 1 - d / threshold);
+                audioEntries.set(videoId, raw * raw); // quadratic falloff: softer at edges
+              }
             }
-            const threshold = PROX_AUDIO_DIST;
-            const vol = nearestUrl && nearestDist < threshold
-              ? Math.max(0, 1 - nearestDist / threshold)
-              : 0;
-            proximityAudioRef.current.update(vol > 0.02 ? nearestUrl : null, vol);
-            const newLabel = vol > 0.05 ? nearestLabel : null;
+
+            const activeIds = proximityAudioRef.current.update(audioEntries);
+            const labels = activeIds
+              .map(id => videoIdToLabel.get(id) ?? '').filter(Boolean);
+            const newLabel = labels.length === 0 ? null
+              : labels.length === 1 ? (labels[0] ?? null)
+              : `${labels.slice(0, 2).join(', ')}${labels.length > 2 ? ` +${labels.length - 2}` : ''}`;
             if (newLabel !== proximityNowPlayingRef.current) {
               proximityNowPlayingRef.current = newLabel;
               setProximityNowPlaying(newLabel);
             }
           }
-          // ─────────────────────────────────────────────────────────────────────
+          // ────────────────────────────────────────────────────────────────────
 
           const ld = labelDistancesRef.current;
           // Build O(1) lookups for effective chain + soft-selected (covers tour mode too)
@@ -3522,7 +3653,26 @@ export default function CinemaPage() {
             <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-none
               flex items-center gap-1.5 bg-black/70 border border-green-800/50 rounded-full px-3 py-1 backdrop-blur-sm">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />
-              <span className="text-[10px] text-green-300 truncate max-w-[160px]">{proximityNowPlaying}</span>
+              <span className="text-[10px] text-green-300 truncate max-w-[220px]">{proximityNowPlaying}</span>
+            </div>
+          )}
+
+          {/* Fly mode controls overlay */}
+          {flyModeOn && (
+            <div className="absolute top-14 right-4 z-30 pointer-events-none
+              bg-black/75 border border-blue-800/50 rounded-xl px-3 py-2.5 backdrop-blur-sm">
+              <div className="text-[10px] font-bold text-blue-300 mb-1.5 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                Fly Mode
+              </div>
+              <div className="space-y-0.5 text-[9px] text-blue-200/60">
+                <div><span className="text-blue-300/80 font-mono">W/S</span> — forward / back</div>
+                <div><span className="text-blue-300/80 font-mono">A/D</span> — strafe left / right</div>
+                <div><span className="text-blue-300/80 font-mono">Q/E</span> — up / down</div>
+                <div><span className="text-blue-300/80 font-mono">Right-drag</span> — look around</div>
+                <div><span className="text-blue-300/80 font-mono">Scroll</span> — zoom</div>
+                <div><span className="text-blue-300/80 font-mono">Shift</span> — 3× speed</div>
+              </div>
             </div>
           )}
 
@@ -3601,29 +3751,59 @@ export default function CinemaPage() {
                 🧬 DNA ✕
               </button>
             )}
+            {/* Proximity audio toggle + falloff slider */}
+            <div className="flex items-center gap-1">
+              <button
+                title={proximityAudioOn ? 'Proximity Audio ON (multi-track mix) — click to turn off' : 'Proximity Audio — songs play as you approach nodes, multiple mix together'}
+                onClick={() => {
+                  if (!proximityAudioOn) {
+                    const pa = new MultiProximityAudio();
+                    pa.init();
+                    proximityAudioRef.current = pa;
+                    setProximityAudioOn(true);
+                  } else {
+                    proximityAudioRef.current?.dispose();
+                    proximityAudioRef.current = null;
+                    setProximityAudioOn(false);
+                    setProximityNowPlaying(null);
+                    proximityNowPlayingRef.current = null;
+                  }
+                }}
+                className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
+                  proximityAudioOn
+                    ? 'bg-green-900/60 border-green-700/60 text-green-300'
+                    : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+                }`}
+              >
+                🎵{proximityAudioOn ? ' ●' : ''}
+              </button>
+              {proximityAudioOn && (
+                <div className="flex items-center gap-1 bg-gray-900/80 border border-gray-700 rounded-lg px-2 py-1 backdrop-blur-sm">
+                  <span className="text-[9px] text-gray-500 leading-none">zone</span>
+                  <input
+                    type="range" min={40} max={400} step={20}
+                    value={proximityAudioDist}
+                    onChange={e => setProximityAudioDist(Number(e.target.value))}
+                    className="w-14 h-1 accent-green-500 cursor-pointer"
+                    title={`Audio falloff zone: ${proximityAudioDist} units`}
+                  />
+                  <span className="text-[9px] text-gray-500 w-5 leading-none">{proximityAudioDist}</span>
+                </div>
+              )}
+            </div>
+            {/* Fly mode — WASD + right-drag camera */}
             <button
-              title={proximityAudioOn ? 'Proximity Audio ON — click to turn off' : 'Proximity Audio — hear songs as you approach nodes'}
-              onClick={() => {
-                if (!proximityAudioOn) {
-                  const pa = new ProximityAudio();
-                  pa.init();
-                  proximityAudioRef.current = pa;
-                  setProximityAudioOn(true);
-                } else {
-                  proximityAudioRef.current?.dispose();
-                  proximityAudioRef.current = null;
-                  setProximityAudioOn(false);
-                  setProximityNowPlaying(null);
-                  proximityNowPlayingRef.current = null;
-                }
-              }}
+              title={flyModeOn
+                ? 'Fly Mode ON — WASD strafe · right-drag look · Q/E up-down · Shift=fast. Click to exit'
+                : 'Fly Mode — WoW-style keyboard + mouse camera control'}
+              onClick={() => setFlyModeOn(v => !v)}
               className={`text-xs border backdrop-blur-sm transition-colors px-3 py-1.5 rounded-lg ${
-                proximityAudioOn
-                  ? 'bg-green-900/60 border-green-700/60 text-green-300'
+                flyModeOn
+                  ? 'bg-blue-900/60 border-blue-700/60 text-blue-300'
                   : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
               }`}
             >
-              🎵{proximityAudioOn ? ' ●' : ''}
+              ⌨{flyModeOn ? ' ●' : ''}
             </button>
             <button
               onClick={() => { setShowBandPicker(v => !v); setShowControls(false); setShowDirector(false); setShowPlaylist(false); setShowTourPlanner(false); setShowAiDirector(false); setShowSetlistPanel(false); }}
