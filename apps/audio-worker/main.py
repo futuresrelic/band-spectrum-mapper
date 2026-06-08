@@ -141,16 +141,16 @@ async def analyze_youtube(body: YouTubeRequest):
         log.info("Downloading YouTube audio from %s", url)
 
         # Build yt-dlp command.
-        # --extractor-args "youtube:player_client=ios" avoids the bot-detection
-        # challenge that Railway/server IPs trigger when using the default web client.
+        # player_client=android avoids both bot-detection and the GVS PO Token
+        # requirement that YouTube now enforces for the iOS client on server IPs.
+        # mweb is used as a fallback; android does not require a PO token.
         cmd = [
             "yt-dlp",
             "-x",                                        # extract audio only
             "--audio-format", "mp3",                     # convert to mp3
             "--audio-quality", "0",                      # best quality
             "--no-playlist",                             # single video only
-            "--js-runtimes", "node",                     # nodejs JS runtime
-            "--extractor-args", "youtube:player_client=ios",  # bypass bot check
+            "--extractor-args", "youtube:player_client=android,mweb",
             "-o", output_template,
         ]
 
