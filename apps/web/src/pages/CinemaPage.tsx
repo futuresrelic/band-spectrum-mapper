@@ -28,6 +28,7 @@ import { buildAdj, computeArrangeTargets, animateArrange, easeInOutQuad, easeInO
 import { CINEMA_SCENES } from '../cinema/sceneDefinitions';
 import { initOrbitState, updateOrbitCamera, type OrbitCameraState } from '../cinema/orbitCamera';
 import type { CinemaNode, CinemaLink, CinemaControls, TourStep, CinemaKeyframe, NodeSequence } from '../cinema/types';
+import SongHolodeck from '../cinema/SongHolodeck';
 import { DEFAULT_CINEMA_CONTROLS } from '../cinema/types';
 import { CINEMA_THEMES, getTheme, DEFAULT_THEME_ID, type CinemaTheme } from '../cinema/themes';
 import { buildRailWaypoints, RAIL_DEFS, type RailType } from '../cinema/cameraRails';
@@ -396,6 +397,10 @@ export default function CinemaPage() {
   const [selectedNodeTags, setSelectedNodeTags] = useState<{ name: string; description: string }[]>([]);
   const [simNodes, setSimNodes]               = useState<CinemaNode[]>([]);
   const [simLinks, setSimLinks]               = useState<CinemaLink[]>([]);
+
+  // Song Holodeck — immersive per-song exploration overlay
+  const [songFocusMode, setSongFocusMode]     = useState(false);
+  const [holodeckNeighbors, setHolodeckNeighbors] = useState<CinemaNode[]>([]);
 
   // Fetch tags with descriptions when a song node is selected
   useEffect(() => {
@@ -5876,6 +5881,25 @@ export default function CinemaPage() {
                 </div>
               )}
 
+              {/* Song Holodeck — deep-dive overlay for song nodes */}
+              {selectedNode.id.startsWith('song:') && (
+                <div className="mb-3 border-t border-gray-800 pt-2">
+                  <button
+                    onClick={() => {
+                      const neighborIds = adjRef.current.get(selectedNode.id) ?? new Set<string>();
+                      const neighbors = [...neighborIds]
+                        .map((id) => nodeMapRef.current.get(id))
+                        .filter((n): n is CinemaNode => n != null);
+                      setHolodeckNeighbors(neighbors);
+                      setSongFocusMode(true);
+                    }}
+                    className="w-full text-[10px] bg-cyan-900/50 hover:bg-cyan-800/60 text-cyan-300 rounded px-2 py-1.5 transition-colors text-center font-semibold"
+                  >
+                    🔭 Enter Song Holodeck
+                  </button>
+                </div>
+              )}
+
               {/* Tags with descriptions — song nodes only */}
               {selectedNode.id.startsWith('song:') && selectedNodeTags.length > 0 && (
                 <div className="space-y-2 mb-3 border-t border-gray-800 pt-2">
@@ -6459,6 +6483,15 @@ export default function CinemaPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* ── Song Holodeck overlay ───────────────────────────────────────── */}
+      {songFocusMode && selectedNode && selectedNode.id.startsWith('song:') && (
+        <SongHolodeck
+          node={selectedNode}
+          neighborNodes={holodeckNeighbors}
+          onClose={() => setSongFocusMode(false)}
+        />
       )}
     </div>
   );
