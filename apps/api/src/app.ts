@@ -34,6 +34,8 @@ import { gameRouter } from './routes/game.js';
 import { triviaRouter } from './routes/trivia.js';
 import { wordHuntRouter } from './routes/wordHunt.js';
 import { lyricChainRouter } from './routes/lyricChain.js';
+import { lyricDissectionRouter } from './routes/lyricDissection.js';
+import { timelineRouter } from './routes/timeline.js';
 import { spectrumStudioRouter } from './routes/spectrumStudio.js';
 import { nodeSequencesRouter } from './routes/nodeSequences.js';
 import { cinemaPersistenceRouter } from './routes/cinemaPersistence.js';
@@ -125,6 +127,12 @@ export function createApp() {
 
   // Lyric Chain game — GET/POST game flow + leaderboard
   app.use('/api/lyric-chain', lyricChainRouter);
+
+  // Lyric Dissection game — word-reveal song-guessing game
+  app.use('/api/lyric-dissection', lyricDissectionRouter);
+
+  // Timeline Challenge — sort albums/songs chronologically
+  app.use('/api/timeline', timelineRouter);
 
   // Cinema node sequences — per-user saved tour paths
   app.use('/api/node-sequences', nodeSequencesRouter);

@@ -52,6 +52,9 @@ import LyricChainPage from './pages/LyricChainPage';
 import LeaderboardPage from './pages/LeaderboardPage';
 import GamesPage from './pages/GamesPage';
 import GraphHuntPage from './pages/GraphHuntPage';
+import LyricDissectionPage from './pages/LyricDissectionPage';
+import TimelinePage from './pages/TimelinePage';
+import Band2048Page from './pages/Band2048Page';
 import SpectrumStudioPage from './pages/SpectrumStudioPage';
 import CinemaPage from './pages/CinemaPage';
 import LyricsUniversePage from './pages/LyricsUniversePage';
@@ -125,6 +128,9 @@ export default function App() {
         <Route path="/play" element={<PlayPage />} />
         <Route path="/play/word-hunt" element={<WordHuntPage />} />
         <Route path="/play/lyric-chain" element={<LyricChainPage />} />
+        <Route path="/play/lyric-dissection" element={<LyricDissectionPage />} />
+        <Route path="/play/timeline" element={<TimelinePage />} />
+        <Route path="/play/2048" element={<Band2048Page />} />
 
         {/* ── ADMIN: full app, isAdmin required ── */}
         <Route
