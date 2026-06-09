@@ -57,6 +57,9 @@ import TimelinePage from './pages/TimelinePage';
 import Band2048Page from './pages/Band2048Page';
 import SpectrumStudioPage from './pages/SpectrumStudioPage';
 import CinemaPage from './pages/CinemaPage';
+import SpectrumGuesserPage from './pages/SpectrumGuesserPage';
+import LyricMatchPage from './pages/LyricMatchPage';
+import AlbumBracketPage from './pages/AlbumBracketPage';
 import LyricsUniversePage from './pages/LyricsUniversePage';
 import LyricsFlowPage from './pages/LyricsFlowPage';
 import AdminDataGridPage from './pages/AdminDataGridPage';
@@ -131,6 +134,9 @@ export default function App() {
         <Route path="/play/lyric-dissection" element={<LyricDissectionPage />} />
         <Route path="/play/timeline" element={<TimelinePage />} />
         <Route path="/play/2048" element={<Band2048Page />} />
+        <Route path="/play/spectrum-guesser" element={<SpectrumGuesserPage />} />
+        <Route path="/play/lyric-match" element={<LyricMatchPage />} />
+        <Route path="/play/bracket" element={<AlbumBracketPage />} />
 
         {/* ── ADMIN: full app, isAdmin required ── */}
         <Route

@@ -27,26 +27,27 @@ export default function SiteHeader({ theme = 'dark', active }: SiteHeaderProps) 
           : 'bg-white/95 border-b border-surface-200'
       }`}
     >
-      <div className="max-w-7xl mx-auto px-6 py-3 flex items-center gap-6">
-        {/* Logo */}
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 flex items-center gap-2 sm:gap-4 min-w-0">
+        {/* Logo — abbreviated on xs, full name on sm+ */}
         <Link
           to="/landing"
           className={`text-sm font-bold tracking-tight shrink-0 transition-colors ${
             isDark ? 'text-white hover:text-gray-300' : 'text-surface-900 hover:text-surface-600'
           }`}
         >
-          Band Spectrum Mapper
+          <span className="hidden sm:inline">Band Spectrum Mapper</span>
+          <span className="sm:hidden font-black">BSM</span>
         </Link>
 
-        {/* Nav */}
-        <nav className="flex items-center gap-1 flex-1">
+        {/* Nav — scrollable on mobile so items never break the viewport */}
+        <nav className="flex items-center gap-0.5 flex-1 overflow-x-auto min-w-0 [scrollbar-width:none] [-webkit-overflow-scrolling:touch]">
           {NAV.map(({ label, to }) => {
             const isActive = active === label.toLowerCase();
             return (
               <Link
                 key={to}
                 to={to}
-                className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
+                className={`px-2 sm:px-3 py-1.5 rounded-md text-xs sm:text-sm whitespace-nowrap transition-colors ${
                   isActive
                     ? isDark
                       ? 'bg-white/10 text-white font-medium'
@@ -62,8 +63,8 @@ export default function SiteHeader({ theme = 'dark', active }: SiteHeaderProps) 
           })}
         </nav>
 
-        {/* User section */}
-        <div className="flex items-center gap-3 shrink-0">
+        {/* User section — name hidden on mobile, just the avatar */}
+        <div className="flex items-center gap-2 shrink-0">
           {user ? (
             <Link
               to="/my/profile"
@@ -82,7 +83,7 @@ export default function SiteHeader({ theme = 'dark', active }: SiteHeaderProps) 
                   {(user.username ?? user.name ?? user.email)[0]?.toUpperCase()}
                 </div>
               )}
-              <span className={`text-sm max-w-[120px] truncate transition-colors ${
+              <span className={`text-sm max-w-[120px] truncate transition-colors hidden sm:block ${
                 isDark
                   ? 'text-gray-300 group-hover:text-white'
                   : 'text-surface-600 group-hover:text-surface-900'
@@ -93,7 +94,7 @@ export default function SiteHeader({ theme = 'dark', active }: SiteHeaderProps) 
           ) : (
             <a
               href="/api/auth/google"
-              className={`text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors ${
+              className={`text-xs sm:text-sm font-semibold px-3 sm:px-4 py-1.5 rounded-lg transition-colors ${
                 isDark
                   ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
                   : 'bg-indigo-600 hover:bg-indigo-500 text-white'

@@ -519,6 +519,109 @@ publicRouter.get('/lyrics-universe', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ---------------------------------------------------------------------------
+// Spectrum Guesser — band average axis scores for the guessing game
+// GET /api/public/spectrum/band-averages?bandIds=id1,id2,...
+// ---------------------------------------------------------------------------
+publicRouter.get('/spectrum/band-averages', async (req, res, next): Promise<void> => {
+  try {
+    const raw = (req.query['bandIds'] as string) ?? '';
+    const bandIds = raw.split(',').map((s) => s.trim()).filter(Boolean);
+    if (!bandIds.length) { res.status(400).json({ error: 'bandIds required' }); return; }
+
+    const [bands, songs] = await Promise.all([
+      prisma.band.findMany({
+        where: { id: { in: bandIds } },
+        select: { id: true, name: true },
+      }),
+      prisma.song.findMany({
+        where: { bandId: { in: bandIds } },
+        select: {
+          bandId: true,
+          score: { select: { aggression: true, complexity: true, atmosphere: true, emotion: true, psychedelic: true, concept: true } },
+        },
+      }),
+    ]);
+
+    const bandMap = new Map(bands.map((b) => [b.id, b.name]));
+    const grouped = new Map<string, { aggression: number; complexity: number; atmosphere: number; emotion: number; psychedelic: number; concept: number }[]>();
+    for (const s of songs) {
+      if (!s.score) continue;
+      const arr = grouped.get(s.bandId) ?? [];
+      arr.push(s.score);
+      grouped.set(s.bandId, arr);
+    }
+
+    const result = bandIds
+      .filter((id) => bandMap.has(id))
+      .map((id) => {
+        const name = bandMap.get(id)!;
+        const scores = grouped.get(id) ?? [];
+        if (!scores.length) return { bandId: id, name, averages: null, songCount: 0 };
+        const n = scores.length;
+        return {
+          bandId: id, name, songCount: n,
+          averages: {
+            aggression:  scores.reduce((s, r) => s + r.aggression,  0) / n,
+            complexity:  scores.reduce((s, r) => s + r.complexity,  0) / n,
+            atmosphere:  scores.reduce((s, r) => s + r.atmosphere,  0) / n,
+            emotion:     scores.reduce((s, r) => s + r.emotion,     0) / n,
+            psychedelic: scores.reduce((s, r) => s + r.psychedelic, 0) / n,
+            concept:     scores.reduce((s, r) => s + r.concept,     0) / n,
+          },
+        };
+      });
+
+    res.json(result); return;
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// Lyric Match — pairs of lyric snippets + song titles for the matching game
+// GET /api/public/lyric-match/round?bandIds=id1,id2&count=5
+// ---------------------------------------------------------------------------
+publicRouter.get('/lyric-match/round', async (req, res, next): Promise<void> => {
+  try {
+    const raw = (req.query['bandIds'] as string) ?? '';
+    const countParam = parseInt((req.query['count'] as string) ?? '5', 10);
+    const count = Math.max(3, Math.min(8, isNaN(countParam) ? 5 : countParam));
+    const bandIds = raw.split(',').map((s) => s.trim()).filter(Boolean);
+
+    const songs = await prisma.song.findMany({
+      where: {
+        ...(bandIds.length ? { bandId: { in: bandIds } } : {}),
+        isInstrumental: false,
+        lyrics: { some: { isPrimary: true } },
+      },
+      select: {
+        id: true,
+        title: true,
+        lyrics: { where: { isPrimary: true }, select: { text: true }, take: 1 },
+      },
+    });
+
+    const withLyrics = songs.filter((s) => (s.lyrics[0]?.text ?? '').trim().length > 30);
+    if (withLyrics.length < count) {
+      res.status(400).json({ error: 'Not enough songs with lyrics for this selection' }); return;
+    }
+
+    const shuffled = [...withLyrics].sort(() => Math.random() - 0.5).slice(0, count);
+
+    const pairs = shuffled.map((s) => {
+      const text = s.lyrics[0]?.text ?? '';
+      const lines = text.split('\n').map((l) => l.trim()).filter((l) => l.length >= 8);
+      const start = Math.floor(lines.length * 0.15);
+      const end   = Math.floor(lines.length * 0.85);
+      const pool  = lines.slice(Math.max(0, start), Math.max(1, end));
+      const line  = pool[Math.floor(Math.random() * pool.length)] ?? lines[0] ?? '...';
+      const snippet = line.length > 65 ? line.slice(0, 63) + '…' : line;
+      return { songId: s.id, title: s.title, snippet };
+    });
+
+    res.json({ pairs }); return;
+  } catch (e) { next(e); }
+});
+
 // ── AI Director ────────────────────────────────────────────────────────────────
 // POST /api/public/cinema-ai
 // Interprets a natural-language prompt and returns Cinema scene settings.

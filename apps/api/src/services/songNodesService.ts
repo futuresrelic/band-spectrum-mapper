@@ -621,7 +621,7 @@ export async function listScopeOptions() {
   const [bands, albums] = await Promise.all([
     prisma.band.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
     prisma.album.findMany({
-      select: { id: true, title: true, year: true, band: { select: { id: true, name: true } } },
+      select: { id: true, title: true, year: true, artworkUrl: true, band: { select: { id: true, name: true } } },
       orderBy: [{ band: { name: 'asc' } }, { year: 'asc' }],
     }),
   ]);

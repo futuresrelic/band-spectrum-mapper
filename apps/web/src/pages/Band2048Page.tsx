@@ -30,6 +30,7 @@ interface TileLevel {
   sub: string;
   bg: string;
   text: string;
+  artworkUrl?: string;
 }
 
 const GRID_SIZE = 4;
@@ -184,7 +185,7 @@ function useSwipe(onSwipe: (dir: Direction) => void) {
 // Tile label helpers
 // ---------------------------------------------------------------------------
 
-function makeLevels(albums: { id: string; title: string; bandName: string; year: number }[]): TileLevel[] {
+function makeLevels(albums: { id: string; title: string; bandName: string; year: number; artworkUrl?: string | null }[]): TileLevel[] {
   const sorted = albums.slice().sort((a, b) => a.year - b.year);
   const levels: TileLevel[] = [
     { level: 1, label: '♫', sub: 'Demo', bg: '', text: '' },
@@ -195,6 +196,7 @@ function makeLevels(albums: { id: string; title: string; bandName: string; year:
       label: album.title.length > 16 ? album.title.slice(0, 14) + '…' : album.title,
       sub:   `${album.bandName} · ${album.year}`,
       bg: '', text: '',
+      ...(album.artworkUrl ? { artworkUrl: album.artworkUrl } : {}),
     });
   });
   return levels;
@@ -209,6 +211,26 @@ function Tile({ level, levels }: { level: number; levels: TileLevel[] }) {
   const pal = palette(level);
   const label = tl?.label ?? String(level);
   const sub   = tl?.sub   ?? '';
+  const art   = tl?.artworkUrl;
+
+  if (art) {
+    return (
+      <div
+        className="w-full aspect-square flex flex-col items-end justify-end rounded-xl overflow-hidden relative select-none"
+        style={{ backgroundImage: `url(${art})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
+        <div className="relative z-10 w-full p-1">
+          <span className={`block font-black leading-tight text-center text-white drop-shadow ${label.length > 10 ? 'text-[9px]' : label.length > 6 ? 'text-[10px]' : 'text-[11px]'}`}>
+            {label}
+          </span>
+          {sub && (
+            <span className="block text-[7px] text-white/60 text-center mt-0.5 leading-tight line-clamp-2">{sub}</span>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`w-full aspect-square flex flex-col items-center justify-center rounded-xl ${pal.bg} ${pal.text} transition-all select-none p-1`}>
@@ -302,7 +324,7 @@ export default function Band2048Page() {
     queryKey: ['band2048-scopes'],
     queryFn:  () => api.get<{
       bands:  { id: string; name: string }[];
-      albums: { id: string; title: string; year: number | null; band: { id: string; name: string } }[];
+      albums: { id: string; title: string; year: number | null; artworkUrl: string | null; band: { id: string; name: string } }[];
     }>('/api/public/graph/scopes'),
   });
 
@@ -310,7 +332,10 @@ export default function Band2048Page() {
 
   const selectedAlbums = (scopes?.albums ?? [])
     .filter((a) => selectedBandIds.includes(a.band.id) && a.year != null)
-    .map((a) => ({ id: a.id, title: a.title, bandName: a.band.name, year: a.year! }))
+    .map((a) => ({
+      id: a.id, title: a.title, bandName: a.band.name, year: a.year!,
+      ...(a.artworkUrl ? { artworkUrl: a.artworkUrl } : {}),
+    }))
     .sort((a, b) => a.year - b.year);
 
   function startGame() {
@@ -451,9 +476,10 @@ export default function Band2048Page() {
               </div>
             )}
 
-            {/* Grid */}
+            {/* Grid — touchAction:none stops the page from scrolling on swipe */}
             <div
               className="bg-gray-900 rounded-2xl p-2 select-none"
+              style={{ touchAction: 'none' }}
               {...swipeHandlers}
             >
               <div className="grid grid-cols-4 gap-2">

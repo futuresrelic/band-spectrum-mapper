@@ -94,28 +94,48 @@ const GAMES = [
     btnColor: 'bg-indigo-700 hover:bg-indigo-600',
     accentText: 'text-indigo-400',
   },
-];
-
-const COMING_SOON = [
   {
     id: 'spectrum-guesser',
     icon: '📡',
     title: 'Spectrum Guesser',
-    desc: "A radar chart of a band's 6-axis psychological profile appears with no name. Identify the band from their sonic fingerprint alone.",
+    subtitle: 'Read the sonic fingerprint',
+    desc: "A radar chart of a band's 6-axis psychological profile appears with no name. Identify the band from their sonic fingerprint alone — 5 rounds, 20 seconds each.",
+    rules: ['Radar profile shown, no name revealed', 'Pick the correct band from 4 options', 'Faster answers score more points'],
+    href: '/play/spectrum-guesser',
+    cta: 'Guess the Spectrum',
+    color: 'border-blue-500/40 hover:border-blue-400/70',
+    btnColor: 'bg-blue-700 hover:bg-blue-600',
+    accentText: 'text-blue-400',
   },
   {
     id: 'lyric-match',
     icon: '🧩',
     title: 'Lyric Match',
-    desc: "Two columns: lyric fragments on the left, song titles on the right. Connect each lyric to its song as fast as possible.",
+    subtitle: 'Connect lyric to song',
+    desc: "Two columns: lyric fragments on the left, song titles on the right. Connect each lyric to its song as fast as possible. 5 rounds of 5 pairs each.",
+    rules: ['Click a lyric, then its matching song title', '-200 pts per wrong connection', 'Time penalty: -2 pts per second'],
+    href: '/play/lyric-match',
+    cta: 'Match Lyrics',
+    color: 'border-amber-500/40 hover:border-yellow-400/70',
+    btnColor: 'bg-yellow-700 hover:bg-yellow-600',
+    accentText: 'text-yellow-400',
   },
   {
     id: 'album-bracket',
     icon: '🏟️',
     title: 'Album Bracket',
-    desc: "Head-to-head tournament of albums. Vote for your favourite in each round until one reigns supreme.",
+    subtitle: 'Vote your champion',
+    desc: "Head-to-head knockout tournament of albums. Vote for your favourite in each round until one reigns supreme. Build brackets from any selection of bands.",
+    rules: ['Click an album to vote it through', 'Bracket sizes: 4, 8, or 16 albums', 'Full results shown at the end'],
+    href: '/play/bracket',
+    cta: 'Start Bracket',
+    color: 'border-rose-500/40 hover:border-rose-400/70',
+    btnColor: 'bg-rose-700 hover:bg-rose-600',
+    accentText: 'text-rose-400',
   },
 ];
+
+const COMING_SOON: { id: string; icon: string; title: string; desc: string }[] = [];
 
 export default function GamesPage() {
   const { user } = useAuth();
@@ -129,7 +149,7 @@ export default function GamesPage() {
         <div className="mb-10 text-center">
           <h1 className="text-4xl font-bold mb-3">Games</h1>
           <p className="text-gray-400 text-lg max-w-xl mx-auto">
-            Seven ways to put your music knowledge to the test. Sign in to save scores and compete on the leaderboard.
+            Ten ways to put your music knowledge to the test. Sign in to save scores and compete on the leaderboard.
           </p>
           {!user && (
             <a
@@ -172,19 +192,21 @@ export default function GamesPage() {
           ))}
         </div>
 
-        {/* Coming Soon */}
-        <div className="mb-10">
-          <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-600 mb-4">Coming Soon</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {COMING_SOON.map((g) => (
-              <div key={g.id} className="rounded-xl bg-gray-900/60 border border-gray-800 p-5 opacity-60">
-                <div className="text-2xl mb-2">{g.icon}</div>
-                <div className="text-sm font-semibold text-gray-400 mb-1">{g.title}</div>
-                <p className="text-xs text-gray-600 leading-relaxed">{g.desc}</p>
-              </div>
-            ))}
+        {/* Coming Soon — only shown if list is non-empty */}
+        {COMING_SOON.length > 0 && (
+          <div className="mb-10">
+            <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-600 mb-4">Coming Soon</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {COMING_SOON.map((g) => (
+                <div key={g.id} className="rounded-xl bg-gray-900/60 border border-gray-800 p-5 opacity-60">
+                  <div className="text-2xl mb-2">{g.icon}</div>
+                  <div className="text-sm font-semibold text-gray-400 mb-1">{g.title}</div>
+                  <p className="text-xs text-gray-600 leading-relaxed">{g.desc}</p>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Leaderboard CTA */}
         <div className="rounded-2xl bg-gray-900 border border-gray-800 p-6 flex items-center justify-between gap-4 flex-wrap">
