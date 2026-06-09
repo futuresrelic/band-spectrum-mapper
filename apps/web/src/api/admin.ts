@@ -56,12 +56,29 @@ export type SongWithoutScore = {
   bandName: string;
 };
 
+export type AlbumWithoutArtwork = {
+  id: string;
+  title: string;
+  year: number | null;
+  bandName: string;
+  songCount: number;
+};
+
+export type AlbumWithoutYear = {
+  id: string;
+  title: string;
+  bandName: string;
+  songCount: number;
+};
+
 export type DbHealthReport = {
   unlinkedSongs: UnlinkedSong[];
   emptyAlbums: EmptyAlbum[];
   emptyBands: EmptyBand[];
   duplicateTrackNumbers: DuplicateTrackGroup[];
   songsWithoutScores: SongWithoutScore[];
+  albumsWithoutArtwork: AlbumWithoutArtwork[];
+  albumsWithoutYear: AlbumWithoutYear[];
 };
 
 export type CleanupResults = {

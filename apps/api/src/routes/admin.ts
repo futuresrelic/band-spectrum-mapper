@@ -234,7 +234,7 @@ adminRouter.post('/db-migrate', async (_req, res, next) => {
 
 adminRouter.get('/db-health', async (_req, res, next) => {
   try {
-    const [unlinkedSongs, emptyAlbums, emptyBands, songsWithoutScores] = await Promise.all([
+    const [unlinkedSongs, emptyAlbums, emptyBands, songsWithoutScores, albumsWithoutArtwork, albumsWithoutYear] = await Promise.all([
       prisma.song.findMany({
         where: { albumId: null },
         select: {
@@ -263,6 +263,24 @@ adminRouter.get('/db-health', async (_req, res, next) => {
           id: true, title: true, slug: true,
           band: { select: { name: true } },
           album: { select: { title: true } },
+        },
+        orderBy: [{ band: { name: 'asc' } }, { title: 'asc' }],
+      }),
+      prisma.album.findMany({
+        where: { artworkUrl: null, songs: { some: {} } },
+        select: {
+          id: true, title: true, year: true,
+          band: { select: { name: true } },
+          _count: { select: { songs: true } },
+        },
+        orderBy: [{ band: { name: 'asc' } }, { title: 'asc' }],
+      }),
+      prisma.album.findMany({
+        where: { year: null, songs: { some: {} } },
+        select: {
+          id: true, title: true,
+          band: { select: { name: true } },
+          _count: { select: { songs: true } },
         },
         orderBy: [{ band: { name: 'asc' } }, { title: 'asc' }],
       }),
@@ -334,6 +352,14 @@ adminRouter.get('/db-health', async (_req, res, next) => {
         slug: s.slug,
         albumTitle: s.album?.title ?? null,
         bandName: s.band.name,
+      })),
+      albumsWithoutArtwork: albumsWithoutArtwork.map((a) => ({
+        id: a.id, title: a.title, year: a.year ?? null,
+        bandName: a.band.name, songCount: a._count.songs,
+      })),
+      albumsWithoutYear: albumsWithoutYear.map((a) => ({
+        id: a.id, title: a.title,
+        bandName: a.band.name, songCount: a._count.songs,
       })),
     });
   } catch (e) { next(e); }

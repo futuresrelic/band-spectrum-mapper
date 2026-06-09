@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
   adminApi,
   type AlbumOption,
@@ -437,6 +438,88 @@ export default function AdminDbHealthPage() {
             )}
             {report.songsWithoutScores.length === 0 && (
               <p className="text-xs text-surface-500">All songs have spectrum scores.</p>
+            )}
+          </section>
+
+          {/* ── Albums without artwork ── */}
+          <section className="bg-surface-850 rounded-lg p-5 border border-surface-700">
+            <SectionHeader
+              label="Albums without artwork"
+              count={report.albumsWithoutArtwork.length}
+              note="Albums with songs but no cover art stored — affects Band 2048 tiles and library display"
+            />
+            {report.albumsWithoutArtwork.length > 0 && (
+              <>
+                <div className="flex items-center gap-3 mb-3">
+                  <Link
+                    to="/admin/missing-artwork"
+                    className="px-3 py-1.5 rounded bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-500 transition-colors"
+                  >
+                    Fix artwork in Missing Art page →
+                  </Link>
+                </div>
+                <SimpleTable
+                  cols={['Band', 'Album', 'Year', 'Songs']}
+                  rows={report.albumsWithoutArtwork.slice(0, 15).map((a) => [
+                    a.bandName, a.title, a.year != null ? String(a.year) : '—', String(a.songCount),
+                  ])}
+                />
+                {report.albumsWithoutArtwork.length > 15 && (
+                  <p className="text-xs text-surface-500 mt-2">
+                    …and {report.albumsWithoutArtwork.length - 15} more.{' '}
+                    <Link to="/admin/missing-artwork" className="text-indigo-400 hover:underline">
+                      View all in Missing Art page →
+                    </Link>
+                  </p>
+                )}
+              </>
+            )}
+            {report.albumsWithoutArtwork.length === 0 && (
+              <p className="text-xs text-surface-500">All albums with songs have artwork.</p>
+            )}
+          </section>
+
+          {/* ── Albums without release year ── */}
+          <section className="bg-surface-850 rounded-lg p-5 border border-surface-700">
+            <SectionHeader
+              label="Albums without release year"
+              count={report.albumsWithoutYear.length}
+              note="Missing year prevents correct ordering in Band 2048 and timeline features"
+            />
+            {report.albumsWithoutYear.length > 0 && (
+              <>
+                <p className="text-xs text-surface-500 mb-3">
+                  Edit each album in the Library to set its year. Click an album name to open it.
+                </p>
+                <table className="w-full text-xs text-surface-300 border-collapse">
+                  <thead>
+                    <tr className="border-b border-surface-700 text-surface-500 text-left">
+                      <th className="pb-1 pr-4 font-normal">Band</th>
+                      <th className="pb-1 pr-4 font-normal">Album</th>
+                      <th className="pb-1 font-normal">Songs</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.albumsWithoutYear.slice(0, 15).map((a) => (
+                      <tr key={a.id} className="border-b border-surface-800">
+                        <td className="py-1 pr-4">{a.bandName}</td>
+                        <td className="py-1 pr-4">
+                          <Link to={`/library/albums/${a.id}`} className="text-indigo-400 hover:underline">
+                            {a.title}
+                          </Link>
+                        </td>
+                        <td className="py-1">{a.songCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {report.albumsWithoutYear.length > 15 && (
+                  <p className="text-xs text-surface-500 mt-2">…and {report.albumsWithoutYear.length - 15} more.</p>
+                )}
+              </>
+            )}
+            {report.albumsWithoutYear.length === 0 && (
+              <p className="text-xs text-surface-500">All albums with songs have a release year.</p>
             )}
           </section>
 
