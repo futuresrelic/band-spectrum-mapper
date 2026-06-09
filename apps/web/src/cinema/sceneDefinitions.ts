@@ -832,4 +832,109 @@ export const CINEMA_SCENES: CinemaScene[] = [
       camera.lookAt(0, 20, 0);
     },
   },
+
+  // ── 25. Lyric Solar System ───────────────────────────────────────────────────
+  {
+    id: 'lyric-solar',
+    name: 'Lyric Solar System',
+    description: 'Songs orbit albums, keywords orbit songs — the full lyrical hierarchy in orbital space',
+    emoji: '☀️',
+    durationMs: 45_000,
+    arrangeMode: 'lyric-solar',
+    enter(fg) {
+      setTimeout(() => fg?.zoomToFit?.(1800, 80), 2000);
+      return {};
+    },
+    tick(fg, _n, _a, elapsedMs, _s, controls) {
+      const camera = getCamera(fg);
+      const ctrl   = getCtrl(fg);
+      if (!camera || !ctrl) return;
+      const angle = elapsedMs * 0.00004 * controls.orbitSpeed;
+      // Slowly oscillate between overhead (top-down) and oblique to show full hierarchy
+      const tilt  = Math.sin(elapsedMs * 0.000025) * 0.5;
+      const dist  = 500;
+      camera.position.x = Math.sin(angle) * dist * (1 - Math.abs(tilt) * 0.3);
+      camera.position.y = dist * Math.sin(tilt) + Math.sin(elapsedMs * 0.00006) * 55;
+      camera.position.z = Math.cos(angle) * dist * (1 - Math.abs(tilt) * 0.3);
+      ctrl.target.x = 0; ctrl.target.y = 0; ctrl.target.z = 0;
+      camera.lookAt(0, 0, 0);
+    },
+  },
+
+  // ── 26. Chronological Tour ───────────────────────────────────────────────────
+  {
+    id: 'chrono-orbit',
+    name: 'Chronological Tour',
+    description: 'Artist → albums in release order → songs — a guided journey through the full discography',
+    emoji: '📅',
+    durationMs: 60_000,
+    arrangeMode: 'solar-system',
+    enter(fg, nodes, adj): OrbitTourState {
+      const artists = nodes.filter(n => n.type === 'artist');
+      const albums  = nodes.filter(n => n.type === 'album');
+      const songs   = nodes.filter(n => n.type === 'song');
+
+      // Sort albums by release year
+      const sortedAlbums = [...albums].sort((a, b) => {
+        const ay = (a.data?.year as number | undefined) ?? 9999;
+        const by = (b.data?.year as number | undefined) ?? 9999;
+        return ay - by;
+      });
+
+      // Build candidate list: artists → albums (by year) → each album's songs (alphabetical)
+      const candidates: CinemaNode[] = [...artists];
+      const seenSongs = new Set<string>();
+      for (const album of sortedAlbums) {
+        candidates.push(album);
+        const albumSongs = songs
+          .filter(s => adj.get(album.id)?.has(s.id) || adj.get(s.id)?.has(album.id))
+          .sort((a, b) => a.label.localeCompare(b.label));
+        for (const s of albumSongs) {
+          if (!seenSongs.has(s.id)) { candidates.push(s); seenSongs.add(s.id); }
+        }
+      }
+      // Any songs not attached to albums
+      for (const s of songs) {
+        if (!seenSongs.has(s.id)) candidates.push(s);
+      }
+
+      setTimeout(() => fg?.zoomToFit?.(1800, 80), 1500);
+      return {
+        currentIdx: 0,
+        candidates: candidates.length
+          ? candidates
+          : nodes.filter(n => ['artist', 'album', 'song'].includes(n.type)),
+        orbitState: null,
+        prevTargetX: 0, prevTargetY: 0, prevTargetZ: 0,
+      };
+    },
+    tick(fg, _n, _a, elapsedMs, state, controls) {
+      const s      = state as OrbitTourState;
+      const camera = getCamera(fg);
+      if (!camera) return;
+
+      if (!s.orbitState) {
+        const node = s.candidates[s.currentIdx % Math.max(1, s.candidates.length)];
+        if (!node || node.x == null) return;
+        // More dwell on artist/album, shorter on songs to keep the tour moving
+        const baseDwell = node.type === 'artist' ? 10_000 : node.type === 'album' ? 7_000 : 3_500;
+        const dwellMs   = Math.round(baseDwell / controls.speedMultiplier);
+        s.orbitState = initOrbitState(
+          node.x, node.y ?? 0, node.z ?? 0,
+          camera.position.x, camera.position.y, camera.position.z,
+          elapsedMs, dwellMs,
+          s.prevTargetX, s.prevTargetY, s.prevTargetZ,
+        );
+      }
+
+      const result = updateOrbitCamera(fg, s.orbitState, elapsedMs, controls);
+      if (result === 'done') {
+        s.prevTargetX = s.orbitState.targetX;
+        s.prevTargetY = s.orbitState.targetY;
+        s.prevTargetZ = s.orbitState.targetZ;
+        s.currentIdx++;
+        s.orbitState = null;
+      }
+    },
+  },
 ];

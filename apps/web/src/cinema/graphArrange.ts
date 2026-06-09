@@ -4,7 +4,7 @@
  * without duplicating ~200 lines of pure math.
  */
 
-export type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system' | 'galactic-cinema' | 'helix' | 'emotional-spectrum' | 'genre-web' | 'fibonacci-torus' | 'fractal-tree' | 'mandala' | 'wave' | 'lissajous' | 'crystal' | 'fibonacci-spiral' | 'genre-radar' | 'star-3' | 'star-4' | 'star-5' | 'star-6' | 'star-7' | 'star-8' | 'nonagon-infinity';
+export type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system' | 'galactic-cinema' | 'helix' | 'emotional-spectrum' | 'genre-web' | 'fibonacci-torus' | 'fractal-tree' | 'mandala' | 'wave' | 'lissajous' | 'crystal' | 'fibonacci-spiral' | 'genre-radar' | 'star-3' | 'star-4' | 'star-5' | 'star-6' | 'star-7' | 'star-8' | 'nonagon-infinity' | 'lyric-solar';
 
 /** Minimal shape required for layout computation. */
 export interface ArrangeNode {
@@ -863,6 +863,100 @@ export function computeArrangeTargets<N extends ArrangeNode>(
 
   } else if (mode === 'nonagon-infinity') {
     computeNonagonLayout(nodes, adj, out);
+
+  } else if (mode === 'lyric-solar') {
+    // Full orbital hierarchy: artists at center, albums orbit artists,
+    // songs orbit albums, keywords/lyrics/tags orbit their connected songs.
+    const artists = nodes.filter(n => n.type === 'artist');
+    const albums  = nodes.filter(n => n.type === 'album');
+    const songs   = nodes.filter(n => n.type === 'song');
+    const others  = nodes.filter(n => !['artist', 'album', 'song'].includes(n.type));
+
+    // Artists at/near origin (single artist → center; multiple → small ring)
+    const artistR = Math.max(0, (artists.length - 1) * 100);
+    artists.forEach((a, i) => {
+      const phi = artists.length > 1 ? (i / artists.length) * 2 * Math.PI : 0;
+      out.set(a.id, { x: artistR * Math.cos(phi), y: 0, z: artistR * Math.sin(phi) });
+    });
+
+    // Albums orbit their artist
+    const albumPos = new Map<string, { x: number; y: number; z: number }>();
+    albums.forEach((alb) => {
+      const pa = artists.find(a => adj.get(a.id)?.has(alb.id) || adj.get(alb.id)?.has(a.id));
+      const siblings = albums.filter(b => {
+        const p = artists.find(a => adj.get(a.id)?.has(b.id) || adj.get(b.id)?.has(a.id));
+        return p?.id === pa?.id;
+      });
+      const idx    = siblings.indexOf(alb);
+      const phi    = (idx / Math.max(1, siblings.length)) * 2 * Math.PI;
+      const orbitR = 80 + siblings.length * 8;
+      const base   = pa ? (out.get(pa.id) ?? { x: 0, y: 0, z: 0 }) : { x: 0, y: 0, z: 0 };
+      const pos    = {
+        x: base.x + orbitR * Math.cos(phi),
+        y: orbitR * 0.25 * Math.sin(phi * 2),
+        z: base.z + orbitR * Math.sin(phi),
+      };
+      albumPos.set(alb.id, pos);
+      out.set(alb.id, pos);
+    });
+
+    // Songs orbit their album — multi-ring for albums with many songs
+    const songPos = new Map<string, { x: number; y: number; z: number }>();
+    songs.forEach((song) => {
+      const pa = albums.find(a => adj.get(a.id)?.has(song.id) || adj.get(song.id)?.has(a.id));
+      const siblings = songs.filter(s => {
+        const p = albums.find(a => adj.get(a.id)?.has(s.id) || adj.get(s.id)?.has(a.id));
+        return p?.id === pa?.id;
+      });
+      const idx     = siblings.indexOf(song);
+      const ringIdx = Math.floor(idx / 12);
+      const rRing   = 36 + ringIdx * 24;
+      const count   = Math.min(12, siblings.length - ringIdx * 12);
+      const phiRing = ((idx % 12) / Math.max(1, count)) * 2 * Math.PI;
+      const base    = pa ? (albumPos.get(pa.id) ?? { x: 0, y: 0, z: 0 }) : { x: 0, y: 0, z: 0 };
+      const pos     = {
+        x: base.x + rRing * Math.cos(phiRing),
+        y: base.y + rRing * 0.4 * Math.sin(phiRing * 2),
+        z: base.z + rRing * Math.sin(phiRing),
+      };
+      songPos.set(song.id, pos);
+      out.set(song.id, pos);
+    });
+
+    // Keywords / tags / themes / emotions orbit their connected songs.
+    // Pre-group each keyword to its first connected song.
+    const kwBySong = new Map<string, string[]>();
+    for (const kw of others) {
+      const primarySong = [...(adj.get(kw.id) ?? [])].find(id => songPos.has(id));
+      if (primarySong) {
+        if (!kwBySong.has(primarySong)) kwBySong.set(primarySong, []);
+        kwBySong.get(primarySong)!.push(kw.id);
+      }
+    }
+
+    for (const kw of others) {
+      const primarySong = [...(adj.get(kw.id) ?? [])].find(id => songPos.has(id));
+      if (primarySong && songPos.has(primarySong)) {
+        const base     = songPos.get(primarySong)!;
+        const groupArr = kwBySong.get(primarySong) ?? [kw.id];
+        const kwIdx    = groupArr.indexOf(kw.id);
+        const ringIdx  = Math.floor(kwIdx / 8);
+        const rRing    = 20 + ringIdx * 14;
+        const count    = Math.min(8, groupArr.length - ringIdx * 8);
+        const phiKw    = ((kwIdx % 8) / Math.max(1, count)) * 2 * Math.PI;
+        out.set(kw.id, {
+          x: base.x + rRing * Math.cos(phiKw),
+          y: base.y + rRing * 0.4 * Math.sin(phiKw * 2),
+          z: base.z + rRing * Math.sin(phiKw),
+        });
+      } else {
+        // Orphaned: outer halo
+        const i     = others.indexOf(kw);
+        const beltR = 180 + albums.length * 12;
+        const phi   = (i / Math.max(1, others.length)) * 2 * Math.PI;
+        out.set(kw.id, { x: beltR * Math.cos(phi), y: Math.sin(i * 0.618) * 30, z: beltR * Math.sin(phi) });
+      }
+    }
   }
 
   return out;

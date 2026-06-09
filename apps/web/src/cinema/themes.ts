@@ -377,6 +377,93 @@ export const CINEMA_THEMES: CinemaTheme[] = [
     nodeColors: { song: '#76c8e0', album: '#a0d8b3', artist: '#f0c27f', theme: '#b0a4e3', tag: '#89d4cf', keyword: '#2a4a5e', emotion: '#e8a0a0' },
     linkColor: 'rgba(118,200,224,0.18)', linkWidthMultiplier: 1, nodeOpacity: 0.88, nodeValMultiplier: 1,
   },
+
+  // ── More themes ───────────────────────────────────────────────────────────
+  {
+    id: 'bioluminescent', name: 'Bioluminescent', emoji: '🦑',
+    backgroundColor: '#020d1a',
+    cssFilter: 'saturate(1.4) brightness(1.1)',
+    nodeColors: { song: '#00ffd5', keyword: '#002a3a', album: '#0ab4d4', artist: '#80ffee', theme: '#00e5a8', tag: '#00bcd4', emotion: '#ff6edc' },
+    linkColor: 'rgba(0,220,180,0.15)', linkWidthMultiplier: 1.2, nodeOpacity: 0.94, nodeValMultiplier: 1,
+  },
+  {
+    id: 'sandstorm',      name: 'Sandstorm',      emoji: '🏜',
+    backgroundColor: '#0a0800',
+    cssFilter: 'saturate(0.85) brightness(1.05)',
+    nodeColors: { song: '#c4a35a', keyword: '#3a2c10', album: '#a08030', artist: '#e8d08a', theme: '#7a6020', tag: '#b89040', emotion: '#d05030' },
+    linkColor: 'rgba(180,150,80,0.2)', linkWidthMultiplier: 1, nodeOpacity: 0.92, nodeValMultiplier: 1,
+  },
+  {
+    id: 'velvet-night',   name: 'Velvet Night',   emoji: '🌹',
+    backgroundColor: '#0e0008',
+    cssFilter: 'saturate(1.3)',
+    nodeColors: { song: '#c084fc', keyword: '#1e0030', album: '#a855f7', artist: '#e8b4ff', theme: '#7c3aed', tag: '#d8b4fe', emotion: '#f43f5e' },
+    linkColor: 'rgba(168,85,247,0.2)', linkWidthMultiplier: 1.2, nodeOpacity: 0.94, nodeValMultiplier: 1,
+  },
+  {
+    id: 'thunderstorm',   name: 'Thunderstorm',   emoji: '⚡',
+    backgroundColor: '#04080e',
+    cssFilter: 'contrast(1.15) brightness(1.05)',
+    nodeColors: { song: '#facc15', keyword: '#1a1400', album: '#fbbf24', artist: '#fef08a', theme: '#a16207', tag: '#d97706', emotion: '#60a5fa' },
+    linkColor: 'rgba(250,204,21,0.18)', linkWidthMultiplier: 1.5, nodeOpacity: 0.95, nodeValMultiplier: 1,
+  },
+  {
+    id: 'copper-patina',  name: 'Copper Patina',  emoji: '🫐',
+    backgroundColor: '#040e0e',
+    cssFilter: 'saturate(1.2)',
+    nodeColors: { song: '#5eead4', keyword: '#042828', album: '#14b8a6', artist: '#b45309', theme: '#0f766e', tag: '#2dd4bf', emotion: '#c2410c' },
+    linkColor: 'rgba(20,184,166,0.2)', linkWidthMultiplier: 1.2, nodeOpacity: 0.93, nodeValMultiplier: 1,
+  },
+  {
+    id: 'blood-moon',     name: 'Blood Moon',     emoji: '🌑',
+    backgroundColor: '#080000',
+    cssFilter: 'saturate(1.5) contrast(1.1)',
+    nodeColors: { song: '#dc2626', keyword: '#1a0000', album: '#991b1b', artist: '#fca5a5', theme: '#7f1d1d', tag: '#b91c1c', emotion: '#ef4444' },
+    linkColor: 'rgba(185,28,28,0.22)', linkWidthMultiplier: 1, nodeOpacity: 0.92, nodeValMultiplier: 1,
+  },
+  {
+    id: 'alien-world',    name: 'Alien World',    emoji: '👽',
+    backgroundColor: '#000a04',
+    cssFilter: 'saturate(1.8) hue-rotate(80deg) brightness(1.1)',
+    nodeColors: { song: '#84cc16', keyword: '#0a1400', album: '#65a30d', artist: '#d9f99d', theme: '#3f6212', tag: '#a3e635', emotion: '#f0abfc' },
+    linkColor: 'rgba(132,204,22,0.18)', linkWidthMultiplier: 1.3, nodeOpacity: 0.94, nodeValMultiplier: 1,
+  },
+  {
+    id: 'solar-flare',    name: 'Solar Flare',    emoji: '🌞',
+    backgroundColor: '#030100',
+    cssFilter: 'saturate(2) contrast(1.2) brightness(1.05)',
+    nodeColors: { song: '#fdba74', keyword: '#1c0500', album: '#f97316', artist: '#fffbeb', theme: '#c2410c', tag: '#fb923c', emotion: '#fcd34d' },
+    linkColor: 'rgba(253,186,116,0.2)', linkWidthMultiplier: 1.4, nodeOpacity: 0.95, nodeValMultiplier: 1,
+    bokehOverlay: true,
+  },
+  {
+    id: 'deep-violet',    name: 'Deep Violet',    emoji: '🔮',
+    backgroundColor: '#080012',
+    cssFilter: 'saturate(1.3)',
+    nodeColors: { song: '#a78bfa', keyword: '#1a0030', album: '#7c3aed', artist: '#ddd6fe', theme: '#5b21b6', tag: '#8b5cf6', emotion: '#f0abfc' },
+    linkColor: 'rgba(139,92,246,0.2)', linkWidthMultiplier: 1.2, nodeOpacity: 0.93, nodeValMultiplier: 1,
+  },
+  {
+    id: 'coal-dust',      name: 'Coal Dust',      emoji: '⛏',
+    backgroundColor: '#0a0a0a',
+    cssFilter: 'grayscale(0.6) contrast(1.3)',
+    nodeColors: { song: '#9ca3af', keyword: '#1f2937', album: '#6b7280', artist: '#f9fafb', theme: '#374151', tag: '#4b5563', emotion: '#6366f1' },
+    linkColor: 'rgba(156,163,175,0.2)', linkWidthMultiplier: 1, nodeOpacity: 0.9, nodeValMultiplier: 1,
+  },
+  {
+    id: 'forest-night',   name: 'Forest Night',   emoji: '🌲',
+    backgroundColor: '#020a02',
+    cssFilter: 'saturate(1.3) brightness(1.0)',
+    nodeColors: { song: '#86efac', keyword: '#052a0a', album: '#4ade80', artist: '#bbf7d0', theme: '#166534', tag: '#22c55e', emotion: '#fbbf24' },
+    linkColor: 'rgba(74,222,128,0.14)', linkWidthMultiplier: 1, nodeOpacity: 0.91, nodeValMultiplier: 1,
+  },
+  {
+    id: 'amethyst',       name: 'Amethyst',        emoji: '💜',
+    backgroundColor: '#0f0820',
+    cssFilter: 'saturate(1.4) brightness(1.05)',
+    nodeColors: { song: '#e879f9', keyword: '#1e0838', album: '#d946ef', artist: '#f0abfc', theme: '#a21caf', tag: '#c026d3', emotion: '#38bdf8' },
+    linkColor: 'rgba(217,70,239,0.18)', linkWidthMultiplier: 1.3, nodeOpacity: 0.94, nodeValMultiplier: 1,
+  },
 ];
 
 export const DEFAULT_THEME_ID = 'default';

@@ -104,6 +104,7 @@ const QUICK_ARRANGE_MODES = [
   { mode: 'star-7',            emoji: '🌟', label: 'Star 7pt'  },
   { mode: 'star-8',            emoji: '✴',  label: 'Star 8pt'  },
   { mode: 'nonagon-infinity',  emoji: '🔯', label: 'Nonagon'   },
+  { mode: 'lyric-solar',       emoji: '☀️', label: 'Lyric Solar'},
   { mode: 'natural',           emoji: '🌿', label: 'Natural'   },
 ] as const;
 
@@ -988,6 +989,8 @@ export default function CinemaPage() {
   // Soft-selection: descendants of the focused node + the effective chain (ancestor path)
   const softSelectedIdsRef = useRef<Set<string>>(new Set());
   const effectiveChainRef  = useRef<CinemaNode[]>([]);
+  // Tracks the node auto-highlighted during scene playback (proximity-based)
+  const playbackHighlightRef = useRef<string | null>(null);
   const orbitAnimRef    = useRef<OrbitAnim | null>(null);
   const sceneStateRef   = useRef<unknown>(null);
   const sceneStartRef   = useRef<number>(0);
@@ -2167,6 +2170,33 @@ export default function CinemaPage() {
               proximityNowPlayingRef.current = newLabel;
               setProximityNowPlaying(newLabel);
             }
+          }
+          // ────────────────────────────────────────────────────────────────────
+
+          // ── Proximity soft-highlight during scene/sequence playback ──────────
+          // When playing a scene (not tour mode) with no manual selection,
+          // auto-highlight the nearest node so its connections are visible.
+          if (isPlayingRef.current && !tourModeRef.current && selectedChainRef.current.length === 0) {
+            let nearestId: string | null = null;
+            let nearestDSq = 200 * 200;
+            for (const n of simNodesRef.current) {
+              if (n.x == null) continue;
+              const ndx = (n.x ?? 0) - cx;
+              const ndy = (n.y ?? 0) - cy;
+              const ndz = (n.z ?? 0) - cz;
+              const dSq = ndx * ndx + ndy * ndy + ndz * ndz;
+              if (dSq < nearestDSq) { nearestDSq = dSq; nearestId = n.id; }
+            }
+            if (nearestId !== playbackHighlightRef.current) {
+              playbackHighlightRef.current = nearestId;
+              applyHighlightRef.current(nearestId);
+            }
+          } else if (
+            playbackHighlightRef.current !== null &&
+            (!isPlayingRef.current || tourModeRef.current || selectedChainRef.current.length > 0)
+          ) {
+            playbackHighlightRef.current = null;
+            if (!tourModeRef.current) applyHighlightRef.current(null);
           }
           // ────────────────────────────────────────────────────────────────────
 
@@ -4561,7 +4591,19 @@ export default function CinemaPage() {
 
                 {/* Visual theme */}
                 <div className="border-t border-gray-800 pt-3 space-y-2">
-                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Theme</div>
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Theme</div>
+                    <button
+                      onClick={() => {
+                        const idx = Math.floor(Math.random() * CINEMA_THEMES.length);
+                        setSelectedThemeId(CINEMA_THEMES[idx]!.id);
+                      }}
+                      title="Pick a random theme"
+                      className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-2 py-0.5 rounded border border-gray-700 hover:border-gray-500"
+                    >
+                      🎲 Random
+                    </button>
+                  </div>
                   <div className="grid grid-cols-2 gap-1">
                     {CINEMA_THEMES.map(theme => (
                       <button
