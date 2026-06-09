@@ -40,6 +40,7 @@ interface LeaderboardEntry {
   chainLength: number;
   hardMode: boolean;
   bandScope: string | null;
+  bandScopeNames?: string | null;
   createdAt: string;
 }
 
@@ -66,7 +67,7 @@ function SetupScreen({ bands, selectedBandIds, toggleBand, hardMode, setHardMode
       <div className="text-6xl mb-4">🔗</div>
       <h1 className="text-3xl font-bold text-white mb-2">Lyric Chain</h1>
       <p className="text-white/50 text-sm mb-8 leading-relaxed max-w-md mx-auto">
-        Pick a word — find a song — pick another word from that song — keep going.
+        You start with a song. Pick a word from it, find a new song with that word, pick another word — keep going.
         Build the longest chain without repeating songs or words.
       </p>
 
@@ -387,11 +388,19 @@ export default function LyricChainPage() {
     setStarting(true);
     setStartError(null);
     try {
-      const data = await api.get<{ words: WordOption[] }>(
-        `/api/lyric-chain/start?bandIds=${selectedBandIds.join(',')}&count=6`,
+      const data = await api.get<{ seed: SongOption; words: WordOption[] }>(
+        `/api/lyric-chain/start-song?bandIds=${selectedBandIds.join(',')}&count=6`,
       );
+      const seedEntry: ChainEntry = {
+        type: 'song',
+        id: data.seed.id,
+        title: data.seed.title,
+        bandName: data.seed.bandName,
+        albumId: data.seed.albumId,
+        albumTitle: data.seed.albumTitle,
+      };
+      setChain([seedEntry]);
       setWordOptions(data.words);
-      setChain([]);
       setPendingWord(null);
       setSubmitted(null);
       setPhase('picking-word');
@@ -550,6 +559,7 @@ export default function LyricChainPage() {
                   <tr className="text-white/30 text-left">
                     <th className="pr-3 pb-2 font-medium">#</th>
                     <th className="pr-3 pb-2 font-medium">Player</th>
+                    <th className="pr-3 pb-2 font-medium">Artists</th>
                     <th className="pr-3 pb-2 font-medium text-right">Links</th>
                     <th className="pb-2 font-medium text-right">Date</th>
                   </tr>
@@ -559,6 +569,7 @@ export default function LyricChainPage() {
                     <tr key={e.rank} className="border-t border-white/5">
                       <td className="pr-3 py-1.5 text-white/30 font-mono">{e.rank}</td>
                       <td className="pr-3 py-1.5 text-white font-medium">{e.playerName}</td>
+                      <td className="pr-3 py-1.5 text-white/40 max-w-[160px] truncate">{e.bandScopeNames ?? '—'}</td>
                       <td className="pr-3 py-1.5 text-indigo-300 font-bold font-mono text-right">{e.chainLength}</td>
                       <td className="py-1.5 text-white/30 text-right">{new Date(e.createdAt).toLocaleDateString()}</td>
                     </tr>
@@ -631,11 +642,11 @@ export default function LyricChainPage() {
 
               {/* Instructions */}
               <div className="mt-4 flex gap-6 text-xs text-white/25">
-                <span>Pick a <span className="text-indigo-300">word</span></span>
+                <span>Start with a <span className="text-indigo-300">song</span></span>
                 <span>→</span>
-                <span>Pick a <span className="text-indigo-300">song</span> that contains it</span>
+                <span>Pick a <span className="text-indigo-300">word</span> from it</span>
                 <span>→</span>
-                <span>Pick a new <span className="text-indigo-300">word</span> from that song</span>
+                <span>Pick a <span className="text-indigo-300">song</span> containing that word</span>
                 <span>→</span>
                 <span>Repeat until dead end</span>
               </div>

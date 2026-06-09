@@ -29,7 +29,17 @@ interface WordHuntEntry {
   createdAt: string;
 }
 
-type Tab = 'quiz' | 'wordhunt';
+interface LyricChainEntry {
+  rank: number;
+  playerName: string;
+  avatarUrl: string | null;
+  chainLength: number;
+  hardMode: boolean;
+  bandScopeNames: string | null;
+  createdAt: string;
+}
+
+type Tab = 'quiz' | 'wordhunt' | 'lyricchain';
 
 // ---------------------------------------------------------------------------
 // Shared sub-components
@@ -174,6 +184,78 @@ function WordHuntTab() {
   );
 }
 
+function LyricChainTab() {
+  const [hardMode, setHardMode] = useState(false);
+  const { data: entries = [], isLoading } = useQuery({
+    queryKey: ['leaderboard-lyricchain', hardMode],
+    queryFn: () => api.get<LyricChainEntry[]>(`/api/lyric-chain/scores?limit=20&hardMode=${hardMode}`),
+  });
+
+  return (
+    <div className="rounded-xl bg-gray-900 border border-gray-800 overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-800 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="font-semibold text-white">Lyric Chain</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Build the longest chain: song → word → song → word, without repeating.
+          </p>
+        </div>
+        <div className="flex rounded-lg overflow-hidden border border-gray-700 text-xs shrink-0">
+          <button
+            className={`px-3 py-1.5 transition-colors ${!hardMode ? 'bg-violet-700 text-white' : 'text-gray-400 hover:text-gray-200'}`}
+            onClick={() => setHardMode(false)}
+          >Normal</button>
+          <button
+            className={`px-3 py-1.5 transition-colors ${hardMode ? 'bg-rose-700 text-white' : 'text-gray-400 hover:text-gray-200'}`}
+            onClick={() => setHardMode(true)}
+          >Hard</button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <p className="text-center text-gray-600 text-sm py-10">Loading…</p>
+      ) : entries.length === 0 ? (
+        <p className="text-center text-gray-600 text-sm py-10">
+          No scores yet —{' '}
+          <Link to="/play/lyric-chain" className="text-violet-400 hover:underline">
+            be the first
+          </Link>
+          !
+        </p>
+      ) : (
+        <div className="divide-y divide-gray-800">
+          {entries.map((e) => (
+            <div key={`${e.rank}-${e.createdAt}`} className="flex items-center gap-3 px-5 py-3.5">
+              <RankBadge rank={e.rank} />
+              <Avatar name={e.playerName} url={e.avatarUrl} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-white truncate">{e.playerName}</p>
+                <p className="text-xs text-gray-500 truncate">
+                  {e.bandScopeNames ?? 'All artists'}
+                  {e.hardMode && <span className="ml-1.5 text-rose-400 font-semibold">HARD</span>}
+                </p>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-sm font-bold text-violet-400 tabular-nums">{e.chainLength}</div>
+                <div className="text-[10px] text-gray-600">{new Date(e.createdAt).toLocaleDateString()}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="px-5 py-4 border-t border-gray-800">
+        <Link
+          to="/play/lyric-chain"
+          className="block w-full text-center bg-violet-700 hover:bg-violet-600 text-white text-sm font-semibold py-2.5 rounded-lg transition-colors"
+        >
+          Play Lyric Chain →
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -194,11 +276,18 @@ export default function LeaderboardPage() {
 
         {/* Tab switcher */}
         <div className="flex gap-1 mb-8 bg-gray-900 p-1 rounded-xl w-fit">
-          {([['quiz', 'Album Art Quiz'], ['wordhunt', 'Word Hunt']] as const).map(([key, label]) => (
+          {([
+            ['quiz',       'Album Art Quiz'],
+            ['wordhunt',   'Word Hunt'],
+            ['lyricchain', 'Lyric Chain'],
+          ] as const).map(([key, label]) => (
             <button
               key={key}
               className={`px-5 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                tab === key ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200'
+                tab === key
+                  ? key === 'lyricchain' ? 'bg-violet-700 text-white'
+                  : 'bg-indigo-600 text-white'
+                  : 'text-gray-400 hover:text-gray-200'
               }`}
               onClick={() => setTab(key)}
             >
@@ -207,8 +296,9 @@ export default function LeaderboardPage() {
           ))}
         </div>
 
-        {tab === 'quiz'     && <QuizTab />}
-        {tab === 'wordhunt' && <WordHuntTab />}
+        {tab === 'quiz'       && <QuizTab />}
+        {tab === 'wordhunt'   && <WordHuntTab />}
+        {tab === 'lyricchain' && <LyricChainTab />}
 
         {/* Bottom nav links */}
         <div className="mt-10 pt-8 border-t border-gray-800 flex flex-wrap gap-4 justify-center text-sm text-gray-500">

@@ -525,6 +525,16 @@ export default function CinemaPage() {
   const [selectionDim, setSelectionDim] = useState(1.0);
   const selectionDimRef = useRef(1.0);
 
+  // Global node scale multiplier
+  const [nodeScale, setNodeScale] = useState(1.0);
+  const nodeScaleRef = useRef(1.0);
+
+  // Proximity soft-highlight controls
+  const [playbackHighlightEnabled, setPlaybackHighlightEnabled] = useState(true);
+  const playbackHighlightEnabledRef = useRef(true);
+  const [playbackHighlightThreshold, setPlaybackHighlightThreshold] = useState(200);
+  const playbackHighlightThresholdRef = useRef(200);
+
   // Label state config: separate appearance for selected vs unselected nodes
   const [unselectedLabelScale, setUnselectedLabelScale]               = useState(1.0);
   const [unselectedLabelOpacity, setUnselectedLabelOpacity]           = useState(1.0);
@@ -1161,6 +1171,12 @@ export default function CinemaPage() {
     // Always refresh so sphere colors update even when no node is selected
     fgRef.current?.refresh();
   }, [selectionDim]);
+  useEffect(() => {
+    nodeScaleRef.current = nodeScale;
+    fgRef.current?.refresh();
+  }, [nodeScale]);
+  useEffect(() => { playbackHighlightEnabledRef.current   = playbackHighlightEnabled;   }, [playbackHighlightEnabled]);
+  useEffect(() => { playbackHighlightThresholdRef.current = playbackHighlightThreshold; }, [playbackHighlightThreshold]);
 
   // Recompute effective chain (ancestor path) + soft-selected descendants whenever
   // the selected node or tour highlight changes. Works for both normal selection
@@ -2176,9 +2192,13 @@ export default function CinemaPage() {
           // ── Proximity soft-highlight during scene/sequence playback ──────────
           // When playing a scene (not tour mode) with no manual selection,
           // auto-highlight the nearest node so its connections are visible.
-          if (isPlayingRef.current && !tourModeRef.current && selectedChainRef.current.length === 0) {
+          if (
+            playbackHighlightEnabledRef.current &&
+            isPlayingRef.current && !tourModeRef.current && selectedChainRef.current.length === 0
+          ) {
             let nearestId: string | null = null;
-            let nearestDSq = 200 * 200;
+            const thr = playbackHighlightThresholdRef.current;
+            let nearestDSq = thr * thr;
             for (const n of simNodesRef.current) {
               if (n.x == null) continue;
               const ndx = (n.x ?? 0) - cx;
@@ -2193,7 +2213,7 @@ export default function CinemaPage() {
             }
           } else if (
             playbackHighlightRef.current !== null &&
-            (!isPlayingRef.current || tourModeRef.current || selectedChainRef.current.length > 0)
+            (!playbackHighlightEnabledRef.current || !isPlayingRef.current || tourModeRef.current || selectedChainRef.current.length > 0)
           ) {
             playbackHighlightRef.current = null;
             if (!tourModeRef.current) applyHighlightRef.current(null);
@@ -2845,7 +2865,7 @@ export default function CinemaPage() {
 
   const nodeVal = useCallback((node: object) => {
     const n = node as CinemaNode;
-    const sizeMult = nodeOverridesRef.current[n.id]?.sizeMultiplier ?? 1;
+    const sizeMult = (nodeOverridesRef.current[n.id]?.sizeMultiplier ?? 1) * nodeScaleRef.current;
     if (activeArrangeModeRef.current === 'galactic-cinema') {
       if (n.type === 'artist') return 14 * sizeMult;
       if (n.type === 'album')  return 5 * sizeMult;
@@ -4479,6 +4499,37 @@ export default function CinemaPage() {
                       className="w-full accent-indigo-500" />
                     <div className="text-[10px] text-gray-600">Lower = more transparent · resets with theme</div>
                   </label>
+                  <label className="block space-y-1 mt-2">
+                    <div className="flex justify-between text-[10px] text-gray-400">
+                      <span>Global node scale</span><span>{nodeScale.toFixed(1)}×</span>
+                    </div>
+                    <input type="range" min={0.1} max={3} step={0.05} value={nodeScale}
+                      onChange={e => setNodeScale(Number(e.target.value))}
+                      className="w-full accent-indigo-500" />
+                  </label>
+
+                  <label className="block space-y-1 mt-2">
+                    <div className="flex items-center justify-between text-[10px] text-gray-400">
+                      <span>Proximity highlight</span>
+                      <button
+                        onClick={() => setPlaybackHighlightEnabled(v => !v)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                          playbackHighlightEnabled ? 'bg-indigo-700 text-white' : 'bg-gray-700 text-gray-400'
+                        }`}
+                      >{playbackHighlightEnabled ? 'ON' : 'OFF'}</button>
+                    </div>
+                    {playbackHighlightEnabled && (
+                      <>
+                        <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+                          <span>Threshold</span><span>{playbackHighlightThreshold} units</span>
+                        </div>
+                        <input type="range" min={50} max={500} step={10} value={playbackHighlightThreshold}
+                          onChange={e => setPlaybackHighlightThreshold(Number(e.target.value))}
+                          className="w-full accent-indigo-500" />
+                      </>
+                    )}
+                  </label>
+
                   <label className="block space-y-1 mt-2">
                     <div className="flex justify-between text-[10px] text-gray-400">
                       <span>Selection dim</span><span>{Math.round(selectionDim * 100)}%</span>
