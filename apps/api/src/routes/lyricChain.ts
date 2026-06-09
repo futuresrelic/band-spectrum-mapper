@@ -123,6 +123,62 @@ lyricChainRouter.get('/start', async (req, res, next): Promise<void> => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/lyric-chain/start-song?bandIds=id1,id2&count=6
+// Returns a seed song + its available first words.
+// ---------------------------------------------------------------------------
+
+lyricChainRouter.get('/start-song', async (req, res, next): Promise<void> => {
+  try {
+    const raw = typeof req.query['bandIds'] === 'string' ? req.query['bandIds'] : '';
+    const bandIds = raw ? raw.split(',').filter(Boolean) : [];
+    const count = Math.min(8, Math.max(2,
+      parseInt(typeof req.query['count'] === 'string' ? req.query['count'] : '6', 10) || 6,
+    ));
+
+    if (bandIds.length === 0) {
+      res.status(400).json({ error: 'bandIds required' }); return;
+    }
+
+    const songs = await fetchSongLyrics(bandIds);
+    if (songs.length < 2) {
+      res.status(400).json({ error: 'Not enough songs with lyrics for these bands' }); return;
+    }
+
+    const wordMap = buildWordMap(songs);
+    const shuffled = [...songs].sort(() => Math.random() - 0.5);
+
+    let seedSong: SongEntry | null = null;
+    let seedWords: { word: string; availableCount: number }[] = [];
+
+    for (const song of shuffled) {
+      const words: { word: string; availableCount: number }[] = [];
+      for (const word of song.words) {
+        const songSet = wordMap.get(word);
+        if (!songSet) continue;
+        const available = [...songSet].filter(sid => sid !== song.id);
+        if (available.length >= 1) words.push({ word, availableCount: available.length });
+      }
+      if (words.length >= count) {
+        seedSong = song;
+        const preferred = words.filter(w => w.availableCount >= 2 && w.availableCount <= 6).sort(() => Math.random() - 0.5);
+        const fallback  = words.filter(w => w.availableCount < 2 || w.availableCount > 6).sort(() => Math.random() - 0.5);
+        seedWords = [...preferred, ...fallback].slice(0, count);
+        break;
+      }
+    }
+
+    if (!seedSong) {
+      res.status(400).json({ error: 'Could not find a suitable seed song — try selecting more bands' }); return;
+    }
+
+    res.json({
+      seed: { id: seedSong.id, title: seedSong.title, bandName: seedSong.bandName, albumId: seedSong.albumId, albumTitle: seedSong.albumTitle },
+      words: seedWords.map(w => ({ word: w.word, songCount: w.availableCount })),
+    });
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/lyric-chain/songs
 // Returns songs that contain the given word (excluding already-used ones).
 // ---------------------------------------------------------------------------
@@ -292,14 +348,29 @@ lyricChainRouter.get('/scores', async (req, res, next): Promise<void> => {
       },
     });
 
+    const allBandIds = [...new Set(
+      scores.flatMap(s => s.bandScope ? s.bandScope.split(',').filter(Boolean) : [])
+    )];
+    const bandNameMap = new Map<string, string>();
+    if (allBandIds.length > 0) {
+      const bands = await prisma.band.findMany({
+        where: { id: { in: allBandIds } },
+        select: { id: true, name: true },
+      });
+      for (const b of bands) bandNameMap.set(b.id, b.name);
+    }
+
     res.json(scores.map((s, i) => ({
-      rank:        i + 1,
-      playerName:  s.user.name ?? 'Anonymous',
-      avatarUrl:   s.user.avatarUrl,
-      chainLength: s.chainLength,
-      hardMode:    s.hardMode,
-      bandScope:   s.bandScope,
-      createdAt:   s.createdAt,
+      rank:           i + 1,
+      playerName:     s.user.name ?? 'Anonymous',
+      avatarUrl:      s.user.avatarUrl,
+      chainLength:    s.chainLength,
+      hardMode:       s.hardMode,
+      bandScope:      s.bandScope,
+      bandScopeNames: s.bandScope
+        ? s.bandScope.split(',').filter(Boolean).map(id => bandNameMap.get(id) ?? id).join(', ')
+        : null,
+      createdAt:      s.createdAt,
     })));
   } catch (e) { next(e); }
 });
