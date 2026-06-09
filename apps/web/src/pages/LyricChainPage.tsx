@@ -360,9 +360,8 @@ export default function LyricChainPage() {
   const [hardLeaderboard, setHardLeaderboard] = useState(false);
 
   // Helpers derived from chain
-  const usedSongIds  = chain.filter((e) => e.type === 'song').map((e) => (e as { type: 'song'; id: string }).id);
-  const usedAlbumIds = chain.filter((e) => e.type === 'song').map((e) => (e as { type: 'song'; albumId: string | null }).albumId).filter((a): a is string => a !== null);
-  const chainLength  = usedSongIds.length; // complete (word,song) pairs
+  const usedSongIds = chain.filter((e) => e.type === 'song').map((e) => (e as { type: 'song'; id: string }).id);
+  const chainLength = usedSongIds.length;
 
   // Band list
   const { data: scopes } = useQuery({
@@ -418,9 +417,13 @@ export default function LyricChainPage() {
     setPhase('picking-song');
     setSongOptions([]);
     try {
+      // Hard mode: only exclude the album of the immediately previous song.
+      // Past albums are reusable — the restriction is only one step deep.
+      const lastSong = chain.filter((e) => e.type === 'song').slice(-1)[0] as { type: 'song'; albumId: string | null } | undefined;
+      const blockedAlbums = hardMode && lastSong?.albumId ? [lastSong.albumId] : [];
       const data = await api.post<{ songs: SongOption[] }>('/api/lyric-chain/songs', {
         word: w.word, bandIds: selectedBandIds,
-        usedSongIds, hardMode, usedAlbumIds,
+        usedSongIds, hardMode, usedAlbumIds: blockedAlbums,
       });
       setSongOptions(data.songs);
     } finally {
@@ -438,18 +441,20 @@ export default function LyricChainPage() {
     setChain(newChain);
 
     // Compute updated used lists from new chain
-    const newUsedSongIds  = newChain.filter((e) => e.type === 'song').map((e) => (e as { type: 'song'; id: string }).id);
-    const newUsedAlbumIds = newChain.filter((e) => e.type === 'song').map((e) => (e as { type: 'song'; albumId: string | null }).albumId).filter((a): a is string => a !== null);
-    const newUsedWords    = newChain.filter((e) => e.type === 'word').map((e) => (e as { type: 'word'; value: string }).value);
+    const newUsedSongIds = newChain.filter((e) => e.type === 'song').map((e) => (e as { type: 'song'; id: string }).id);
+    const newUsedWords   = newChain.filter((e) => e.type === 'word').map((e) => (e as { type: 'word'; value: string }).value);
 
     setLoading(true);
     setPhase('picking-word');
     setWordOptions([]);
     try {
+      // Hard mode: the NEXT song must not be from the album of the song just picked (s).
+      // We do not accumulate album history — only the immediately prior song is blocked.
+      const blockedAlbums = hardMode && s.albumId ? [s.albumId] : [];
       const data = await api.post<{ words: WordOption[] }>('/api/lyric-chain/next-words', {
         songId: s.id, bandIds: selectedBandIds,
         usedWords: newUsedWords, usedSongIds: newUsedSongIds,
-        hardMode, usedAlbumIds: newUsedAlbumIds, count: 6,
+        hardMode, usedAlbumIds: blockedAlbums, count: 6,
       });
       if (data.words.length === 0) {
         setPhase('dead-end');
