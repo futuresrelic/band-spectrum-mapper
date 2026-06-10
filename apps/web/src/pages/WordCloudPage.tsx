@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { wordCloudApi, type CloudWord, type WordCloudData, type SimilarSong, type SimilarSongsResult, type WordLookupResult, type WordClustersResult } from '../api/wordCloud';
 import SocialChatPanel from '../components/social/SocialChatPanel';
 import { pushCinemaHandoff } from '../cinema/cinemaHandoff';
+import { GUESS_SONG_STORAGE_KEY, type GuessSongHandoff } from './GuessSongPage';
 
 // ---------------------------------------------------------------------------
 // Word cloud layout algorithm
@@ -859,6 +860,20 @@ export default function WordCloudPage() {
                 onClick={() => doExport(1920)}
               >
                 Download Story 1080×1920
+              </button>
+              <button
+                className="w-full px-3 py-2 bg-cyan-700/60 hover:bg-cyan-600/70 text-xs text-cyan-200 rounded transition-colors font-semibold"
+                onClick={() => {
+                  const handoff: GuessSongHandoff = {
+                    words: words.slice(0, 120).map((w) => ({ text: w.text, weight: w.weight })),
+                    label: data.label,
+                    scope,
+                  };
+                  try { sessionStorage.setItem(GUESS_SONG_STORAGE_KEY, JSON.stringify(handoff)); } catch { /* ignore */ }
+                  navigate('/guess-the-song');
+                }}
+              >
+                🎯 What's That Song?
               </button>
             </div>
           )}

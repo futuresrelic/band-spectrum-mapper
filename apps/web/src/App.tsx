@@ -51,6 +51,7 @@ import WordHuntPage from './pages/WordHuntPage';
 import LyricChainPage from './pages/LyricChainPage';
 import LeaderboardPage from './pages/LeaderboardPage';
 import GamesPage from './pages/GamesPage';
+import GuessSongPage from './pages/GuessSongPage';
 import GraphHuntPage from './pages/GraphHuntPage';
 import LyricDissectionPage from './pages/LyricDissectionPage';
 import TimelinePage from './pages/TimelinePage';
@@ -118,6 +119,7 @@ export default function App() {
         <Route path="/cinema/lyrics-flow" element={<LyricsFlowPage />} />
         <Route path="/leaderboard"     element={<LeaderboardPage />} />
         <Route path="/games"           element={<GamesPage />} />
+        <Route path="/guess-the-song" element={<GuessSongPage />} />
         <Route path="/graph-hunt"      element={<GraphHuntPage />} />
         <Route path="/spectrum-studio" element={<SpectrumStudioPage />} />
 
