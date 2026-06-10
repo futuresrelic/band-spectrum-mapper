@@ -226,15 +226,15 @@ function drawPoster(
   ctx.font       = '500 19px "Inter", system-ui, sans-serif';
   ctx.fillText(`GUESS SONG // ${opts.posterNumber}`, W - 52, 52);
 
-  // 7. Main title
-  ctx.textAlign = 'left';
+  // 7. Main title — centered
+  ctx.textAlign = 'center';
   ctx.fillStyle = '#22d3ee'; // cyan-400
   ctx.shadowBlur  = 18;
   ctx.shadowColor = 'rgba(34,211,238,0.28)';
   ctx.font = '900 88px "Inter", system-ui, sans-serif';
-  ctx.fillText("WHAT'S", 52, 172);
-  ctx.fillText('THAT',   52, 268);
-  ctx.fillText('SONG?',  52, 360);
+  ctx.fillText("WHAT'S", W / 2, 172);
+  ctx.fillText('THAT',   W / 2, 268);
+  ctx.fillText('SONG?',  W / 2, 360);
   ctx.shadowBlur  = 0;
   ctx.shadowColor = 'transparent';
 

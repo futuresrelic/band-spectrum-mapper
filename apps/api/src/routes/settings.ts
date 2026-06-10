@@ -68,3 +68,31 @@ settingsRouter.post(
     } catch (e) { next(e); }
   }
 );
+
+// GET /api/settings/game-visibility — readable by anyone (GamesPage uses this)
+settingsRouter.get('/game-visibility', async (_req, res, next): Promise<void> => {
+  try {
+    const config = await prisma.siteConfig.findUnique({ where: { key: 'game_visibility' } });
+    const value = config?.value as { hiddenIds?: string[] } | null;
+    res.json({ hiddenIds: value?.hiddenIds ?? [] }); return;
+  } catch (e) { next(e); }
+});
+
+// PUT /api/settings/game-visibility — admin only
+settingsRouter.put(
+  '/game-visibility',
+  requireAuth,
+  validateBody(z.object({ hiddenIds: z.array(z.string()) })),
+  async (req, res, next): Promise<void> => {
+    try {
+      if (!req.user?.isAdmin) { res.status(403).json({ error: 'Admin only' }); return; }
+      const { hiddenIds } = req.body as { hiddenIds: string[] };
+      await prisma.siteConfig.upsert({
+        where:  { key: 'game_visibility' },
+        create: { key: 'game_visibility', value: { hiddenIds } },
+        update: { value: { hiddenIds } },
+      });
+      res.json({ hiddenIds }); return;
+    } catch (e) { next(e); }
+  },
+);

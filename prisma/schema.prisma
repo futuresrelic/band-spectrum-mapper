@@ -990,3 +990,16 @@ model Band2048Score {
   @@map("band2048_scores")
 }
 
+// ---------------------------------------------------------------------------
+// Site-wide configuration — generic key/value store for admin-controlled flags.
+// Each row is one setting; value is a JSON blob.
+// ---------------------------------------------------------------------------
+
+model SiteConfig {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("site_config")
+}
+

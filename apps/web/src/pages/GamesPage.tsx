@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
 import SiteHeader from '../components/layout/SiteHeader';
+import { settingsApi } from '../api/settings';
 
 const GAMES = [
   {
@@ -140,6 +142,15 @@ const COMING_SOON: { id: string; icon: string; title: string; desc: string }[] =
 export default function GamesPage() {
   const { user } = useAuth();
 
+  const { data: visibilityData } = useQuery({
+    queryKey: ['game-visibility'],
+    queryFn: () => settingsApi.getGameVisibility(),
+    staleTime: 60_000,
+  });
+
+  const hiddenIds = visibilityData?.hiddenIds ?? [];
+  const visibleGames = GAMES.filter((g) => !hiddenIds.includes(g.id));
+
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       <SiteHeader theme="dark" active="games" />
@@ -163,7 +174,7 @@ export default function GamesPage() {
 
         {/* Game cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-10">
-          {GAMES.map((g) => (
+          {visibleGames.map((g) => (
             <div
               key={g.id}
               className={`rounded-2xl bg-gray-900 border p-7 flex flex-col gap-5 transition-colors ${g.color}`}

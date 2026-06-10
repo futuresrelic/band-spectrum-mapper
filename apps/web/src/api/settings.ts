@@ -7,4 +7,8 @@ export const settingsApi = {
   removeStopword: (word: string) => api.delete<void>(`/api/settings/stopwords/${encodeURIComponent(word)}`),
   bulkReplaceStopwords: (words: string[]) =>
     api.put<CustomStopword[]>('/api/settings/stopwords', { words }),
+  getGameVisibility: () =>
+    api.get<{ hiddenIds: string[] }>('/api/settings/game-visibility'),
+  setGameVisibility: (hiddenIds: string[]) =>
+    api.put<{ hiddenIds: string[] }>('/api/settings/game-visibility', { hiddenIds }),
 };
