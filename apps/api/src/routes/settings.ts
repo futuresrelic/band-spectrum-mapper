@@ -69,6 +69,51 @@ settingsRouter.post(
   }
 );
 
+// GET /api/settings/cinema-default — returns admin + user startup configs
+settingsRouter.get('/cinema-default', async (_req, res, next): Promise<void> => {
+  try {
+    const [admin, user] = await Promise.all([
+      prisma.siteConfig.findUnique({ where: { key: 'cinema_default_admin' } }),
+      prisma.siteConfig.findUnique({ where: { key: 'cinema_default_user'  } }),
+    ]);
+    res.json({ adminDefault: admin?.value ?? null, userDefault: user?.value ?? null }); return;
+  } catch (e) { next(e); }
+});
+
+// PUT /api/settings/cinema-default — admin only; body: { role, snapshot }
+settingsRouter.put(
+  '/cinema-default',
+  requireAuth,
+  validateBody(z.object({ role: z.enum(['admin', 'user']), snapshot: z.record(z.unknown()) })),
+  async (req, res, next): Promise<void> => {
+    try {
+      if (!req.user?.isAdmin) { res.status(403).json({ error: 'Admin only' }); return; }
+      const { role, snapshot } = req.body as { role: 'admin' | 'user'; snapshot: Record<string, unknown> };
+      const key = role === 'admin' ? 'cinema_default_admin' : 'cinema_default_user';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const value = snapshot as any;
+      await prisma.siteConfig.upsert({
+        where:  { key },
+        create: { key, value },
+        update: { value },
+      });
+      res.json({ ok: true }); return;
+    } catch (e) { next(e); }
+  },
+);
+
+// DELETE /api/settings/cinema-default?role=admin|user — admin only
+settingsRouter.delete('/cinema-default', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    if (!req.user?.isAdmin) { res.status(403).json({ error: 'Admin only' }); return; }
+    const role = (req.query['role'] as string | undefined);
+    if (role !== 'admin' && role !== 'user') { res.status(400).json({ error: 'role must be admin or user' }); return; }
+    const key = role === 'admin' ? 'cinema_default_admin' : 'cinema_default_user';
+    await prisma.siteConfig.deleteMany({ where: { key } });
+    res.json({ ok: true }); return;
+  } catch (e) { next(e); }
+});
+
 // GET /api/settings/game-visibility — readable by anyone (GamesPage uses this)
 settingsRouter.get('/game-visibility', async (_req, res, next): Promise<void> => {
   try {

@@ -17,7 +17,8 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { settingsApi } from '../api/settings';
 import ForceGraph3D from 'react-force-graph-3d';
 import { useAuth } from '../contexts/AuthContext';
 import SpriteText from 'three-spritetext';
@@ -449,7 +450,8 @@ export default function CinemaPage() {
   const [showBandPicker, setShowBandPicker]       = useState(false);
   const [showWatermark, setShowWatermark]         = useState(true);
   const [simReady, setSimReady]                   = useState(false);
-
+  // Startup arrange mode — overridden by server default before first simReady fires
+  const startupArrangeModeRef = useRef<string>('radial');
 
   // ── Visual theme ─────────────────────────────────────────────────────────────
   const [selectedThemeId, setSelectedThemeId] = useState(DEFAULT_THEME_ID);
@@ -1319,6 +1321,49 @@ export default function CinemaPage() {
   // ── Queries ───────────────────────────────────────────────────────────────────
 
   const { data: scopes } = useQuery({ queryKey: ['cinema-scopes'], queryFn: fetchScopes });
+
+  // Fetch admin + user startup defaults from the server (once per mount)
+  const { data: cinemaDefaults } = useQuery({
+    queryKey: ['cinema-defaults'],
+    queryFn:  () => settingsApi.getCinemaDefaults(),
+    staleTime: Infinity,
+  });
+
+  const qcLocal = useQueryClient();
+
+  const setCinemaDefaultMutation = useMutation({
+    mutationFn: ({ role, snapshot }: { role: 'admin' | 'user'; snapshot: ConfigSnapshot }) =>
+      settingsApi.setCinemaDefault(role, snapshot),
+    onSuccess: () => void qcLocal.invalidateQueries({ queryKey: ['cinema-defaults'] }),
+  });
+
+  const deleteCinemaDefaultMutation = useMutation({
+    mutationFn: (role: 'admin' | 'user') => settingsApi.deleteCinemaDefault(role),
+    onSuccess: () => void qcLocal.invalidateQueries({ queryKey: ['cinema-defaults'] }),
+  });
+
+  // Apply the server default once when it arrives (before the graph loads)
+  const defaultAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!cinemaDefaults || defaultAppliedRef.current) return;
+    defaultAppliedRef.current = true;
+    const snap: ConfigSnapshot | null = isAdmin
+      ? (cinemaDefaults.adminDefault ?? cinemaDefaults.userDefault)
+      : cinemaDefaults.userDefault;
+    if (!snap) return;
+    // Apply non-arrangement settings immediately
+    setSelectedThemeId(snap.themeId);
+    setCinemaControls(snap.controls);
+    setHiddenTypes(new Set(snap.hiddenTypes));
+    setNodeOpacityUser(snap.nodeOpacity);
+    setLoopScene(snap.loopScene);
+    setNodeLimit(snap.nodeLimit);
+    if (snap.showLyrics     !== undefined) setShowLyrics(snap.showLyrics);
+    if (snap.visualNodeMode !== undefined) setVisualNodeMode(snap.visualNodeMode);
+    // Store arrange mode for when simReady fires
+    startupArrangeModeRef.current = snap.arrangeMode;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cinemaDefaults]);
 
   const { data: graphData, isFetching } = useQuery({
     queryKey: ['cinema-graph', selectedBandIds.join(','), genreSource, selectedAlbumTypes.join(','), nodeLimit, graphPreset],
@@ -3094,11 +3139,12 @@ export default function CinemaPage() {
     setSimReady(true);
   }, [simNodes]);
 
-  // Apply the initial scene's arrangement once the force simulation stabilises
+  // Apply the startup arrangement once the force simulation stabilises.
+  // startupArrangeModeRef is set by the server default before this fires.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!simReady) return;
-    const t = setTimeout(() => reArrange(), 400);
+    const t = setTimeout(() => reArrange(startupArrangeModeRef.current), 400);
     return () => clearTimeout(t);
   }, [simReady]);
 
@@ -5708,6 +5754,8 @@ export default function CinemaPage() {
                   setNodeOpacityUser(s.nodeOpacity);
                   setLoopScene(s.loopScene);
                   setNodeLimit(s.nodeLimit);
+                  if (s.showLyrics     !== undefined) setShowLyrics(s.showLyrics);
+                  if (s.visualNodeMode !== undefined) { setVisualNodeMode(s.visualNodeMode); fgRef.current?.refresh(); }
                   reArrange(s.arrangeMode);
                 };
 
@@ -5721,6 +5769,8 @@ export default function CinemaPage() {
                     nodeOpacity: nodeOpacityUser,
                     loopScene,
                     nodeLimit,
+                    showLyrics,
+                    visualNodeMode,
                   });
                   setConfigSnapshots(prev => [...prev, snap]);
                   setSnapshotNameDraft('');
@@ -5761,9 +5811,44 @@ export default function CinemaPage() {
                         </button>
                       </div>
                       <div className="text-[9px] text-gray-600 leading-tight">
-                        Saves: theme, camera controls, arrangement, visible node types, loop toggle.
+                        Saves: theme, camera, arrangement, node types, lyric overlay, visual mode.
                       </div>
                     </div>
+
+                    {/* Server startup defaults — admin only */}
+                    {isAdmin && (
+                      <div className="border-t border-gray-800 pt-3 space-y-1.5">
+                        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Startup Defaults</div>
+                        <div className="text-[9px] text-gray-600 leading-snug mb-1">
+                          These load automatically when Cinema opens — admin gets the admin config, everyone else gets the user config.
+                        </div>
+                        {(['admin', 'user'] as const).map(role => {
+                          const current = role === 'admin' ? cinemaDefaults?.adminDefault : cinemaDefaults?.userDefault;
+                          return (
+                            <div key={role} className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-gray-800/40 text-[11px]">
+                              <span className="text-gray-600 shrink-0 w-10">{role === 'admin' ? '👤 Admin' : '🌐 Users'}</span>
+                              {current ? (
+                                <>
+                                  <span className="flex-1 text-gray-300 truncate" title={current.arrangeMode}>{current.name}</span>
+                                  <button
+                                    onClick={() => loadSnapshot(current)}
+                                    title="Preview this default"
+                                    className="text-gray-600 hover:text-indigo-400 px-1 transition-colors"
+                                  >▶</button>
+                                  <button
+                                    onClick={() => { if (confirm(`Clear ${role} startup default?`)) deleteCinemaDefaultMutation.mutate(role); }}
+                                    title="Clear default"
+                                    className="text-gray-600 hover:text-red-400 px-1 transition-colors"
+                                  >✕</button>
+                                </>
+                              ) : (
+                                <span className="flex-1 text-gray-700 italic">— not set</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
 
                     {/* Saved list */}
                     {configSnapshots.length > 0 && (
@@ -5771,8 +5856,9 @@ export default function CinemaPage() {
                         <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Saved Configs</div>
                         {configSnapshots.map(s => (
                           <div key={s.id}
-                            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-gray-800/50 text-[11px]"
+                            className="flex flex-col gap-0.5 px-2 py-1.5 rounded-lg bg-gray-800/50 text-[11px]"
                           >
+                            <div className="flex items-center gap-1">
                             <button
                               onClick={() => loadSnapshot(s)}
                               className="flex-1 text-left text-gray-300 hover:text-white truncate transition-colors"
@@ -5807,6 +5893,26 @@ export default function CinemaPage() {
                               title="Delete"
                               className="text-gray-600 hover:text-red-400 px-1 transition-colors"
                             >✕</button>
+                            </div>
+                            {/* Pin as startup default — admin only */}
+                            {isAdmin && (
+                              <div className="flex gap-1 pt-0.5">
+                                <button
+                                  onClick={() => setCinemaDefaultMutation.mutate({ role: 'admin', snapshot: s })}
+                                  title="Set as admin startup default"
+                                  className="text-[9px] text-gray-700 hover:text-amber-400 px-1.5 py-0.5 rounded transition-colors hover:bg-amber-950/30"
+                                >
+                                  📌 Admin default
+                                </button>
+                                <button
+                                  onClick={() => setCinemaDefaultMutation.mutate({ role: 'user', snapshot: s })}
+                                  title="Set as user startup default"
+                                  className="text-[9px] text-gray-700 hover:text-teal-400 px-1.5 py-0.5 rounded transition-colors hover:bg-teal-950/30"
+                                >
+                                  📌 User default
+                                </button>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>

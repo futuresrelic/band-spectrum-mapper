@@ -26,6 +26,10 @@ export interface ConfigSnapshot {
   nodeOpacity: number;
   loopScene: boolean;
   nodeLimit: number;
+  /** Optional: persist lyric overlay state with the snapshot */
+  showLyrics?: boolean;
+  /** Optional: persist visual node mode (artwork/vinyl) with the snapshot */
+  visualNodeMode?: boolean;
   createdAt: string;
 }
 
