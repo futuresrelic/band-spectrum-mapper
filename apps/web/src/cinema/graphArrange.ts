@@ -4,7 +4,7 @@
  * without duplicating ~200 lines of pure math.
  */
 
-export type ArrangeMode = 'natural' | 'radial' | 'sphere' | 'galaxy' | 'solar-system' | 'galactic-cinema' | 'helix' | 'emotional-spectrum' | 'genre-web' | 'fibonacci-torus' | 'fractal-tree' | 'mandala' | 'wave' | 'lissajous' | 'crystal' | 'fibonacci-spiral' | 'genre-radar' | 'star-3' | 'star-4' | 'star-5' | 'star-6' | 'star-7' | 'star-8' | 'nonagon-infinity' | 'lyric-solar';
+export type ArrangeMode = 'natural' | 'radial' | 'radial-cluster' | 'sphere' | 'galaxy' | 'solar-system' | 'galactic-cinema' | 'helix' | 'emotional-spectrum' | 'genre-web' | 'fibonacci-torus' | 'fractal-tree' | 'mandala' | 'wave' | 'lissajous' | 'crystal' | 'fibonacci-spiral' | 'genre-radar' | 'star-3' | 'star-4' | 'star-5' | 'star-6' | 'star-7' | 'star-8' | 'nonagon-infinity' | 'lyric-solar';
 
 /** Minimal shape required for layout computation. */
 export interface ArrangeNode {
@@ -229,6 +229,84 @@ export function computeArrangeTargets<N extends ArrangeNode>(
         });
       });
     }
+
+  } else if (mode === 'radial-cluster') {
+    // Band at center → albums in a chronological ring → songs orbit their parent album.
+    // Tags/keywords/etc. in an outer ring.
+    const artists = nodes.filter(n => n.type === 'artist');
+    const rawAlbums = nodes.filter(n => n.type === 'album');
+    // Sort albums chronologically — fall back to 9999 when year is absent
+    const albums = [...rawAlbums].sort((a, b) => {
+      const ya = ((a as unknown as { data?: { year?: number } }).data?.year) ?? 9999;
+      const yb = ((b as unknown as { data?: { year?: number } }).data?.year) ?? 9999;
+      return ya - yb;
+    });
+    const songs  = nodes.filter(n => n.type === 'song');
+    const others = nodes.filter(n => !['artist', 'album', 'song'].includes(n.type));
+
+    // Artists cluster at the center (tiny ring when there are multiple)
+    const artistCR = Math.max(0, (artists.length - 1) * 35);
+    artists.forEach((a, i) => {
+      const phi = (i / Math.max(1, artists.length)) * 2 * Math.PI;
+      out.set(a.id, { x: artistCR * Math.cos(phi), y: 0, z: artistCR * Math.sin(phi) });
+    });
+
+    // Pre-build song→album and album→songs maps using adjacency
+    const songAlbumMap  = new Map<string, N>();
+    const albumSongsMap = new Map<string, N[]>();
+    for (const song of songs) {
+      const album = albums.find(a => adj.get(a.id)?.has(song.id) || adj.get(song.id)?.has(a.id));
+      if (album) {
+        songAlbumMap.set(song.id, album);
+        const arr = albumSongsMap.get(album.id) ?? [];
+        arr.push(song);
+        albumSongsMap.set(album.id, arr);
+      }
+    }
+
+    // Albums in a chronological ring, starting at the top (−½π)
+    const nAlbums  = Math.max(1, albums.length);
+    const ALBUM_R  = Math.max(220, nAlbums * 22 + 120);
+    const albumPos = new Map<string, { x: number; y: number; z: number }>();
+    albums.forEach((alb, i) => {
+      const phi = (i / nAlbums) * 2 * Math.PI - Math.PI / 2;
+      const pos  = { x: ALBUM_R * Math.cos(phi), y: 0, z: ALBUM_R * Math.sin(phi) };
+      albumPos.set(alb.id, pos);
+      out.set(alb.id, pos);
+    });
+
+    // Songs orbit their parent album
+    // Limit orbit radius so clusters from adjacent albums don't bleed into each other
+    const SONG_R = Math.min(68, ALBUM_R * Math.sin(Math.PI / nAlbums) * 0.58);
+    for (const song of songs) {
+      const album    = songAlbumMap.get(song.id);
+      const base     = album ? (albumPos.get(album.id) ?? { x: ALBUM_R + 130, y: 0, z: 0 })
+                              : { x: ALBUM_R + 130, y: 0, z: 0 };
+      const siblings = album ? (albumSongsMap.get(album.id) ?? [song]) : [song];
+      const idx      = siblings.indexOf(song);
+      const nSib     = Math.max(1, siblings.length);
+      const phi      = (idx / nSib) * 2 * Math.PI;
+      out.set(song.id, {
+        x: base.x + SONG_R * Math.cos(phi),
+        y: SONG_R * 0.28 * Math.sin(phi * 2),   // slight Y ripple so songs aren't perfectly flat
+        z: base.z + SONG_R * Math.sin(phi),
+      });
+    }
+
+    // Orphan songs (no album edge) go on an outer ring
+    const orphanSongs = songs.filter(s => !songAlbumMap.has(s.id));
+    const nOrphans    = orphanSongs.length;
+    orphanSongs.forEach((s, i) => {
+      const phi = (i / Math.max(1, nOrphans)) * 2 * Math.PI;
+      out.set(s.id, { x: (ALBUM_R + 120) * Math.cos(phi), y: 0, z: (ALBUM_R + 120) * Math.sin(phi) });
+    });
+
+    // Others (tags, keywords, themes, emotions) in outer ring
+    const OUTER_R = ALBUM_R + SONG_R + 90;
+    others.forEach((n, i) => {
+      const phi = (i / Math.max(1, others.length)) * 2 * Math.PI;
+      out.set(n.id, { x: OUTER_R * Math.cos(phi), y: Math.sin(i * 0.618) * 38, z: OUTER_R * Math.sin(phi) });
+    });
 
   } else if (mode === 'sphere') {
     const N = nodes.length;

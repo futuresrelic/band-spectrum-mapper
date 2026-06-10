@@ -97,6 +97,7 @@ const QUICK_ARRANGE_MODES = [
   { mode: 'mandala',           emoji: '🔵', label: 'Mandala'   },
   { mode: 'crystal',           emoji: '💎', label: 'Crystal'   },
   { mode: 'radial',            emoji: '🎯', label: 'Radial'    },
+  { mode: 'radial-cluster',    emoji: '💿', label: 'Album Rings'},
   { mode: 'fibonacci-spiral',  emoji: '🌀', label: 'Spiral'    },
   { mode: 'star-3',            emoji: '🔺', label: 'Star 3pt'  },
   { mode: 'star-4',            emoji: '✦',  label: 'Star 4pt'  },
@@ -720,10 +721,9 @@ export default function CinemaPage() {
   const [dofFocalRadius, setDofFocalRadius]   = useState(44);       // % of canvas width
 
   // ── Node info panel ──────────────────────────────────────────────────────────
-  // Collapsed by default: shows as a small chip; expands on demand
   const [nodeInfoExpanded, setNodeInfoExpanded] = useState(false);
-  // Auto-collapse when selection changes so the chip appears fresh each time
-  useEffect(() => { setNodeInfoExpanded(false); }, [selectedNode]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Auto-expand when a node is selected; collapse when selection is cleared
+  useEffect(() => { setNodeInfoExpanded(selectedNode !== null); }, [selectedNode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Lyrics Reader ────────────────────────────────────────────────────────────
   // Full-screen readable lyrics overlay for the selected song node
@@ -3094,6 +3094,14 @@ export default function CinemaPage() {
     setSimReady(true);
   }, [simNodes]);
 
+  // Apply the initial scene's arrangement once the force simulation stabilises
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!simReady) return;
+    const t = setTimeout(() => reArrange(), 400);
+    return () => clearTimeout(t);
+  }, [simReady]);
+
   const reArrange = useCallback((overrideMode?: string) => {
     const scene = CINEMA_SCENES[currentIdxRef.current];
     if (!fgRef.current) return;
@@ -3765,6 +3773,29 @@ export default function CinemaPage() {
 
           {/* Top-right */}
           <div className="absolute top-4 right-4 z-30 flex gap-2">
+            {/* Quick-access toggles — visible to all users, no config panel needed */}
+            <button
+              title={showLyrics ? 'Lyric overlay ON — click to hide' : 'Lyric overlay OFF — click to show'}
+              onClick={() => setShowLyrics(v => !v)}
+              className={`text-xs border backdrop-blur-sm transition-colors px-2.5 py-1.5 rounded-lg ${
+                showLyrics
+                  ? 'bg-violet-900/60 border-violet-700 text-violet-300'
+                  : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+              }`}
+            >
+              ♫
+            </button>
+            <button
+              title={visualNodeMode ? 'Visual nodes ON (artwork/vinyl) — click to disable' : 'Visual nodes — album artwork & vinyl records'}
+              onClick={() => { setVisualNodeMode(v => !v); if (artworkSphereMode) setArtworkSphereMode(false); fgRef.current?.refresh(); }}
+              className={`text-xs border backdrop-blur-sm transition-colors px-2.5 py-1.5 rounded-lg ${
+                visualNodeMode
+                  ? 'bg-indigo-900/60 border-indigo-700 text-indigo-300'
+                  : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:text-white'
+              }`}
+            >
+              🖼️
+            </button>
             {isAdmin && (
               <button
                 onClick={() => reArrange()}
