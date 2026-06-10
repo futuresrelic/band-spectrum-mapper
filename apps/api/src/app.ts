@@ -36,6 +36,7 @@ import { wordHuntRouter } from './routes/wordHunt.js';
 import { lyricChainRouter } from './routes/lyricChain.js';
 import { lyricDissectionRouter } from './routes/lyricDissection.js';
 import { timelineRouter } from './routes/timeline.js';
+import { band2048Router } from './routes/band2048.js';
 import { spectrumStudioRouter } from './routes/spectrumStudio.js';
 import { nodeSequencesRouter } from './routes/nodeSequences.js';
 import { cinemaPersistenceRouter } from './routes/cinemaPersistence.js';
@@ -133,6 +134,9 @@ export function createApp() {
 
   // Timeline Challenge — sort albums/songs chronologically
   app.use('/api/timeline', timelineRouter);
+
+  // Band 2048 game scores
+  app.use('/api/band2048', band2048Router);
 
   // Cinema node sequences — per-user saved tour paths
   app.use('/api/node-sequences', nodeSequencesRouter);

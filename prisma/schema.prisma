@@ -406,6 +406,7 @@ model User {
   gameScores           GameScore[]
   wordHuntScores       WordHuntScore[]
   lyricChainScores     LyricChainScore[]
+  band2048Scores       Band2048Score[]
   nodeSequences        UserNodeSequence[]
   cinemaData           UserCinemaData?
   tagProposals         TagProposal[]
@@ -966,5 +967,26 @@ model PromptTemplate {
   updatedAt   DateTime       @updatedAt
 
   @@map("prompt_templates")
+}
+
+// ---------------------------------------------------------------------------
+// Band 2048 game scores — one row per completed game (won or game over)
+// score = sum of tile merge values; topLevel = highest album level reached
+// ---------------------------------------------------------------------------
+
+model Band2048Score {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score      Int
+  topLevel   Int      // highest album level tile achieved
+  winLevel   Int      // total album levels in this game (win target)
+  won        Boolean  @default(false)
+  bandScope  String?  // comma-sep band IDs used in this game; null = all
+  createdAt  DateTime @default(now())
+
+  @@index([score])
+  @@index([userId])
+  @@map("band2048_scores")
 }
 

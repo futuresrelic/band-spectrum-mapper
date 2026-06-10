@@ -16,8 +16,9 @@
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '../lib/api';
+import { useAuth } from '../contexts/AuthContext';
 import SiteHeader from '../components/layout/SiteHeader';
 
 // ---------------------------------------------------------------------------
@@ -337,6 +338,7 @@ function SetupScreen({
 // ---------------------------------------------------------------------------
 
 export default function Band2048Page() {
+  const { user } = useAuth();
   const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
   const [phase, setPhase]             = useState<'setup' | 'playing' | 'won' | 'over'>('setup');
   const [tiles, setTiles]             = useState<LiveTile[]>([]);
@@ -348,6 +350,13 @@ export default function Band2048Page() {
   const [winLevel, setWinLevel]       = useState(0);
   const [wonAcknowledged, setWonAck]  = useState(false);
   const [cellSize, setCellSize]       = useState(80);
+  const [savedRank, setSavedRank]     = useState<number | null>(null);
+
+  const saveScoreMutation = useMutation({
+    mutationFn: (payload: { score: number; topLevel: number; winLevel: number; won: boolean; bandScope: string }) =>
+      api.post<{ ok: boolean; score: number; rank: number }>('/api/band2048/scores', payload),
+    onSuccess: (data) => { setSavedRank(data.rank); },
+  });
 
   const tileIdRef = useRef(0);
   const gridRef   = useRef<HTMLDivElement>(null);
@@ -402,6 +411,7 @@ export default function Band2048Page() {
     setScore(0);
     setPhase('playing');
     setWonAck(false);
+    setSavedRank(null);
   }
 
   const applyMove = useCallback((dir: Direction) => {
@@ -425,6 +435,23 @@ export default function Band2048Page() {
       return withNew;
     });
   }, [phase, winLevel, wonAcknowledged, makeId]);
+
+  // Auto-save score when game ends (won or over), if user is logged in
+  const savedRef = useRef(false);
+  useEffect(() => {
+    if ((phase === 'won' || phase === 'over') && user && winLevel > 0 && score > 0 && !savedRef.current) {
+      savedRef.current = true;
+      const tl = topLevel(tiles);
+      saveScoreMutation.mutate({
+        score,
+        topLevel: tl,
+        winLevel,
+        won: phase === 'won',
+        bandScope: selectedBandIds.join(','),
+      });
+    }
+    if (phase === 'playing') savedRef.current = false;
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard controls
   useEffect(() => {
@@ -490,7 +517,16 @@ export default function Band2048Page() {
               <div className="rounded-2xl bg-purple-900/80 border border-purple-400/60 p-6 text-center">
                 <div className="text-4xl mb-2">🏆</div>
                 <h2 className="text-xl font-bold text-white mb-1">You reached {goalTitle}!</h2>
-                <p className="text-white/60 text-sm mb-4">Keep going — how high can you stack it?</p>
+                <p className="text-white/60 text-sm mb-1">Final score: <span className="text-white font-bold">{score.toLocaleString()}</span></p>
+                {savedRank !== null && (
+                  <p className="text-purple-300 text-sm font-semibold mb-1">You rank #{savedRank} on the leaderboard!</p>
+                )}
+                {!user && (
+                  <p className="text-white/40 text-xs mb-1">
+                    <a href="/api/auth/google" className="text-purple-400 hover:underline">Sign in</a> to save your score
+                  </p>
+                )}
+                <p className="text-white/40 text-xs mb-4">Keep going — how high can you stack it?</p>
                 <button
                   className="px-6 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold text-sm rounded-xl transition-colors"
                   onClick={() => { setWonAck(true); setPhase('playing'); }}
@@ -503,11 +539,25 @@ export default function Band2048Page() {
                 <div className="text-4xl mb-2">😵</div>
                 <h2 className="text-xl font-bold text-white mb-1">Game Over</h2>
                 <p className="text-white/50 text-sm mb-1">Final score: <span className="text-white font-bold">{score.toLocaleString()}</span></p>
-                <p className="text-white/30 text-xs mb-4">Highest tile: level {topLevel(tiles)} / {winLevel}</p>
-                <button
-                  className="px-6 py-2 bg-purple-700 hover:bg-purple-600 text-white font-bold text-sm rounded-xl transition-colors"
-                  onClick={startGame}
-                >Try Again →</button>
+                <p className="text-white/30 text-xs mb-1">Highest tile: level {topLevel(tiles)} / {winLevel}</p>
+                {savedRank !== null && (
+                  <p className="text-purple-300 text-sm font-semibold mb-1">You rank #{savedRank} on the leaderboard!</p>
+                )}
+                {!user && (
+                  <p className="text-white/40 text-xs mb-1">
+                    <a href="/api/auth/google" className="text-purple-400 hover:underline">Sign in</a> to save your score
+                  </p>
+                )}
+                <div className="flex gap-3 justify-center mt-4">
+                  <button
+                    className="px-6 py-2 bg-purple-700 hover:bg-purple-600 text-white font-bold text-sm rounded-xl transition-colors"
+                    onClick={startGame}
+                  >Try Again →</button>
+                  <Link
+                    to="/leaderboard"
+                    className="px-6 py-2 bg-white/10 hover:bg-white/20 text-white/70 font-semibold text-sm rounded-xl transition-colors"
+                  >Leaderboard</Link>
+                </div>
               </div>
             )}
 
@@ -543,7 +593,7 @@ export default function Band2048Page() {
             {/* Level legend */}
             <details className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
               <summary className="px-4 py-2.5 text-xs font-semibold text-white/40 cursor-pointer select-none">
-                Album levels ({levels.length - 1} albums)
+                Album levels ({levels.length} albums)
               </summary>
               <div className="px-4 pb-3 flex flex-wrap gap-1.5">
                 {levels.map((tl) => {
