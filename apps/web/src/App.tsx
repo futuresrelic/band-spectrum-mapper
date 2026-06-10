@@ -69,6 +69,7 @@ import AdminBootlegsPage from './pages/AdminBootlegsPage';
 import DataHealthPage from './pages/DataHealthPage';
 import PatternLabPage from './pages/PatternLabPage';
 import AdminGamesPage from './pages/AdminGamesPage';
+import SongConnectionsPage from './pages/SongConnectionsPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -169,6 +170,7 @@ export default function App() {
           <Route path="song-spectrum" element={<SongSpectrumPage />} />
           <Route path="word-cloud" element={<WordCloudPage />} />
           <Route path="song-nodes" element={<SongNodesPage />} />
+          <Route path="song-connections" element={<SongConnectionsPage />} />
           <Route path="trivia" element={<TriviaPage />} />
           <Route path="admin/game" element={<AdminGamePage />} />
           <Route path="discography" element={<DiscographyImportPage />} />

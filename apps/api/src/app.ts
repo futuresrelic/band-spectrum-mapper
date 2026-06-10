@@ -44,6 +44,7 @@ import { dataGridRouter } from './routes/dataGrid.js';
 import { setlistsRouter } from './routes/setlists.js';
 import { bootlegsRouter } from './routes/bootlegs.js';
 import { songLinksRouter } from './routes/songLinks.js';
+import { songConnectionsRouter } from './routes/songConnections.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -161,6 +162,9 @@ export function createApp() {
 
   // Song source linking — link live/bootleg/demo songs to their studio original (admin only)
   app.use('/api/song-links', songLinksRouter);
+
+  // Song Connection Explorer — shared words, themes, tags, album, artist (admin only)
+  app.use('/api/song-connections', songConnectionsRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.
