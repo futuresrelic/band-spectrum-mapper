@@ -245,20 +245,14 @@ function TileCell({ tile, levels, cs }: { tile: LiveTile; levels: TileLevel[]; c
 function makeLevels(
   albums: { id: string; title: string; bandName: string; year: number; artworkUrl?: string | null }[],
 ): TileLevel[] {
-  const sorted = albums.slice().sort((a, b) => a.year - b.year);
-  const levels: TileLevel[] = [
-    // Level 1 is the game's seed tile — NOT a database album. "Starter" makes this clear.
-    { level: 1, label: '♫', sub: 'Starter' },
-  ];
-  sorted.forEach((album, i) => {
-    levels.push({
-      level: i + 2,
-      label: album.title.length > 16 ? album.title.slice(0, 14) + '…' : album.title,
-      sub: `${album.bandName} · ${album.year}`,
-      ...(album.artworkUrl ? { artworkUrl: album.artworkUrl } : {}),
-    });
-  });
-  return levels;
+  // Albums map directly to levels 1, 2, 3… — no placeholder tile.
+  // Level 1 = oldest album, last level = newest album (the win condition).
+  return albums.slice().sort((a, b) => a.year - b.year).map((album, i) => ({
+    level: i + 1,
+    label: album.title.length > 16 ? album.title.slice(0, 14) + '…' : album.title,
+    sub: `${album.bandName} · ${album.year}`,
+    ...(album.artworkUrl ? { artworkUrl: album.artworkUrl } : {}),
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -303,7 +297,8 @@ function SetupScreen({
       <div className="text-6xl mb-4">🎮</div>
       <h1 className="text-3xl font-bold text-white mb-2">Band 2048</h1>
       <p className="text-white/50 text-sm mb-8 leading-relaxed max-w-md mx-auto">
-        Slide tiles to merge them. Two identical album tiles merge into the next album in the discography.
+        Slide tiles to merge them. Two identical album tiles combine into the next album in the discography.
+        Can you reach the final album?
       </p>
       <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-5 text-left">
         <div className="text-xs font-semibold uppercase tracking-wider text-white/40 mb-3">Select artists</div>
