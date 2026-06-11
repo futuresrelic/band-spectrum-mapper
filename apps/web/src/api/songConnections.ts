@@ -36,10 +36,19 @@ export interface SongSearchResult {
   album: { id: string; title: string; slug: string } | null;
 }
 
+export interface Band {
+  id: string;
+  name: string;
+  slug: string;
+}
+
 export const songConnectionsApi = {
   getConnections: (songId: string): Promise<SongConnectionsResponse> =>
     api.get(`/api/song-connections/${encodeURIComponent(songId)}`),
 
   search: (q: string): Promise<SongSearchResult[]> =>
     api.get(`/api/songs/search?q=${encodeURIComponent(q)}`),
+
+  getBands: (): Promise<Band[]> =>
+    api.get('/api/bands'),
 };

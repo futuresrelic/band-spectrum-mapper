@@ -38,17 +38,20 @@ function filterConnections(
   connections: SongConnectionItem[],
   enabled: Set<ConnectionType>,
   minConn: number,
+  maxConn: number,
 ): FilteredConnection[] {
   const result: FilteredConnection[] = [];
   for (const item of connections) {
     let count = 0;
     const active: ConnectionType[] = [];
-    if (enabled.has('words') && item.sharedWordCount > 0)    { count += item.sharedWordCount;       active.push('words');  }
-    if (enabled.has('themes') && item.sharedThemes.length > 0){ count += item.sharedThemes.length;   active.push('themes'); }
-    if (enabled.has('tags') && item.sharedTags.length > 0)   { count += item.sharedTags.length;     active.push('tags');   }
-    if (enabled.has('album') && item.sameAlbum)              { count += 1;                          active.push('album');  }
-    if (enabled.has('artist') && item.sameArtist)            { count += 1;                          active.push('artist'); }
-    if (count >= minConn && count > 0) result.push({ item, filteredCount: count, activeTypes: active });
+    if (enabled.has('words')  && item.sharedWordCount > 0)      { count += item.sharedWordCount;      active.push('words');  }
+    if (enabled.has('themes') && item.sharedThemes.length > 0)  { count += item.sharedThemes.length;  active.push('themes'); }
+    if (enabled.has('tags')   && item.sharedTags.length > 0)    { count += item.sharedTags.length;    active.push('tags');   }
+    if (enabled.has('album')  && item.sameAlbum)                { count += 1;                         active.push('album');  }
+    if (enabled.has('artist') && item.sameArtist)               { count += 1;                         active.push('artist'); }
+    if (count >= minConn && count <= maxConn && count > 0) {
+      result.push({ item, filteredCount: count, activeTypes: active });
+    }
   }
   result.sort((a, b) => b.filteredCount - a.filteredCount);
   return result;
@@ -90,10 +93,7 @@ function buildCyStyle() {
     },
     {
       selector: 'node:selected',
-      style: {
-        'border-color': '#f8fafc',
-        'border-width': 2,
-      },
+      style: { 'border-color': '#f8fafc', 'border-width': 2 },
     },
     {
       selector: 'edge',
@@ -104,26 +104,11 @@ function buildCyStyle() {
         'width': 'data(width)',
       },
     },
-    {
-      selector: 'edge[type = "words"]',
-      style: { 'line-color': '#94a3b8' },
-    },
-    {
-      selector: 'edge[type = "themes"]',
-      style: { 'line-color': '#34d399' },
-    },
-    {
-      selector: 'edge[type = "tags"]',
-      style: { 'line-color': '#22d3ee' },
-    },
-    {
-      selector: 'edge[type = "album"]',
-      style: { 'line-color': '#a78bfa' },
-    },
-    {
-      selector: 'edge[type = "artist"]',
-      style: { 'line-color': '#fbbf24' },
-    },
+    { selector: 'edge[type = "words"]',  style: { 'line-color': '#94a3b8' } },
+    { selector: 'edge[type = "themes"]', style: { 'line-color': '#34d399' } },
+    { selector: 'edge[type = "tags"]',   style: { 'line-color': '#22d3ee' } },
+    { selector: 'edge[type = "album"]',  style: { 'line-color': '#a78bfa' } },
+    { selector: 'edge[type = "artist"]', style: { 'line-color': '#fbbf24' } },
   ];
 }
 
@@ -133,8 +118,7 @@ function edgeWidth(weight: number): number {
 
 function nodeSize(count: number, max: number): number {
   if (count === 0) return 22;
-  const ratio = count / Math.max(1, max);
-  return Math.round(22 + ratio * 26);
+  return Math.round(22 + (count / Math.max(1, max)) * 26);
 }
 
 // ---------------------------------------------------------------------------
@@ -142,44 +126,71 @@ function nodeSize(count: number, max: number): number {
 // ---------------------------------------------------------------------------
 
 export default function SongConnectionsPage() {
+  const [selectedBandId, setSelectedBandId]   = useState('');
   const [searchQuery, setSearchQuery]         = useState('');
   const [showDropdown, setShowDropdown]       = useState(false);
   const [selectedSong, setSelectedSong]       = useState<SongSearchResult | null>(null);
   const [enabledTypes, setEnabledTypes]       = useState<Set<ConnectionType>>(new Set(ALL_TYPES));
   const [minConnections, setMinConnections]   = useState(1);
+  const [maxConnections, setMaxConnections]   = useState(9999);
   const [selectedNode, setSelectedNode]       = useState<SongConnectionItem | null>(null);
 
   const cyRef        = useRef<Core | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const searchRef    = useRef<HTMLInputElement | null>(null);
+
+  // Bands list for the filter dropdown
+  const { data: bands = [] } = useQuery({
+    queryKey: ['bands-list'],
+    queryFn:  () => songConnectionsApi.getBands(),
+    staleTime: Infinity,
+  });
 
   // Song search
-  const { data: searchResults = [] } = useQuery<SongSearchResult[]>({
+  const { data: rawSearchResults = [] } = useQuery<SongSearchResult[]>({
     queryKey: ['conn-search', searchQuery],
-    queryFn: () => searchQuery.length >= 2
+    queryFn:  () => searchQuery.length >= 2
       ? songConnectionsApi.search(searchQuery)
       : Promise.resolve([]),
     staleTime: 30_000,
   });
 
-  // Connections data
+  // Filter search results by selected band
+  const searchResults = useMemo(() =>
+    selectedBandId
+      ? rawSearchResults.filter(r => r.band.id === selectedBandId)
+      : rawSearchResults,
+    [rawSearchResults, selectedBandId],
+  );
+
+  // Connections data (all types, no server-side filtering)
   const { data: connectionsData, isFetching } = useQuery({
     queryKey: ['song-connections', selectedSong?.id],
-    queryFn: () => selectedSong ? songConnectionsApi.getConnections(selectedSong.id) : null,
-    enabled: !!selectedSong,
+    queryFn:  () => selectedSong ? songConnectionsApi.getConnections(selectedSong.id) : null,
+    enabled:  !!selectedSong,
     staleTime: Infinity,
   });
 
+  // Max possible connection count in the raw data
   const maxConnectionCount = useMemo(() => {
     if (!connectionsData || connectionsData.connections.length === 0) return 1;
     return connectionsData.connections[0]?.connectionCount ?? 1;
   }, [connectionsData]);
 
-  // Client-side filtered connections
+  // Reset min/max sliders when a new song's data loads
+  useEffect(() => {
+    if (connectionsData) {
+      setMinConnections(1);
+      setMaxConnections(maxConnectionCount);
+    }
+  }, [connectionsData, maxConnectionCount]);
+
+  // Client-side filtered connections (band + type + min/max)
   const filtered = useMemo(() => {
     if (!connectionsData) return [];
-    return filterConnections(connectionsData.connections, enabledTypes, minConnections);
-  }, [connectionsData, enabledTypes, minConnections]);
+    let conns = connectionsData.connections;
+    if (selectedBandId) conns = conns.filter(c => c.bandId === selectedBandId);
+    return filterConnections(conns, enabledTypes, minConnections, maxConnections);
+  }, [connectionsData, selectedBandId, enabledTypes, minConnections, maxConnections]);
 
   // ---------------------------------------------------------------------------
   // Cytoscape graph rebuild
@@ -187,55 +198,38 @@ export default function SongConnectionsPage() {
   const buildGraph = useCallback(() => {
     if (!containerRef.current || !connectionsData) return;
 
-    if (cyRef.current) {
-      cyRef.current.destroy();
-      cyRef.current = null;
-    }
+    if (cyRef.current) { cyRef.current.destroy(); cyRef.current = null; }
 
     const sourceId = connectionsData.sourceSong.id;
     const maxCount = filtered[0]?.filteredCount ?? 1;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const elements: any[] = [
-      {
-        group: 'nodes',
-        data: {
-          id:    sourceId,
-          label: connectionsData.sourceSong.title,
-          type:  'source',
-          size:  52,
-        },
-      },
-    ];
+    const elements: any[] = [{
+      group: 'nodes',
+      data: { id: sourceId, label: connectionsData.sourceSong.title, type: 'source', size: 52 },
+    }];
 
     for (const { item, filteredCount, activeTypes } of filtered) {
       elements.push({
         group: 'nodes',
         data: {
-          id:              item.songId,
-          label:           item.title,
-          type:            'song',
-          size:            nodeSize(filteredCount, maxCount),
+          id: item.songId, label: item.title, type: 'song',
+          size: nodeSize(filteredCount, maxCount),
           connectionCount: filteredCount,
-          songId:          item.songId,
         },
       });
-
       for (const type of activeTypes) {
         const weight =
-          type === 'words'  ? item.sharedWordCount :
+          type === 'words'  ? item.sharedWordCount  :
           type === 'themes' ? item.sharedThemes.length :
           type === 'tags'   ? item.sharedTags.length :
           1;
-
         elements.push({
           group: 'edges',
           data: {
-            id:     `${sourceId}-${item.songId}-${type}`,
-            source: sourceId,
-            target: item.songId,
-            type,
-            width:  edgeWidth(weight),
+            id: `${sourceId}-${item.songId}-${type}`,
+            source: sourceId, target: item.songId,
+            type, width: edgeWidth(weight),
           },
         });
       }
@@ -244,16 +238,16 @@ export default function SongConnectionsPage() {
     const cy = cytoscape({
       container: containerRef.current,
       elements,
-      style:     buildCyStyle(),
+      style: buildCyStyle(),
       layout: {
         name: 'concentric',
         concentric: (node: NodeSingular) => {
           if (node.id() === sourceId) return 1000;
           return (node.data('connectionCount') as number) ?? 1;
         },
-        levelWidth: () => 4,
+        levelWidth:    () => 4,
         minNodeSpacing: 50,
-        animate:          true,
+        animate:           true,
         animationDuration: 600,
         fit:     true,
         padding: 40,
@@ -261,17 +255,11 @@ export default function SongConnectionsPage() {
     });
 
     cy.on('tap', 'node', (evt) => {
-      const node = evt.target as NodeSingular;
-      const nid  = node.id() as string;
+      const nid = (evt.target as NodeSingular).id() as string;
       if (nid === sourceId) { setSelectedNode(null); return; }
-      const conn = connectionsData.connections.find(c => c.songId === nid) ?? null;
-      setSelectedNode(conn);
+      setSelectedNode(connectionsData.connections.find(c => c.songId === nid) ?? null);
     });
-
-    cy.on('tap', (evt) => {
-      // tap on background
-      if (evt.target === cy) setSelectedNode(null);
-    });
+    cy.on('tap', (evt) => { if (evt.target === cy) setSelectedNode(null); });
 
     cyRef.current = cy;
   }, [connectionsData, filtered]);
@@ -290,7 +278,6 @@ export default function SongConnectionsPage() {
     setSearchQuery(song.title);
     setShowDropdown(false);
     setSelectedNode(null);
-    setMinConnections(1);
   }
 
   function clearSelection() {
@@ -308,6 +295,8 @@ export default function SongConnectionsPage() {
     });
   }
 
+  const sliderMax = Math.max(1, maxConnectionCount);
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -316,18 +305,35 @@ export default function SongConnectionsPage() {
     <div className="flex flex-col h-screen bg-gray-950 overflow-hidden">
       {/* ── Controls bar ─────────────────────────────────────────── */}
       <div className="flex-shrink-0 bg-surface-50 border-b border-surface-200 px-4 py-3 space-y-2">
+
+        {/* Row 1: Band filter + Song search */}
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-base font-semibold text-surface-800 whitespace-nowrap">
             Song Connection Explorer
           </h1>
 
-          {/* Search */}
-          <div className="relative flex-1 min-w-[220px] max-w-xs">
+          {/* Band selector */}
+          <select
+            value={selectedBandId}
+            onChange={e => {
+              setSelectedBandId(e.target.value);
+              setSearchQuery('');
+              setShowDropdown(false);
+            }}
+            className="text-sm border border-surface-300 rounded px-2 py-1.5 bg-white text-surface-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          >
+            <option value="">All bands</option>
+            {bands.map(b => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+
+          {/* Song search */}
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
             <input
-              ref={searchRef}
               type="text"
               className="w-full text-sm border border-surface-300 rounded px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
-              placeholder="Search for a song…"
+              placeholder={selectedBandId ? 'Search within band…' : 'Search for a song…'}
               value={searchQuery}
               onChange={e => { setSearchQuery(e.target.value); setShowDropdown(true); }}
               onFocus={() => setShowDropdown(true)}
@@ -360,9 +366,7 @@ export default function SongConnectionsPage() {
             </button>
           )}
 
-          {isFetching && (
-            <span className="text-xs text-surface-400 italic">Loading…</span>
-          )}
+          {isFetching && <span className="text-xs text-surface-400 italic">Loading…</span>}
 
           {connectionsData && !isFetching && (
             <span className="text-xs text-surface-500">
@@ -371,7 +375,7 @@ export default function SongConnectionsPage() {
           )}
         </div>
 
-        {/* Type toggles + slider */}
+        {/* Row 2: Type toggles */}
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs text-surface-500 font-medium">Show:</span>
           {ALL_TYPES.map(t => {
@@ -391,36 +395,68 @@ export default function SongConnectionsPage() {
               </button>
             );
           })}
+        </div>
 
-          {connectionsData && (
-            <div className="flex items-center gap-2 ml-4">
-              <span className="text-xs text-surface-500 whitespace-nowrap">
+        {/* Row 3: Min / Max sliders (only visible after a song is selected) */}
+        {connectionsData && (
+          <div className="flex items-center gap-6 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-surface-500 whitespace-nowrap w-28 text-right">
                 Min connections:
               </span>
               <input
                 type="range"
                 min={1}
-                max={Math.max(1, maxConnectionCount)}
+                max={sliderMax}
                 value={minConnections}
-                onChange={e => setMinConnections(Number(e.target.value))}
-                className="w-28 accent-indigo-500"
+                onChange={e => {
+                  const v = Number(e.target.value);
+                  setMinConnections(v);
+                  if (v > maxConnections) setMaxConnections(v);
+                }}
+                className="w-32 accent-indigo-500"
               />
-              <span className="text-xs font-mono text-surface-700 w-6 text-right">
+              <span className="text-xs font-mono text-surface-700 w-8 text-right">
                 {minConnections}
               </span>
             </div>
-          )}
-        </div>
 
-        {/* Legend */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-surface-500 whitespace-nowrap w-28 text-right">
+                Max connections:
+              </span>
+              <input
+                type="range"
+                min={1}
+                max={sliderMax}
+                value={maxConnections}
+                onChange={e => {
+                  const v = Number(e.target.value);
+                  setMaxConnections(v);
+                  if (v < minConnections) setMinConnections(v);
+                }}
+                className="w-32 accent-indigo-500"
+              />
+              <span className="text-xs font-mono text-surface-700 w-8 text-right">
+                {maxConnections >= sliderMax ? '∞' : maxConnections}
+              </span>
+            </div>
+
+            {/* Range hint */}
+            <span className="text-xs text-surface-400">
+              {minConnections === 1 && maxConnections >= sliderMax
+                ? 'showing all'
+                : `${minConnections}–${maxConnections >= sliderMax ? '∞' : maxConnections} connections`}
+            </span>
+          </div>
+        )}
+
+        {/* Row 4: Legend */}
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs text-surface-400">Edges:</span>
           {ALL_TYPES.map(t => (
             <span key={t} className="flex items-center gap-1 text-xs text-surface-500">
-              <span
-                className="inline-block w-6 h-1 rounded"
-                style={{ backgroundColor: TYPE_CONFIG[t].color }}
-              />
+              <span className="inline-block w-6 h-1 rounded" style={{ backgroundColor: TYPE_CONFIG[t].color }} />
               {TYPE_CONFIG[t].label}
             </span>
           ))}
@@ -430,22 +466,16 @@ export default function SongConnectionsPage() {
 
       {/* ── Graph area ───────────────────────────────────────────── */}
       <div className="relative flex-1 min-h-0">
-        {/* Empty state */}
         {!selectedSong && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-surface-500">
-            <p className="text-lg font-semibold mb-1">Search for a song above</p>
-            <p className="text-sm">The graph will show every song in the library it shares connections with.</p>
+            <p className="text-lg font-semibold mb-1">Select a band, then search for a song</p>
+            <p className="text-sm">The graph shows every song in the library that shares a connection with it.</p>
           </div>
         )}
 
-        {/* Graph container */}
-        <div
-          ref={containerRef}
-          className="w-full h-full"
-          style={{ background: '#0f172a' }}
-        />
+        <div ref={containerRef} className="w-full h-full" style={{ background: '#0f172a' }} />
 
-        {/* Selected node detail panel */}
+        {/* Node detail panel */}
         {selectedNode && (
           <div className="absolute bottom-4 left-4 right-4 max-w-xl mx-auto bg-gray-900/95 backdrop-blur-sm border border-gray-700 rounded-lg p-4 text-sm text-gray-100 shadow-xl">
             <div className="flex items-start justify-between mb-2">
