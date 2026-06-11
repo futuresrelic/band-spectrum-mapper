@@ -150,7 +150,7 @@ function SetupScreen({
 }
 
 // ---------------------------------------------------------------------------
-// Word Search grid (pointer-event drag-to-select)
+// Word Search grid (pointer-event drag-to-select, fully responsive)
 // ---------------------------------------------------------------------------
 
 function WordGrid({
@@ -167,14 +167,13 @@ function WordGrid({
   const [dragging, setDragging] = useState(false);
   const [dragStart, setDragStart] = useState<{ r: number; c: number } | null>(null);
   const [dragCells, setDragCells] = useState<string[]>([]);
+  // gridRef is on the CSS grid div so getBoundingClientRect() gives us the true grid bounds
   const gridRef = useRef<HTMLDivElement>(null);
 
-  // Map from cellKey → what colours apply
   function getCellState(r: number, c: number): 'found' | 'revealed' | 'drag' | 'none' {
     const k = cellKey(r, c);
     if (dragCells.includes(k)) return 'drag';
     if (foundWords.size > 0) {
-      // Check if this cell belongs to a found word
       for (const sol of puzzle.solutions) {
         if (foundWords.has(sol.word)) {
           for (let i = 0; i < sol.word.length; i++) {
@@ -187,18 +186,13 @@ function WordGrid({
     return 'none';
   }
 
-  // Compute cells in a straight line between two positions
   function lineBetween(r1: number, c1: number, r2: number, c2: number): string[] {
     const dr = r2 - r1; const dc = c2 - c1;
     const steps = Math.max(Math.abs(dr), Math.abs(dc));
     if (steps === 0) return [cellKey(r1, c1)];
-    // Only allow axis-aligned or diagonal lines
     const ndr = Math.round(dr / steps); const ndc = Math.round(dc / steps);
     if (Math.abs(dr) !== 0 && Math.abs(dc) !== 0 && Math.abs(dr) !== Math.abs(dc)) {
-      // Not a valid direction — snap to longest axis
-      if (Math.abs(dr) >= Math.abs(dc)) {
-        return lineBetween(r1, c1, r2, c1);
-      }
+      if (Math.abs(dr) >= Math.abs(dc)) return lineBetween(r1, c1, r2, c1);
       return lineBetween(r1, c1, r1, c2);
     }
     const cells: string[] = [];
@@ -206,22 +200,23 @@ function WordGrid({
     return cells;
   }
 
-  function cellFromPoint(x: number, y: number): { r: number; c: number } | null {
+  function cellFromPoint(clientX: number, clientY: number): { r: number; c: number } | null {
     if (!gridRef.current) return null;
     const rect = gridRef.current.getBoundingClientRect();
-    const rel = gridRef.current.firstElementChild;
-    if (!rel) return null;
-    const cellSize = (rel as HTMLElement).getBoundingClientRect().width;
-    const col = Math.floor((x - rect.left) / cellSize);
-    const row = Math.floor((y - rect.top) / cellSize);
+    // pitch = (total grid width + 1 gap) / N  — works for any responsive size
+    const pitch = (rect.width + 2) / puzzle.size;
+    const col = Math.floor((clientX - rect.left) / pitch);
+    const row = Math.floor((clientY - rect.top) / pitch);
     if (row < 0 || row >= puzzle.size || col < 0 || col >= puzzle.size) return null;
     return { r: row, c: col };
   }
 
   function onPointerDown(e: React.PointerEvent) {
+    e.preventDefault(); // block scroll / context-menu on touch
     const pos = cellFromPoint(e.clientX, e.clientY);
     if (!pos) return;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    // Capture on the grid div so all subsequent move/up events arrive here
+    gridRef.current?.setPointerCapture(e.pointerId);
     setDragging(true);
     setDragStart(pos);
     setDragCells([cellKey(pos.r, pos.c)]);
@@ -236,7 +231,6 @@ function WordGrid({
 
   function onPointerUp() {
     if (!dragging || dragCells.length === 0) { setDragging(false); setDragCells([]); return; }
-    // Check if dragCells match any solution
     const str = dragCells
       .map((k) => {
         const [r, c] = k.split(',').map(Number);
@@ -255,38 +249,43 @@ function WordGrid({
     setDragStart(null);
   }
 
-  const CELL_SIZE = puzzle.size <= 10 ? 40 : puzzle.size <= 12 ? 36 : puzzle.size <= 14 ? 32 : 28;
+  // Max desired cell size in px — grid shrinks to fit any screen width
+  const MAX_CELL = 40;
 
   return (
+    // Outer wrapper caps max size on desktop; on mobile it fills available width
     <div
-      ref={gridRef}
-      className="select-none touch-none"
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerLeave={onPointerUp}
-      style={{ cursor: 'crosshair' }}
+      className="w-full mx-auto"
+      style={{ maxWidth: `${puzzle.size * (MAX_CELL + 2)}px` }}
     >
       <div
+        ref={gridRef}
+        className="select-none touch-none w-full"
         style={{
           display: 'grid',
-          gridTemplateColumns: `repeat(${puzzle.size}, ${CELL_SIZE}px)`,
+          gridTemplateColumns: `repeat(${puzzle.size}, 1fr)`,
           gap: '2px',
+          cursor: 'crosshair',
         }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onPointerUp}
       >
         {puzzle.grid.map((row, r) =>
           row.map((letter, c) => {
             const state = getCellState(r, c);
             const bg =
-              state === 'drag'     ? 'bg-cyan-500 text-white'     :
-              state === 'found'    ? 'bg-emerald-500 text-white'  :
+              state === 'drag'     ? 'bg-cyan-500 text-white'         :
+              state === 'found'    ? 'bg-emerald-500 text-white'      :
               state === 'revealed' ? 'bg-amber-500/40 text-amber-200' :
-              'bg-gray-800 text-gray-300 hover:bg-gray-700';
+              'bg-gray-800 text-gray-300';
             return (
               <div
                 key={`${r}-${c}`}
-                style={{ width: CELL_SIZE, height: CELL_SIZE }}
-                className={`flex items-center justify-center font-bold text-sm rounded transition-colors ${bg}`}
+                // aspect-ratio keeps cells square regardless of 1fr column width
+                style={{ aspectRatio: '1 / 1' }}
+                className={`flex items-center justify-center font-bold text-xs rounded ${bg}`}
               >
                 {letter}
               </div>
@@ -372,31 +371,31 @@ function PlayScreen({
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
       <SiteHeader theme="dark" active="games" />
-      <main className="flex-1 px-4 py-6 max-w-6xl mx-auto w-full">
+      <main className="flex-1 px-3 py-4 max-w-6xl mx-auto w-full">
         {/* Header row */}
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-          <div>
-            <h1 className="text-lg font-bold">{puzzle.title}</h1>
+        <div className="flex items-center justify-between mb-3 gap-2">
+          <div className="min-w-0">
+            <h1 className="text-base font-bold truncate">{puzzle.title}</h1>
             <p className="text-xs text-gray-500">{puzzle.size}×{puzzle.size} · {puzzle.words.length} words · {difficulty}</p>
           </div>
-          <div className="flex items-center gap-4">
-            <span className={`font-mono text-2xl font-bold ${timerColor}`}>
+          <div className="flex items-center gap-3 shrink-0">
+            <span className={`font-mono text-xl font-bold ${timerColor}`}>
               {mins}:{String(secs).padStart(2, '0')}
             </span>
-            <span className="text-sm text-gray-400">{foundWords.size}/{puzzle.words.length} found</span>
+            <span className="text-xs text-gray-400 whitespace-nowrap">{foundWords.size}/{puzzle.words.length}</span>
           </div>
         </div>
 
         {!started && (
-          <div className="mb-3 text-xs text-cyan-400 text-center animate-pulse">
-            Start dragging to begin the timer
+          <div className="mb-2 text-xs text-cyan-400 text-center animate-pulse">
+            Drag across letters to find words
           </div>
         )}
 
-        {/* Main layout */}
-        <div className="flex gap-6 flex-wrap">
-          {/* Grid */}
-          <div className="flex-shrink-0">
+        {/* Main layout — grid stacks above word list on mobile */}
+        <div className="flex flex-col gap-4 lg:flex-row lg:gap-6 lg:items-start">
+          {/* Grid — full width on mobile, natural size on desktop */}
+          <div className="w-full lg:flex-shrink-0 lg:w-auto">
             <WordGrid
               puzzle={puzzle}
               foundWords={foundWords}
@@ -406,22 +405,23 @@ function PlayScreen({
           </div>
 
           {/* Word list */}
-          <div className="flex-1 min-w-[200px] max-w-xs">
+          <div className="flex-1 min-w-0">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Words to Find</h2>
-            <div className="space-y-1 max-h-[520px] overflow-y-auto pr-1">
+            {/* Two-column grid on mobile so all words fit without excessive scrolling */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-1 max-h-[50vh] lg:max-h-[600px] overflow-y-auto pr-1">
               {puzzle.words.map(({ word, clue }) => {
                 const found = foundWords.has(word);
                 return (
                   <div
                     key={word}
-                    className={`rounded-lg px-3 py-2 flex items-start gap-2 transition-colors ${
+                    className={`rounded-lg px-2.5 py-1.5 flex items-start gap-2 transition-colors ${
                       found ? 'bg-emerald-900/40 border border-emerald-700/30' : 'bg-gray-900 border border-gray-800'
                     }`}
                   >
                     <span className={`font-mono text-xs font-bold pt-0.5 shrink-0 ${found ? 'text-emerald-400 line-through' : 'text-cyan-400'}`}>
                       {word}
                     </span>
-                    <span className="text-xs text-gray-500 leading-relaxed">{clue}</span>
+                    <span className="text-xs text-gray-500 leading-relaxed line-clamp-2">{clue}</span>
                     {!found && (
                       <button
                         onClick={() => revealWord(word)}
@@ -438,7 +438,7 @@ function PlayScreen({
 
             <button
               onClick={handleExpire}
-              className="mt-4 w-full text-xs text-gray-600 hover:text-gray-400 py-2 border border-gray-800 rounded-lg transition-colors"
+              className="mt-3 w-full text-xs text-gray-600 hover:text-gray-400 py-2 border border-gray-800 rounded-lg transition-colors"
             >
               Give Up
             </button>
