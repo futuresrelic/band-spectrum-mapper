@@ -49,6 +49,9 @@ import { lyricCompleteRouter } from './routes/lyricComplete.js';
 import { crosswordRouter } from './routes/crossword.js';
 import { wordSearchRouter } from './routes/wordSearch.js';
 import { recordCatcherRouter } from './routes/recordCatcher.js';
+import { spectrumGuesserRouter } from './routes/spectrumGuesser.js';
+import { lyricMatchRouter } from './routes/lyricMatch.js';
+import { graphHuntRouter } from './routes/graphHunt.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -181,6 +184,15 @@ export function createApp() {
 
   // Record Catcher — arcade album-song matching game
   app.use('/api/record-catcher', recordCatcherRouter);
+
+  // Spectrum Guesser scores
+  app.use('/api/spectrum-guesser', spectrumGuesserRouter);
+
+  // Lyric Match scores
+  app.use('/api/lyric-match', lyricMatchRouter);
+
+  // 3D Graph Hunt scores
+  app.use('/api/graph-hunt', graphHuntRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.

@@ -13,6 +13,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import SiteHeader from '../components/layout/SiteHeader';
+import { useAuth } from '../contexts/AuthContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -168,23 +169,43 @@ function SongPool({
 // Summary screen
 // ---------------------------------------------------------------------------
 
-function SummaryScreen({ results, onRestart }: { results: RoundResult[]; onRestart: () => void }) {
+interface LbEntry { rank: number; playerName: string; score: number; }
+
+function SummaryScreen({ results, bandIds, onRestart }: { results: RoundResult[]; bandIds: string[]; onRestart: () => void }) {
+  const { user } = useAuth();
   const total = results.reduce((sum, r) => sum + r.roundScore, 0);
   const perfect = results.filter((r) => r.wordsUsed === 1 && r.wrongCount === 0).length;
+  const [saved, setSaved] = useState(false);
+  const [rank, setRank] = useState<number | null>(null);
+
+  const { data: lb = [] } = useQuery<LbEntry[]>({
+    queryKey: ['ld-scores'],
+    queryFn: () => api.get('/api/lyric-dissection/scores?limit=10'),
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (!user || saved) return;
+    api.post('/api/lyric-dissection/scores', { score: total, totalRounds: results.length, bandIds })
+      .then((r: unknown) => { const res = r as { rank?: number }; if (res.rank) setRank(res.rank); setSaved(true); })
+      .catch(() => {});
+  }, [user, saved, total, results.length, bandIds]);
 
   return (
     <div className="max-w-md mx-auto text-center py-10 px-4">
       <div className="text-5xl mb-4">🏆</div>
       <h2 className="text-2xl font-bold text-white mb-1">Game Over!</h2>
-      <p className="text-white/40 text-sm mb-6">{perfect > 0 ? `${perfect} perfect round${perfect > 1 ? 's' : ''}! ` : ''}Try to beat your score next time.</p>
+      <p className="text-white/40 text-sm mb-2">{perfect > 0 ? `${perfect} perfect round${perfect > 1 ? 's' : ''}! ` : ''}Try to beat your score next time.</p>
+      {rank && <p className="text-amber-400 text-sm font-semibold mb-4">You ranked #{rank}!</p>}
+      {!user && <p className="text-white/30 text-xs mb-4">Sign in to save your score.</p>}
 
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-6">
+      <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-4">
         <div className="text-xs text-white/30 uppercase tracking-wider mb-1">Total Score</div>
         <div className="text-6xl font-black text-amber-400 font-mono">{total.toLocaleString()}</div>
         <div className="text-xs text-white/30 mt-1">{TOTAL_ROUNDS} rounds · max {BASE_SCORE * TOTAL_ROUNDS}</div>
       </div>
 
-      <div className="space-y-2 mb-6">
+      <div className="space-y-2 mb-4">
         {results.map((r, i) => (
           <div key={i} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5">
             <span className="text-white/30 font-mono text-xs w-4">{i + 1}</span>
@@ -198,6 +219,19 @@ function SummaryScreen({ results, onRestart }: { results: RoundResult[]; onResta
           </div>
         ))}
       </div>
+
+      {lb.length > 0 && (
+        <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4 text-left">
+          <div className="text-[10px] uppercase tracking-widest text-white/30 mb-2">Leaderboard</div>
+          {lb.map((e) => (
+            <div key={e.rank} className="flex items-center gap-2 py-1 border-b border-white/5 last:border-0">
+              <span className="text-xs text-white/30 w-5 text-right">#{e.rank}</span>
+              <span className="text-xs text-white/70 flex-1 truncate">{e.playerName}</span>
+              <span className="text-xs font-bold text-amber-400">{e.score.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <button
         className="w-full py-3 bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm rounded-xl transition-colors"
@@ -382,7 +416,7 @@ export default function LyricDissectionPage() {
 
         {/* Summary */}
         {phase === 'summary' && (
-          <SummaryScreen results={results} onRestart={handleRestart} />
+          <SummaryScreen results={results} bandIds={selectedBandIds} onRestart={handleRestart} />
         )}
 
         {/* Playing */}

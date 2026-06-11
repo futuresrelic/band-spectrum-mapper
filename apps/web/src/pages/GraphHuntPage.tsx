@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
 import { api } from '../lib/api';
+import { useAuth } from '../contexts/AuthContext';
 import SiteHeader from '../components/layout/SiteHeader';
 import type { GraphData } from '../api/songNodes';
 
@@ -203,11 +204,14 @@ function sphereRadius(nodeVal: number) { return NODE_REL_SIZE * Math.cbrt(nodeVa
 type Phase = 'setup' | 'playing' | 'won';
 
 export default function GraphHuntPage() {
+  const { user } = useAuth();
   const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
   const [phase, setPhase] = useState<Phase>('setup');
   const [targetWord, setTargetWord] = useState('');
   const [moves, setMoves] = useState(0);
   const [elapsedSec, setElapsedSec] = useState(0);
+  const [ghSaved, setGhSaved] = useState(false);
+  const [ghRank, setGhRank] = useState<number | null>(null);
   const [distance, setDistance] = useState(Infinity);
   const [revealed, setRevealed] = useState(false);
   const [flash, setFlash] = useState('');
@@ -258,6 +262,13 @@ export default function GraphHuntPage() {
     queryKey: ['graph-hunt-data', selectedBandIds.join(',')],
     queryFn: () => fetchLyricalGraph(selectedBandIds),
     enabled: selectedBandIds.length > 0,
+  });
+
+  const { data: ghLb = [] } = useQuery<{ rank: number; playerName: string; score: number; moves: number }[]>({
+    queryKey: ['graph-hunt-scores'],
+    queryFn: () => api.get('/api/graph-hunt/scores?limit=10'),
+    enabled: phase === 'won',
+    staleTime: 30_000,
   });
 
   // Keep control refs in sync with slider state (rAF loop reads refs)
@@ -666,6 +677,13 @@ export default function GraphHuntPage() {
   const hc = distance < Infinity ? getHotCold(distance) : null;
   const bands = scopes?.bands ?? [];
 
+  useEffect(() => {
+    if (phase !== 'won' || !user || ghSaved) return;
+    api.post('/api/graph-hunt/scores', { score, moves, timeSec: elapsedSec, bandIds: selectedBandIds })
+      .then((r: unknown) => { const res = r as { rank?: number }; if (res.rank) setGhRank(res.rank); setGhSaved(true); })
+      .catch(() => {});
+  }, [phase, user, ghSaved, score, moves, elapsedSec, selectedBandIds]);
+
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
       <SiteHeader theme="dark" active="games" />
@@ -895,11 +913,13 @@ export default function GraphHuntPage() {
 
           {/* Won panel */}
           {phase === 'won' && (
-            <div className="p-4 flex flex-col gap-5">
+            <div className="p-4 flex flex-col gap-4">
               <div className="text-center">
                 <div className="text-5xl mb-3">🎉</div>
                 <h2 className="text-xl font-bold text-green-400">You found it!</h2>
                 <div className="text-2xl font-bold mt-2">"{targetWord}"</div>
+                {ghRank && <p className="text-indigo-400 text-sm font-semibold mt-1">You ranked #{ghRank}!</p>}
+                {!user && <p className="text-gray-600 text-xs mt-1">Sign in to save your score.</p>}
               </div>
 
               <div className="rounded-xl bg-gray-800 border border-gray-700 p-4 space-y-2">
@@ -918,8 +938,21 @@ export default function GraphHuntPage() {
                 </div>
               </div>
 
+              {ghLb.length > 0 && (
+                <div className="rounded-xl bg-gray-800 border border-gray-700 p-3">
+                  <div className="text-[10px] uppercase tracking-widest text-gray-600 mb-2">Leaderboard</div>
+                  {ghLb.map((e) => (
+                    <div key={e.rank} className="flex items-center gap-2 py-1 border-b border-gray-700 last:border-0">
+                      <span className="text-xs text-gray-600 w-5 text-right">#{e.rank}</span>
+                      <span className="text-xs text-gray-400 flex-1 truncate">{e.playerName}</span>
+                      <span className="text-xs font-bold text-indigo-400">{e.score.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <button
-                onClick={startGame}
+                onClick={() => { setGhSaved(false); setGhRank(null); startGame(); }}
                 className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm"
               >
                 Play Again →

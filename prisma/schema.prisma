@@ -411,6 +411,11 @@ model User {
   crosswordScores      CrosswordScore[]
   wordSearchScores     WordSearchScore[]
   recordCatcherScores  RecordCatcherScore[]
+  lyricDissectionScores LyricDissectionScore[]
+  timelineScores        TimelineScore[]
+  spectrumGuesserScores SpectrumGuesserScore[]
+  lyricMatchScores      LyricMatchScore[]
+  graphHuntScores       GraphHuntScore[]
   nodeSequences        UserNodeSequence[]
   cinemaData           UserCinemaData?
   tagProposals         TagProposal[]
@@ -1095,6 +1100,97 @@ model RecordCatcherScore {
   @@index([score])
   @@index([userId])
   @@map("record_catcher_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Lyric Dissection game scores
+// ---------------------------------------------------------------------------
+
+model LyricDissectionScore {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score       Int
+  totalRounds Int      @default(5)
+  bandScope   String?
+  createdAt   DateTime @default(now())
+
+  @@index([score])
+  @@index([userId])
+  @@map("lyric_dissection_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Timeline Challenge game scores
+// ---------------------------------------------------------------------------
+
+model TimelineScore {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score       Int
+  totalRounds Int      @default(5)
+  bandScope   String?
+  createdAt   DateTime @default(now())
+
+  @@index([score])
+  @@index([userId])
+  @@map("timeline_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Spectrum Guesser game scores
+// ---------------------------------------------------------------------------
+
+model SpectrumGuesserScore {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score       Int
+  totalRounds Int      @default(10)
+  bandScope   String?
+  createdAt   DateTime @default(now())
+
+  @@index([score])
+  @@index([userId])
+  @@map("spectrum_guesser_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Lyric Match game scores
+// ---------------------------------------------------------------------------
+
+model LyricMatchScore {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score       Int
+  totalRounds Int      @default(8)
+  bandScope   String?
+  createdAt   DateTime @default(now())
+
+  @@index([score])
+  @@index([userId])
+  @@map("lyric_match_scores")
+}
+
+// ---------------------------------------------------------------------------
+// 3D Graph Hunt game scores
+// ---------------------------------------------------------------------------
+
+model GraphHuntScore {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score     Int
+  moves     Int
+  timeSec   Int
+  bandScope String?
+  createdAt DateTime @default(now())
+
+  @@index([score])
+  @@index([userId])
+  @@map("graph_hunt_scores")
 }
 
 // ---------------------------------------------------------------------------

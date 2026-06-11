@@ -11,6 +11,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import SiteHeader from '../components/layout/SiteHeader';
+import { useAuth } from '../contexts/AuthContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -91,6 +92,7 @@ function SetupScreen({ bands, onStart }: { bands: Band[]; onStart: (ids: string[
 type ConnectionState = { [snippetIdx: number]: number }; // snippetIdx → titleIdx
 
 export default function LyricMatchPage() {
+  const { user } = useAuth();
   const [phase, setPhase]         = useState<'setup' | 'loading' | 'playing' | 'result' | 'summary'>('setup');
   const [bandIds, setBandIds]     = useState<string[]>([]);
   const [pairs, setPairs]         = useState<Pair[]>([]);
@@ -104,12 +106,30 @@ export default function LyricMatchPage() {
   const [elapsed, setElapsed]     = useState(0);
   const startRef                  = useRef<number>(Date.now());
   const timerRef                  = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [lmSaved, setLmSaved]     = useState(false);
+  const [lmRank, setLmRank]       = useState<number | null>(null);
 
   const { data: bandsData } = useQuery({
     queryKey: ['lyric-match-bands'],
     queryFn: () => api.get<Band[]>('/api/public/bands'),
   });
   const bands = bandsData ?? [];
+
+  const totalScore = roundScores.reduce((s, v) => s + v, 0);
+
+  const { data: lmLb = [] } = useQuery<{ rank: number; playerName: string; score: number }[]>({
+    queryKey: ['lyric-match-scores'],
+    queryFn: () => api.get('/api/lyric-match/scores?limit=10'),
+    enabled: phase === 'summary',
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (phase !== 'summary' || !user || lmSaved) return;
+    api.post('/api/lyric-match/scores', { score: totalScore, totalRounds: roundScores.length, bandIds })
+      .then((r: unknown) => { const res = r as { rank?: number }; if (res.rank) setLmRank(res.rank); setLmSaved(true); })
+      .catch(() => {});
+  }, [phase, user, lmSaved, totalScore, roundScores.length, bandIds]);
 
   const loadRound = useCallback(async (ids: string[]) => {
     setPhase('loading');
@@ -221,8 +241,6 @@ export default function LyricMatchPage() {
     setRoundScores([]);
     loadRound(ids);
   }
-
-  const totalScore = roundScores.reduce((s, v) => s + v, 0);
 
   // Color helpers
   const ACCENT = 'amber';
@@ -359,10 +377,12 @@ export default function LyricMatchPage() {
         )}
 
         {phase === 'summary' && (
-          <div className="max-w-md mx-auto text-center py-10 space-y-6">
+          <div className="max-w-md mx-auto text-center py-10 space-y-4">
             <div className="text-6xl">{totalScore >= 15000 ? '🏆' : totalScore >= 8000 ? '🥈' : '🎵'}</div>
             <h2 className="text-3xl font-bold text-white">{totalScore.toLocaleString()}</h2>
             <p className="text-white/50 text-sm">Total score across {ROUNDS} rounds</p>
+            {lmRank && <p className="text-amber-400 text-sm font-semibold">You ranked #{lmRank}!</p>}
+            {!user && <p className="text-white/30 text-xs">Sign in to save your score.</p>}
             <div className="space-y-2">
               {roundScores.map((s, i) => (
                 <div key={i} className="flex items-center justify-between bg-gray-900 rounded-xl px-4 py-2.5">
@@ -371,15 +391,27 @@ export default function LyricMatchPage() {
                 </div>
               ))}
             </div>
+            {lmLb.length > 0 && (
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-left">
+                <div className="text-[10px] uppercase tracking-widest text-white/30 mb-2">Leaderboard</div>
+                {lmLb.map((e) => (
+                  <div key={e.rank} className="flex items-center gap-2 py-1 border-b border-white/5 last:border-0">
+                    <span className="text-xs text-white/30 w-5 text-right">#{e.rank}</span>
+                    <span className="text-xs text-white/70 flex-1 truncate">{e.playerName}</span>
+                    <span className="text-xs font-bold text-amber-400">{e.score.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="flex gap-3">
               <button
-                onClick={() => { setPhase('setup'); setRoundScores([]); setRoundNum(0); }}
+                onClick={() => { setPhase('setup'); setRoundScores([]); setRoundNum(0); setLmSaved(false); setLmRank(null); }}
                 className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white font-semibold text-sm rounded-xl transition-colors"
               >
                 Change Bands
               </button>
               <button
-                onClick={() => { setRoundNum(0); setRoundScores([]); loadRound(bandIds); }}
+                onClick={() => { setRoundNum(0); setRoundScores([]); setLmSaved(false); setLmRank(null); loadRound(bandIds); }}
                 className="flex-1 py-3 bg-amber-700 hover:bg-amber-600 text-white font-bold text-sm rounded-xl transition-colors"
               >
                 Play Again →

@@ -358,6 +358,13 @@ export default function Band2048Page() {
     onSuccess: (data) => { setSavedRank(data.rank); },
   });
 
+  const { data: lb2048 = [] } = useQuery<{ rank: number; playerName: string; score: number; topLevel: number; won: boolean }[]>({
+    queryKey: ['band2048-leaderboard'],
+    queryFn: () => api.get('/api/band2048/leaderboard?limit=10'),
+    enabled: phase === 'over' || phase === 'won',
+    staleTime: 30_000,
+  });
+
   const tileIdRef = useRef(0);
   const gridRef   = useRef<HTMLDivElement>(null);
 
@@ -548,15 +555,24 @@ export default function Band2048Page() {
                     <a href="/api/auth/google" className="text-purple-400 hover:underline">Sign in</a> to save your score
                   </p>
                 )}
+                {lb2048.length > 0 && (
+                  <div className="mt-3 text-left rounded-xl bg-white/5 border border-white/10 p-3">
+                    <div className="text-[10px] uppercase tracking-widest text-white/30 mb-2">Leaderboard</div>
+                    {lb2048.map((e) => (
+                      <div key={e.rank} className="flex items-center gap-2 py-1 border-b border-white/5 last:border-0">
+                        <span className="text-xs text-white/30 w-5 text-right">#{e.rank}</span>
+                        <span className="text-xs text-white/60 flex-1 truncate">{e.playerName}</span>
+                        <span className="text-[10px] text-white/30">{e.won ? '🏆' : ''}</span>
+                        <span className="text-xs font-bold text-purple-400">{e.score.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="flex gap-3 justify-center mt-4">
                   <button
                     className="px-6 py-2 bg-purple-700 hover:bg-purple-600 text-white font-bold text-sm rounded-xl transition-colors"
                     onClick={startGame}
                   >Try Again →</button>
-                  <Link
-                    to="/leaderboard"
-                    className="px-6 py-2 bg-white/10 hover:bg-white/20 text-white/70 font-semibold text-sm rounded-xl transition-colors"
-                  >Leaderboard</Link>
                 </div>
               </div>
             )}

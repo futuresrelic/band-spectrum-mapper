@@ -13,6 +13,7 @@ import {
 } from 'recharts';
 import { api } from '../lib/api';
 import SiteHeader from '../components/layout/SiteHeader';
+import { useAuth } from '../contexts/AuthContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -130,6 +131,7 @@ function SetupScreen({ bands, onStart }: { bands: Band[]; onStart: (ids: string[
 // ---------------------------------------------------------------------------
 
 export default function SpectrumGuesserPage() {
+  const { user } = useAuth();
   const [phase, setPhase]       = useState<'setup' | 'loading' | 'playing' | 'summary'>('setup');
   const [bandPool, setBandPool] = useState<string[]>([]);
   const [round, setRound]       = useState<Round | null>(null);
@@ -139,6 +141,8 @@ export default function SpectrumGuesserPage() {
   const [timeLeft, setTimeLeft] = useState(ROUND_TIME);
   const timerRef                = useRef<ReturnType<typeof setInterval> | null>(null);
   const roundStartRef           = useRef<number>(Date.now());
+  const [sgSaved, setSgSaved]   = useState(false);
+  const [sgRank, setSgRank]     = useState<number | null>(null);
 
   // Load all bands
   const { data: bandsData } = useQuery({
@@ -147,6 +151,22 @@ export default function SpectrumGuesserPage() {
   });
 
   const bands = bandsData ?? [];
+
+  const totalScore = scores.reduce((s, v) => s + v, 0);
+
+  const { data: sgLb = [] } = useQuery<{ rank: number; playerName: string; score: number }[]>({
+    queryKey: ['spectrum-guesser-scores'],
+    queryFn: () => api.get('/api/spectrum-guesser/scores?limit=10'),
+    enabled: phase === 'summary',
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (phase !== 'summary' || !user || sgSaved) return;
+    api.post('/api/spectrum-guesser/scores', { score: totalScore, totalRounds: scores.length, bandIds: bandPool })
+      .then((r: unknown) => { const res = r as { rank?: number }; if (res.rank) setSgRank(res.rank); setSgSaved(true); })
+      .catch(() => {});
+  }, [phase, user, sgSaved, totalScore, scores.length, bandPool]);
 
   // Fetch averages for 4 random bands from the pool
   const loadRound = useCallback(async (pool: string[]) => {
@@ -218,8 +238,6 @@ export default function SpectrumGuesserPage() {
     setScores([]);
     loadRound(ids);
   }
-
-  const totalScore = scores.reduce((s, v) => s + v, 0);
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -323,10 +341,12 @@ export default function SpectrumGuesserPage() {
 
         {/* Summary */}
         {phase === 'summary' && (
-          <div className="max-w-md mx-auto text-center py-10 space-y-6">
+          <div className="max-w-md mx-auto text-center py-10 space-y-4">
             <div className="text-6xl">{totalScore >= 3000 ? '🏆' : totalScore >= 1500 ? '🥈' : '🎸'}</div>
             <h2 className="text-3xl font-bold text-white">{totalScore.toLocaleString()}</h2>
             <p className="text-white/50 text-sm">Total score across {ROUNDS} rounds</p>
+            {sgRank && <p className="text-indigo-400 text-sm font-semibold">You ranked #{sgRank}!</p>}
+            {!user && <p className="text-white/30 text-xs">Sign in to save your score.</p>}
             <div className="space-y-2">
               {scores.map((s, i) => (
                 <div key={i} className="flex items-center justify-between bg-gray-900 rounded-xl px-4 py-2.5">
@@ -335,15 +355,27 @@ export default function SpectrumGuesserPage() {
                 </div>
               ))}
             </div>
+            {sgLb.length > 0 && (
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-left">
+                <div className="text-[10px] uppercase tracking-widest text-white/30 mb-2">Leaderboard</div>
+                {sgLb.map((e) => (
+                  <div key={e.rank} className="flex items-center gap-2 py-1 border-b border-white/5 last:border-0">
+                    <span className="text-xs text-white/30 w-5 text-right">#{e.rank}</span>
+                    <span className="text-xs text-white/70 flex-1 truncate">{e.playerName}</span>
+                    <span className="text-xs font-bold text-indigo-400">{e.score.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="flex gap-3">
               <button
-                onClick={() => { setPhase('setup'); setScores([]); setRoundNum(0); }}
+                onClick={() => { setPhase('setup'); setScores([]); setRoundNum(0); setSgSaved(false); setSgRank(null); }}
                 className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white font-semibold text-sm rounded-xl transition-colors"
               >
                 Change Bands
               </button>
               <button
-                onClick={() => { setRoundNum(0); setScores([]); loadRound(bandPool); }}
+                onClick={() => { setRoundNum(0); setScores([]); setSgSaved(false); setSgRank(null); loadRound(bandPool); }}
                 className="flex-1 py-3 bg-indigo-700 hover:bg-indigo-600 text-white font-bold text-sm rounded-xl transition-colors"
               >
                 Play Again →
