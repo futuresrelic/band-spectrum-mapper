@@ -359,9 +359,17 @@ export default function LyricChainPage() {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [hardLeaderboard, setHardLeaderboard] = useState(false);
 
+  // Left panel tab: 'chain' = history, 'used' = burned items
+  const [leftTab, setLeftTab] = useState<'chain' | 'used'>('chain');
+
   // Helpers derived from chain
   const usedSongIds = chain.filter((e) => e.type === 'song').map((e) => (e as { type: 'song'; id: string }).id);
   const chainLength = usedSongIds.length;
+
+  // Full song entries (for Used panel)
+  const usedSongEntries = chain.filter((e) => e.type === 'song') as Extract<ChainEntry, { type: 'song' }>[];
+  // Words used as links (excludes the first song — only explicit word choices)
+  const usedWordValues  = chain.filter((e) => e.type === 'word').map((e) => (e as Extract<ChainEntry, { type: 'word' }>).value);
 
   // Band list
   const { data: scopes } = useQuery({
@@ -617,18 +625,105 @@ export default function LyricChainPage() {
         {(phase === 'picking-word' || phase === 'picking-song') && (
           <div className="flex flex-col lg:flex-row gap-5">
 
-            {/* Chain history (left panel) */}
+            {/* Left panel: Chain history / Used items */}
             <aside className="w-full lg:w-64 lg:shrink-0">
               <div className="bg-white/5 border border-white/10 rounded-xl p-4 sticky top-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-white/40">Chain</div>
-                  <div className="text-xs font-mono text-indigo-400">{chainLength} link{chainLength !== 1 ? 's' : ''}</div>
+
+                {/* Tab row */}
+                <div className="flex gap-1 mb-3">
+                  <button
+                    onClick={() => setLeftTab('chain')}
+                    className={`flex-1 text-xs py-1 rounded-lg font-semibold transition-colors ${
+                      leftTab === 'chain'
+                        ? 'bg-indigo-600/40 border border-indigo-500/40 text-indigo-300'
+                        : 'text-white/30 hover:text-white/60'
+                    }`}
+                  >
+                    Chain · {chainLength}
+                  </button>
+                  <button
+                    onClick={() => setLeftTab('used')}
+                    className={`flex-1 text-xs py-1 rounded-lg font-semibold transition-colors ${
+                      leftTab === 'used'
+                        ? 'bg-rose-700/40 border border-rose-500/40 text-rose-300'
+                        : 'text-white/30 hover:text-white/60'
+                    }`}
+                  >
+                    Used · {usedWordValues.length + usedSongEntries.length}
+                  </button>
                 </div>
-                {chain.length === 0 ? (
-                  <p className="text-xs text-white/20 italic">Your chain will appear here as you play…</p>
+
+                {leftTab === 'chain' ? (
+                  /* ── Chain history ── */
+                  chain.length === 0 ? (
+                    <p className="text-xs text-white/20 italic">Your chain will appear here as you play…</p>
+                  ) : (
+                    <div className="max-h-[480px] overflow-y-auto pr-1">
+                      <ChainDisplay chain={chain} />
+                    </div>
+                  )
                 ) : (
-                  <div className="max-h-[480px] overflow-y-auto pr-1">
-                    <ChainDisplay chain={chain} />
+                  /* ── Used (burned) items ── */
+                  <div className="max-h-[480px] overflow-y-auto pr-1 space-y-4">
+
+                    {/* Burned words */}
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wider text-rose-400/60 mb-2">
+                        Words burned · {usedWordValues.length}
+                      </div>
+                      {usedWordValues.length === 0 ? (
+                        <p className="text-xs text-white/20 italic">None yet — pick your first word</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {usedWordValues.map((w) => (
+                            <span
+                              key={w}
+                              className="text-xs px-2 py-0.5 rounded bg-rose-950/60 border border-rose-500/20 text-white/30 line-through decoration-rose-500/40"
+                            >
+                              {w}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {usedWordValues.length > 0 && (
+                        <p className="text-[10px] text-white/20 mt-2 leading-snug">
+                          These words cannot appear again as chain links in this session.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Played songs */}
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wider text-rose-400/60 mb-2">
+                        Songs played · {usedSongEntries.length}
+                      </div>
+                      {usedSongEntries.length === 0 ? (
+                        <p className="text-xs text-white/20 italic">No songs played yet</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {usedSongEntries.map((s, i) => (
+                            <div
+                              key={`${s.id}-${i}`}
+                              className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-rose-950/40 border border-rose-500/10"
+                            >
+                              <span className="text-rose-500/40 text-xs shrink-0">✕</span>
+                              <div className="min-w-0">
+                                <div className="text-xs font-medium text-white/30 line-through decoration-rose-500/30 truncate">
+                                  {s.title}
+                                </div>
+                                <div className="text-[10px] text-white/20 truncate">{s.bandName}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {usedSongEntries.length > 0 && (
+                        <p className="text-[10px] text-white/20 mt-2 leading-snug">
+                          These songs are eliminated — they won't appear in future song picks.
+                        </p>
+                      )}
+                    </div>
+
                   </div>
                 )}
               </div>
