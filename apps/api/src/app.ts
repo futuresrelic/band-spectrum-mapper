@@ -46,6 +46,7 @@ import { bootlegsRouter } from './routes/bootlegs.js';
 import { songLinksRouter } from './routes/songLinks.js';
 import { songConnectionsRouter } from './routes/songConnections.js';
 import { lyricCompleteRouter } from './routes/lyricComplete.js';
+import { crosswordRouter } from './routes/crossword.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -169,6 +170,9 @@ export function createApp() {
 
   // Lyric Complete game — word-by-word lyric completion
   app.use('/api/lyric-complete', lyricCompleteRouter);
+
+  // BSM Crossword — AI-generated crossword puzzles
+  app.use('/api/crossword', crosswordRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.

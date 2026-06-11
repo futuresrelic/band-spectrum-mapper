@@ -71,6 +71,8 @@ import PatternLabPage from './pages/PatternLabPage';
 import AdminGamesPage from './pages/AdminGamesPage';
 import SongConnectionsPage from './pages/SongConnectionsPage';
 import LyricCompletePage from './pages/LyricCompletePage';
+import CrosswordPage from './pages/CrosswordPage';
+import AdminCrosswordPage from './pages/AdminCrosswordPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -143,6 +145,7 @@ export default function App() {
         <Route path="/play/lyric-match" element={<LyricMatchPage />} />
         <Route path="/play/bracket" element={<AlbumBracketPage />} />
         <Route path="/play/lyric-complete" element={<LyricCompletePage />} />
+        <Route path="/play/crossword" element={<CrosswordPage />} />
 
         {/* ── ADMIN: full app, isAdmin required ── */}
         <Route
@@ -191,6 +194,7 @@ export default function App() {
           <Route path="admin/bootlegs" element={<AdminBootlegsPage />} />
           <Route path="admin/data-health" element={<DataHealthPage />} />
           <Route path="admin/games" element={<AdminGamesPage />} />
+          <Route path="admin/crossword-builder" element={<AdminCrosswordPage />} />
           <Route path="pattern-lab" element={<PatternLabPage />} />
         </Route>
       </Routes>

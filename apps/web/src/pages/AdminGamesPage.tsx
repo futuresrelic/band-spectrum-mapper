@@ -14,6 +14,7 @@ const ALL_GAMES = [
   { id: 'lyric-match',      icon: '🧩', title: 'Lyric Match',        href: '/play/lyric-match' },
   { id: 'album-bracket',    icon: '🏟️', title: 'Album Bracket',      href: '/play/bracket' },
   { id: 'lyric-complete',   icon: '📝', title: 'Lyric Complete',     href: '/play/lyric-complete' },
+  { id: 'crossword',        icon: '🧩', title: 'BSM Crossword',      href: '/play/crossword' },
 ];
 
 export default function AdminGamesPage() {

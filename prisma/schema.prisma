@@ -408,6 +408,7 @@ model User {
   lyricChainScores     LyricChainScore[]
   lyricCompleteScores  LyricCompleteScore[]
   band2048Scores       Band2048Score[]
+  crosswordScores      CrosswordScore[]
   nodeSequences        UserNodeSequence[]
   cinemaData           UserCinemaData?
   tagProposals         TagProposal[]
@@ -989,6 +990,47 @@ model Band2048Score {
   @@index([score])
   @@index([userId])
   @@map("band2048_scores")
+}
+
+// ---------------------------------------------------------------------------
+// BSM Crossword — AI-generated crossword puzzles from band/album data
+// CrosswordPuzzle stores saved/daily puzzles.
+// CrosswordScore tracks per-user completion.
+// ---------------------------------------------------------------------------
+
+model CrosswordPuzzle {
+  id         String   @id @default(cuid())
+  title      String
+  bandScope  String?  // comma-sep band IDs; null = custom mix
+  albumScope String?  // comma-sep album IDs; null = full band
+  difficulty String   @default("medium")
+  gridJson   String   // serialised CrosswordData (large JSON)
+  isDaily    Boolean  @default(false)
+  dailyDate  String?  // YYYY-MM-DD; null = not a scheduled daily
+  createdAt  DateTime @default(now())
+
+  @@index([isDaily, dailyDate])
+  @@map("crossword_puzzles")
+}
+
+model CrosswordScore {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  puzzleId   String?  // null = ad-hoc / not saved
+  score      Int
+  timeSec    Int
+  hintsUsed  Int      @default(0)
+  mistakes   Int      @default(0)
+  completed  Boolean  @default(true)
+  difficulty String   @default("medium")
+  bandScope  String?
+  createdAt  DateTime @default(now())
+
+  @@index([score])
+  @@index([userId])
+  @@index([difficulty])
+  @@map("crossword_scores")
 }
 
 // ---------------------------------------------------------------------------

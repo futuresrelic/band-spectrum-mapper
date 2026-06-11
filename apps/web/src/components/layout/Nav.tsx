@@ -75,8 +75,9 @@ const adminSections: NavSection[] = [
       { to: '/admin/bootlegs',       label: 'Bootleg Importer' },
       { to: '/admin/knowledge',      label: 'AI Knowledge Feed' },
       { to: '/admin/data-grid',      label: 'Data Grid' },
-      { to: '/admin/game',           label: 'Album Art Quiz' },
-      { to: '/admin/games',          label: 'Game Visibility' },
+      { to: '/admin/game',             label: 'Album Art Quiz' },
+      { to: '/admin/games',           label: 'Game Visibility' },
+      { to: '/admin/crossword-builder', label: 'Crossword Builder' },
     ],
   },
   {
