@@ -161,6 +161,32 @@ const GAMES = [
     btnColor: 'bg-violet-700 hover:bg-violet-600',
     accentText: 'text-violet-400',
   },
+  {
+    id: 'word-search',
+    icon: '🔍',
+    title: 'BSM Word Search',
+    subtitle: 'Find the hidden music words',
+    desc: "AI-generated word search puzzles built from your music library — song titles, album words, lyrical themes. Drag to highlight words hidden in every direction. Beat the clock to maximise your score.",
+    rules: ['AI picks words from real band data', 'Words run in up to 8 directions on hard/expert', 'Finish before time runs out for a speed bonus'],
+    href: '/play/word-search',
+    cta: 'Search Words',
+    color: 'border-cyan-500/40 hover:border-cyan-400/70',
+    btnColor: 'bg-cyan-700 hover:bg-cyan-600',
+    accentText: 'text-cyan-400',
+  },
+  {
+    id: 'record-catcher',
+    icon: '💿',
+    title: 'Record Catcher',
+    subtitle: 'Catch the right songs',
+    desc: "An album cover is shown and vinyl records rain down — each labelled with a song title. Catch the songs that belong to that album and dodge the fakes. How long can you survive as the speed ramps up?",
+    rules: ['Move with arrow keys, mouse, or touch', 'Catching a wrong song loses a life', 'Level up every 5 correct catches'],
+    href: '/play/record-catcher',
+    cta: 'Catch Records',
+    color: 'border-pink-500/40 hover:border-pink-400/70',
+    btnColor: 'bg-pink-700 hover:bg-pink-600',
+    accentText: 'text-pink-400',
+  },
 ];
 
 const COMING_SOON: { id: string; icon: string; title: string; desc: string }[] = [];

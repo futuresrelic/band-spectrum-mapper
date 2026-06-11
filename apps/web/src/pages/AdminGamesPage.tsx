@@ -15,6 +15,8 @@ const ALL_GAMES = [
   { id: 'album-bracket',    icon: '🏟️', title: 'Album Bracket',      href: '/play/bracket' },
   { id: 'lyric-complete',   icon: '📝', title: 'Lyric Complete',     href: '/play/lyric-complete' },
   { id: 'crossword',        icon: '🧩', title: 'BSM Crossword',      href: '/play/crossword' },
+  { id: 'word-search',      icon: '🔍', title: 'BSM Word Search',    href: '/play/word-search' },
+  { id: 'record-catcher',   icon: '💿', title: 'Record Catcher',     href: '/play/record-catcher' },
 ];
 
 export default function AdminGamesPage() {

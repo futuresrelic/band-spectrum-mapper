@@ -73,6 +73,8 @@ import SongConnectionsPage from './pages/SongConnectionsPage';
 import LyricCompletePage from './pages/LyricCompletePage';
 import CrosswordPage from './pages/CrosswordPage';
 import AdminCrosswordPage from './pages/AdminCrosswordPage';
+import WordSearchPage from './pages/WordSearchPage';
+import RecordCatcherPage from './pages/RecordCatcherPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -146,6 +148,8 @@ export default function App() {
         <Route path="/play/bracket" element={<AlbumBracketPage />} />
         <Route path="/play/lyric-complete" element={<LyricCompletePage />} />
         <Route path="/play/crossword" element={<CrosswordPage />} />
+        <Route path="/play/word-search" element={<WordSearchPage />} />
+        <Route path="/play/record-catcher" element={<RecordCatcherPage />} />
 
         {/* ── ADMIN: full app, isAdmin required ── */}
         <Route

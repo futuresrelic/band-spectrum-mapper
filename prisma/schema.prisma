@@ -409,6 +409,8 @@ model User {
   lyricCompleteScores  LyricCompleteScore[]
   band2048Scores       Band2048Score[]
   crosswordScores      CrosswordScore[]
+  wordSearchScores     WordSearchScore[]
+  recordCatcherScores  RecordCatcherScore[]
   nodeSequences        UserNodeSequence[]
   cinemaData           UserCinemaData?
   tagProposals         TagProposal[]
@@ -1052,6 +1054,47 @@ model LyricCompleteScore {
   @@index([score])
   @@index([userId])
   @@map("lyric_complete_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Word Search game scores
+// ---------------------------------------------------------------------------
+
+model WordSearchScore {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score       Int
+  wordsFound  Int
+  totalWords  Int
+  timeSec     Int
+  difficulty  String   @default("medium")
+  bandScope   String?
+  createdAt   DateTime @default(now())
+
+  @@index([score])
+  @@index([userId])
+  @@map("word_search_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Record Catcher arcade game scores
+// ---------------------------------------------------------------------------
+
+model RecordCatcherScore {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score         Int
+  level         Int      @default(1)
+  songsCorrect  Int      @default(0)
+  songsWrong    Int      @default(0)
+  bandScope     String?
+  createdAt     DateTime @default(now())
+
+  @@index([score])
+  @@index([userId])
+  @@map("record_catcher_scores")
 }
 
 // ---------------------------------------------------------------------------
