@@ -141,16 +141,17 @@ async def analyze_youtube(body: YouTubeRequest):
         log.info("Downloading YouTube audio from %s", url)
 
         # Build yt-dlp command.
-        # player_client=android avoids both bot-detection and the GVS PO Token
-        # requirement that YouTube now enforces for the iOS client on server IPs.
-        # mweb is used as a fallback; android does not require a PO token.
+        # Try ios first (fewer PO-token requirements on most IPs), then
+        # android and mweb as fallbacks.  Note: none of these bypass a
+        # server-side 429 if YouTube has rate-limited the host IP — the
+        # recommended workaround is file upload instead of YouTube audio.
         cmd = [
             "yt-dlp",
             "-x",                                        # extract audio only
             "--audio-format", "mp3",                     # convert to mp3
             "--audio-quality", "0",                      # best quality
             "--no-playlist",                             # single video only
-            "--extractor-args", "youtube:player_client=android,mweb",
+            "--extractor-args", "youtube:player_client=ios,android,mweb",
             "-o", output_template,
         ]
 
@@ -328,7 +329,7 @@ async def analyze_rhythm_youtube(body: RhythmYouTubeRequest):
             "--audio-format", "mp3",
             "--audio-quality", "0",
             "--no-playlist",
-            "--extractor-args", "youtube:player_client=android,mweb",
+            "--extractor-args", "youtube:player_client=ios,android,mweb",
             "-o", output_template,
         ]
 

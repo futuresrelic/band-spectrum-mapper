@@ -632,6 +632,19 @@ function drawRhythmTimeline(
   ctx.restore();
 }
 
+function friendlyRlError(raw: string): string {
+  if (raw.includes('429') || raw.includes('Too Many Requests') || raw.includes('Sign in to confirm')) {
+    return 'YouTube is rate-limiting this server (HTTP 429). Try uploading the audio file directly instead — use the "Upload Audio" section on the left.';
+  }
+  if (raw.includes('yt-dlp failed')) {
+    // Strip the JSON wrapper the server sends; show the first meaningful line
+    const inner = raw.replace(/^.*?"detail"\s*:\s*"yt-dlp failed:\s*/i, '').replace(/"?\}?\s*$/, '');
+    const firstLine = inner.split(/\\n/)[0] ?? inner;
+    return `YouTube download failed: ${firstLine.slice(0, 200)}`;
+  }
+  return raw;
+}
+
 function RhythmLabPanel({
   analysisYoutubeUrl,
   youtubeAudioEnabled,
@@ -651,13 +664,13 @@ function RhythmLabPanel({
   const fileMutation = useMutation({
     mutationFn: (file: File) => songSpectrumApi.analyzeRhythmBands(file, bands),
     onSuccess: (r) => { setResult(r); setBeatBpm(Math.round(r.globalBpm)); setRlError(null); },
-    onError: (e: Error) => setRlError(e.message),
+    onError: (e: Error) => setRlError(friendlyRlError(e.message)),
   });
 
   const ytMutation = useMutation({
     mutationFn: () => songSpectrumApi.analyzeRhythmBandsFromYouTube(analysisYoutubeUrl!, bands),
     onSuccess: (r) => { setResult(r); setBeatBpm(Math.round(r.globalBpm)); setRlError(null); },
-    onError: (e: Error) => setRlError(e.message),
+    onError: (e: Error) => setRlError(friendlyRlError(e.message)),
   });
 
   const isPending = fileMutation.isPending || ytMutation.isPending;
@@ -839,7 +852,15 @@ function RhythmLabPanel({
       </div>
 
       {rlError && (
-        <div className="text-xs text-red-400 bg-red-900/20 border border-red-700/30 rounded px-3 py-2">{rlError}</div>
+        <div className="text-xs bg-red-900/20 border border-red-700/30 rounded px-3 py-2 space-y-1">
+          <p className="text-red-400">{rlError}</p>
+          {(rlError.includes('rate-limiting') || rlError.includes('429')) && (
+            <p className="text-surface-400">
+              YouTube blocks audio downloads from cloud servers unpredictably.
+              Download the song as an MP3 locally and use the "Upload Audio" option instead.
+            </p>
+          )}
+        </div>
       )}
 
       {result && (
