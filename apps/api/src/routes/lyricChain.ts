@@ -83,7 +83,7 @@ lyricChainRouter.get('/start', async (req, res, next): Promise<void> => {
   try {
     const raw = typeof req.query['bandIds'] === 'string' ? req.query['bandIds'] : '';
     const bandIds = raw ? raw.split(',').filter(Boolean) : [];
-    const count = Math.min(8, Math.max(2,
+    const count = Math.min(6, Math.max(2,
       parseInt(typeof req.query['count'] === 'string' ? req.query['count'] : '6', 10) || 6,
     ));
 
@@ -131,7 +131,7 @@ lyricChainRouter.get('/start-song', async (req, res, next): Promise<void> => {
   try {
     const raw = typeof req.query['bandIds'] === 'string' ? req.query['bandIds'] : '';
     const bandIds = raw ? raw.split(',').filter(Boolean) : [];
-    const count = Math.min(8, Math.max(2,
+    const count = Math.min(6, Math.max(2,
       parseInt(typeof req.query['count'] === 'string' ? req.query['count'] : '6', 10) || 6,
     ));
 
@@ -185,9 +185,9 @@ lyricChainRouter.get('/start-song', async (req, res, next): Promise<void> => {
 
 lyricChainRouter.post('/songs', async (req, res, next): Promise<void> => {
   try {
-    const { word, bandIds, usedSongIds, hardMode, usedAlbumIds } = req.body as {
+    const { word, bandIds, usedSongIds, hardMode, usedAlbumIds, count } = req.body as {
       word?: unknown; bandIds?: unknown; usedSongIds?: unknown;
-      hardMode?: unknown; usedAlbumIds?: unknown;
+      hardMode?: unknown; usedAlbumIds?: unknown; count?: unknown;
     };
 
     if (typeof word !== 'string' || word.length < 2) {
@@ -201,6 +201,7 @@ lyricChainRouter.post('/songs', async (req, res, next): Promise<void> => {
     const safeUsed       = Array.isArray(usedSongIds)   ? usedSongIds.filter((x): x is string => typeof x === 'string')  : [];
     const safeUsedAlbums = Array.isArray(usedAlbumIds)  ? usedAlbumIds.filter((x): x is string => typeof x === 'string') : [];
     const isHard         = hardMode === true;
+    const songCount      = Math.min(6, Math.max(2, typeof count === 'number' ? count : 6));
 
     const songs = await fetchSongLyrics(safeBandIds);
 
@@ -212,7 +213,9 @@ lyricChainRouter.post('/songs', async (req, res, next): Promise<void> => {
       })
       .map((s) => ({ id: s.id, title: s.title, bandName: s.bandName, albumId: s.albumId, albumTitle: s.albumTitle }));
 
-    res.json({ songs: matching });
+    // Shuffle and limit to songCount so higher difficulties show fewer options
+    const shuffled = [...matching].sort(() => Math.random() - 0.5);
+    res.json({ songs: shuffled.slice(0, songCount) });
   } catch (e) { next(e); }
 });
 
@@ -241,7 +244,7 @@ lyricChainRouter.post('/next-words', async (req, res, next): Promise<void> => {
     const safeUsed       = Array.isArray(usedSongIds)  ? usedSongIds.filter((x): x is string => typeof x === 'string') : [];
     const safeUsedAlbums = Array.isArray(usedAlbumIds) ? usedAlbumIds.filter((x): x is string => typeof x === 'string'): [];
     const isHard         = hardMode === true;
-    const wordCount      = Math.min(8, Math.max(2, typeof count === 'number' ? count : 6));
+    const wordCount      = Math.min(6, Math.max(2, typeof count === 'number' ? count : 6));
 
     const songs   = await fetchSongLyrics(safeBandIds);
     const wordMap = buildWordMap(songs);

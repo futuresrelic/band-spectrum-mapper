@@ -33,6 +33,29 @@ type ChainEntry =
 
 type GamePhase = 'setup' | 'picking-word' | 'picking-song' | 'dead-end';
 
+// ---------------------------------------------------------------------------
+// Difficulty levels
+// ---------------------------------------------------------------------------
+
+type DifficultyId = 'super-easy' | 'easy' | 'medium' | 'hard' | 'very-hard';
+
+interface DifficultyConfig {
+  id: DifficultyId;
+  label: string;
+  count: number;       // options shown per step (words AND songs)
+  hardMode: boolean;   // album-restriction rule
+  activeClass: string; // Tailwind classes when selected
+  description: string;
+}
+
+const DIFFICULTIES: DifficultyConfig[] = [
+  { id: 'super-easy', label: 'Super Easy', count: 6, hardMode: false, activeClass: 'bg-emerald-700 text-white', description: '6 options per step. Albums can repeat.' },
+  { id: 'easy',       label: 'Easy',       count: 5, hardMode: false, activeClass: 'bg-blue-700   text-white', description: '5 options per step. Albums can repeat.' },
+  { id: 'medium',     label: 'Medium',     count: 4, hardMode: false, activeClass: 'bg-indigo-600 text-white', description: '4 options per step. Albums can repeat.' },
+  { id: 'hard',       label: 'Hard',       count: 3, hardMode: true,  activeClass: 'bg-orange-700 text-white', description: '3 options per step. No same-album songs.' },
+  { id: 'very-hard',  label: 'Very Hard',  count: 2, hardMode: true,  activeClass: 'bg-rose-700   text-white', description: '2 options per step. No same-album songs.' },
+];
+
 interface LeaderboardEntry {
   rank: number;
   playerName: string;
@@ -52,15 +75,16 @@ interface SetupProps {
   bands: { id: string; name: string }[];
   selectedBandIds: string[];
   toggleBand: (id: string) => void;
-  hardMode: boolean;
-  setHardMode: (v: boolean) => void;
+  difficulty: DifficultyId;
+  setDifficulty: (d: DifficultyId) => void;
   onStart: () => void;
   starting: boolean;
   startError: string | null;
 }
 
-function SetupScreen({ bands, selectedBandIds, toggleBand, hardMode, setHardMode, onStart, starting, startError }: SetupProps) {
+function SetupScreen({ bands, selectedBandIds, toggleBand, difficulty, setDifficulty, onStart, starting, startError }: SetupProps) {
   const canStart = selectedBandIds.length > 0;
+  const activeDiff = DIFFICULTIES.find(d => d.id === difficulty) ?? DIFFICULTIES[2]!;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-12 text-center">
@@ -97,27 +121,22 @@ function SetupScreen({ bands, selectedBandIds, toggleBand, hardMode, setHardMode
       {/* Difficulty */}
       <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-6 text-left">
         <div className="text-xs font-semibold uppercase tracking-wider text-white/40 mb-3">Difficulty</div>
-        <div className="flex gap-3">
-          <button
-            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors
-              ${!hardMode ? 'bg-indigo-600 text-white' : 'bg-white/5 text-white/40 hover:text-white/70 border border-white/10'}`}
-            onClick={() => setHardMode(false)}
-          >
-            Normal
-          </button>
-          <button
-            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors
-              ${hardMode ? 'bg-rose-700 text-white' : 'bg-white/5 text-white/40 hover:text-white/70 border border-white/10'}`}
-            onClick={() => setHardMode(true)}
-          >
-            Hard
-          </button>
+        <div className="grid grid-cols-5 gap-2">
+          {DIFFICULTIES.map((d) => (
+            <button
+              key={d.id}
+              onClick={() => setDifficulty(d.id)}
+              className={`py-2.5 rounded-xl text-xs font-bold transition-colors ${
+                difficulty === d.id
+                  ? d.activeClass
+                  : 'bg-white/5 text-white/40 hover:text-white/70 border border-white/10'
+              }`}
+            >
+              {d.label}
+            </button>
+          ))}
         </div>
-        <p className="text-xs text-white/30 mt-2 leading-snug">
-          {hardMode
-            ? 'Hard: no song from the same album can appear twice in your chain.'
-            : 'Normal: avoid repeating songs and words — albums can repeat.'}
-        </p>
+        <p className="text-xs text-white/30 mt-2 leading-snug">{activeDiff.description}</p>
       </div>
 
       {startError && (
@@ -131,7 +150,7 @@ function SetupScreen({ bands, selectedBandIds, toggleBand, hardMode, setHardMode
         onClick={onStart}
         disabled={!canStart || starting}
       >
-        {starting ? 'Loading words…' : 'Start Game →'}
+        {starting ? 'Loading…' : 'Start Game →'}
       </button>
     </div>
   );
@@ -262,7 +281,7 @@ function ChainDisplay({ chain }: { chain: ChainEntry[] }) {
 
 interface ScoreScreenProps {
   chainLength: number;
-  hardMode: boolean;
+  diffConfig: DifficultyConfig;
   chain: ChainEntry[];
   onSubmit: () => void;
   submitting: boolean;
@@ -271,7 +290,7 @@ interface ScoreScreenProps {
   isLoggedIn: boolean;
 }
 
-function ScoreScreen({ chainLength, hardMode, chain, onSubmit, submitting, submitted, onRestart, isLoggedIn }: ScoreScreenProps) {
+function ScoreScreen({ chainLength, diffConfig, chain, onSubmit, submitting, submitted, onRestart, isLoggedIn }: ScoreScreenProps) {
   const [showChain, setShowChain] = useState(false);
 
   return (
@@ -279,13 +298,15 @@ function ScoreScreen({ chainLength, hardMode, chain, onSubmit, submitting, submi
       <div className="text-5xl mb-3">⛓️</div>
       <h2 className="text-2xl font-bold text-white mb-1">Chain Complete!</h2>
       <p className="text-white/40 text-sm mb-6">
-        {chainLength === 0 ? 'No chain built — try again!' : `You built a ${chainLength}-link chain${hardMode ? ' on Hard' : ''}.`}
+        {chainLength === 0 ? 'No chain built — try again!' : `You built a ${chainLength}-link chain on ${diffConfig.label}.`}
       </p>
 
       <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-6">
         <div className="text-xs uppercase tracking-wider text-white/30 mb-1">Chain Length</div>
         <div className="text-6xl font-black text-indigo-400 font-mono">{chainLength}</div>
-        {hardMode && <div className="text-xs text-rose-400 mt-1 font-semibold">HARD MODE</div>}
+        <div className={`text-xs mt-1 font-semibold ${diffConfig.activeClass} inline-block px-2 py-0.5 rounded`}>
+          {diffConfig.label.toUpperCase()}
+        </div>
       </div>
 
       {submitted ? (
@@ -341,9 +362,14 @@ export default function LyricChainPage() {
 
   // Setup state
   const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
-  const [hardMode, setHardMode]               = useState(false);
+  const [difficulty, setDifficulty]           = useState<DifficultyId>('medium');
   const [starting, setStarting]               = useState(false);
   const [startError, setStartError]           = useState<string | null>(null);
+
+  // Derived from difficulty
+  const diffConfig = DIFFICULTIES.find(d => d.id === difficulty) ?? DIFFICULTIES[2]!;
+  const optionCount = diffConfig.count;
+  const hardMode    = diffConfig.hardMode;
 
   // Game state
   const [phase, setPhase]             = useState<GamePhase>('setup');
@@ -396,7 +422,7 @@ export default function LyricChainPage() {
     setStartError(null);
     try {
       const data = await api.get<{ seed: SongOption; words: WordOption[] }>(
-        `/api/lyric-chain/start-song?bandIds=${selectedBandIds.join(',')}&count=6`,
+        `/api/lyric-chain/start-song?bandIds=${selectedBandIds.join(',')}&count=${optionCount}`,
       );
       const seedEntry: ChainEntry = {
         type: 'song',
@@ -432,6 +458,7 @@ export default function LyricChainPage() {
       const data = await api.post<{ songs: SongOption[] }>('/api/lyric-chain/songs', {
         word: w.word, bandIds: selectedBandIds,
         usedSongIds, hardMode, usedAlbumIds: blockedAlbums,
+        count: optionCount,
       });
       setSongOptions(data.songs);
     } finally {
@@ -462,7 +489,7 @@ export default function LyricChainPage() {
       const data = await api.post<{ words: WordOption[] }>('/api/lyric-chain/next-words', {
         songId: s.id, bandIds: selectedBandIds,
         usedWords: newUsedWords, usedSongIds: newUsedSongIds,
-        hardMode, usedAlbumIds: blockedAlbums, count: 6,
+        hardMode, usedAlbumIds: blockedAlbums, count: optionCount,
       });
       if (data.words.length === 0) {
         setPhase('dead-end');
@@ -482,7 +509,7 @@ export default function LyricChainPage() {
         chainLength,
         chainJson: JSON.stringify(chain),
         bandIds: selectedBandIds,
-        hardMode,
+        hardMode: diffConfig.hardMode,
       });
       setSubmitted(result);
       void refetchLeaderboard();
@@ -522,7 +549,9 @@ export default function LyricChainPage() {
             <>
               <span className="text-white/20">·</span>
               <span className="text-xs text-indigo-400">{chainLength} link{chainLength !== 1 ? 's' : ''}</span>
-              {hardMode && <span className="text-xs text-rose-400 font-semibold">HARD</span>}
+              <span className={`text-xs font-semibold ${diffConfig.activeClass} px-1.5 py-0.5 rounded`}>
+                {diffConfig.label}
+              </span>
             </>
           )}
         </div>
@@ -599,8 +628,8 @@ export default function LyricChainPage() {
             bands={bands}
             selectedBandIds={selectedBandIds}
             toggleBand={toggleBand}
-            hardMode={hardMode}
-            setHardMode={setHardMode}
+            difficulty={difficulty}
+            setDifficulty={setDifficulty}
             onStart={handleStart}
             starting={starting}
             startError={startError}
@@ -611,7 +640,7 @@ export default function LyricChainPage() {
         {phase === 'dead-end' && (
           <ScoreScreen
             chainLength={chainLength}
-            hardMode={hardMode}
+            diffConfig={diffConfig}
             chain={chain}
             onSubmit={handleSubmitScore}
             submitting={submitting}
