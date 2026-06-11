@@ -626,5 +626,51 @@ export interface SongSpectrumAnalysis {
   songId: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Rhythm Lab — frequency-band percussion analysis types
+// ---------------------------------------------------------------------------
+
+export interface RhythmBand {
+  label: string;
+  minHz: number;
+  maxHz: number;
+}
+
+export interface BarLengthCandidate {
+  beats: number;       // bar length in quarter-note beats
+  lengthSec: number;   // bar length in seconds at detected BPM
+  confidence: number;  // 0–1 autocorrelation score
+}
+
+export interface CrossRhythm {
+  bandA: string;
+  bandB: string;
+  ratio: string;       // e.g. "3:2"
+  confidence: number;  // 0–1
+}
+
+export interface RhythmBandResult {
+  label: string;
+  minHz: number;
+  maxHz: number;
+  onsetTimes: number[];        // onset timestamps in seconds
+  onsetCount: number;
+  envelope: number[];          // normalised onset envelope, ~400 points, 0–1
+  bandBpm: number;             // inferred BPM from IBI of onsets in this band
+  ibiCv: number;               // inter-beat-interval coefficient of variation
+  barCandidates: BarLengthCandidate[];
+}
+
+export interface RhythmAnalysisResult {
+  globalBpm: number;
+  globalBeatTimes: number[];   // beat positions in seconds (from full mix)
+  envelopeLength: number;
+  duration: number;
+  bands: RhythmBandResult[];
+  crossRhythms: CrossRhythm[];
+  polyrhythmScore: number;     // 0–1, higher = more polyrhythmic content
+  globalBarCandidates: BarLengthCandidate[];
+}
+
 // Re-export axis type for convenience
 export type { ScoreAxis, SourceType, ImportStatus };

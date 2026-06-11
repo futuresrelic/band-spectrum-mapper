@@ -13,11 +13,13 @@ import multer from 'multer';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { prisma } from '../lib/prisma.js';
-import type { YouTubeMetadata } from '@band-spectrum-mapper/shared';
+import type { YouTubeMetadata, RhythmBand } from '@band-spectrum-mapper/shared';
 import {
   fetchYouTubeMetadata,
   analyzeAudio,
   analyzeAudioFromYouTube,
+  analyzeRhythmBands,
+  analyzeRhythmBandsFromYouTube,
   fetchMusicBrainzData,
   fetchRhythmResearch,
   createAnalysis,
@@ -412,6 +414,90 @@ songSpectrumRouter.post('/analyses/:id/push-to-library', async (req, res, next):
       },
     });
   } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Rhythm band analysis — file upload path
+// ---------------------------------------------------------------------------
+
+songSpectrumRouter.post(
+  '/rhythm-bands',
+  upload.single('audio'),
+  async (req, res, next): Promise<void> => {
+    try {
+      if (!req.file) {
+        res.status(400).json({ error: 'No audio file provided (field name: audio)' });
+        return;
+      }
+
+      const { bands: bandsRaw } = req.body as { bands?: string };
+      let bands: RhythmBand[] = [];
+      if (bandsRaw) {
+        try {
+          const parsed = JSON.parse(bandsRaw) as unknown[];
+          if (Array.isArray(parsed)) {
+            bands = parsed.map((b) => {
+              const band = b as Record<string, unknown>;
+              return {
+                label: String(band['label'] ?? 'Band'),
+                minHz: Number(band['minHz'] ?? 0),
+                maxHz: Number(band['maxHz'] ?? 1000),
+              };
+            });
+          }
+        } catch {
+          // use defaults
+        }
+      }
+
+      const result = await analyzeRhythmBands(req.file.buffer, req.file.originalname, bands);
+      res.json(result);
+    } catch (err: unknown) {
+      if (err instanceof Error && 'statusCode' in err) {
+        res.status((err as Error & { statusCode: number }).statusCode).json({ error: err.message });
+        return;
+      }
+      next(err);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Rhythm band analysis — YouTube audio path (local / personal use only)
+// ---------------------------------------------------------------------------
+
+songSpectrumRouter.post('/rhythm-bands-youtube', async (req, res, next): Promise<void> => {
+  try {
+    const { youtubeUrl, bands: bandsRaw } = req.body as {
+      youtubeUrl?: string;
+      bands?: unknown[];
+    };
+
+    if (!youtubeUrl?.trim()) {
+      res.status(400).json({ error: 'youtubeUrl is required' });
+      return;
+    }
+
+    const bands: RhythmBand[] = Array.isArray(bandsRaw)
+      ? bandsRaw.map((b) => {
+          const band = b as Record<string, unknown>;
+          return {
+            label: String(band['label'] ?? 'Band'),
+            minHz: Number(band['minHz'] ?? 0),
+            maxHz: Number(band['maxHz'] ?? 1000),
+          };
+        })
+      : [];
+
+    const result = await analyzeRhythmBandsFromYouTube(youtubeUrl.trim(), bands);
+    res.json(result);
+  } catch (err: unknown) {
+    if (err instanceof Error && 'statusCode' in err) {
+      res.status((err as Error & { statusCode: number }).statusCode).json({ error: err.message });
+      return;
+    }
+    next(err);
+  }
 });
 
 // ---------------------------------------------------------------------------

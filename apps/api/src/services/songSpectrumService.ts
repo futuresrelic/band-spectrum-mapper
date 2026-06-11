@@ -17,6 +17,8 @@ import type {
   RhythmResearch,
   ScoreAxisDetail,
   SpectrumScores,
+  RhythmBand,
+  RhythmAnalysisResult,
 } from '@band-spectrum-mapper/shared';
 
 // ---------------------------------------------------------------------------
@@ -357,6 +359,85 @@ export async function analyzeAudioFromYouTube(
     analysis: AudioAnalysisResult;
     scores: Record<string, ScoreAxisDetail>;
   }>;
+}
+
+// ---------------------------------------------------------------------------
+// Rhythm band analysis — proxy to Python worker
+// ---------------------------------------------------------------------------
+
+export async function analyzeRhythmBands(
+  fileBuffer: Buffer,
+  filename: string,
+  bands: RhythmBand[],
+): Promise<RhythmAnalysisResult> {
+  if (!isAudioWorkerConfigured()) {
+    throw Object.assign(
+      new Error('Audio analysis worker not configured. Set AUDIO_WORKER_URL environment variable.'),
+      { statusCode: 503 },
+    );
+  }
+
+  const workerUrl = process.env['AUDIO_WORKER_URL']!.replace(/\/$/, '');
+  const formData = new FormData();
+  formData.append('file', new Blob([fileBuffer]), filename);
+  formData.append('bands', JSON.stringify(
+    bands.map((b) => ({ label: b.label, min_hz: b.minHz, max_hz: b.maxHz }))
+  ));
+
+  const res = await fetch(`${workerUrl}/analyze-rhythm`, {
+    method: 'POST',
+    body: formData,
+    signal: AbortSignal.timeout(120_000),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw Object.assign(
+      new Error(`Audio worker error (${res.status}): ${detail}`),
+      { statusCode: res.status >= 500 ? 502 : res.status },
+    );
+  }
+
+  return res.json() as Promise<RhythmAnalysisResult>;
+}
+
+export async function analyzeRhythmBandsFromYouTube(
+  youtubeUrl: string,
+  bands: RhythmBand[],
+): Promise<RhythmAnalysisResult> {
+  if (!isAudioWorkerConfigured()) {
+    throw Object.assign(
+      new Error('Audio analysis worker not configured. Set AUDIO_WORKER_URL environment variable.'),
+      { statusCode: 503 },
+    );
+  }
+  if (process.env['ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT'] !== 'true') {
+    throw Object.assign(
+      new Error('YouTube audio import is disabled. Set ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT=true (local use only).'),
+      { statusCode: 403 },
+    );
+  }
+
+  const workerUrl = process.env['AUDIO_WORKER_URL']!.replace(/\/$/, '');
+  const res = await fetch(`${workerUrl}/analyze-rhythm-youtube`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      youtube_url: youtubeUrl,
+      bands: bands.map((b) => ({ label: b.label, min_hz: b.minHz, max_hz: b.maxHz })),
+    }),
+    signal: AbortSignal.timeout(240_000),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw Object.assign(
+      new Error(`Audio worker error (${res.status}): ${detail}`),
+      { statusCode: res.status >= 500 ? 502 : res.status },
+    );
+  }
+
+  return res.json() as Promise<RhythmAnalysisResult>;
 }
 
 // ---------------------------------------------------------------------------

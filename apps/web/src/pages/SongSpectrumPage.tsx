@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SCORE_AXES, AXIS_LABELS } from '@band-spectrum-mapper/shared';
 import type {
@@ -8,6 +8,8 @@ import type {
   MusicBrainzSongData,
   RhythmResearch,
   ScoreAxisDetail,
+  RhythmBand,
+  RhythmAnalysisResult,
 } from '@band-spectrum-mapper/shared';
 import { songSpectrumApi } from '../api/songSpectrum';
 import { api } from '../lib/api';
@@ -445,6 +447,536 @@ function LibrarySongPicker({
         <p className="text-xs text-surface-600">
           Optional — links the analysis to the library song so lyrics context is available.
         </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Rhythm Lab — frequency-isolated percussion analysis
+// ---------------------------------------------------------------------------
+
+const BAND_COLORS_RL = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899'];
+
+const DEFAULT_RHYTHM_BANDS: RhythmBand[] = [
+  { label: 'Kick',   minHz: 40,   maxHz: 120 },
+  { label: 'Snare',  minHz: 150,  maxHz: 600 },
+  { label: 'Hi-hat', minHz: 5000, maxHz: 12000 },
+  { label: 'Cymbal', minHz: 8000, maxHz: 18000 },
+];
+
+const RHYTHM_PRESETS: Record<string, RhythmBand[]> = {
+  Percussion: [
+    { label: 'Kick',   minHz: 40,   maxHz: 120 },
+    { label: 'Snare',  minHz: 150,  maxHz: 600 },
+    { label: 'Hi-hat', minHz: 5000, maxHz: 12000 },
+    { label: 'Cymbal', minHz: 8000, maxHz: 18000 },
+  ],
+  'Perc Full': [
+    { label: 'Kick',        minHz: 40,   maxHz: 120 },
+    { label: 'Snare Body',  minHz: 150,  maxHz: 600 },
+    { label: 'Snare Crack', minHz: 2000, maxHz: 5000 },
+    { label: 'Hi-hat',      minHz: 5000, maxHz: 12000 },
+    { label: 'Cymbal',      minHz: 8000, maxHz: 18000 },
+  ],
+  'Spectrum': [
+    { label: 'Sub Bass', minHz: 20,   maxHz: 80 },
+    { label: 'Bass',     minHz: 80,   maxHz: 250 },
+    { label: 'Low Mid',  minHz: 250,  maxHz: 1000 },
+    { label: 'High Mid', minHz: 1000, maxHz: 4000 },
+    { label: 'High',     minHz: 4000, maxHz: 20000 },
+  ],
+};
+
+const TIME_SIGS_RL = [
+  { label: '2/4',  beats: 2 },
+  { label: '3/4',  beats: 3 },
+  { label: '4/4',  beats: 4 },
+  { label: '5/4',  beats: 5 },
+  { label: '6/8',  beats: 6 },
+  { label: '7/8',  beats: 7 },
+  { label: '9/8',  beats: 9 },
+  { label: '12/8', beats: 12 },
+];
+
+function drawRhythmTimeline(
+  canvas: HTMLCanvasElement,
+  result: RhythmAnalysisResult,
+  beatBpm: number,
+  timeSigBeats: number,
+) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  ctx.save();
+  ctx.scale(dpr, dpr);
+
+  const W = canvas.width / dpr;
+  const ROW_H = 72;
+  const AXIS_H = 24;
+  const bands = result.bands;
+  const duration = result.duration;
+
+  ctx.fillStyle = '#030712';
+  ctx.fillRect(0, 0, W, bands.length * ROW_H + AXIS_H);
+
+  // Beat / bar grid
+  const beatSec = 60.0 / Math.max(beatBpm, 1);
+  const barSec = beatSec * timeSigBeats;
+  for (let t = 0; t <= duration + 0.001; t += beatSec) {
+    const x = (t / duration) * W;
+    const isBar = barSec > 0 && (t % barSec) < beatSec * 0.05;
+    ctx.strokeStyle = isBar ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = isBar ? 1 : 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, bands.length * ROW_H);
+    ctx.stroke();
+  }
+
+  bands.forEach((band, i) => {
+    const y0 = i * ROW_H;
+    const yMid = y0 + ROW_H / 2;
+    const color = BAND_COLORS_RL[i % BAND_COLORS_RL.length]!;
+
+    // Row divider
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(0, y0 + ROW_H);
+    ctx.lineTo(W, y0 + ROW_H);
+    ctx.stroke();
+
+    // Envelope fill (mirrored)
+    if (band.envelope.length > 1) {
+      ctx.fillStyle = `${color}18`;
+      ctx.beginPath();
+      ctx.moveTo(0, yMid);
+      band.envelope.forEach((v, idx) => {
+        const ex = (idx / (band.envelope.length - 1)) * W;
+        ctx.lineTo(ex, yMid - v * ROW_H * 0.42);
+      });
+      for (let idx = band.envelope.length - 1; idx >= 0; idx--) {
+        const v = band.envelope[idx] ?? 0;
+        const ex = (idx / (band.envelope.length - 1)) * W;
+        ctx.lineTo(ex, yMid + v * ROW_H * 0.42);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = `${color}50`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      band.envelope.forEach((v, idx) => {
+        const ex = (idx / (band.envelope.length - 1)) * W;
+        const ey = yMid - v * ROW_H * 0.42;
+        if (idx === 0) ctx.moveTo(ex, ey); else ctx.lineTo(ex, ey);
+      });
+      ctx.stroke();
+    }
+
+    // Onset tick marks
+    ctx.fillStyle = color;
+    band.onsetTimes.forEach((t) => {
+      const x = (t / duration) * W;
+      ctx.fillRect(x - 0.75, y0 + ROW_H * 0.12, 1.5, ROW_H * 0.76);
+    });
+
+    // Labels
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${band.label}  ${band.minHz}–${band.maxHz} Hz`, 5, y0 + 13);
+
+    if (band.bandBpm > 0) {
+      ctx.fillStyle = color;
+      ctx.font = 'bold 10px ui-monospace, monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${band.bandBpm.toFixed(0)} bpm`, W - 5, y0 + 13);
+    }
+
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = '9px ui-monospace, monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${band.onsetCount} onsets`, W - 5, y0 + ROW_H - 6);
+  });
+
+  // Time axis
+  const axisY = bands.length * ROW_H;
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, axisY, W, AXIS_H);
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(0, axisY);
+  ctx.lineTo(W, axisY);
+  ctx.stroke();
+
+  const tickEvery = duration > 60 ? 5 : duration > 20 ? 2 : 1;
+  for (let s = 0; s <= Math.ceil(duration); s += tickEvery) {
+    if (s > duration) break;
+    const x = (s / duration) * W;
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x, axisY);
+    ctx.lineTo(x, axisY + 5);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '9px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${s}s`, x, axisY + AXIS_H - 4);
+  }
+
+  ctx.restore();
+}
+
+function RhythmLabPanel({
+  analysisYoutubeUrl,
+  youtubeAudioEnabled,
+}: {
+  analysisYoutubeUrl: string | null;
+  youtubeAudioEnabled: boolean;
+}) {
+  const [bands, setBands] = useState<RhythmBand[]>(DEFAULT_RHYTHM_BANDS);
+  const [rhythmFile, setRhythmFile] = useState<File | null>(null);
+  const [result, setResult] = useState<RhythmAnalysisResult | null>(null);
+  const [beatBpm, setBeatBpm] = useState(120);
+  const [timeSigBeats, setTimeSigBeats] = useState(4);
+  const [rlError, setRlError] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const fileMutation = useMutation({
+    mutationFn: (file: File) => songSpectrumApi.analyzeRhythmBands(file, bands),
+    onSuccess: (r) => { setResult(r); setBeatBpm(Math.round(r.globalBpm)); setRlError(null); },
+    onError: (e: Error) => setRlError(e.message),
+  });
+
+  const ytMutation = useMutation({
+    mutationFn: () => songSpectrumApi.analyzeRhythmBandsFromYouTube(analysisYoutubeUrl!, bands),
+    onSuccess: (r) => { setResult(r); setBeatBpm(Math.round(r.globalBpm)); setRlError(null); },
+    onError: (e: Error) => setRlError(e.message),
+  });
+
+  const isPending = fileMutation.isPending || ytMutation.isPending;
+
+  useEffect(() => {
+    if (!result || !canvasRef.current || !containerRef.current) return;
+    const canvas = canvasRef.current;
+    const dpr = window.devicePixelRatio || 1;
+    const ROW_H = 72;
+    const AXIS_H = 24;
+    const cssW = containerRef.current.offsetWidth;
+    const cssH = result.bands.length * ROW_H + AXIS_H;
+    canvas.style.width = `${cssW}px`;
+    canvas.style.height = `${cssH}px`;
+    canvas.width = cssW * dpr;
+    canvas.height = cssH * dpr;
+    drawRhythmTimeline(canvas, result, beatBpm, timeSigBeats);
+  }, [result, beatBpm, timeSigBeats]);
+
+  function applyPreset(key: string) {
+    const preset = RHYTHM_PRESETS[key];
+    if (preset) setBands([...preset]);
+  }
+
+  function updateBand(idx: number, field: keyof RhythmBand, value: string | number) {
+    setBands((prev) => prev.map((b, i) => i === idx ? { ...b, [field]: value } : b));
+  }
+
+  function addBand() {
+    setBands((prev) => [...prev, { label: `Band ${prev.length + 1}`, minHz: 100, maxHz: 500 }]);
+  }
+
+  function removeBand(idx: number) {
+    setBands((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  const canRunFile = rhythmFile !== null && !isPending && bands.length > 0;
+  const canRunYt = youtubeAudioEnabled && Boolean(analysisYoutubeUrl) && !isPending && bands.length > 0;
+  const showYtPanel = youtubeAudioEnabled || Boolean(analysisYoutubeUrl);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-bold uppercase tracking-widest text-purple-400">Rhythm Lab</span>
+        <span className="text-xs text-surface-500">— frequency-isolated percussion analysis</span>
+      </div>
+
+      {/* Preset picker */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <span className="text-xs text-surface-400">Presets:</span>
+        {Object.keys(RHYTHM_PRESETS).map((key) => (
+          <button
+            key={key}
+            className="px-2 py-1 text-xs bg-surface-700 hover:bg-surface-600 text-surface-200 rounded transition-colors"
+            onClick={() => applyPreset(key)}
+          >
+            {key}
+          </button>
+        ))}
+      </div>
+
+      {/* Band table */}
+      <div className="bg-surface-800/50 rounded-lg overflow-hidden border border-surface-700/50">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-surface-700">
+              <th className="px-3 py-2 text-left text-surface-400 font-medium w-8"> </th>
+              <th className="px-3 py-2 text-left text-surface-400 font-medium">Label</th>
+              <th className="px-3 py-2 text-left text-surface-400 font-medium">Min Hz</th>
+              <th className="px-3 py-2 text-left text-surface-400 font-medium">Max Hz</th>
+              <th className="px-2 py-2 w-8"> </th>
+            </tr>
+          </thead>
+          <tbody>
+            {bands.map((band, i) => {
+              const color = BAND_COLORS_RL[i % BAND_COLORS_RL.length]!;
+              return (
+                <tr key={i} className="border-b border-surface-700/40">
+                  <td className="px-3 py-1.5">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <input
+                      className="w-full bg-surface-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      value={band.label}
+                      onChange={(e) => updateBand(i, 'label', e.target.value)}
+                    />
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <input
+                      type="number"
+                      className="w-24 bg-surface-700 rounded px-2 py-1 text-white text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      value={band.minHz}
+                      min={20} max={19999} step={10}
+                      onChange={(e) => updateBand(i, 'minHz', Number(e.target.value))}
+                    />
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <input
+                      type="number"
+                      className="w-24 bg-surface-700 rounded px-2 py-1 text-white text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      value={band.maxHz}
+                      min={21} max={20000} step={10}
+                      onChange={(e) => updateBand(i, 'maxHz', Number(e.target.value))}
+                    />
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <button
+                      className="text-surface-500 hover:text-red-400 transition-colors"
+                      onClick={() => removeBand(i)}
+                      disabled={bands.length <= 1}
+                    >
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div className="px-3 py-2">
+          <button
+            className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors disabled:opacity-40"
+            onClick={addBand}
+            disabled={bands.length >= 8}
+          >
+            + Add band
+          </button>
+        </div>
+      </div>
+
+      {/* Audio source */}
+      <div className={`grid gap-4 ${showYtPanel ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 max-w-sm'}`}>
+        <div className="border border-dashed border-surface-700 rounded-lg p-4 space-y-2">
+          <div className="text-xs font-semibold text-surface-300">Upload Audio</div>
+          <input
+            type="file"
+            accept=".mp3,.wav,.flac,.ogg,.m4a,.aac,.opus"
+            className="text-xs text-surface-400 file:mr-2 file:text-xs file:bg-surface-700 file:text-white file:border-0 file:rounded file:px-2 file:py-1 file:cursor-pointer"
+            onChange={(e) => setRhythmFile(e.target.files?.[0] ?? null)}
+          />
+          {rhythmFile && <div className="text-xs text-surface-400 truncate">{rhythmFile.name}</div>}
+          <button
+            className="px-3 py-1.5 bg-purple-700 hover:bg-purple-600 text-white text-xs font-medium rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={!canRunFile}
+            onClick={() => rhythmFile && fileMutation.mutate(rhythmFile)}
+          >
+            {fileMutation.isPending ? 'Analyzing…' : 'Analyze Rhythm'}
+          </button>
+        </div>
+
+        {showYtPanel && (
+          <div className="border border-dashed border-purple-700/40 rounded-lg p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-surface-300">From YouTube</span>
+              <span className="text-xs bg-amber-900/40 text-amber-400 border border-amber-700/50 rounded px-1.5 py-0.5">local only</span>
+            </div>
+            {analysisYoutubeUrl ? (
+              <div className="text-xs text-surface-500 truncate">{analysisYoutubeUrl}</div>
+            ) : (
+              <div className="text-xs text-surface-600">No YouTube URL on this analysis.</div>
+            )}
+            {!youtubeAudioEnabled && (
+              <p className="text-xs text-surface-600">
+                Set <code className="text-amber-400">ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT=true</code> to enable.
+              </p>
+            )}
+            {youtubeAudioEnabled && (
+              <button
+                className="px-3 py-1.5 bg-purple-700 hover:bg-purple-600 text-white text-xs font-medium rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                disabled={!canRunYt}
+                onClick={() => ytMutation.mutate()}
+              >
+                {ytMutation.isPending ? 'Downloading & analyzing…' : 'Analyze from YouTube'}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {rlError && (
+        <div className="text-xs text-red-400 bg-red-900/20 border border-red-700/30 rounded px-3 py-2">{rlError}</div>
+      )}
+
+      {result && (
+        <div className="space-y-4">
+          {/* Stats */}
+          <div className="flex flex-wrap gap-3 items-center">
+            <span className="text-xs bg-indigo-900/60 text-indigo-200 border border-indigo-700/50 rounded px-2 py-1 font-mono">
+              {result.globalBpm.toFixed(1)} BPM
+            </span>
+            <span className={`text-xs rounded px-2 py-1 font-mono border ${
+              result.polyrhythmScore > 0.3
+                ? 'bg-amber-900/50 text-amber-300 border-amber-700/50'
+                : 'bg-surface-700 text-surface-300 border-surface-600'
+            }`}>
+              Polyrhythm {(result.polyrhythmScore * 100).toFixed(0)}%
+            </span>
+            <span className="text-xs text-surface-500">{result.duration.toFixed(1)}s analyzed</span>
+          </div>
+
+          {/* Beat grid controls */}
+          <div className="bg-surface-800/40 rounded-lg p-3 flex flex-wrap gap-4 items-center border border-surface-700/40">
+            <div className="flex items-center gap-2 flex-1 min-w-44">
+              <span className="text-xs text-surface-400 shrink-0 w-16">Beat BPM</span>
+              <input
+                type="range"
+                min={40} max={300} step={0.5}
+                value={beatBpm}
+                onChange={(e) => setBeatBpm(Number(e.target.value))}
+                className="flex-1 accent-indigo-500"
+              />
+              <span className="text-xs font-mono text-white w-12 text-right">{beatBpm.toFixed(1)}</span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-surface-400 shrink-0">Grid</span>
+              {TIME_SIGS_RL.map(({ label, beats }) => (
+                <button
+                  key={label}
+                  className={`text-xs px-2 py-0.5 rounded transition-colors font-mono ${
+                    timeSigBeats === beats
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-surface-700 text-surface-300 hover:bg-surface-600'
+                  }`}
+                  onClick={() => setTimeSigBeats(beats)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Canvas timeline */}
+          <div ref={containerRef} className="w-full rounded-lg overflow-hidden border border-surface-700/50">
+            <canvas ref={canvasRef} className="block w-full" />
+          </div>
+
+          {/* Cross-rhythms */}
+          {result.crossRhythms.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-2">Cross-Rhythms</div>
+              <div className="flex flex-wrap gap-2">
+                {result.crossRhythms.map((cr, i) => (
+                  <div
+                    key={i}
+                    className="text-xs bg-amber-900/30 border border-amber-700/40 rounded px-2 py-1 text-amber-300 font-mono"
+                  >
+                    {cr.bandA} : {cr.bandB} = <strong>{cr.ratio}</strong>
+                    <span className="text-amber-600 ml-1">({(cr.confidence * 100).toFixed(0)}%)</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Bar length candidates */}
+          {result.globalBarCandidates.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-surface-300 uppercase tracking-wider mb-2">Bar Length Candidates</div>
+              <div className="flex flex-wrap gap-2">
+                {result.globalBarCandidates.map((c, i) => (
+                  <button
+                    key={i}
+                    className="text-xs bg-surface-700 hover:bg-surface-600 text-surface-200 rounded px-2 py-1 font-mono transition-colors"
+                    title={`Apply ${c.beats}-beat bar to grid`}
+                    onClick={() => setTimeSigBeats(c.beats)}
+                  >
+                    {c.beats} beats · {c.lengthSec.toFixed(2)}s
+                    <span className={`ml-1 ${c.confidence > 0.4 ? 'text-green-400' : 'text-surface-500'}`}>
+                      {(c.confidence * 100).toFixed(0)}%
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-surface-600 mt-1">Click a candidate to apply it as the beat grid.</p>
+            </div>
+          )}
+
+          {/* Per-band detail table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-surface-700">
+                  <th className="px-3 py-1.5 text-left text-surface-400 font-medium">Band</th>
+                  <th className="px-3 py-1.5 text-left text-surface-400 font-medium">Range</th>
+                  <th className="px-3 py-1.5 text-right text-surface-400 font-medium">Onsets</th>
+                  <th className="px-3 py-1.5 text-right text-surface-400 font-medium">Band BPM</th>
+                  <th className="px-3 py-1.5 text-right text-surface-400 font-medium">IBI CV</th>
+                  <th className="px-3 py-1.5 text-left text-surface-400 font-medium">Top bar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.bands.map((band, i) => {
+                  const color = BAND_COLORS_RL[i % BAND_COLORS_RL.length]!;
+                  const topBar = band.barCandidates[0];
+                  return (
+                    <tr key={i} className="border-b border-surface-700/40">
+                      <td className="px-3 py-1.5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                          <span className="text-white">{band.label}</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-1.5 text-surface-400 font-mono">{band.minHz}–{band.maxHz} Hz</td>
+                      <td className="px-3 py-1.5 text-right text-surface-200 font-mono">{band.onsetCount}</td>
+                      <td className="px-3 py-1.5 text-right font-mono" style={{ color: band.bandBpm > 0 ? color : undefined }}>
+                        {band.bandBpm > 0 ? band.bandBpm.toFixed(0) : '—'}
+                      </td>
+                      <td className="px-3 py-1.5 text-right text-surface-400 font-mono">{band.ibiCv.toFixed(2)}</td>
+                      <td className="px-3 py-1.5 text-surface-400 font-mono">
+                        {topBar ? `${topBar.beats}♩ (${(topBar.confidence * 100).toFixed(0)}%)` : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1055,6 +1587,21 @@ export default function SongSpectrumPage() {
                     {SCORE_AXES.filter((ax) => scoreBreakdown[ax]).map((ax) => (
                       <ScoreBreakdown key={ax} axis={ax} detail={scoreBreakdown[ax]!} />
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Rhythm Lab */}
+              {audioAnalysis && (
+                <div>
+                  <h3 className="text-sm font-bold text-surface-300 uppercase tracking-wider mb-3">
+                    Rhythm Lab
+                  </h3>
+                  <div className="bg-surface-800/30 rounded-xl p-5 border border-purple-700/20">
+                    <RhythmLabPanel
+                      analysisYoutubeUrl={activeAnalysis.youtubeUrl}
+                      youtubeAudioEnabled={status?.youtubeAudio ?? false}
+                    />
                   </div>
                 </div>
               )}

@@ -2,6 +2,8 @@ import { api } from '../lib/api';
 import type {
   SongSpectrumAnalysis,
   YouTubeMetadata,
+  RhythmBand,
+  RhythmAnalysisResult,
 } from '@band-spectrum-mapper/shared';
 
 export const songSpectrumApi = {
@@ -75,5 +77,19 @@ export const songSpectrumApi = {
 
   pushToLibrary(id: string): Promise<{ ok: boolean; pushed: Record<string, number> }> {
     return api.post(`/api/song-spectrum/analyses/${id}/push-to-library`, {});
+  },
+
+  analyzeRhythmBands(file: File, bands: RhythmBand[]): Promise<RhythmAnalysisResult> {
+    const fd = new FormData();
+    fd.append('audio', file, file.name);
+    fd.append('bands', JSON.stringify(bands));
+    return api.postForm('/api/song-spectrum/rhythm-bands', fd);
+  },
+
+  analyzeRhythmBandsFromYouTube(
+    youtubeUrl: string,
+    bands: RhythmBand[],
+  ): Promise<RhythmAnalysisResult> {
+    return api.post('/api/song-spectrum/rhythm-bands-youtube', { youtubeUrl, bands });
   },
 };

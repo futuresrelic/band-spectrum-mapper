@@ -376,3 +376,224 @@ def analyze_audio(file_path: str) -> dict:
             "mfcc": mfcc_list,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Rhythm band analysis — frequency-isolated percussion detection
+# ---------------------------------------------------------------------------
+
+def bandpass_filter(y: np.ndarray, sr: int, low_hz: float, high_hz: float) -> np.ndarray:
+    """Apply 4th-order Butterworth bandpass filter. Returns zeros on failure."""
+    nyq = sr / 2.0
+    low = max(low_hz / nyq, 1e-4)
+    high = min(high_hz / nyq, 1.0 - 1e-4)
+    if low >= high:
+        return np.zeros_like(y)
+    try:
+        b, a = scipy.signal.butter(4, [low, high], btype='bandpass')
+        return scipy.signal.filtfilt(b, a, y)
+    except Exception:
+        return np.zeros_like(y)
+
+
+def suggest_bar_lengths(
+    onset_times: list[float], bpm: float, duration: float
+) -> list[dict]:
+    """
+    Return bar length candidates sorted by confidence descending.
+    Uses a 10 ms binary onset grid + autocorrelation at candidate lags.
+    """
+    if len(onset_times) < 6 or bpm <= 0 or duration <= 0:
+        return []
+
+    beat_sec = 60.0 / bpm
+    bin_size = 0.01  # 10 ms resolution
+    n_bins = max(1, int(duration / bin_size))
+
+    signal = np.zeros(n_bins)
+    for t in onset_times:
+        idx = int(t / bin_size)
+        if 0 <= idx < n_bins:
+            signal[idx] = 1.0
+
+    results = []
+    for n_beats in [2, 3, 4, 5, 6, 7, 8, 12, 16]:
+        bar_sec = beat_sec * n_beats
+        if bar_sec >= duration * 0.8:
+            continue
+
+        lag_bins = int(round(bar_sec / bin_size))
+        if lag_bins <= 0 or lag_bins >= n_bins:
+            continue
+
+        n = n_bins - lag_bins
+        if n < 50:
+            continue
+
+        corr = np.corrcoef(signal[lag_bins:], signal[:n])
+        r = float(corr[0, 1]) if corr.shape == (2, 2) else 0.0
+        if np.isnan(r):
+            r = 0.0
+
+        confidence = round(max(0.0, r), 3)
+        if confidence > 0.03:
+            results.append({
+                "beats": n_beats,
+                "lengthSec": round(bar_sec, 3),
+                "confidence": confidence,
+            })
+
+    results.sort(key=lambda x: x["confidence"], reverse=True)
+    return results[:5]
+
+
+def analyze_rhythm_bands(y: np.ndarray, sr: int, bands: list[dict]) -> dict:
+    """
+    Isolate frequency bands and detect rhythmic onsets in each.
+
+    Each band dict must have: {"label": str, "min_hz": float, "max_hz": float}
+    Returns a RhythmAnalysisResult-shaped dict.
+    """
+    hop = 256  # smaller hop → finer temporal resolution for percussion
+    duration = float(librosa.get_duration(y=y, sr=sr))
+
+    # Global beat tracking on the full mix
+    tempo_arr, beat_frames = librosa.beat.beat_track(
+        y=y, sr=sr, units='frames', hop_length=hop
+    )
+    global_bpm = (
+        float(np.mean(tempo_arr))
+        if hasattr(tempo_arr, '__len__')
+        else float(tempo_arr)
+    )
+    global_beat_times = librosa.frames_to_time(
+        beat_frames, sr=sr, hop_length=hop
+    ).tolist()
+
+    band_results = []
+    all_onset_times: list[list[float]] = []
+    env_length = 0
+
+    for band in bands:
+        label = str(band.get("label", "Band"))
+        min_hz = float(band.get("min_hz", 20))
+        max_hz = float(band.get("max_hz", 200))
+
+        y_filtered = bandpass_filter(y, sr, min_hz, max_hz)
+
+        onset_env = librosa.onset.onset_strength(
+            y=y_filtered, sr=sr, hop_length=hop
+        )
+        onset_frames = librosa.onset.onset_detect(
+            onset_envelope=onset_env, sr=sr, hop_length=hop, normalize=True
+        )
+        onset_times = librosa.frames_to_time(
+            onset_frames, sr=sr, hop_length=hop
+        ).tolist()
+
+        # Downsample envelope to 400 points for compact JSON
+        n_pts = 400
+        if len(onset_env) > n_pts:
+            hop2 = max(1, len(onset_env) // n_pts)
+            env_ds = [
+                float(np.max(onset_env[i: i + hop2]))
+                for i in range(0, len(onset_env), hop2)
+            ]
+            env_ds = env_ds[:n_pts]
+        else:
+            env_ds = [float(v) for v in onset_env]
+
+        env_max = max(env_ds) if env_ds else 1.0
+        env_ds = [round(v / (env_max + 1e-6), 4) for v in env_ds]
+        env_length = len(env_ds)
+
+        # Inter-beat-interval statistics for this band
+        if len(onset_times) >= 4:
+            ibis = np.diff(np.array(onset_times))
+            mean_ibi = float(np.mean(ibis))
+            ibi_cv = round(float(np.std(ibis) / (mean_ibi + 1e-6)), 3)
+            band_bpm = round(60.0 / mean_ibi, 1) if mean_ibi > 0 else 0.0
+        else:
+            ibi_cv = 0.0
+            band_bpm = 0.0
+
+        bar_candidates = suggest_bar_lengths(onset_times, global_bpm, duration)
+
+        band_results.append({
+            "label": label,
+            "minHz": round(min_hz, 1),
+            "maxHz": round(max_hz, 1),
+            "onsetTimes": [round(t, 3) for t in onset_times],
+            "onsetCount": len(onset_times),
+            "envelope": env_ds,
+            "bandBpm": band_bpm,
+            "ibiCv": ibi_cv,
+            "barCandidates": bar_candidates,
+        })
+        all_onset_times.append(onset_times)
+
+    # Cross-rhythm detection: compare BPMs between bands
+    cross_rhythms: list[dict] = []
+    bpm_vals = [b["bandBpm"] for b in band_results if b["bandBpm"] > 10]
+    for i in range(len(bpm_vals)):
+        for j in range(i + 1, len(bpm_vals)):
+            if bpm_vals[j] == 0:
+                continue
+            ratio = bpm_vals[i] / bpm_vals[j]
+            matched = False
+            for num in range(1, 9):
+                if matched:
+                    break
+                for den in range(1, 9):
+                    if abs(ratio - num / den) < 0.15:
+                        cross_rhythms.append({
+                            "bandA": band_results[i]["label"],
+                            "bandB": band_results[j]["label"],
+                            "ratio": f"{num}:{den}",
+                            "confidence": round(
+                                max(0.0, 1.0 - abs(ratio - num / den) / 0.15), 2
+                            ),
+                        })
+                        matched = True
+                        break
+
+    # Keep best match per band pair
+    seen: dict[tuple, dict] = {}
+    for cr in cross_rhythms:
+        key = (cr["bandA"], cr["bandB"])
+        if key not in seen or cr["confidence"] > seen[key]["confidence"]:
+            seen[key] = cr
+    cross_rhythms = sorted(seen.values(), key=lambda x: x["confidence"], reverse=True)
+
+    # Polyrhythm score: mean deviation from integer multiples
+    if len(bpm_vals) >= 2 and bpm_vals[0] > 0:
+        ratios = [b / bpm_vals[0] for b in bpm_vals[1:]]
+        poly_score = round(
+            float(np.mean([abs(r - round(r)) for r in ratios])), 3
+        )
+    else:
+        poly_score = 0.0
+
+    # Global bar candidates from merged onsets across all bands
+    merged = sorted(t for band_t in all_onset_times for t in band_t)
+    global_bar_candidates = suggest_bar_lengths(merged, global_bpm, duration)
+
+    return {
+        "globalBpm": round(global_bpm, 1),
+        "globalBeatTimes": [round(t, 3) for t in global_beat_times[:300]],
+        "envelopeLength": env_length,
+        "duration": round(duration, 2),
+        "bands": band_results,
+        "crossRhythms": list(cross_rhythms)[:8],
+        "polyrhythmScore": poly_score,
+        "globalBarCandidates": global_bar_candidates,
+    }
+
+
+def analyze_rhythm_from_file(file_path: str, bands: list[dict]) -> dict:
+    """Load an audio file and run rhythm band analysis."""
+    try:
+        y, sr = librosa.load(file_path, sr=TARGET_SR, mono=True, duration=MAX_DURATION_SEC)
+    except Exception as exc:
+        raise RuntimeError(f"Cannot read audio file: {exc}") from exc
+    return analyze_rhythm_bands(y, sr, bands)

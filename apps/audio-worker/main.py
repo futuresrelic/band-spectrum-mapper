@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
-from analyzer import analyze_audio
+from analyzer import analyze_audio, analyze_rhythm_from_file, analyze_rhythm_bands, TARGET_SR
 from scorer import compute_scores
 
 # ---------------------------------------------------------------------------
@@ -209,6 +209,167 @@ async def analyze_youtube(body: YouTubeRequest):
 
         except RuntimeError as exc:
             log.error("Analysis failed: %s", exc)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Rhythm band analysis — file upload path
+# ---------------------------------------------------------------------------
+
+class BandSpec(BaseModel):
+    label: str
+    min_hz: float
+    max_hz: float
+
+
+_DEFAULT_BANDS = [
+    {"label": "Kick",   "min_hz": 40,   "max_hz": 120},
+    {"label": "Snare",  "min_hz": 150,  "max_hz": 600},
+    {"label": "Hi-hat", "min_hz": 5000, "max_hz": 12000},
+    {"label": "Cymbal", "min_hz": 8000, "max_hz": 18000},
+]
+
+
+@app.post("/analyze-rhythm")
+async def analyze_rhythm(
+    file: UploadFile = File(...),
+    bands: str = Form(default=""),
+):
+    """
+    Upload audio + optional JSON-encoded band specs; returns RhythmAnalysisResult.
+
+    bands (form field): JSON array of {label, min_hz, max_hz}.
+    Defaults to kick / snare / hi-hat / cymbal when omitted.
+    """
+    import json
+
+    content = await file.read()
+    if len(content) > MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size is {MAX_MB} MB.",
+        )
+
+    filename = file.filename or "upload"
+    ext = Path(filename).suffix.lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(status_code=415, detail=f"Unsupported format '{ext}'")
+
+    try:
+        bands_data: list[dict] = json.loads(bands) if bands.strip() else []
+    except Exception:
+        bands_data = []
+
+    if not bands_data:
+        bands_data = _DEFAULT_BANDS
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        log.info("Rhythm analysis: %s (%d bytes), %d bands", filename, len(content), len(bands_data))
+        result = analyze_rhythm_from_file(tmp_path, bands_data)
+        log.info("Rhythm analysis complete — bpm=%.1f, %d bands", result["globalBpm"], len(result["bands"]))
+        return JSONResponse(result)
+    except RuntimeError as exc:
+        log.error("Rhythm analysis failed: %s", exc)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Rhythm band analysis — YouTube path (local / personal use only)
+# ---------------------------------------------------------------------------
+
+class RhythmYouTubeRequest(BaseModel):
+    youtube_url: str
+    bands: list[BandSpec] = []
+
+
+@app.post("/analyze-rhythm-youtube")
+async def analyze_rhythm_youtube(body: RhythmYouTubeRequest):
+    """
+    Download audio from YouTube and run rhythm band analysis.
+
+    IMPORTANT: Only enabled when ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT=true.
+    """
+    if os.environ.get("ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT") != "true":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "YouTube audio import is disabled. "
+                "Set ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT=true to enable "
+                "(local / personal use only)."
+            ),
+        )
+
+    url = body.youtube_url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="youtube_url is required")
+
+    bands_data: list[dict] = (
+        [{"label": b.label, "min_hz": b.min_hz, "max_hz": b.max_hz} for b in body.bands]
+        if body.bands
+        else _DEFAULT_BANDS
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_template = os.path.join(tmpdir, "audio.%(ext)s")
+        log.info("Rhythm analysis: downloading YouTube audio from %s", url)
+
+        cmd = [
+            "yt-dlp",
+            "-x",
+            "--audio-format", "mp3",
+            "--audio-quality", "0",
+            "--no-playlist",
+            "--extractor-args", "youtube:player_client=android,mweb",
+            "-o", output_template,
+        ]
+
+        cookies_file = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
+        if cookies_file and os.path.isfile(cookies_file):
+            cmd += ["--cookies", cookies_file]
+
+        cmd.append(url)
+
+        try:
+            result_proc = subprocess.run(cmd, capture_output=True, timeout=180, text=True)
+        except FileNotFoundError:
+            raise HTTPException(status_code=503, detail="yt-dlp is not installed")
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="YouTube download timed out (>180 s)")
+
+        if result_proc.returncode != 0:
+            log.error("yt-dlp failed:\n%s", result_proc.stderr)
+            raise HTTPException(
+                status_code=502,
+                detail=f"yt-dlp failed: {result_proc.stderr[:500] if result_proc.stderr else 'unknown error'}",
+            )
+
+        audio_files = [
+            f for f in os.listdir(tmpdir)
+            if not f.endswith(".part") and not f.endswith(".ytdl")
+        ]
+        if not audio_files:
+            raise HTTPException(status_code=502, detail="No audio file was downloaded")
+
+        audio_path = os.path.join(tmpdir, audio_files[0])
+        log.info("Downloaded: %s (%d bytes)", audio_files[0], os.path.getsize(audio_path))
+
+        try:
+            import librosa
+            y, sr = librosa.load(audio_path, sr=TARGET_SR, mono=True, duration=900)
+            result = analyze_rhythm_bands(y, sr, bands_data)
+            log.info("Rhythm analysis complete — bpm=%.1f", result["globalBpm"])
+            return JSONResponse(result)
+        except RuntimeError as exc:
+            log.error("Rhythm analysis failed: %s", exc)
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
