@@ -13,6 +13,7 @@ const ALL_GAMES = [
   { id: 'spectrum-guesser', icon: '📡', title: 'Spectrum Guesser',   href: '/play/spectrum-guesser' },
   { id: 'lyric-match',      icon: '🧩', title: 'Lyric Match',        href: '/play/lyric-match' },
   { id: 'album-bracket',    icon: '🏟️', title: 'Album Bracket',      href: '/play/bracket' },
+  { id: 'lyric-complete',   icon: '📝', title: 'Lyric Complete',     href: '/play/lyric-complete' },
 ];
 
 export default function AdminGamesPage() {

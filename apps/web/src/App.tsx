@@ -70,6 +70,7 @@ import DataHealthPage from './pages/DataHealthPage';
 import PatternLabPage from './pages/PatternLabPage';
 import AdminGamesPage from './pages/AdminGamesPage';
 import SongConnectionsPage from './pages/SongConnectionsPage';
+import LyricCompletePage from './pages/LyricCompletePage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -141,6 +142,7 @@ export default function App() {
         <Route path="/play/spectrum-guesser" element={<SpectrumGuesserPage />} />
         <Route path="/play/lyric-match" element={<LyricMatchPage />} />
         <Route path="/play/bracket" element={<AlbumBracketPage />} />
+        <Route path="/play/lyric-complete" element={<LyricCompletePage />} />
 
         {/* ── ADMIN: full app, isAdmin required ── */}
         <Route

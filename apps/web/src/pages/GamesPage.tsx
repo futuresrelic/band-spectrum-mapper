@@ -135,6 +135,19 @@ const GAMES = [
     btnColor: 'bg-rose-700 hover:bg-rose-600',
     accentText: 'text-rose-400',
   },
+  {
+    id: 'lyric-complete',
+    icon: '📝',
+    title: 'Lyric Complete',
+    subtitle: 'Fill in the missing words',
+    desc: "A lyric snippet appears with a blank — pick the correct next word before the timer runs out. Keep your streak going for multiplied points. How well do you know the words?",
+    rules: ['Each phrase reveals itself word by word', 'Beat the timer for speed bonus points', 'Streak bonus grows with every correct answer'],
+    href: '/play/lyric-complete',
+    cta: 'Complete Lyrics',
+    color: 'border-violet-500/40 hover:border-violet-400/70',
+    btnColor: 'bg-violet-700 hover:bg-violet-600',
+    accentText: 'text-violet-400',
+  },
 ];
 
 const COMING_SOON: { id: string; icon: string; title: string; desc: string }[] = [];

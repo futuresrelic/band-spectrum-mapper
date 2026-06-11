@@ -406,6 +406,7 @@ model User {
   gameScores           GameScore[]
   wordHuntScores       WordHuntScore[]
   lyricChainScores     LyricChainScore[]
+  lyricCompleteScores  LyricCompleteScore[]
   band2048Scores       Band2048Score[]
   nodeSequences        UserNodeSequence[]
   cinemaData           UserCinemaData?
@@ -988,6 +989,27 @@ model Band2048Score {
   @@index([score])
   @@index([userId])
   @@map("band2048_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Lyric Complete game scores — one row per completed game
+// score = sum of per-word scores (base + speed bonus + streak); difficulty multiplied
+// ---------------------------------------------------------------------------
+
+model LyricCompleteScore {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score          Int
+  wordsCompleted Int
+  maxStreak      Int      @default(0)
+  difficulty     String   @default("medium")
+  bandScope      String?  // comma-sep band IDs; null = all bands
+  createdAt      DateTime @default(now())
+
+  @@index([score])
+  @@index([userId])
+  @@map("lyric_complete_scores")
 }
 
 // ---------------------------------------------------------------------------
