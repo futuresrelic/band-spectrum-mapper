@@ -13,6 +13,7 @@
 import { useState, useRef, type ChangeEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { platformerApi, type PlatformerAsset } from '../api/platformer';
+import { SpritePixelEditor, SPRITE_SIZES } from '../components/SpritePixelEditor';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -83,7 +84,10 @@ function SpriteCard({ assetType, existing, onSaved }: SpriteCardProps) {
   const [saving, setSaving]           = useState(false);
   const [removing, setRemoving]       = useState(false);
   const [msg, setMsg]                 = useState<{ text: string; ok: boolean } | null>(null);
+  const [editorOpen, setEditorOpen]   = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const [sw, sh] = SPRITE_SIZES[assetType] ?? [32, 32];
 
   const isAnimated = ANIMATED_TYPES.has(assetType);
   const hasPreview = preview !== null;
@@ -159,7 +163,29 @@ function SpriteCard({ assetType, existing, onSaved }: SpriteCardProps) {
     if (fileRef.current) fileRef.current.value = '';
   }
 
+  async function handleEditorSave(dataUrl: string) {
+    await platformerApi.uploadAsset({
+      assetType,
+      name: assetType,
+      dataUrl,
+    });
+    flash('Saved from editor.', true);
+    onSaved();
+  }
+
   return (
+    <>
+    {editorOpen && (
+      <SpritePixelEditor
+        assetType={assetType}
+        label={ASSET_LABELS[assetType]}
+        spriteW={sw}
+        spriteH={sh}
+        initialDataUrl={existing?.dataUrl ?? null}
+        onSave={handleEditorSave}
+        onClose={() => setEditorOpen(false)}
+      />
+    )}
     <div className="bg-white border border-surface-200 rounded-xl p-5 flex flex-col gap-4">
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
@@ -208,6 +234,13 @@ function SpriteCard({ assetType, existing, onSaved }: SpriteCardProps) {
             className="text-sm px-4 py-2 rounded-lg bg-surface-900 hover:bg-surface-700 text-white font-medium transition-colors"
           >
             {existing ? 'Replace' : 'Upload'}
+          </button>
+          <button
+            onClick={() => setEditorOpen(true)}
+            className="text-sm px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors"
+            title="Open pixel editor — draw or edit the sprite directly in the browser"
+          >
+            Edit Pixels
           </button>
           {existing && (
             <button
@@ -298,6 +331,7 @@ function SpriteCard({ assetType, existing, onSaved }: SpriteCardProps) {
         </p>
       )}
     </div>
+    </>
   );
 }
 
