@@ -77,6 +77,7 @@ import WordSearchPage from './pages/WordSearchPage';
 import RecordCatcherPage from './pages/RecordCatcherPage';
 import AdminPlatformerPage from './pages/AdminPlatformerPage';
 import PlatformerPage from './pages/PlatformerPage';
+import PlaylistMakerPage from './pages/PlaylistMakerPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -131,6 +132,8 @@ export default function App() {
         <Route path="/guess-the-song" element={<GuessSongPage />} />
         <Route path="/graph-hunt"      element={<GraphHuntPage />} />
         <Route path="/spectrum-studio" element={<SpectrumStudioPage />} />
+        <Route path="/playlist" element={<PlaylistMakerPage />} />
+        <Route path="/playlist/:id" element={<PlaylistMakerPage />} />
 
         {/* ── USER: rating surface + game, any logged-in Google user ── */}
         <Route path="/my" element={<UserLayout />}>

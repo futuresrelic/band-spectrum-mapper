@@ -53,6 +53,7 @@ import { platformerRouter } from './routes/platformer.js';
 import { spectrumGuesserRouter } from './routes/spectrumGuesser.js';
 import { lyricMatchRouter } from './routes/lyricMatch.js';
 import { graphHuntRouter } from './routes/graphHunt.js';
+import { playlistRouter } from './routes/playlist.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -197,6 +198,9 @@ export function createApp() {
 
   // 3D Graph Hunt scores
   app.use('/api/graph-hunt', graphHuntRouter);
+
+  // Playlist Maker — build, save, and retrieve playlists
+  app.use('/api/playlist', playlistRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.

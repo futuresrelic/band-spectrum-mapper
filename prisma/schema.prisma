@@ -118,6 +118,8 @@ model Song {
 
   @@unique([bandId, slug])
   @@map("songs")
+
+  playlistSongs PlaylistSong[]
 }
 
 // ---------------------------------------------------------------------------
@@ -417,6 +419,7 @@ model User {
   lyricMatchScores      LyricMatchScore[]
   graphHuntScores       GraphHuntScore[]
   platformerScores      PlatformerScore[]
+  playlists             Playlist[]
   nodeSequences        UserNodeSequence[]
   cinemaData           UserCinemaData?
   tagProposals         TagProposal[]
@@ -1234,6 +1237,34 @@ model PlatformerConfig {
   updatedAt DateTime @updatedAt
 
   @@map("platformer_config")
+}
+
+// ---------------------------------------------------------------------------
+// Playlist maker — user-built playlists from song battles
+// ---------------------------------------------------------------------------
+
+model Playlist {
+  id        String         @id @default(cuid())
+  userId    String?
+  user      User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name      String
+  songs     PlaylistSong[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@map("playlists")
+}
+
+model PlaylistSong {
+  id         String   @id @default(cuid())
+  playlistId String
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  songId     String
+  song       Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
+  position   Int
+  addedAt    DateTime @default(now())
+
+  @@map("playlist_songs")
 }
 
 // ---------------------------------------------------------------------------
