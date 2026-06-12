@@ -56,8 +56,6 @@ const DIFF_CONFIG: Record<Difficulty, { label: string; multiplier: number; activ
   expert: { label: 'Expert', multiplier: 3.0, activeClass: 'bg-rose-700    text-white', description: 'Cryptic-adjacent clues · 15×15 grid' },
 };
 
-const CELL_PX = 34;
-
 // ---------------------------------------------------------------------------
 // Scoring
 // ---------------------------------------------------------------------------
@@ -233,62 +231,63 @@ function CrosswordGrid({
 }: GridProps) {
   const { size, cells } = puzzle;
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: `repeat(${size}, ${CELL_PX}px)`,
-        gap: '2px',
-        width: `${size * (CELL_PX + 2)}px`,
-      }}
-      className="select-none"
-    >
-      {cells.map((row, r) =>
-        row.map((cell, c) => {
-          if (cell.letter === null) {
+    <div style={{ width: '100%', maxWidth: `${size * 36}px` }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${size}, 1fr)`,
+          gap: '2px',
+        }}
+        className="select-none"
+      >
+        {cells.map((row, r) =>
+          row.map((cell, c) => {
+            if (cell.letter === null) {
+              return (
+                <div
+                  key={`${r}-${c}`}
+                  style={{ aspectRatio: '1 / 1' }}
+                  className="bg-gray-900"
+                />
+              );
+            }
+
+            const key = `${r},${c}`;
+            const isSel = selected?.row === r && selected?.col === c;
+            const inWord = currentWordCells.has(key);
+            const isRev  = revealed.has(key);
+            const isMist = mistakes.has(key);
+            const isCorr = corrected.has(key);
+            const userLetter = userGrid[r]?.[c] ?? null;
+
+            let bg = 'bg-white';
+            if (isSel)       bg = 'bg-blue-300';
+            else if (inWord) bg = 'bg-blue-100';
+            else if (isCorr) bg = 'bg-emerald-100';
+            else if (isMist) bg = 'bg-rose-100';
+
             return (
               <div
                 key={`${r}-${c}`}
-                style={{ width: CELL_PX, height: CELL_PX }}
-                className="bg-gray-900"
-              />
+                style={{ aspectRatio: '1 / 1' }}
+                onClick={() => onCellClick(r, c)}
+                className={`relative border border-gray-300 flex items-center justify-center cursor-pointer overflow-hidden ${bg}`}
+              >
+                {cell.number !== null && (
+                  <span className="absolute top-0 left-0.5 text-[8px] leading-none text-gray-500 font-medium select-none">
+                    {cell.number}
+                  </span>
+                )}
+                {userLetter && (
+                  <span className={`text-[11px] font-bold select-none leading-none ${isRev ? 'text-indigo-600' : isMist ? 'text-rose-600' : 'text-gray-900'}`}>
+                    {userLetter}
+                  </span>
+                )}
+              </div>
             );
-          }
-
-          const key = `${r},${c}`;
-          const isSel = selected?.row === r && selected?.col === c;
-          const inWord = currentWordCells.has(key);
-          const isRev  = revealed.has(key);
-          const isMist = mistakes.has(key);
-          const isCorr = corrected.has(key);
-          const userLetter = userGrid[r]?.[c] ?? null;
-
-          let bg = 'bg-white';
-          if (isSel)       bg = 'bg-blue-300';
-          else if (inWord) bg = 'bg-blue-100';
-          else if (isCorr) bg = 'bg-emerald-100';
-          else if (isMist) bg = 'bg-rose-100';
-
-          return (
-            <div
-              key={`${r}-${c}`}
-              style={{ width: CELL_PX, height: CELL_PX }}
-              onClick={() => onCellClick(r, c)}
-              className={`relative border border-gray-300 flex items-center justify-center cursor-pointer ${bg}`}
-            >
-              {cell.number !== null && (
-                <span className="absolute top-0 left-0.5 text-[8px] leading-none text-gray-500 font-medium select-none">
-                  {cell.number}
-                </span>
-              )}
-              {userLetter && (
-                <span className={`text-[13px] font-bold select-none leading-none ${isRev ? 'text-indigo-600' : isMist ? 'text-rose-600' : 'text-gray-900'}`}>
-                  {userLetter}
-                </span>
-              )}
-            </div>
-          );
-        }),
-      )}
+          }),
+        )}
+      </div>
     </div>
   );
 }
@@ -314,7 +313,7 @@ function ClueList({
   return (
     <div>
       <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">{label}</h3>
-      <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+      <div className="space-y-1 max-h-48 lg:max-h-64 overflow-y-auto pr-1">
         {filtered.map((clue) => {
           const active = activeNum === clue.number && direction === clue.direction;
           return (
@@ -480,7 +479,13 @@ function PlayScreen({ puzzle, difficulty, onComplete }: PlayProps) {
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (!selected) return;
-      e.preventDefault();
+
+      // Only prevent default for keys we handle — lets mobile 'Unidentified' keys
+      // fall through so the browser inserts a character, which onInput captures.
+      const letter = e.key.toUpperCase();
+      const isHandled = ['Backspace','Delete','ArrowRight','ArrowLeft','ArrowDown','ArrowUp','Tab'].includes(e.key)
+        || /^[A-Z]$/.test(letter);
+      if (isHandled) e.preventDefault();
 
       const { row, col } = selected;
 
@@ -526,7 +531,6 @@ function PlayScreen({ puzzle, difficulty, onComplete }: PlayProps) {
       }
 
       // Letter input
-      const letter = e.key.toUpperCase();
       if (/^[A-Z]$/.test(letter)) {
         const correctLetter = puzzle.cells[row]?.[col]?.letter;
         if (!correctLetter) return;
@@ -565,6 +569,53 @@ function PlayScreen({ puzzle, difficulty, onComplete }: PlayProps) {
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [selected, direction, userGrid, puzzle, activeClue, hintsUsed, mistakeCount, startTime, difficulty, onComplete],
+  );
+
+  // Mobile soft keyboards fire 'input' not 'keydown'. Capture whatever character
+  // was inserted, clear the field, then process it as a letter entry.
+  const handleInput = useCallback(
+    (e: React.FormEvent<HTMLInputElement>) => {
+      const val = e.currentTarget.value;
+      e.currentTarget.value = '';
+      if (!val || !selected) return;
+      const char = val.slice(-1).toUpperCase();
+      if (!/^[A-Z]$/.test(char)) return;
+
+      const { row, col } = selected;
+      const correctLetter = puzzle.cells[row]?.[col]?.letter;
+      if (!correctLetter) return;
+
+      const key = `${row},${col}`;
+      const isCorrect = char === correctLetter;
+
+      setUserGrid((prev) => {
+        const next = prev.map((r) => [...r]);
+        next[row]![col] = char;
+        return next;
+      });
+
+      if (!isCorrect) {
+        setMistakeCount((m) => m + 1);
+        setMistakes((prev) => new Set([...prev, key]));
+        setCorrected((prev) => { const s = new Set(prev); s.delete(key); return s; });
+      } else {
+        setMistakes((prev) => { const s = new Set(prev); s.delete(key); return s; });
+        setCorrected((prev) => new Set([...prev, key]));
+      }
+
+      const nextGrid = userGrid.map((r) => [...r]);
+      nextGrid[row]![col] = char;
+      if (checkCompletion(nextGrid)) {
+        const finalTime = Math.floor((Date.now() - startTime) / 1000);
+        const finalScore = calcScore(finalTime, hintsUsed, mistakeCount + (isCorrect ? 0 : 1), DIFF_CONFIG[difficulty].multiplier);
+        onComplete(finalScore, finalTime, hintsUsed, mistakeCount + (isCorrect ? 0 : 1));
+        return;
+      }
+
+      advanceCursor(row, col, direction);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selected, direction, userGrid, puzzle, cellMap, hintsUsed, mistakeCount, startTime, difficulty, onComplete],
   );
 
   function hintCurrentCell() {
@@ -647,14 +698,16 @@ function PlayScreen({ puzzle, difficulty, onComplete }: PlayProps) {
 
   return (
     <div>
-      {/* Hidden input for keyboard capture */}
+      {/* Hidden input — captures physical keyboard (keydown) and mobile soft keyboard (input) */}
       <input
         ref={inputRef}
         className="sr-only"
         onKeyDown={handleKeyDown}
-        onChange={() => {}}
-        value=""
-        readOnly={false}
+        onInput={handleInput}
+        inputMode="text"
+        autoCapitalize="none"
+        autoComplete="off"
+        autoCorrect="off"
         autoFocus
       />
 
@@ -691,9 +744,9 @@ function PlayScreen({ puzzle, difficulty, onComplete }: PlayProps) {
       )}
 
       {/* Main grid + clue lists */}
-      <div className="flex gap-6 items-start flex-wrap">
+      <div className="flex flex-col gap-4 lg:flex-row lg:gap-6 lg:items-start">
         {/* Grid */}
-        <div className="shrink-0" onClick={ensureFocused}>
+        <div className="flex justify-center lg:justify-start" onClick={ensureFocused}>
           <CrosswordGrid
             puzzle={puzzle}
             userGrid={userGrid}
@@ -707,7 +760,7 @@ function PlayScreen({ puzzle, difficulty, onComplete }: PlayProps) {
         </div>
 
         {/* Clue lists */}
-        <div className="flex-1 min-w-[180px] grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="flex-1 min-w-0 grid grid-cols-2 gap-4">
           <ClueList
             clues={allClues}
             activeNum={direction === 'across' ? activeNum : null}
@@ -748,7 +801,7 @@ function PlayScreen({ puzzle, difficulty, onComplete }: PlayProps) {
       </div>
 
       {/* Keyboard hint */}
-      <p className="text-xs text-gray-700 mt-3">Click a cell and type letters. Tab = next clue · Backspace = delete · Click twice = flip direction</p>
+      <p className="text-xs text-gray-700 mt-3">Tap a cell, then type · Tab = next clue · Backspace = delete · Tap twice = flip direction</p>
     </div>
   );
 }

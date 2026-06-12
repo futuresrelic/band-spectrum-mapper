@@ -31,12 +31,11 @@ const CANVAS_H = 540;
 const CATCHER_W = 110;
 const CATCHER_H = 18;
 const CATCHER_Y_OFFSET = 60; // from bottom
-const RECORD_W = 120;
-const RECORD_H = 44;
-const RECORD_SPEED_BASE = 1.4;
-const RECORD_SPEED_PER_LEVEL = 0.3;
-const SPAWN_INTERVAL_BASE = 1800;
-const SPAWN_INTERVAL_REDUCTION = 100;
+const RECORD_R = 36; // vinyl record radius (center-based positioning)
+const RECORD_SPEED_BASE = 1.8;
+const RECORD_SPEED_PER_LEVEL = 0.35;
+const SPAWN_INTERVAL_BASE = 1400;
+const SPAWN_INTERVAL_REDUCTION = 120;
 const MAX_RECORDS_ON_SCREEN = 5;
 const SONGS_PER_LEVEL = 5;
 const MAX_LIVES = 3;
@@ -235,6 +234,95 @@ function GameOverScreen({
 }
 
 // ---------------------------------------------------------------------------
+// Vinyl record canvas helper
+// ---------------------------------------------------------------------------
+
+function drawVinylRecord(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  albumImg: HTMLImageElement | null,
+  hitResult: boolean | null,
+): void {
+  // Shadow / glow — green on correct catch, red on wrong, subtle violet while falling
+  if (hitResult !== null) {
+    ctx.shadowColor = hitResult ? '#10b981' : '#ef4444';
+    ctx.shadowBlur = 18;
+  } else {
+    ctx.shadowColor = 'rgba(167,139,250,0.35)';
+    ctx.shadowBlur = 5;
+  }
+
+  // Vinyl disc body — uniform dark color regardless of correctness (no spoilers)
+  ctx.fillStyle = '#16162a';
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Groove rings (concentric, slight brightness alternation)
+  for (let i = 1; i <= 9; i++) {
+    const r = radius * (0.42 + (i / 9) * 0.54);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255,255,255,${i % 2 === 0 ? 0.055 : 0.028})`;
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+  }
+
+  // Hit flash overlay — only visible after catch
+  if (hitResult !== null) {
+    ctx.fillStyle = hitResult ? 'rgba(16,185,129,0.22)' : 'rgba(239,68,68,0.22)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Center label — album art if loaded, otherwise deep purple
+  const labelR = radius * 0.38;
+  if (albumImg) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, labelR, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(albumImg, cx - labelR, cy - labelR, labelR * 2, labelR * 2);
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.arc(cx, cy, labelR, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = '#4c1d95';
+    ctx.beginPath();
+    ctx.arc(cx, cy, labelR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.arc(cx, cy, labelR, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Spindle hole
+  ctx.fillStyle = '#08081a';
+  ctx.beginPath();
+  ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Gloss highlight
+  const gloss = ctx.createRadialGradient(cx - radius * 0.22, cy - radius * 0.28, 0, cx, cy, radius);
+  gloss.addColorStop(0, 'rgba(255,255,255,0.07)');
+  gloss.addColorStop(0.55, 'rgba(255,255,255,0.015)');
+  gloss.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = gloss;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ---------------------------------------------------------------------------
 // Canvas game
 // ---------------------------------------------------------------------------
 
@@ -312,143 +400,164 @@ function RecordCatcherGame({
     const pick = allSongs[Math.floor(Math.random() * allSongs.length)];
     if (!pick) return;
 
-    const x = Math.random() * (CANVAS_W - RECORD_W);
+    // x/y are the CENTER of the vinyl disc
+    const x = RECORD_R + Math.random() * (CANVAS_W - RECORD_R * 2);
     const speed = RECORD_SPEED_BASE + (gs.level - 1) * RECORD_SPEED_PER_LEVEL;
     gs.records.push({
       id: gs.nextId++, title: pick.title, isCorrect: pick.isCorrect,
-      x, y: -RECORD_H, speed, hit: false, hitTime: 0, hitCorrect: false,
+      x, y: -RECORD_R, speed, hit: false, hitTime: 0, hitCorrect: false,
     });
   }
 
   function drawFrame(ctx: CanvasRenderingContext2D, gs: GameState, now: number) {
-    // Background
-    ctx.fillStyle = '#030712';
+    // Background — deep navy gradient, not pitch black
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+    bgGrad.addColorStop(0, '#0e0e22');
+    bgGrad.addColorStop(1, '#07070f');
+    ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-    // Album artwork (top-right corner, small)
-    const ART_SIZE = 72;
-    const ART_X = CANVAS_W - ART_SIZE - 12;
-    const ART_Y = 12;
+    // Subtle grid texture for depth
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.018)';
+    for (let gx = 0; gx < CANVAS_W; gx += 36) {
+      ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, CANVAS_H); ctx.stroke();
+    }
+    for (let gy = 0; gy < CANVAS_H; gy += 36) {
+      ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(CANVAS_W, gy); ctx.stroke();
+    }
+
+    // ---------- Header band ----------
+    const ART_SIZE = 56;
+    const ART_PAD = 12;
+    const HDR_H = ART_SIZE + ART_PAD * 2;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.022)';
+    ctx.fillRect(0, 0, CANVAS_W, HDR_H);
+    ctx.strokeStyle = 'rgba(255,255,255,0.055)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, HDR_H);
+    ctx.lineTo(CANVAS_W, HDR_H);
+    ctx.stroke();
+
+    // Album artwork (header left)
     if (albumImgRef.current) {
       ctx.save();
       ctx.beginPath();
-      ctx.roundRect(ART_X, ART_Y, ART_SIZE, ART_SIZE, 6);
+      ctx.roundRect(ART_PAD, ART_PAD, ART_SIZE, ART_SIZE, 6);
       ctx.clip();
-      ctx.drawImage(albumImgRef.current, ART_X, ART_Y, ART_SIZE, ART_SIZE);
+      ctx.drawImage(albumImgRef.current, ART_PAD, ART_PAD, ART_SIZE, ART_SIZE);
       ctx.restore();
-    } else {
-      ctx.fillStyle = '#1f2937';
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.roundRect(ART_X, ART_Y, ART_SIZE, ART_SIZE, 6);
+      ctx.roundRect(ART_PAD, ART_PAD, ART_SIZE, ART_SIZE, 6);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#1e1e38';
+      ctx.beginPath();
+      ctx.roundRect(ART_PAD, ART_PAD, ART_SIZE, ART_SIZE, 6);
       ctx.fill();
-      ctx.fillStyle = '#4b5563';
-      ctx.font = '28px system-ui';
+      ctx.font = '22px system-ui';
       ctx.textAlign = 'center';
-      ctx.fillText('💿', ART_X + ART_SIZE / 2, ART_Y + ART_SIZE / 2 + 10);
+      ctx.fillText('💿', ART_PAD + ART_SIZE / 2, ART_PAD + ART_SIZE / 2 + 8);
     }
 
     // Album info
-    ctx.fillStyle = '#9ca3af';
-    ctx.font = '11px system-ui, sans-serif';
+    const infoX = ART_PAD + ART_SIZE + 10;
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '9px system-ui, sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText('Catch songs from:', 12, 26);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 14px system-ui, sans-serif';
-    const titleMaxW = CANVAS_W - ART_SIZE - 32;
+    ctx.fillText('CATCH SONGS FROM', infoX, ART_PAD + 12);
+
+    ctx.fillStyle = '#f1f5f9';
+    ctx.font = 'bold 13px system-ui, sans-serif';
+    const titleMaxW = CANVAS_W - infoX - 125;
     let displayTitle = gs.round?.album.title ?? '…';
     while (ctx.measureText(displayTitle).width > titleMaxW && displayTitle.length > 4) {
       displayTitle = displayTitle.slice(0, -2) + '…';
     }
-    ctx.fillText(displayTitle, 12, 44);
-    ctx.fillStyle = '#6b7280';
-    ctx.font = '11px system-ui, sans-serif';
-    ctx.fillText(gs.round?.album.bandName ?? '', 12, 60);
+    ctx.fillText(displayTitle, infoX, ART_PAD + 28);
 
-    // HUD: lives
-    ctx.textAlign = 'left';
-    ctx.font = '18px system-ui';
-    for (let i = 0; i < MAX_LIVES; i++) {
-      ctx.fillText(i < gs.lives ? '❤️' : '🖤', 12 + i * 26, CANVAS_H - CATCHER_Y_OFFSET - 30);
+    ctx.fillStyle = '#a78bfa';
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.fillText(gs.round?.album.bandName ?? '', infoX, ART_PAD + 44);
+
+    // Score + level + lives (header right)
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 17px system-ui, sans-serif';
+    ctx.fillText(gs.score.toLocaleString(), CANVAS_W - ART_PAD, ART_PAD + 17);
+    ctx.fillStyle = '#a78bfa';
+    ctx.font = 'bold 10px system-ui, sans-serif';
+    ctx.fillText(`LEVEL ${gs.level}`, CANVAS_W - ART_PAD, ART_PAD + 32);
+    // Lives right-to-left
+    let livesX = CANVAS_W - ART_PAD;
+    ctx.font = '13px system-ui';
+    for (let i = MAX_LIVES - 1; i >= 0; i--) {
+      ctx.fillText(i < gs.lives ? '❤️' : '🖤', livesX, ART_PAD + 52);
+      livesX -= 19;
     }
 
-    // HUD: level
-    ctx.fillStyle = '#ec4899';
-    ctx.font = 'bold 13px system-ui, sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText(`Lv ${gs.level}`, CANVAS_W - 12, CANVAS_H - CATCHER_Y_OFFSET - 20);
-
-    // HUD: score
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px system-ui, sans-serif';
-    ctx.fillText(gs.score.toLocaleString(), CANVAS_W - 12, CANVAS_H - CATCHER_Y_OFFSET - 36);
-
-    // Level progress dots
-    const dotY = CANVAS_H - CATCHER_Y_OFFSET - 8;
-    const dotSpacing = 14;
-    const dotStartX = CANVAS_W / 2 - ((SONGS_PER_LEVEL - 1) * dotSpacing) / 2;
-    for (let i = 0; i < SONGS_PER_LEVEL; i++) {
+    // ---------- Level progress bar ----------
+    const BAR_Y = CANVAS_H - CATCHER_Y_OFFSET - 14;
+    const BAR_W = CANVAS_W - 24;
+    const BAR_X = 12;
+    const BAR_H = 3;
+    const progress = Math.min(1, gs.levelCorrect / SONGS_PER_LEVEL);
+    ctx.fillStyle = 'rgba(255,255,255,0.07)';
+    ctx.beginPath();
+    ctx.roundRect(BAR_X, BAR_Y, BAR_W, BAR_H, 1.5);
+    ctx.fill();
+    if (progress > 0) {
+      const barGrad = ctx.createLinearGradient(BAR_X, 0, BAR_X + BAR_W, 0);
+      barGrad.addColorStop(0, '#6d28d9');
+      barGrad.addColorStop(1, '#a78bfa');
+      ctx.fillStyle = barGrad;
       ctx.beginPath();
-      ctx.arc(dotStartX + i * dotSpacing, dotY, 4, 0, Math.PI * 2);
-      ctx.fillStyle = i < gs.levelCorrect ? '#ec4899' : '#374151';
+      ctx.roundRect(BAR_X, BAR_Y, BAR_W * progress, BAR_H, 1.5);
       ctx.fill();
     }
 
-    // Falling records
+    // ---------- Falling vinyl records ----------
     for (const rec of gs.records) {
-      if (rec.hit && now - rec.hitTime > 400) continue;
+      if (rec.hit && now - rec.hitTime > 500) continue;
 
-      const alpha = rec.hit ? Math.max(0, 1 - (now - rec.hitTime) / 400) : 1;
+      const alpha = rec.hit ? Math.max(0, 1 - (now - rec.hitTime) / 500) : 1;
       ctx.globalAlpha = alpha;
 
-      // Record body
-      const bgColor = rec.hit
-        ? (rec.hitCorrect ? '#065f46' : '#7f1d1d')
-        : '#1f2937';
-      const borderColor = rec.hit
-        ? (rec.hitCorrect ? '#10b981' : '#ef4444')
-        : '#4b5563';
+      drawVinylRecord(ctx, rec.x, rec.y, RECORD_R, albumImgRef.current, rec.hit ? rec.hitCorrect : null);
 
-      ctx.fillStyle = bgColor;
-      ctx.strokeStyle = borderColor;
-      ctx.lineWidth = rec.isCorrect ? 1.5 : 1;
-      ctx.beginPath();
-      ctx.roundRect(rec.x, rec.y, RECORD_W, RECORD_H, 8);
-      ctx.fill();
-      ctx.stroke();
-
-      // Vinyl disc icon
-      ctx.fillStyle = rec.isCorrect ? '#ec4899' : '#6b7280';
-      ctx.beginPath();
-      ctx.arc(rec.x + 20, rec.y + RECORD_H / 2, 11, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = bgColor;
-      ctx.beginPath();
-      ctx.arc(rec.x + 20, rec.y + RECORD_H / 2, 4, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Song title
-      ctx.fillStyle = '#e5e7eb';
-      ctx.font = '11px system-ui, sans-serif';
-      ctx.textAlign = 'left';
-      const maxTitleW = RECORD_W - 40;
+      // Song title below the disc
+      ctx.fillStyle = rec.hit
+        ? (rec.hitCorrect ? '#6ee7b7' : '#fca5a5')
+        : '#d1d5db';
+      ctx.font = '9px system-ui, sans-serif';
+      ctx.textAlign = 'center';
       let title = rec.title;
+      const maxTitleW = RECORD_R * 2.5;
       while (ctx.measureText(title).width > maxTitleW && title.length > 4) {
         title = title.slice(0, -2) + '…';
       }
-      ctx.fillText(title, rec.x + 36, rec.y + RECORD_H / 2 + 4);
+      ctx.fillText(title, rec.x, rec.y + RECORD_R + 13);
 
       ctx.globalAlpha = 1;
     }
 
-    // Catcher
+    // ---------- Catcher (violet with glow) ----------
     const catcherY = CANVAS_H - CATCHER_Y_OFFSET;
-    const grad = ctx.createLinearGradient(gs.catcherX, catcherY, gs.catcherX, catcherY + CATCHER_H);
-    grad.addColorStop(0, '#ec4899');
-    grad.addColorStop(1, '#be185d');
-    ctx.fillStyle = grad;
+    const catcherGrad = ctx.createLinearGradient(gs.catcherX, 0, gs.catcherX + CATCHER_W, 0);
+    catcherGrad.addColorStop(0, '#6d28d9');
+    catcherGrad.addColorStop(0.5, '#a78bfa');
+    catcherGrad.addColorStop(1, '#6d28d9');
+    ctx.shadowColor = 'rgba(167,139,250,0.55)';
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = catcherGrad;
     ctx.beginPath();
-    ctx.roundRect(gs.catcherX, catcherY, CATCHER_W, CATCHER_H, 6);
+    ctx.roundRect(gs.catcherX, catcherY, CATCHER_W, CATCHER_H, 5);
     ctx.fill();
+    ctx.shadowBlur = 0;
   }
 
   function gameLoop(timestamp: number) {
@@ -486,12 +595,12 @@ function RecordCatcherGame({
       if (rec.hit) continue;
       rec.y += rec.speed;
 
-      // Collision with catcher
+      // Collision with catcher (rec.x/y = disc center, RECORD_R = radius)
       if (
-        rec.y + RECORD_H >= catcherY &&
-        rec.y <= catcherY + CATCHER_H &&
-        rec.x + RECORD_W > gs.catcherX &&
-        rec.x < gs.catcherX + CATCHER_W
+        rec.y + RECORD_R >= catcherY &&
+        rec.y - RECORD_R <= catcherY + CATCHER_H &&
+        rec.x + RECORD_R > gs.catcherX &&
+        rec.x - RECORD_R < gs.catcherX + CATCHER_W
       ) {
         rec.hit = true;
         rec.hitTime = timestamp;
@@ -526,7 +635,7 @@ function RecordCatcherGame({
       }
 
       // Missed (fell past bottom)
-      if (rec.y > CANVAS_H + 10) {
+      if (rec.y - RECORD_R > CANVAS_H + 10) {
         rec.hit = true;
         rec.hitTime = timestamp;
         rec.hitCorrect = false;
@@ -547,8 +656,8 @@ function RecordCatcherGame({
       }
     }
 
-    // Prune old hit records
-    gs.records = gs.records.filter((r) => !r.hit || timestamp - r.hitTime < 500);
+    // Prune old hit records (keep a little longer than the 500ms fade to avoid flicker)
+    gs.records = gs.records.filter((r) => !r.hit || timestamp - r.hitTime < 560);
 
     // Draw
     drawFrame(ctx, gs, timestamp);
@@ -613,7 +722,7 @@ function RecordCatcherGame({
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-8 gap-4">
         <div className="flex items-center gap-6 text-sm text-gray-400 mb-2">
           <span>❤️ {displayState.lives}/{MAX_LIVES}</span>
-          <span className="text-pink-400 font-bold">{displayState.score.toLocaleString()}</span>
+          <span className="text-violet-400 font-bold">{displayState.score.toLocaleString()}</span>
           <span>Level {displayState.level}</span>
         </div>
 
