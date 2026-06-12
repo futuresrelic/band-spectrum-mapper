@@ -75,6 +75,8 @@ import CrosswordPage from './pages/CrosswordPage';
 import AdminCrosswordPage from './pages/AdminCrosswordPage';
 import WordSearchPage from './pages/WordSearchPage';
 import RecordCatcherPage from './pages/RecordCatcherPage';
+import AdminPlatformerPage from './pages/AdminPlatformerPage';
+import PlatformerPage from './pages/PlatformerPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -150,6 +152,7 @@ export default function App() {
         <Route path="/play/crossword" element={<CrosswordPage />} />
         <Route path="/play/word-search" element={<WordSearchPage />} />
         <Route path="/play/record-catcher" element={<RecordCatcherPage />} />
+        <Route path="/play/platformer" element={<PlatformerPage />} />
 
         {/* ── ADMIN: full app, isAdmin required ── */}
         <Route
@@ -199,6 +202,7 @@ export default function App() {
           <Route path="admin/data-health" element={<DataHealthPage />} />
           <Route path="admin/games" element={<AdminGamesPage />} />
           <Route path="admin/crossword-builder" element={<AdminCrosswordPage />} />
+          <Route path="admin/platformer" element={<AdminPlatformerPage />} />
           <Route path="pattern-lab" element={<PatternLabPage />} />
         </Route>
       </Routes>

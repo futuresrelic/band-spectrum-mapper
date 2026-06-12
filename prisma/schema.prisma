@@ -416,6 +416,7 @@ model User {
   spectrumGuesserScores SpectrumGuesserScore[]
   lyricMatchScores      LyricMatchScore[]
   graphHuntScores       GraphHuntScore[]
+  platformerScores      PlatformerScore[]
   nodeSequences        UserNodeSequence[]
   cinemaData           UserCinemaData?
   tagProposals         TagProposal[]
@@ -1191,6 +1192,48 @@ model GraphHuntScore {
   @@index([score])
   @@index([userId])
   @@map("graph_hunt_scores")
+}
+
+// ---------------------------------------------------------------------------
+// 2D Platformer game — scores, custom sprite assets, tunable config
+// ---------------------------------------------------------------------------
+
+model PlatformerScore {
+  id               String   @id @default(cuid())
+  userId           String?
+  user             User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  score            Int
+  level            Int      @default(1)
+  recordsCollected Int      @default(0)
+  distancePx       Int      @default(0)
+  bandScope        String?
+  createdAt        DateTime @default(now())
+
+  @@index([score])
+  @@map("platformer_scores")
+}
+
+// One row per asset type (hero, bg1, bg2, bg3, enemy, collectible).
+// Stored as a base64 data URL so no separate file storage is needed.
+model PlatformerAsset {
+  id        String   @id @default(cuid())
+  assetType String   @unique  // "hero" | "bg1" | "bg2" | "bg3" | "enemy" | "collectible"
+  name      String
+  dataUrl   String   @db.Text
+  metadata  Json?    // { frameCount, frameWidth, frameHeight } for sprite sheets
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("platformer_assets")
+}
+
+// Simple key/value config store for physics + gameplay tuning.
+model PlatformerConfig {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+
+  @@map("platformer_config")
 }
 
 // ---------------------------------------------------------------------------

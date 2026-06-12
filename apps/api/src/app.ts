@@ -49,6 +49,7 @@ import { lyricCompleteRouter } from './routes/lyricComplete.js';
 import { crosswordRouter } from './routes/crossword.js';
 import { wordSearchRouter } from './routes/wordSearch.js';
 import { recordCatcherRouter } from './routes/recordCatcher.js';
+import { platformerRouter } from './routes/platformer.js';
 import { spectrumGuesserRouter } from './routes/spectrumGuesser.js';
 import { lyricMatchRouter } from './routes/lyricMatch.js';
 import { graphHuntRouter } from './routes/graphHunt.js';
@@ -184,6 +185,9 @@ export function createApp() {
 
   // Record Catcher — arcade album-song matching game
   app.use('/api/record-catcher', recordCatcherRouter);
+
+  // 2D Platformer — side-scrolling vinyl record collector game
+  app.use('/api/platformer', platformerRouter);
 
   // Spectrum Guesser scores
   app.use('/api/spectrum-guesser', spectrumGuesserRouter);

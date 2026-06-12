@@ -187,6 +187,19 @@ const GAMES = [
     btnColor: 'bg-pink-700 hover:bg-pink-600',
     accentText: 'text-pink-400',
   },
+  {
+    id: 'platformer',
+    icon: '🕹️',
+    title: 'Vinyl Runner',
+    subtitle: 'Side-scrolling record collector',
+    desc: "Run, jump, and double-jump across an infinite procedurally-generated world. Collect vinyl records bearing real album artwork from your library. Stomp enemies, survive the gaps, and see how far you can go before the noise catches up.",
+    rules: ['Arrow keys / WASD to move, Space or Up to jump', 'Double jump available — use it wisely over big gaps', 'Stomp static-noise enemies by landing on them from above'],
+    href: '/play/platformer',
+    cta: 'Run & Jump →',
+    color: 'border-violet-500/40 hover:border-violet-400/70',
+    btnColor: 'bg-violet-700 hover:bg-violet-600',
+    accentText: 'text-violet-400',
+  },
 ];
 
 const COMING_SOON: { id: string; icon: string; title: string; desc: string }[] = [];

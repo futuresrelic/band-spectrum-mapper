@@ -17,6 +17,7 @@ const ALL_GAMES = [
   { id: 'crossword',        icon: '🧩', title: 'BSM Crossword',      href: '/play/crossword' },
   { id: 'word-search',      icon: '🔍', title: 'BSM Word Search',    href: '/play/word-search' },
   { id: 'record-catcher',   icon: '💿', title: 'Record Catcher',     href: '/play/record-catcher' },
+  { id: 'platformer',       icon: '🕹️', title: 'Vinyl Runner',        href: '/play/platformer' },
 ];
 
 export default function AdminGamesPage() {
