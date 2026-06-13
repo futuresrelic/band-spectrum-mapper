@@ -408,3 +408,262 @@ platformerRouter.get('/albums', async (req, res, next): Promise<void> => {
     next(e);
   }
 });
+
+// ---------------------------------------------------------------------------
+// GET /members — list band members by bandId(s) (public)
+// Query: ?bandIds=id1,id2
+// ---------------------------------------------------------------------------
+
+platformerRouter.get('/members', async (req, res, next): Promise<void> => {
+  try {
+    const rawBandIds =
+      typeof req.query['bandIds'] === 'string' ? req.query['bandIds'] : '';
+    const bandIds = rawBandIds ? rawBandIds.split(',').filter(Boolean) : [];
+
+    const members = await prisma.bandMember.findMany({
+      where: bandIds.length > 0 ? { bandId: { in: bandIds } } : {},
+      select: { id: true, name: true, role: true, bandId: true },
+      orderBy: [{ bandId: 'asc' }, { name: 'asc' }],
+    });
+
+    res.json(members);
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// POST /members — add band member (admin only)
+// ---------------------------------------------------------------------------
+
+platformerRouter.post('/members', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const { bandId, name, role } = req.body as { bandId?: unknown; name?: unknown; role?: unknown };
+    if (typeof bandId !== 'string' || !bandId.trim()) {
+      res.status(400).json({ error: 'bandId is required' }); return;
+    }
+    if (typeof name !== 'string' || !name.trim()) {
+      res.status(400).json({ error: 'name is required' }); return;
+    }
+    const member = await prisma.bandMember.create({
+      data: {
+        bandId: bandId.trim(),
+        name: name.trim(),
+        ...(typeof role === 'string' && role.trim() ? { role: role.trim() } : {}),
+      },
+    });
+    res.status(201).json(member);
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /members/:id — remove band member (admin only)
+// ---------------------------------------------------------------------------
+
+platformerRouter.delete('/members/:id', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const id = req.params['id'];
+    if (!id) { res.status(400).json({ error: 'id is required' }); return; }
+    await prisma.bandMember.delete({ where: { id } }).catch(() => null);
+    res.status(204).end();
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// GET /skins — list approved character skins (public)
+// Query: ?bandIds=id1,id2&excludeBandIds=id3
+// ---------------------------------------------------------------------------
+
+platformerRouter.get('/skins', async (req, res, next): Promise<void> => {
+  try {
+    const rawBandIds = typeof req.query['bandIds'] === 'string' ? req.query['bandIds'] : '';
+    const rawExclude = typeof req.query['excludeBandIds'] === 'string' ? req.query['excludeBandIds'] : '';
+    const bandIds = rawBandIds ? rawBandIds.split(',').filter(Boolean) : [];
+    const excludeIds = rawExclude ? rawExclude.split(',').filter(Boolean) : [];
+
+    const skins = await prisma.platformerCharacterSkin.findMany({
+      where: {
+        isApproved: true,
+        ...(bandIds.length > 0 ? { bandId: { in: bandIds } } : {}),
+        ...(excludeIds.length > 0 ? { bandId: { notIn: excludeIds } } : {}),
+      },
+      select: {
+        id: true, name: true, dataUrl: true, bandId: true, memberId: true,
+        isAiGenerated: true,
+        member: { select: { name: true, role: true } },
+        band: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    });
+
+    res.json(skins);
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// POST /skins — submit a character skin (auth required)
+// ---------------------------------------------------------------------------
+
+platformerRouter.post('/skins', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const { name, dataUrl, bandId, memberId } = req.body as {
+      name?: unknown; dataUrl?: unknown; bandId?: unknown; memberId?: unknown;
+    };
+
+    if (typeof name !== 'string' || !name.trim()) {
+      res.status(400).json({ error: 'name is required' }); return;
+    }
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
+      res.status(400).json({ error: 'dataUrl must be a valid data URL' }); return;
+    }
+    const approxBytes = Math.ceil((dataUrl.length * 3) / 4);
+    if (approxBytes > 5 * 1024 * 1024) {
+      res.status(400).json({ error: 'dataUrl exceeds 5 MB' }); return;
+    }
+
+    const skin = await prisma.platformerCharacterSkin.create({
+      data: {
+        name: name.trim(),
+        dataUrl,
+        submittedById: userId,
+        isApproved: false,
+        ...(typeof bandId === 'string' && bandId ? { bandId } : {}),
+        ...(typeof memberId === 'string' && memberId ? { memberId } : {}),
+      },
+    });
+
+    res.status(201).json(skin);
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// GET /skins/pending — pending skins for admin review (admin only)
+// ---------------------------------------------------------------------------
+
+platformerRouter.get('/skins/pending', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const skins = await prisma.platformerCharacterSkin.findMany({
+      where: { isApproved: false },
+      select: {
+        id: true, name: true, dataUrl: true, bandId: true, memberId: true,
+        isAiGenerated: true, createdAt: true,
+        member: { select: { name: true } },
+        band: { select: { name: true } },
+        submittedBy: { select: { name: true, avatarUrl: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    res.json(skins);
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// PUT /skins/:id/approve — approve a skin (admin only)
+// ---------------------------------------------------------------------------
+
+platformerRouter.put('/skins/:id/approve', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const id = req.params['id'];
+    if (!id) { res.status(400).json({ error: 'id is required' }); return; }
+    const skin = await prisma.platformerCharacterSkin.update({
+      where: { id },
+      data: { isApproved: true },
+    });
+    res.json(skin);
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /skins/:id — delete a skin (admin only)
+// ---------------------------------------------------------------------------
+
+platformerRouter.delete('/skins/:id', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const id = req.params['id'];
+    if (!id) { res.status(400).json({ error: 'id is required' }); return; }
+    await prisma.platformerCharacterSkin.delete({ where: { id } }).catch(() => null);
+    res.status(204).end();
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// POST /skins/ai-generate — AI pixel art generation for a band member (admin only)
+// Body: { memberId: string, memberName: string, bandName: string }
+// ---------------------------------------------------------------------------
+
+platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const { memberId, memberName, bandName } = req.body as {
+      memberId?: unknown; memberName?: unknown; bandName?: unknown;
+    };
+
+    if (typeof memberName !== 'string' || !memberName.trim()) {
+      res.status(400).json({ error: 'memberName is required' }); return;
+    }
+    if (typeof bandName !== 'string' || !bandName.trim()) {
+      res.status(400).json({ error: 'bandName is required' }); return;
+    }
+
+    const apiKey = process.env['OPENAI_API_KEY'];
+    if (!apiKey) {
+      res.status(503).json({ error: 'OPENAI_API_KEY is not configured' }); return;
+    }
+
+    const OpenAI = (await import('openai')).default;
+    const openai = new OpenAI({ apiKey });
+
+    const prompt = `Pixel art video game character sprite for a side-scrolling platformer game. ` +
+      `A musician named ${memberName.trim()} from the band ${bandName.trim()}. ` +
+      `Full body, standing pose, 16-bit retro RPG style, vibrant outfit matching a rock musician aesthetic, ` +
+      `expressive face, dark blue-purple background (#0f172a), no text, clean crisp pixels, ` +
+      `suitable for use as a playable video game character.`;
+
+    const response = await openai.images.generate({
+      model: 'dall-e-3',
+      prompt,
+      n: 1,
+      size: '1024x1024',
+      response_format: 'url',
+    });
+
+    const imageUrl = response.data?.[0]?.url;
+    if (!imageUrl) {
+      res.status(502).json({ error: 'No image returned from OpenAI' }); return;
+    }
+
+    // Fetch the image and convert to base64
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) {
+      res.status(502).json({ error: 'Failed to fetch generated image' }); return;
+    }
+    const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+    const dataUrl = `data:image/png;base64,${imgBuffer.toString('base64')}`;
+
+    const skinData: {
+      name: string;
+      dataUrl: string;
+      isApproved: boolean;
+      isAiGenerated: boolean;
+      bandId?: string;
+      memberId?: string;
+    } = {
+      name: `${memberName.trim()} (AI)`,
+      dataUrl,
+      isApproved: true,
+      isAiGenerated: true,
+    };
+
+    if (typeof memberId === 'string' && memberId) skinData.memberId = memberId;
+
+    // Look up bandId from member if memberId provided
+    if (typeof memberId === 'string' && memberId) {
+      const member = await prisma.bandMember.findUnique({ where: { id: memberId }, select: { bandId: true } });
+      if (member) skinData.bandId = member.bandId;
+    }
+
+    const skin = await prisma.platformerCharacterSkin.create({ data: skinData });
+    res.status(201).json(skin);
+  } catch (e) { next(e); }
+});

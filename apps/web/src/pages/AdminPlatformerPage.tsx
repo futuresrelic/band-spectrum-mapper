@@ -11,8 +11,9 @@
  */
 
 import { useState, useRef, type ChangeEvent } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { platformerApi, type PlatformerAsset } from '../api/platformer';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { platformerApi, type PlatformerAsset, type PlatformerMember, type CharacterSkin } from '../api/platformer';
+import { api } from '../lib/api';
 import { SpritePixelEditor, SPRITE_SIZES } from '../components/SpritePixelEditor';
 
 // ---------------------------------------------------------------------------
@@ -434,6 +435,289 @@ function GameplayConfig({ initialConfig }: GameplayConfigProps) {
 }
 
 // ---------------------------------------------------------------------------
+// MembersAndSkins section
+// ---------------------------------------------------------------------------
+
+interface BandStub { id: string; name: string; }
+
+function MembersAndSkins() {
+  const queryClient = useQueryClient();
+  const [addBandId, setAddBandId] = useState('');
+  const [addName, setAddName]     = useState('');
+  const [addRole, setAddRole]     = useState('');
+  const [addMsg, setAddMsg]       = useState<{ text: string; ok: boolean } | null>(null);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [genMsg, setGenMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const { data: bands = [] } = useQuery<BandStub[]>({
+    queryKey: ['bands-list'],
+    queryFn: () => api.get<BandStub[]>('/api/bands'),
+    staleTime: 120_000,
+  });
+
+  const { data: members = [] } = useQuery<PlatformerMember[]>({
+    queryKey: ['platformer-members'],
+    queryFn: () => platformerApi.getMembers(),
+    staleTime: 30_000,
+  });
+
+  const { data: pendingSkins = [] } = useQuery<CharacterSkin[]>({
+    queryKey: ['platformer-skins-pending'],
+    queryFn: () => platformerApi.getPendingSkins(),
+    staleTime: 30_000,
+  });
+
+  const { data: approvedSkins = [] } = useQuery<CharacterSkin[]>({
+    queryKey: ['platformer-skins-approved'],
+    queryFn: () => platformerApi.getSkins(),
+    staleTime: 30_000,
+  });
+
+  function invalidate() {
+    void queryClient.invalidateQueries({ queryKey: ['platformer-members'] });
+    void queryClient.invalidateQueries({ queryKey: ['platformer-skins-pending'] });
+    void queryClient.invalidateQueries({ queryKey: ['platformer-skins-approved'] });
+  }
+
+  function flash(setter: (v: { text: string; ok: boolean } | null) => void, text: string, ok: boolean) {
+    setter({ text, ok });
+    setTimeout(() => setter(null), 4000);
+  }
+
+  const addMemberMut = useMutation({
+    mutationFn: () => platformerApi.addMember({ bandId: addBandId, name: addName.trim(), role: addRole.trim() || undefined }),
+    onSuccess: () => {
+      setAddName(''); setAddRole('');
+      flash(setAddMsg, 'Member added.', true);
+      invalidate();
+    },
+    onError: () => flash(setAddMsg, 'Failed to add member.', false),
+  });
+
+  const deleteMemberMut = useMutation({
+    mutationFn: (id: string) => platformerApi.deleteMember(id),
+    onSuccess: () => invalidate(),
+  });
+
+  const approveSkinMut = useMutation({
+    mutationFn: (id: string) => platformerApi.approveSkin(id),
+    onSuccess: () => invalidate(),
+  });
+
+  const deleteSkinMut = useMutation({
+    mutationFn: (id: string) => platformerApi.deleteSkin(id),
+    onSuccess: () => invalidate(),
+  });
+
+  async function handleAiGenerate(member: PlatformerMember) {
+    const band = bands.find((b) => b.id === member.bandId);
+    if (!band) return;
+    setGeneratingId(member.id);
+    setGenMsg(null);
+    try {
+      await platformerApi.aiGenerateSkin({ memberId: member.id, memberName: member.name, bandName: band.name });
+      flash(setGenMsg, `AI skin generated for ${member.name}.`, true);
+      invalidate();
+    } catch {
+      flash(setGenMsg, `AI generation failed for ${member.name}.`, false);
+    } finally {
+      setGeneratingId(null);
+    }
+  }
+
+  // Group members by band for display
+  const membersByBand = members.reduce<Record<string, { band: BandStub; members: PlatformerMember[] }>>((acc, m) => {
+    const band = bands.find((b) => b.id === m.bandId);
+    if (!band) return acc;
+    if (!acc[m.bandId]) acc[m.bandId] = { band, members: [] };
+    acc[m.bandId]!.members.push(m);
+    return acc;
+  }, {});
+
+  return (
+    <div className="space-y-8">
+
+      {/* ── Add member ────────────────────────────────────────────────── */}
+      <div className="bg-white border border-surface-200 rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-surface-800 mb-4">Add Band Member</h3>
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="flex flex-col gap-1 min-w-[160px]">
+            <label className="text-xs text-surface-500 font-medium">Band</label>
+            <select
+              value={addBandId}
+              onChange={(e) => setAddBandId(e.target.value)}
+              className="border border-surface-200 rounded-lg px-3 py-2 text-sm text-surface-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="">— pick a band —</option>
+              {bands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1 flex-1 min-w-[140px]">
+            <label className="text-xs text-surface-500 font-medium">Name</label>
+            <input
+              type="text"
+              value={addName}
+              onChange={(e) => setAddName(e.target.value)}
+              placeholder="Member name"
+              className="border border-surface-200 rounded-lg px-3 py-2 text-sm text-surface-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="flex flex-col gap-1 flex-1 min-w-[120px]">
+            <label className="text-xs text-surface-500 font-medium">Role (optional)</label>
+            <input
+              type="text"
+              value={addRole}
+              onChange={(e) => setAddRole(e.target.value)}
+              placeholder="e.g. vocals, guitar"
+              className="border border-surface-200 rounded-lg px-3 py-2 text-sm text-surface-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <button
+            onClick={() => { void addMemberMut.mutate(); }}
+            disabled={!addBandId || !addName.trim() || addMemberMut.isPending}
+            className="bg-surface-900 hover:bg-surface-700 disabled:opacity-40 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors self-end"
+          >
+            {addMemberMut.isPending ? 'Adding…' : 'Add'}
+          </button>
+        </div>
+        {addMsg && (
+          <p className={`text-sm mt-3 font-medium ${addMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>{addMsg.text}</p>
+        )}
+      </div>
+
+      {/* ── Members list with AI generate ─────────────────────────────── */}
+      {Object.values(membersByBand).length > 0 && (
+        <div className="bg-white border border-surface-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-surface-100">
+            <h3 className="text-sm font-semibold text-surface-800">Band Members</h3>
+            {genMsg && (
+              <p className={`text-xs mt-1 font-medium ${genMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>{genMsg.text}</p>
+            )}
+          </div>
+          <div className="divide-y divide-surface-100">
+            {Object.values(membersByBand).map(({ band, members: bMembers }) => (
+              <div key={band.id} className="px-5 py-3">
+                <p className="text-xs font-bold uppercase tracking-widest text-surface-400 mb-2">{band.name}</p>
+                <div className="space-y-2">
+                  {bMembers.map((m) => (
+                    <div key={m.id} className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="text-sm font-medium text-surface-800">{m.name}</span>
+                        {m.role && <span className="text-xs text-surface-400 ml-2">{m.role}</span>}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => { void handleAiGenerate(m); }}
+                          disabled={generatingId === m.id}
+                          className="text-xs bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 text-indigo-700 border border-indigo-200 rounded px-3 py-1 transition-colors font-medium"
+                        >
+                          {generatingId === m.id ? 'Generating…' : 'AI Sprite'}
+                        </button>
+                        <button
+                          onClick={() => { void deleteMemberMut.mutate(m.id); }}
+                          className="text-xs text-red-500 hover:text-red-700 transition-colors px-2 py-1"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {members.length === 0 && (
+        <p className="text-sm text-surface-400 text-center py-4">No members added yet. Add some above.</p>
+      )}
+
+      {/* ── Pending skins ─────────────────────────────────────────────── */}
+      {pendingSkins.length > 0 && (
+        <div className="bg-white border border-surface-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-surface-100">
+            <h3 className="text-sm font-semibold text-surface-800">Pending Submissions ({pendingSkins.length})</h3>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 p-5">
+            {pendingSkins.map((skin) => (
+              <div key={skin.id} className="flex flex-col gap-2 bg-surface-50 border border-surface-200 rounded-xl p-3">
+                <img
+                  src={skin.dataUrl}
+                  alt={skin.name}
+                  className="w-full aspect-square object-cover rounded-lg"
+                  style={{ imageRendering: 'pixelated' }}
+                />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-surface-800 truncate">{skin.name}</p>
+                  {skin.member && <p className="text-xs text-surface-500">{skin.member.name}</p>}
+                  {skin.band && <p className="text-xs text-surface-400">{skin.band.name}</p>}
+                  {skin.submittedBy && (
+                    <p className="text-xs text-surface-400">by {skin.submittedBy.name ?? 'user'}</p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { void approveSkinMut.mutate(skin.id); }}
+                    className="flex-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2 py-1.5 font-medium transition-colors"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => { void deleteSkinMut.mutate(skin.id); }}
+                    className="flex-1 text-xs bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded px-2 py-1.5 font-medium transition-colors"
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Approved skins ─────────────────────────────────────────────── */}
+      {approvedSkins.length > 0 && (
+        <div className="bg-white border border-surface-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-surface-100">
+            <h3 className="text-sm font-semibold text-surface-800">Approved Skins ({approvedSkins.length})</h3>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-5">
+            {approvedSkins.map((skin) => (
+              <div key={skin.id} className="flex flex-col gap-2 bg-surface-50 border border-surface-200 rounded-xl p-3">
+                <img
+                  src={skin.dataUrl}
+                  alt={skin.name}
+                  className="w-full aspect-square object-cover rounded-lg"
+                  style={{ imageRendering: 'pixelated' }}
+                />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-surface-800 truncate">{skin.name}</p>
+                  {skin.member && <p className="text-xs text-surface-500">{skin.member.name}</p>}
+                  {skin.band && <p className="text-xs text-surface-400">{skin.band.name}</p>}
+                  {skin.isAiGenerated && (
+                    <span className="text-[10px] bg-indigo-50 text-indigo-600 border border-indigo-200 rounded px-1.5 py-0.5 font-medium">AI</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    if (window.confirm(`Delete "${skin.name}"?`)) {
+                      void deleteSkinMut.mutate(skin.id);
+                    }
+                  }}
+                  className="text-xs text-red-500 hover:text-red-700 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -523,7 +807,18 @@ export default function AdminPlatformerPage() {
           )}
         </section>
 
-        {/* ── SECTION 3: Leaderboard Preview ───────────────────────────── */}
+        {/* ── SECTION 3: Members & Skins ───────────────────────────────── */}
+        <section>
+          <div className="mb-4">
+            <h2 className="text-base font-bold text-surface-900">Band Members &amp; Character Skins</h2>
+            <p className="text-sm text-surface-500 mt-0.5">
+              Add band members, generate AI pixel-art sprites, and approve or reject community skin submissions.
+            </p>
+          </div>
+          <MembersAndSkins />
+        </section>
+
+        {/* ── SECTION 4: Leaderboard Preview ───────────────────────────── */}
         <section>
           <div className="mb-4">
             <h2 className="text-base font-bold text-surface-900">Leaderboard</h2>

@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import SiteHeader from '../components/layout/SiteHeader';
-import { platformerApi, type PlatformerAlbum, type PlatformerScore } from '../api/platformer';
+import { platformerApi, type PlatformerAlbum, type PlatformerScore, type CharacterSkin } from '../api/platformer';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -518,15 +518,43 @@ function update(
 // Rendering
 // ---------------------------------------------------------------------------
 
-function drawBackground(ctx: CanvasRenderingContext2D, cameraX: number): void {
-  // Sky gradient
-  const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-  grad.addColorStop(0, '#0e0e22');
-  grad.addColorStop(1, '#1a1040');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+interface BgImages {
+  bg1?: HTMLImageElement;
+  bg2?: HTMLImageElement;
+  bg3?: HTMLImageElement;
+}
 
-  // Stars — seeded so they don't jitter per frame
+function drawParallaxLayer(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  scrollX: number,
+  y: number,
+  drawH: number,
+): void {
+  if (!img.complete || img.naturalWidth === 0) return;
+  const drawW = (img.naturalWidth / img.naturalHeight) * drawH;
+  if (drawW <= 0) return;
+  const offset = ((scrollX % drawW) + drawW) % drawW;
+  let x = -offset;
+  while (x < CANVAS_W + drawW) {
+    ctx.drawImage(img, x, y, drawW, drawH);
+    x += drawW;
+  }
+}
+
+function drawBackground(ctx: CanvasRenderingContext2D, cameraX: number, bgImages: BgImages): void {
+  // Sky: use bg1 asset when available, else gradient
+  if (bgImages.bg1?.complete && bgImages.bg1.naturalWidth > 0) {
+    ctx.drawImage(bgImages.bg1, 0, 0, CANVAS_W, CANVAS_H);
+  } else {
+    const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+    grad.addColorStop(0, '#0e0e22');
+    grad.addColorStop(1, '#1a1040');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  }
+
+  // Stars (always drawn on top of sky layer)
   const seed = Math.floor(cameraX / 400) * 400;
   const rng = seededRand(seed);
   const rng2 = seededRand(seed + 1);
@@ -538,6 +566,16 @@ function drawBackground(ctx: CanvasRenderingContext2D, cameraX: number): void {
     ctx.beginPath();
     ctx.arc(sx, sy, sr, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  // Mid-ground mountains (bg2) — slow parallax
+  if (bgImages.bg2) {
+    drawParallaxLayer(ctx, bgImages.bg2, cameraX * 0.2, GROUND_Y - 150, 150);
+  }
+
+  // Near scenery (bg3) — faster parallax
+  if (bgImages.bg3) {
+    drawParallaxLayer(ctx, bgImages.bg3, cameraX * 0.5, GROUND_Y - 70, 70);
   }
 }
 
@@ -669,10 +707,23 @@ function drawCollectibles(ctx: CanvasRenderingContext2D, collectibles: Collectib
   }
 }
 
-function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy, cameraX: number, now: number): void {
+function drawEnemy(
+  ctx: CanvasRenderingContext2D,
+  e: Enemy,
+  cameraX: number,
+  now: number,
+  enemySkins?: HTMLImageElement[],
+): void {
   const sx = e.wx - cameraX;
   const sy = e.wy;
   const movingLeft = e.vx < 0;
+
+  // Pick a skin deterministically by position so the same enemy always looks the same
+  const skinImg =
+    enemySkins && enemySkins.length > 0
+      ? enemySkins[Math.abs(Math.floor(e.wx / 120)) % enemySkins.length]
+      : undefined;
+  const useSkin = skinImg?.complete && skinImg.naturalWidth > 0;
 
   if (!e.alive) {
     const age = now - e.dieTime;
@@ -682,7 +733,11 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy, cameraX: number, now
     ctx.globalAlpha = 1 - progress;
     ctx.translate(sx, sy - ENEMY_H * (1 - progress) * 0.5);
     ctx.scale(1, 1 - progress * 0.9);
-    drawEnemyBody(ctx, movingLeft);
+    if (useSkin) {
+      ctx.drawImage(skinImg!, -ENEMY_W / 2, -ENEMY_H, ENEMY_W, ENEMY_H);
+    } else {
+      drawEnemyBody(ctx, movingLeft);
+    }
     ctx.restore();
     return;
   }
@@ -690,7 +745,11 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy, cameraX: number, now
   ctx.save();
   ctx.translate(sx, sy);
   if (movingLeft) ctx.scale(-1, 1);
-  drawEnemyBody(ctx, false);
+  if (useSkin) {
+    ctx.drawImage(skinImg!, -ENEMY_W / 2, -ENEMY_H, ENEMY_W, ENEMY_H);
+  } else {
+    drawEnemyBody(ctx, false);
+  }
   ctx.restore();
 }
 
@@ -755,17 +814,22 @@ function drawEnemyBody(ctx: CanvasRenderingContext2D, _flipped: boolean): void {
   void hh;
 }
 
-function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, now: number): void {
+function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, now: number, heroSkin?: HTMLImageElement): void {
   const sx = CAMERA_LEAD;
   const sy = hero.wy;
   const flashing = now < hero.invincibleUntil && Math.floor(now / 100) % 2 === 0;
+  const useSkin = heroSkin?.complete && heroSkin.naturalWidth > 0;
 
   if (hero.state === 'die') {
     ctx.save();
     ctx.translate(sx, sy - HERO_H / 2);
     ctx.rotate(Math.PI / 2);
     ctx.globalAlpha = 0.5;
-    drawHeroBody(ctx, hero, now);
+    if (useSkin) {
+      ctx.drawImage(heroSkin!, -HERO_W / 2, -HERO_H, HERO_W, HERO_H);
+    } else {
+      drawHeroBody(ctx, hero, now);
+    }
     ctx.restore();
     return;
   }
@@ -774,7 +838,11 @@ function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, now: number): void 
   ctx.translate(sx, sy);
   if (!hero.facingRight) ctx.scale(-1, 1);
   if (flashing) ctx.globalAlpha = 0.45;
-  drawHeroBody(ctx, hero, now);
+  if (useSkin) {
+    ctx.drawImage(heroSkin!, -HERO_W / 2, -HERO_H, HERO_W, HERO_H);
+  } else {
+    drawHeroBody(ctx, hero, now);
+  }
   ctx.restore();
 }
 
@@ -1002,19 +1070,22 @@ function draw(
   gs: GameState,
   now: number,
   isMobile: boolean,
+  bgImages?: BgImages,
+  heroSkin?: HTMLImageElement,
+  enemySkins?: HTMLImageElement[],
 ): void {
   ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
-  drawBackground(ctx, gs.cameraX);
+  drawBackground(ctx, gs.cameraX, bgImages ?? {});
   drawGround(ctx);
   drawPlatforms(ctx, gs.platforms, gs.cameraX);
   drawCollectibles(ctx, gs.collectibles, gs.cameraX, now);
 
   for (const e of gs.enemies) {
-    drawEnemy(ctx, e, gs.cameraX, now);
+    drawEnemy(ctx, e, gs.cameraX, now, enemySkins);
   }
 
-  drawHero(ctx, gs.hero, now);
+  drawHero(ctx, gs.hero, now, heroSkin);
   drawParticles(ctx, gs.particles, gs.cameraX);
   drawHUD(ctx, gs.lives, gs.score, gs.level, gs.distance, gs.levelRecords);
 
@@ -1029,10 +1100,12 @@ function draw(
 
 interface PlatformerGameProps {
   bandIds: string[];
+  heroSkinDataUrl?: string;
+  enemySkinDataUrls?: string[];
   onGameOver: (score: number, level: number, recordsCollected: number, distancePx: number) => void;
 }
 
-function PlatformerGame({ bandIds, onGameOver }: PlatformerGameProps) {
+function PlatformerGame({ bandIds, heroSkinDataUrl, enemySkinDataUrls = [], onGameOver }: PlatformerGameProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gsRef = useRef<GameState | null>(null);
   const inputRef = useRef<InputState>({ left: false, right: false, jumpPressed: false, jumpConsumed: false });
@@ -1041,6 +1114,9 @@ function PlatformerGame({ bandIds, onGameOver }: PlatformerGameProps) {
   const artCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const isMobileRef = useRef<boolean>(typeof window !== 'undefined' && 'ontouchstart' in window);
   const gameOverCalledRef = useRef(false);
+  const bgImagesRef = useRef<BgImages>({});
+  const heroSkinRef = useRef<HTMLImageElement | undefined>(undefined);
+  const enemySkinImagesRef = useRef<HTMLImageElement[]>([]);
 
   // Display state synced from game loop
   const [displayLives, setDisplayLives] = useState(MAX_LIVES);
@@ -1056,6 +1132,42 @@ function PlatformerGame({ bandIds, onGameOver }: PlatformerGameProps) {
   useEffect(() => {
     albumsRef.current = albums;
   }, [albums]);
+
+  // Load background assets
+  const { data: bgAssets = [] } = useQuery({
+    queryKey: ['platformer-assets'],
+    queryFn: () => platformerApi.getAssets(),
+    staleTime: 300_000,
+  });
+
+  useEffect(() => {
+    const next: BgImages = {};
+    for (const a of bgAssets) {
+      if (a.assetType === 'bg1' || a.assetType === 'bg2' || a.assetType === 'bg3') {
+        const img = new Image();
+        img.src = a.dataUrl;
+        next[a.assetType as keyof BgImages] = img;
+      }
+    }
+    bgImagesRef.current = next;
+  }, [bgAssets]);
+
+  // Load hero skin
+  useEffect(() => {
+    if (!heroSkinDataUrl) { heroSkinRef.current = undefined; return; }
+    const img = new Image();
+    img.src = heroSkinDataUrl;
+    heroSkinRef.current = img;
+  }, [heroSkinDataUrl]);
+
+  // Load enemy skin images
+  useEffect(() => {
+    enemySkinImagesRef.current = enemySkinDataUrls.map((url) => {
+      const img = new Image();
+      img.src = url;
+      return img;
+    });
+  }, [enemySkinDataUrls]);
 
   const handleGameOver = useCallback(
     (gs: GameState) => {
@@ -1160,7 +1272,7 @@ function PlatformerGame({ bandIds, onGameOver }: PlatformerGameProps) {
       }
 
       update(state, dt, timestamp, inputRef.current, albumsRef.current, artCacheRef.current, handleGameOver);
-      draw(ctx, state, timestamp, isMobileRef.current);
+      draw(ctx, state, timestamp, isMobileRef.current, bgImagesRef.current, heroSkinRef.current, enemySkinImagesRef.current);
 
       // Sync display state only when changed
       if (state.lives !== lastLives) {
@@ -1335,10 +1447,13 @@ interface SetupScreenProps {
   bands: Band[];
   selectedBandIds: string[];
   setSelectedBandIds: (ids: string[]) => void;
+  skins: CharacterSkin[];
+  selectedSkinId: string | null;
+  setSelectedSkinId: (id: string | null) => void;
   onStart: () => void;
 }
 
-function SetupScreen({ bands, selectedBandIds, setSelectedBandIds, onStart }: SetupScreenProps) {
+function SetupScreen({ bands, selectedBandIds, setSelectedBandIds, skins, selectedSkinId, setSelectedSkinId, onStart }: SetupScreenProps) {
   function toggleBand(id: string) {
     if (selectedBandIds.includes(id)) {
       setSelectedBandIds(selectedBandIds.filter((b) => b !== id));
@@ -1388,6 +1503,51 @@ function SetupScreen({ bands, selectedBandIds, setSelectedBandIds, onStart }: Se
                 No band selected — records will show abstract vinyl labels.
               </p>
             )}
+          </div>
+        )}
+
+        {/* Character skin selector */}
+        {skins.length > 0 && (
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-widest">
+              Choose your character
+            </h2>
+            <div className="flex flex-wrap gap-3">
+              {/* Default character option */}
+              <button
+                onClick={() => setSelectedSkinId(null)}
+                className={`flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-colors ${
+                  selectedSkinId === null
+                    ? 'border-violet-500 bg-violet-900/40'
+                    : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                }`}
+              >
+                <div className="w-12 h-12 rounded bg-gray-700 flex items-center justify-center text-2xl">
+                  🎮
+                </div>
+                <span className="text-xs text-gray-400 max-w-[56px] truncate">Default</span>
+              </button>
+              {skins.map((skin) => (
+                <button
+                  key={skin.id}
+                  onClick={() => setSelectedSkinId(skin.id)}
+                  title={`${skin.name}${skin.member ? ` (${skin.member.name})` : ''}${skin.band ? ` — ${skin.band.name}` : ''}`}
+                  className={`flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-colors ${
+                    selectedSkinId === skin.id
+                      ? 'border-violet-500 bg-violet-900/40'
+                      : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                  }`}
+                >
+                  <img
+                    src={skin.dataUrl}
+                    alt={skin.name}
+                    className="w-12 h-12 rounded object-cover"
+                    style={{ imageRendering: 'pixelated' }}
+                  />
+                  <span className="text-xs text-gray-400 max-w-[56px] truncate">{skin.name}</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -1604,6 +1764,7 @@ function GameOverScreen({
 export default function PlatformerPage() {
   const [phase, setPhase] = useState<'setup' | 'playing' | 'gameover'>('setup');
   const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
+  const [selectedSkinId, setSelectedSkinId] = useState<string | null>(null);
   const [finalState, setFinalState] = useState({
     score: 0,
     level: 1,
@@ -1616,6 +1777,25 @@ export default function PlatformerPage() {
     queryFn: () => api.get<Band[]>('/api/bands'),
     staleTime: 120_000,
   });
+
+  // Player-side skins: only skins belonging to selected bands (or all if none selected)
+  const { data: playerSkins = [] } = useQuery<CharacterSkin[]>({
+    queryKey: ['platformer-player-skins', ...selectedBandIds],
+    queryFn: () =>
+      platformerApi.getSkins(selectedBandIds.length > 0 ? { bandIds: selectedBandIds } : undefined),
+    staleTime: 60_000,
+  });
+
+  // Enemy skins: skins from bands NOT selected by the player
+  const { data: enemySkins = [] } = useQuery<CharacterSkin[]>({
+    queryKey: ['platformer-enemy-skins', ...selectedBandIds],
+    queryFn: () =>
+      platformerApi.getSkins(selectedBandIds.length > 0 ? { excludeBandIds: selectedBandIds } : undefined),
+    staleTime: 60_000,
+  });
+
+  const selectedSkin = playerSkins.find((s) => s.id === selectedSkinId) ?? null;
+  const enemySkinDataUrls = enemySkins.slice(0, 20).map((s) => s.dataUrl);
 
   function handleStart() {
     setPhase('playing');
@@ -1639,6 +1819,9 @@ export default function PlatformerPage() {
           bands={bands}
           selectedBandIds={selectedBandIds}
           setSelectedBandIds={setSelectedBandIds}
+          skins={playerSkins}
+          selectedSkinId={selectedSkinId}
+          setSelectedSkinId={setSelectedSkinId}
           onStart={handleStart}
         />
       )}
@@ -1656,7 +1839,12 @@ export default function PlatformerPage() {
               zIndex: 50,
             }}
           >
-            <PlatformerGame bandIds={selectedBandIds} onGameOver={handleGameOver} />
+            <PlatformerGame
+              bandIds={selectedBandIds}
+              heroSkinDataUrl={selectedSkin?.dataUrl}
+              enemySkinDataUrls={enemySkinDataUrls}
+              onGameOver={handleGameOver}
+            />
           </div>
         </div>
       )}

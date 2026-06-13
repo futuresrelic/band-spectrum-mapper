@@ -31,6 +31,26 @@ export interface PlatformerAlbum {
   bandName: string;
 }
 
+export interface PlatformerMember {
+  id: string;
+  name: string;
+  role: string | null;
+  bandId: string;
+}
+
+export interface CharacterSkin {
+  id: string;
+  name: string;
+  dataUrl: string;
+  bandId: string | null;
+  memberId: string | null;
+  isAiGenerated: boolean;
+  member?: { name: string; role?: string | null } | null;
+  band?: { name: string } | null;
+  submittedBy?: { name: string | null; avatarUrl: string | null } | null;
+  createdAt?: string;
+}
+
 // ---------------------------------------------------------------------------
 // API client
 // ---------------------------------------------------------------------------
@@ -98,5 +118,65 @@ export const platformerApi = {
   getAlbums(bandIds: string[]): Promise<PlatformerAlbum[]> {
     const qs = bandIds.map((id) => `bandIds=${encodeURIComponent(id)}`).join('&');
     return api.get<PlatformerAlbum[]>(`/api/platformer/albums?${qs}`);
+  },
+
+  // ---------------------------------------------------------------------------
+  // Band members
+  // ---------------------------------------------------------------------------
+
+  getMembers(bandIds?: string[]): Promise<PlatformerMember[]> {
+    const qs = bandIds?.length
+      ? `?bandIds=${bandIds.map(encodeURIComponent).join(',')}`
+      : '';
+    return api.get<PlatformerMember[]>(`/api/platformer/members${qs}`);
+  },
+
+  addMember(data: { bandId: string; name: string; role?: string }): Promise<PlatformerMember> {
+    return api.post<PlatformerMember>('/api/platformer/members', data);
+  },
+
+  deleteMember(id: string): Promise<void> {
+    return api.delete<void>(`/api/platformer/members/${encodeURIComponent(id)}`);
+  },
+
+  // ---------------------------------------------------------------------------
+  // Character skins
+  // ---------------------------------------------------------------------------
+
+  getSkins(params?: { bandIds?: string[]; excludeBandIds?: string[] }): Promise<CharacterSkin[]> {
+    const qs = new URLSearchParams();
+    if (params?.bandIds?.length) qs.set('bandIds', params.bandIds.join(','));
+    if (params?.excludeBandIds?.length) qs.set('excludeBandIds', params.excludeBandIds.join(','));
+    const q = qs.toString();
+    return api.get<CharacterSkin[]>(`/api/platformer/skins${q ? `?${q}` : ''}`);
+  },
+
+  submitSkin(data: {
+    name: string;
+    dataUrl: string;
+    bandId?: string;
+    memberId?: string;
+  }): Promise<CharacterSkin> {
+    return api.post<CharacterSkin>('/api/platformer/skins', data);
+  },
+
+  getPendingSkins(): Promise<CharacterSkin[]> {
+    return api.get<CharacterSkin[]>('/api/platformer/skins/pending');
+  },
+
+  approveSkin(id: string): Promise<CharacterSkin> {
+    return api.put<CharacterSkin>(`/api/platformer/skins/${encodeURIComponent(id)}/approve`, {});
+  },
+
+  deleteSkin(id: string): Promise<void> {
+    return api.delete<void>(`/api/platformer/skins/${encodeURIComponent(id)}`);
+  },
+
+  aiGenerateSkin(data: {
+    memberId?: string;
+    memberName: string;
+    bandName: string;
+  }): Promise<CharacterSkin> {
+    return api.post<CharacterSkin>('/api/platformer/skins/ai-generate', data);
   },
 };

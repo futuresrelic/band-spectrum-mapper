@@ -30,6 +30,8 @@ model Band {
   contextAnalysis BandContextAnalysis?
   socialPosts     SocialPost[]
   contentSeries   ContentSeries[]
+  members         BandMember[]
+  characterSkins  PlatformerCharacterSkin[]
 
   @@map("bands")
 }
@@ -419,6 +421,7 @@ model User {
   lyricMatchScores      LyricMatchScore[]
   graphHuntScores       GraphHuntScore[]
   platformerScores      PlatformerScore[]
+  submittedSkins        PlatformerCharacterSkin[] @relation("SkinSubmitter")
   playlists             Playlist[]
   nodeSequences        UserNodeSequence[]
   cinemaData           UserCinemaData?
@@ -1237,6 +1240,42 @@ model PlatformerConfig {
   updatedAt DateTime @updatedAt
 
   @@map("platformer_config")
+}
+
+// ---------------------------------------------------------------------------
+// Vinyl Runner — band members and community character skins
+// ---------------------------------------------------------------------------
+
+model BandMember {
+  id        String   @id @default(cuid())
+  bandId    String
+  name      String
+  role      String?  // vocalist, guitarist, bassist, drummer, etc.
+  createdAt DateTime @default(now())
+
+  band  Band                      @relation(fields: [bandId], references: [id], onDelete: Cascade)
+  skins PlatformerCharacterSkin[]
+
+  @@map("band_members")
+}
+
+model PlatformerCharacterSkin {
+  id            String   @id @default(cuid())
+  name          String
+  dataUrl       String   @db.Text  // base64 PNG data URL, 32×48 or larger
+  bandId        String?
+  memberId      String?
+  submittedById String?
+  isApproved    Boolean  @default(false)
+  isAiGenerated Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  band        Band?       @relation(fields: [bandId], references: [id], onDelete: SetNull)
+  member      BandMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  submittedBy User?       @relation("SkinSubmitter", fields: [submittedById], references: [id], onDelete: SetNull)
+
+  @@map("platformer_character_skins")
 }
 
 // ---------------------------------------------------------------------------
