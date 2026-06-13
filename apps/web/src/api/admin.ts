@@ -136,6 +136,9 @@ export const adminApi = {
   getMissingArtwork: () =>
     api.get<MissingArtworkAlbum[]>('/api/admin/missing-artwork'),
 
+  getMissingBandLogos: () =>
+    api.get<MissingBandLogo[]>('/api/admin/missing-band-logos'),
+
   startLyricsBatch: () =>
     api.post<BatchJobState>('/api/admin/lyrics-batch/start', {}),
 
@@ -186,6 +189,14 @@ export type MissingArtworkAlbum = {
   year: number | null;
   bandId: string;
   bandName: string;
+};
+
+export type MissingBandLogo = {
+  id: string;
+  name: string;
+  slug: string;
+  songCount: number;
+  albumCount: number;
 };
 
 export type BatchItemStatus = 'found' | 'approved' | 'rejected';

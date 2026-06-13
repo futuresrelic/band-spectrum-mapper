@@ -535,6 +535,30 @@ adminRouter.get('/missing-artwork', async (_req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /api/admin/missing-band-logos — bands with no logoUrl
+adminRouter.get('/missing-band-logos', async (_req, res, next) => {
+  try {
+    const bands = await prisma.band.findMany({
+      where: { logoUrl: null },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        _count: { select: { songs: true, albums: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+    res.json(bands.map((b) => ({
+      id: b.id,
+      name: b.name,
+      slug: b.slug,
+      songCount:  b._count.songs,
+      albumCount: b._count.albums,
+    })));
+    return;
+  } catch (e) { next(e); }
+});
+
 // ---------------------------------------------------------------------------
 // AI batch scan — count songs missing each job type
 // GET /api/admin/ai-batch/scan?bandIds=id1,id2

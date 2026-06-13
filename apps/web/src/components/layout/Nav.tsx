@@ -66,7 +66,8 @@ const adminSections: NavSection[] = [
       { to: '/admin/data-health',   label: 'Data Health' },
       { to: '/admin/lyrics-batch',  label: 'Lyrics Batch Fetch' },
       { to: '/admin/missing-lyrics',label: 'Missing Lyrics' },
-      { to: '/admin/missing-artwork',label: 'Missing Artwork' },
+      { to: '/admin/missing-artwork',    label: 'Missing Artwork' },
+      { to: '/admin/missing-band-logos', label: 'Missing Band Logos' },
     ],
   },
   {
