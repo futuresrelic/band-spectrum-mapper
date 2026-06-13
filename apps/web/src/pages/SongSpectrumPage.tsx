@@ -665,14 +665,17 @@ const friendlyRlError = friendlyWorkerError;
 function RhythmLabPanel({
   analysisYoutubeUrl,
   youtubeAudioEnabled,
+  initialResult,
 }: {
   analysisYoutubeUrl: string | null;
   youtubeAudioEnabled: boolean;
+  initialResult?: RhythmAnalysisResult;
 }) {
   const [bands, setBands] = useState<RhythmBand[]>(DEFAULT_RHYTHM_BANDS);
   const [rhythmFile, setRhythmFile] = useState<File | null>(null);
-  const [result, setResult] = useState<RhythmAnalysisResult | null>(null);
-  const [beatBpm, setBeatBpm] = useState(120);
+  const [result, setResult] = useState<RhythmAnalysisResult | null>(initialResult ?? null);
+  const [fromYouTube, setFromYouTube] = useState(Boolean(initialResult));
+  const [beatBpm, setBeatBpm] = useState(initialResult ? Math.round(initialResult.globalBpm) : 120);
   const [timeSigBeats, setTimeSigBeats] = useState(4);
   const [rlError, setRlError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -680,13 +683,13 @@ function RhythmLabPanel({
 
   const fileMutation = useMutation({
     mutationFn: (file: File) => songSpectrumApi.analyzeRhythmBands(file, bands),
-    onSuccess: (r) => { setResult(r); setBeatBpm(Math.round(r.globalBpm)); setRlError(null); },
+    onSuccess: (r) => { setResult(r); setBeatBpm(Math.round(r.globalBpm)); setRlError(null); setFromYouTube(false); },
     onError: (e: Error) => setRlError(friendlyRlError(e.message)),
   });
 
   const ytMutation = useMutation({
     mutationFn: () => songSpectrumApi.analyzeRhythmBandsFromYouTube(analysisYoutubeUrl!, bands),
-    onSuccess: (r) => { setResult(r); setBeatBpm(Math.round(r.globalBpm)); setRlError(null); },
+    onSuccess: (r) => { setResult(r); setBeatBpm(Math.round(r.globalBpm)); setRlError(null); setFromYouTube(false); },
     onError: (e: Error) => setRlError(friendlyRlError(e.message)),
   });
 
@@ -884,6 +887,14 @@ function RhythmLabPanel({
 
       {result && (
         <div className="space-y-4">
+          {/* Source note when rhythm came from the combined YouTube analysis */}
+          {fromYouTube && (
+            <div className="text-xs text-indigo-300/80 bg-indigo-950/40 border border-indigo-700/30 rounded px-3 py-2">
+              Rhythm data captured alongside the YouTube audio analysis above — no additional download needed.
+              Re-run with different bands or upload an audio file to replace these results.
+            </div>
+          )}
+
           {/* Stats */}
           <div className="flex flex-wrap gap-3 items-center">
             <span className="text-xs bg-indigo-900/60 text-indigo-200 border border-indigo-700/50 rounded px-2 py-1 font-mono">
@@ -1104,10 +1115,13 @@ export default function SongSpectrumPage() {
     onError: (e: Error) => setError(friendlyWorkerError(e.message)),
   });
 
-  // YouTube audio analysis mutation (yt-dlp, local only)
+  // YouTube rhythm result captured from the combined analysis (one download → both results)
+  const [ytRhythmResult, setYtRhythmResult] = useState<RhythmAnalysisResult | null>(null);
+
+  // YouTube audio + rhythm combined mutation — one yt-dlp download, both analyses
   const ytAudioMutation = useMutation({
     mutationFn: () =>
-      songSpectrumApi.analyzeFromYouTube({
+      songSpectrumApi.analyzeFromYouTubeFull({
         youtubeUrl: youtubeUrl.trim(),
         songTitle: songTitle.trim(),
         artistName: artistName.trim(),
@@ -1115,8 +1129,9 @@ export default function SongSpectrumPage() {
         ...(reAnalysisId ? { analysisId: reAnalysisId } : {}),
         ...(analysisNotes.trim() ? { analysisNotes: analysisNotes.trim() } : {}),
       }),
-    onSuccess: (result) => {
-      setActiveAnalysis(result);
+    onSuccess: ({ saved, rhythm }) => {
+      setActiveAnalysis(saved);
+      setYtRhythmResult(rhythm);
       setStep('results');
       qc.invalidateQueries({ queryKey: ['song-spectrum-analyses'] });
       setError(null);
@@ -1154,6 +1169,7 @@ export default function SongSpectrumPage() {
     setYtMeta(null);
     setAudioFile(null);
     setActiveAnalysis(null);
+    setYtRhythmResult(null);
     setError(null);
     setSelectedSongId(null);
     setSelectedBandId(null);
@@ -1226,7 +1242,7 @@ export default function SongSpectrumPage() {
             <AnalysisList
               analyses={analyses}
               selectedId={activeAnalysis?.id ?? null}
-              onSelect={(a) => { setActiveAnalysis(a); setStep('results'); setPushSuccess(false); }}
+              onSelect={(a) => { setActiveAnalysis(a); setStep('results'); setPushSuccess(false); setYtRhythmResult(null); }}
               onDelete={(id) => deleteMutation.mutate(id)}
             />
           </div>
@@ -1653,8 +1669,10 @@ export default function SongSpectrumPage() {
                   </h3>
                   <div className="bg-surface-800/30 rounded-xl p-5 border border-purple-700/20">
                     <RhythmLabPanel
+                      key={activeAnalysis.id}
                       analysisYoutubeUrl={activeAnalysis.youtubeUrl}
                       youtubeAudioEnabled={status?.youtubeAudio ?? false}
+                      {...(ytRhythmResult ? { initialResult: ytRhythmResult } : {})}
                     />
                   </div>
                 </div>

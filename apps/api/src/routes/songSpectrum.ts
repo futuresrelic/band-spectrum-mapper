@@ -20,6 +20,7 @@ import {
   analyzeAudioFromYouTube,
   analyzeRhythmBands,
   analyzeRhythmBandsFromYouTube,
+  analyzeFullFromYouTube,
   fetchMusicBrainzData,
   fetchRhythmResearch,
   createAnalysis,
@@ -491,6 +492,103 @@ songSpectrumRouter.post('/rhythm-bands-youtube', async (req, res, next): Promise
 
     const result = await analyzeRhythmBandsFromYouTube(youtubeUrl.trim(), bands);
     res.json(result);
+  } catch (err: unknown) {
+    if (err instanceof Error && 'statusCode' in err) {
+      res.status((err as Error & { statusCode: number }).statusCode).json({ error: err.message });
+      return;
+    }
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Combined YouTube analysis — one yt-dlp download → spectrum + rhythm
+// ---------------------------------------------------------------------------
+
+songSpectrumRouter.post('/analyze-youtube-full', async (req, res, next): Promise<void> => {
+  try {
+    const { youtubeUrl, songTitle, artistName, analysisId, lyricsContext, analysisNotes, songId, bands: bandsRaw } =
+      req.body as {
+        youtubeUrl?: string;
+        songTitle?: string;
+        artistName?: string;
+        analysisId?: string;
+        lyricsContext?: string;
+        analysisNotes?: string;
+        songId?: string;
+        bands?: unknown[];
+      };
+
+    if (!youtubeUrl?.trim()) {
+      res.status(400).json({ error: 'youtubeUrl is required' });
+      return;
+    }
+    if (!songTitle?.trim()) {
+      res.status(400).json({ error: 'songTitle is required' });
+      return;
+    }
+    if (!artistName?.trim()) {
+      res.status(400).json({ error: 'artistName is required' });
+      return;
+    }
+
+    const combinedContext = [analysisNotes ?? '', lyricsContext ?? '']
+      .filter(Boolean).join('\n\n');
+
+    const bands: RhythmBand[] = Array.isArray(bandsRaw)
+      ? bandsRaw.map((b) => {
+          const band = b as Record<string, unknown>;
+          return {
+            label: String(band['label'] ?? 'Band'),
+            minHz: Number(band['minHz'] ?? 0),
+            maxHz: Number(band['maxHz'] ?? 1000),
+          };
+        })
+      : [];
+
+    const artist = artistName.trim();
+    const title  = songTitle.trim();
+
+    const [{ analysis: rawAnalysis, scores, rhythm }, mbData, rhythmData] = await Promise.all([
+      analyzeFullFromYouTube(youtubeUrl.trim(), combinedContext, bands),
+      fetchMusicBrainzData(artist, title),
+      fetchRhythmResearch(artist, title),
+    ]);
+
+    const analysis = {
+      ...rawAnalysis,
+      ...(analysisNotes?.trim() ? { userNotes: analysisNotes.trim() } : {}),
+      ...(mbData ? { musicBrainzData: mbData } : {}),
+      ...(rhythmData ? { rhythmResearch: rhythmData } : {}),
+    };
+
+    const flatScores: Record<string, number> = {};
+    for (const [axis, detail] of Object.entries(scores)) {
+      flatScores[axis] = detail.score;
+    }
+
+    let saved;
+    if (analysisId) {
+      saved = await updateAnalysis(analysisId, {
+        audioFileName: `youtube:${youtubeUrl.trim()}`,
+        audioAnalysis: analysis,
+        scores: flatScores,
+        scoreBreakdown: scores,
+      });
+    } else {
+      saved = await createAnalysis({
+        songTitle: title,
+        artistName: artist,
+        youtubeUrl: youtubeUrl.trim(),
+        ...(songId?.trim() ? { songId: songId.trim() } : {}),
+        audioFileName: `youtube:${youtubeUrl.trim()}`,
+        audioAnalysis: analysis,
+        scores: flatScores,
+        scoreBreakdown: scores,
+      });
+    }
+
+    res.status(analysisId ? 200 : 201).json({ saved, rhythm });
   } catch (err: unknown) {
     if (err instanceof Error && 'statusCode' in err) {
       res.status((err as Error & { statusCode: number }).statusCode).json({ error: err.message });

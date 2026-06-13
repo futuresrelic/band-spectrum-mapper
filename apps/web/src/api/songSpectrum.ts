@@ -92,4 +92,17 @@ export const songSpectrumApi = {
   ): Promise<RhythmAnalysisResult> {
     return api.post('/api/song-spectrum/rhythm-bands-youtube', { youtubeUrl, bands });
   },
+
+  analyzeFromYouTubeFull(params: {
+    youtubeUrl: string;
+    songTitle: string;
+    artistName: string;
+    analysisId?: string;
+    lyricsContext?: string;
+    analysisNotes?: string;
+    songId?: string;
+    bands?: RhythmBand[];
+  }): Promise<{ saved: SongSpectrumAnalysis; rhythm: RhythmAnalysisResult }> {
+    return api.post('/api/song-spectrum/analyze-youtube-full', params);
+  },
 };

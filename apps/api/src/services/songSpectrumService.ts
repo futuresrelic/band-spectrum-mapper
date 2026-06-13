@@ -472,6 +472,58 @@ export async function analyzeRhythmBandsFromYouTube(
 }
 
 // ---------------------------------------------------------------------------
+// Combined spectrum + rhythm analysis from YouTube — one yt-dlp download
+// ---------------------------------------------------------------------------
+
+export async function analyzeFullFromYouTube(
+  youtubeUrl: string,
+  lyricsContext: string = '',
+  bands: RhythmBand[] = [],
+): Promise<{ analysis: AudioAnalysisResult; scores: Record<string, ScoreAxisDetail>; rhythm: RhythmAnalysisResult }> {
+  if (!isAudioWorkerConfigured()) {
+    throw Object.assign(
+      new Error('Audio analysis worker not configured. Set AUDIO_WORKER_URL.'),
+      { statusCode: 503 },
+    );
+  }
+  if (process.env['ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT'] !== 'true') {
+    throw Object.assign(
+      new Error('YouTube audio import is disabled. Set ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT=true (local use only).'),
+      { statusCode: 403 },
+    );
+  }
+
+  const workerUrl = process.env['AUDIO_WORKER_URL']!.replace(/\/$/, '');
+
+  const buildInit = (): RequestInit => ({
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      youtube_url: youtubeUrl,
+      lyrics_context: lyricsContext,
+      bands: bands.map((b) => ({ label: b.label, min_hz: b.minHz, max_hz: b.maxHz })),
+    }),
+    signal: AbortSignal.timeout(300_000),
+  });
+
+  const res = await workerFetch(`${workerUrl}/analyze-youtube-full`, buildInit(), buildInit);
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw Object.assign(
+      new Error(`Audio worker error (${res.status}): ${detail}`),
+      { statusCode: res.status >= 500 ? 502 : res.status },
+    );
+  }
+
+  return res.json() as Promise<{
+    analysis: AudioAnalysisResult;
+    scores: Record<string, ScoreAxisDetail>;
+    rhythm: RhythmAnalysisResult;
+  }>;
+}
+
+// ---------------------------------------------------------------------------
 // Database — save / list / get / delete analyses
 // ---------------------------------------------------------------------------
 
