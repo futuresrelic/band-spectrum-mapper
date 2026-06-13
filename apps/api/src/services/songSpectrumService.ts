@@ -277,6 +277,21 @@ export async function fetchRhythmResearch(
 // Audio analysis — proxy to Python worker
 // ---------------------------------------------------------------------------
 
+// Railway cold-start helper: if the worker returns 502 or 503 (load-balancer
+// refusing connections while the service boots), wait 10 s then retry once.
+async function workerFetch(
+  url: string,
+  init: RequestInit,
+  attempt: () => RequestInit,
+): Promise<Response> {
+  let res = await fetch(url, init);
+  if (res.status === 502 || res.status === 503) {
+    await new Promise<void>((r) => setTimeout(r, 10_000));
+    res = await fetch(url, attempt());
+  }
+  return res;
+}
+
 export async function analyzeAudio(
   fileBuffer: Buffer,
   filename: string,
@@ -291,14 +306,14 @@ export async function analyzeAudio(
 
   const workerUrl = process.env['AUDIO_WORKER_URL']!.replace(/\/$/, '');
 
-  const formData = new FormData();
-  formData.append('file', new Blob([fileBuffer]), filename);
-  formData.append('lyrics_context', lyricsContext);
+  function buildForm(): RequestInit {
+    const formData = new FormData();
+    formData.append('file', new Blob([fileBuffer]), filename);
+    formData.append('lyrics_context', lyricsContext);
+    return { method: 'POST', body: formData };
+  }
 
-  const res = await fetch(`${workerUrl}/analyze`, {
-    method: 'POST',
-    body: formData,
-  });
+  const res = await workerFetch(`${workerUrl}/analyze`, buildForm(), buildForm);
 
   if (!res.ok) {
     const detail = await res.text().catch(() => res.statusText);
@@ -339,13 +354,14 @@ export async function analyzeAudioFromYouTube(
 
   const workerUrl = process.env['AUDIO_WORKER_URL']!.replace(/\/$/, '');
 
-  const res = await fetch(`${workerUrl}/analyze-youtube`, {
+  const buildInit = (): RequestInit => ({
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ youtube_url: youtubeUrl, lyrics_context: lyricsContext }),
-    // YouTube download can take a while for long songs
     signal: AbortSignal.timeout(240_000),
   });
+
+  const res = await workerFetch(`${workerUrl}/analyze-youtube`, buildInit(), buildInit);
 
   if (!res.ok) {
     const detail = await res.text().catch(() => res.statusText);
@@ -378,17 +394,17 @@ export async function analyzeRhythmBands(
   }
 
   const workerUrl = process.env['AUDIO_WORKER_URL']!.replace(/\/$/, '');
-  const formData = new FormData();
-  formData.append('file', new Blob([fileBuffer]), filename);
-  formData.append('bands', JSON.stringify(
-    bands.map((b) => ({ label: b.label, min_hz: b.minHz, max_hz: b.maxHz }))
-  ));
 
-  const res = await fetch(`${workerUrl}/analyze-rhythm`, {
-    method: 'POST',
-    body: formData,
-    signal: AbortSignal.timeout(120_000),
-  });
+  function buildForm(): RequestInit {
+    const formData = new FormData();
+    formData.append('file', new Blob([fileBuffer]), filename);
+    formData.append('bands', JSON.stringify(
+      bands.map((b) => ({ label: b.label, min_hz: b.minHz, max_hz: b.maxHz }))
+    ));
+    return { method: 'POST', body: formData, signal: AbortSignal.timeout(120_000) };
+  }
+
+  const res = await workerFetch(`${workerUrl}/analyze-rhythm`, buildForm(), buildForm);
 
   if (!res.ok) {
     const detail = await res.text().catch(() => res.statusText);
@@ -419,7 +435,8 @@ export async function analyzeRhythmBandsFromYouTube(
   }
 
   const workerUrl = process.env['AUDIO_WORKER_URL']!.replace(/\/$/, '');
-  const res = await fetch(`${workerUrl}/analyze-rhythm-youtube`, {
+
+  const buildInit = (): RequestInit => ({
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -428,6 +445,8 @@ export async function analyzeRhythmBandsFromYouTube(
     }),
     signal: AbortSignal.timeout(240_000),
   });
+
+  const res = await workerFetch(`${workerUrl}/analyze-rhythm-youtube`, buildInit(), buildInit);
 
   if (!res.ok) {
     const detail = await res.text().catch(() => res.statusText);

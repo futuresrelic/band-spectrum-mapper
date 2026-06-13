@@ -632,18 +632,26 @@ function drawRhythmTimeline(
   ctx.restore();
 }
 
-function friendlyRlError(raw: string): string {
+function friendlyWorkerError(raw: string): string {
   if (raw.includes('429') || raw.includes('Too Many Requests') || raw.includes('Sign in to confirm')) {
     return 'YouTube is rate-limiting this server (HTTP 429). Try uploading the audio file directly instead — use the "Upload Audio" section on the left.';
   }
   if (raw.includes('yt-dlp failed')) {
-    // Strip the JSON wrapper the server sends; show the first meaningful line
     const inner = raw.replace(/^.*?"detail"\s*:\s*"yt-dlp failed:\s*/i, '').replace(/"?\}?\s*$/, '');
     const firstLine = inner.split(/\\n/)[0] ?? inner;
     return `YouTube download failed: ${firstLine.slice(0, 200)}`;
   }
+  if (
+    raw.includes('502') || raw.includes('503') ||
+    raw.includes('Audio worker error (502)') || raw.includes('Audio worker error (503)')
+  ) {
+    return 'The audio worker was starting up and the first request failed (this is normal after a period of inactivity). The server will retry automatically — if this message persists, please try again in 15 seconds.';
+  }
   return raw;
 }
+
+// Keep old name as alias so all callers work without changes
+const friendlyRlError = friendlyWorkerError;
 
 function RhythmLabPanel({
   analysisYoutubeUrl,
@@ -1068,7 +1076,7 @@ export default function SongSpectrumPage() {
       qc.invalidateQueries({ queryKey: ['song-spectrum-analyses'] });
       setError(null);
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => setError(friendlyWorkerError(e.message)),
   });
 
   // YouTube audio analysis mutation (yt-dlp, local only)
@@ -1088,7 +1096,7 @@ export default function SongSpectrumPage() {
       qc.invalidateQueries({ queryKey: ['song-spectrum-analyses'] });
       setError(null);
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => setError(friendlyWorkerError(e.message)),
   });
 
   // Delete mutation
