@@ -270,7 +270,7 @@ export default function LyricLabPage() {
   const [scope, setScope] = useState<LyricLabScope>('discography');
   const [albumId, setAlbumId] = useState('');
   const [songId, setSongId] = useState('');
-  const [maxWords, setMaxWords] = useState(70);
+  const [maxWords, setMaxWords] = useState(100);
 
   const [result, setResult] = useState<LyricLabResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -568,9 +568,9 @@ export default function LyricLabPage() {
               <label className="font-semibold whitespace-nowrap">Words per cloud: {maxWords}</label>
               <input
                 type="range"
-                min={20}
-                max={120}
-                step={5}
+                min={1}
+                max={100}
+                step={1}
                 value={maxWords}
                 onChange={(e) => setMaxWords(Number(e.target.value))}
                 className="w-28 accent-indigo-600"
