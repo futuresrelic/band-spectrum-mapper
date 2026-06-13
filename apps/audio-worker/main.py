@@ -162,28 +162,29 @@ def _download_youtube_audio(url: str, tmpdir: str) -> str:
     Raises HTTPException on failure.
     """
     output_template = os.path.join(tmpdir, "audio.%(ext)s")
-    log.info("Downloading YouTube audio from %s", url)
+    log.info("Downloading YouTube audio from %s (cookies=%s)", url, "yes" if _COOKIES_FILE else "no")
 
-    # ios client avoids the SABR streaming experiment that causes 403s on Railway IPs
-    # when android is included.  None of these bypass YouTube rate-limiting (429) on
-    # cloud IPs — the upload-file path is always the more reliable option.
     cmd = [
         "yt-dlp",
         "-x",                                        # audio only
         "--audio-format", "mp3",
         "--audio-quality", "0",                      # best quality
         "--no-playlist",
-        "--extractor-args", "youtube:player_client=ios",
         "--socket-timeout", "30",                    # fail fast on stalled connections
         "--retries", "2",
         "--fragment-retries", "0",
         "-o", output_template,
     ]
 
-    # Use authenticated cookies if available (YTDLP_COOKIES_CONTENT or YTDLP_COOKIES_FILE).
-    # Without cookies, Railway IPs are progressively rate-limited by YouTube.
     if _COOKIES_FILE and os.path.isfile(_COOKIES_FILE):
+        # With authenticated cookies: use the web client, which supports cookies.
+        # The ios client explicitly does NOT support cookies and will skip them.
         cmd += ["--cookies", _COOKIES_FILE]
+        cmd += ["--extractor-args", "youtube:player_client=web"]
+    else:
+        # Without cookies: ios client avoids the SABR streaming experiment that
+        # causes 403s on Railway IPs when android is included.
+        cmd += ["--extractor-args", "youtube:player_client=ios"]
 
     cmd.append(url)
 
