@@ -634,19 +634,27 @@ function drawRhythmTimeline(
 }
 
 function friendlyWorkerError(raw: string): string {
-  if (raw.includes('429') || raw.includes('Too Many Requests') || raw.includes('Sign in to confirm')) {
-    return 'YouTube is rate-limiting this server (HTTP 429). Try uploading the audio file directly instead — use the "Upload Audio" section on the left.';
-  }
-  if (raw.includes('yt-dlp failed')) {
-    const inner = raw.replace(/^.*?"detail"\s*:\s*"yt-dlp failed:\s*/i, '').replace(/"?\}?\s*$/, '');
-    const firstLine = inner.split(/\\n/)[0] ?? inner;
-    return `YouTube download failed: ${firstLine.slice(0, 200)}`;
+  // yt-dlp download blocked by YouTube — most common cloud-server issue
+  if (
+    raw.includes('yt-dlp failed') ||
+    raw.includes('429') ||
+    raw.includes('Too Many Requests') ||
+    raw.includes('Sign in to confirm') ||
+    raw.includes('403: Forbidden') ||
+    raw.includes('SABR')
+  ) {
+    return (
+      'YouTube is blocking audio downloads from this server (rate-limit / bot-detection). ' +
+      'This is common on cloud IPs and cannot be bypassed by retrying. ' +
+      'Download the song as an MP3 on your device and use "Upload Audio" instead — ' +
+      'that path always works and gives identical results.'
+    );
   }
   if (
     raw.includes('502') || raw.includes('503') ||
     raw.includes('Audio worker error (502)') || raw.includes('Audio worker error (503)')
   ) {
-    return 'The audio worker was starting up and the first request failed (this is normal after a period of inactivity). The server will retry automatically — if this message persists, please try again in 15 seconds.';
+    return 'The audio worker was starting up — the server will retry automatically. If this message persists for more than 30 seconds, try again.';
   }
   return raw;
 }
@@ -861,12 +869,14 @@ function RhythmLabPanel({
       </div>
 
       {rlError && (
-        <div className="text-xs bg-red-900/20 border border-red-700/30 rounded px-3 py-2 space-y-1">
-          <p className="text-red-400">{rlError}</p>
-          {(rlError.includes('rate-limiting') || rlError.includes('429')) && (
-            <p className="text-surface-400">
-              YouTube blocks audio downloads from cloud servers unpredictably.
-              Download the song as an MP3 locally and use the "Upload Audio" option instead.
+        <div className="text-xs bg-red-900/20 border border-red-700/30 rounded px-3 py-3 space-y-1.5">
+          <p className="text-red-400 font-medium">{rlError}</p>
+          {(rlError.includes('blocking') || rlError.includes('rate-limit') || rlError.includes('bot-detection')) && (
+            <p className="text-surface-400 leading-relaxed">
+              <strong className="text-surface-300">Upload path:</strong> Download the MP3 from YouTube
+              (e.g. via a browser extension or{' '}
+              <span className="font-mono text-surface-300">yt-dlp</span> on your PC), then use the
+              "Upload Audio" box above — the analysis is identical and always succeeds.
             </p>
           )}
         </div>

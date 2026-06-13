@@ -140,23 +140,25 @@ async def analyze_youtube(body: YouTubeRequest):
         output_template = os.path.join(tmpdir, "audio.%(ext)s")
         log.info("Downloading YouTube audio from %s", url)
 
-        # Build yt-dlp command.
-        # Try ios first (fewer PO-token requirements on most IPs), then
-        # android and mweb as fallbacks.  Note: none of these bypass a
-        # server-side 429 if YouTube has rate-limited the host IP — the
-        # recommended workaround is file upload instead of YouTube audio.
+        # yt-dlp command: ios client avoids the SABR streaming experiment
+        # that causes 403s on Railway IPs when android is included.
+        # Note: none of these bypass YouTube rate-limiting (429) on cloud IPs.
+        # The upload-file path is always the more reliable option.
         cmd = [
             "yt-dlp",
-            "-x",                                        # extract audio only
-            "--audio-format", "mp3",                     # convert to mp3
+            "-x",                                        # audio only
+            "--audio-format", "mp3",
             "--audio-quality", "0",                      # best quality
-            "--no-playlist",                             # single video only
-            "--extractor-args", "youtube:player_client=ios,android,mweb",
+            "--no-playlist",
+            "--extractor-args", "youtube:player_client=ios",
+            "--socket-timeout", "30",                    # fail fast on stalled connections
+            "--retries", "2",
+            "--fragment-retries", "0",
             "-o", output_template,
         ]
 
-        # Optional: cookies file path from env (set YTDLP_COOKIES_FILE on Railway
-        # if the iOS client alone is not enough — unlikely but possible).
+        # Optional cookies file: export from a logged-in browser session and set
+        # YTDLP_COOKIES_FILE on Railway to bypass bot-detection on server IPs.
         cookies_file = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
         if cookies_file and os.path.isfile(cookies_file):
             cmd += ["--cookies", cookies_file]
@@ -167,7 +169,7 @@ async def analyze_youtube(body: YouTubeRequest):
             result = subprocess.run(
                 cmd,
                 capture_output=True,
-                timeout=180,
+                timeout=120,   # reduced: fail faster when yt-dlp hangs
                 text=True,
             )
         except FileNotFoundError:
@@ -178,14 +180,18 @@ async def analyze_youtube(body: YouTubeRequest):
         except subprocess.TimeoutExpired:
             raise HTTPException(
                 status_code=504,
-                detail="YouTube download timed out (>180 s)",
+                detail="YouTube download timed out (>120 s)",
             )
 
         if result.returncode != 0:
             log.error("yt-dlp failed:\n%s", result.stderr)
+            # 422 (not 502) so the Node.js proxy does NOT auto-retry this.
+            # 502 is reserved for Railway cold-start (load balancer refusing
+            # before the service boots); retrying a yt-dlp 429/403 just
+            # accelerates rate-limiting.
             raise HTTPException(
-                status_code=502,
-                detail=f"yt-dlp failed: {result.stderr[:500] if result.stderr else 'unknown error'}",
+                status_code=422,
+                detail=f"yt-dlp failed: {result.stderr[:600] if result.stderr else 'unknown error'}",
             )
 
         # Find downloaded audio file (skip partial files)
@@ -194,7 +200,7 @@ async def analyze_youtube(body: YouTubeRequest):
             if not f.endswith(".part") and not f.endswith(".ytdl")
         ]
         if not audio_files:
-            raise HTTPException(status_code=502, detail="No audio file was downloaded")
+            raise HTTPException(status_code=422, detail="yt-dlp ran but produced no audio file")
 
         audio_path = os.path.join(tmpdir, audio_files[0])
         log.info("Downloaded: %s (%d bytes)", audio_files[0], os.path.getsize(audio_path))
@@ -329,7 +335,10 @@ async def analyze_rhythm_youtube(body: RhythmYouTubeRequest):
             "--audio-format", "mp3",
             "--audio-quality", "0",
             "--no-playlist",
-            "--extractor-args", "youtube:player_client=ios,android,mweb",
+            "--extractor-args", "youtube:player_client=ios",
+            "--socket-timeout", "30",
+            "--retries", "2",
+            "--fragment-retries", "0",
             "-o", output_template,
         ]
 
@@ -340,17 +349,19 @@ async def analyze_rhythm_youtube(body: RhythmYouTubeRequest):
         cmd.append(url)
 
         try:
-            result_proc = subprocess.run(cmd, capture_output=True, timeout=180, text=True)
+            result_proc = subprocess.run(cmd, capture_output=True, timeout=120, text=True)
         except FileNotFoundError:
             raise HTTPException(status_code=503, detail="yt-dlp is not installed")
         except subprocess.TimeoutExpired:
-            raise HTTPException(status_code=504, detail="YouTube download timed out (>180 s)")
+            raise HTTPException(status_code=504, detail="YouTube download timed out (>120 s)")
 
         if result_proc.returncode != 0:
             log.error("yt-dlp failed:\n%s", result_proc.stderr)
+            # 422 not 502: tells Node.js proxy this is a download failure,
+            # not a cold-start — no retry should be attempted.
             raise HTTPException(
-                status_code=502,
-                detail=f"yt-dlp failed: {result_proc.stderr[:500] if result_proc.stderr else 'unknown error'}",
+                status_code=422,
+                detail=f"yt-dlp failed: {result_proc.stderr[:600] if result_proc.stderr else 'unknown error'}",
             )
 
         audio_files = [
@@ -358,7 +369,7 @@ async def analyze_rhythm_youtube(body: RhythmYouTubeRequest):
             if not f.endswith(".part") and not f.endswith(".ytdl")
         ]
         if not audio_files:
-            raise HTTPException(status_code=502, detail="No audio file was downloaded")
+            raise HTTPException(status_code=422, detail="yt-dlp ran but produced no audio file")
 
         audio_path = os.path.join(tmpdir, audio_files[0])
         log.info("Downloaded: %s (%d bytes)", audio_files[0], os.path.getsize(audio_path))

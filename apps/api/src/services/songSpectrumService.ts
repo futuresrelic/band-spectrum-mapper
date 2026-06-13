@@ -277,8 +277,13 @@ export async function fetchRhythmResearch(
 // Audio analysis — proxy to Python worker
 // ---------------------------------------------------------------------------
 
-// Railway cold-start helper: if the worker returns 502 or 503 (load-balancer
-// refusing connections while the service boots), wait 10 s then retry once.
+// Railway cold-start helper: if the worker returns 502 or 503 (the Railway
+// load-balancer refusing connections while the Python service boots), wait
+// 10 s then retry once.
+//
+// IMPORTANT: do NOT retry 422 — the Python worker uses 422 specifically for
+// yt-dlp download failures (403/429 from YouTube).  Retrying those just
+// hammers YouTube's rate-limit and makes the next request fail faster.
 async function workerFetch(
   url: string,
   init: RequestInit,
@@ -286,6 +291,13 @@ async function workerFetch(
 ): Promise<Response> {
   let res = await fetch(url, init);
   if (res.status === 502 || res.status === 503) {
+    // Clone the body check without consuming it: peek at the text to rule out
+    // a "yt-dlp failed" body returned with 502 by an older worker version.
+    const body = await res.text().catch(() => '');
+    if (body.includes('yt-dlp failed')) {
+      // Reconstruct a response so callers can read the body normally.
+      return new Response(body, { status: res.status, headers: res.headers });
+    }
     await new Promise<void>((r) => setTimeout(r, 10_000));
     res = await fetch(url, attempt());
   }
