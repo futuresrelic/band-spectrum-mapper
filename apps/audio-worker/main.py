@@ -177,10 +177,12 @@ def _download_youtube_audio(url: str, tmpdir: str) -> str:
     ]
 
     if _COOKIES_FILE and os.path.isfile(_COOKIES_FILE):
-        # With authenticated cookies: use the web client, which supports cookies.
-        # The ios client explicitly does NOT support cookies and will skip them.
+        # With authenticated cookies: use tv_embedded client.
+        # - Supports cookie authentication (unlike ios)
+        # - Uses simpler URL formats that bypass the nsig JavaScript challenge
+        # - Less bot-detection than the web client on cloud IPs
         cmd += ["--cookies", _COOKIES_FILE]
-        cmd += ["--extractor-args", "youtube:player_client=web"]
+        cmd += ["--extractor-args", "youtube:player_client=tv_embedded"]
     else:
         # Without cookies: ios client avoids the SABR streaming experiment that
         # causes 403s on Railway IPs when android is included.
