@@ -672,5 +672,57 @@ export interface RhythmAnalysisResult {
   globalBarCandidates: BarLengthCandidate[];
 }
 
+// ---------------------------------------------------------------------------
+// Lyric Lab — bulk word cloud analysis
+// ---------------------------------------------------------------------------
+
+export interface LyricLabWord {
+  text: string;
+  count: number;
+  rank: number;
+}
+
+export interface LyricLabSongResult {
+  songId: string;
+  songTitle: string;
+  albumId: string;
+  albumTitle: string;
+  bandId: string;
+  bandName: string;
+  words: LyricLabWord[];
+  totalTokens: number;
+  uniqueWords: number;
+}
+
+export interface LyricLabAlbumAggregate {
+  albumId: string;
+  albumTitle: string;
+  words: LyricLabWord[];
+  totalTokens: number;
+  uniqueWords: number;
+  sharedWords: string[];
+  songCount: number;
+}
+
+export interface LyricLabGlobalAggregate {
+  words: LyricLabWord[];
+  totalTokens: number;
+  uniqueWords: number;
+  songCount: number;
+}
+
+export type LyricLabScope = 'discography' | 'album' | 'song';
+
+export interface LyricLabResult {
+  bandId: string;
+  bandName: string;
+  scope: LyricLabScope;
+  songs: LyricLabSongResult[];
+  albumAggregates: LyricLabAlbumAggregate[];
+  globalAggregate: LyricLabGlobalAggregate | null;
+  songsWithLyrics: number;
+  songsTotal: number;
+}
+
 // Re-export axis type for convenience
 export type { ScoreAxis, SourceType, ImportStatus };

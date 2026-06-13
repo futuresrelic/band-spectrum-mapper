@@ -37,6 +37,7 @@ const mainSections: NavSection[] = [
     links: [
       { to: '/cloud',              label: 'Song Cloud' },
       { to: '/word-cloud',         label: 'Word Cloud' },
+      { to: '/lyric-lab',          label: 'Lyric Lab' },
       { to: '/guess-the-song',     label: 'What\'s That Song?' },
       { to: '/song-nodes',         label: 'Song Nodes' },
       { to: '/song-connections',   label: 'Song Connections' },

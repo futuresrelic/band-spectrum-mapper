@@ -79,6 +79,7 @@ import RecordCatcherPage from './pages/RecordCatcherPage';
 import AdminPlatformerPage from './pages/AdminPlatformerPage';
 import PlatformerPage from './pages/PlatformerPage';
 import PlaylistMakerPage from './pages/PlaylistMakerPage';
+import LyricLabPage from './pages/LyricLabPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -185,6 +186,7 @@ export default function App() {
           <Route path="social-planner" element={<SocialPlannerPage />} />
           <Route path="song-spectrum" element={<SongSpectrumPage />} />
           <Route path="word-cloud" element={<WordCloudPage />} />
+          <Route path="lyric-lab" element={<LyricLabPage />} />
           <Route path="song-nodes" element={<SongNodesPage />} />
           <Route path="song-connections" element={<SongConnectionsPage />} />
           <Route path="trivia" element={<TriviaPage />} />

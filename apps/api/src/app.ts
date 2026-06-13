@@ -28,6 +28,7 @@ import { socialRouter } from './routes/social.js';
 import { socialPlannerRouter } from './routes/socialPlanner.js';
 import { songSpectrumRouter } from './routes/songSpectrum.js';
 import { wordCloudRouter } from './routes/wordCloud.js';
+import { lyricLabRouter } from './routes/lyricLab.js';
 import { patternLabRouter } from './routes/patternLab.js';
 import { songNodesRouter } from './routes/songNodes.js';
 import { gameRouter } from './routes/game.js';
@@ -123,6 +124,9 @@ export function createApp() {
 
   // Word Cloud — aggregated lyric + theme word data (admin only)
   app.use('/api/word-cloud', wordCloudRouter);
+
+  // Lyric Lab — bulk word cloud batch analysis (admin only)
+  app.use('/api/lyric-lab', lyricLabRouter);
 
   // Pattern Lab — admin-only deep analysis and content creation tools
   app.use('/api/pattern-lab', patternLabRouter);
