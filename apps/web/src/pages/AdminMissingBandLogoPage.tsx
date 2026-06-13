@@ -3,7 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { adminApi, type MissingBandLogo } from '../api/admin';
 import { bandsApi } from '../api/bands';
 
-type ArtResult = { url: string; label: string; source: string };
+type ArtResult = { url: string; label: string; source: string; isLogo?: boolean };
 
 type BandState = {
   mode: 'idle' | 'searching' | 'results' | 'saving' | 'done' | 'error';
@@ -18,47 +18,19 @@ function initialState(band: MissingBandLogo): BandState {
   return { mode: 'idle', searchTerm: band.name, results: [], selected: null, pasteUrl: '', error: '' };
 }
 
-// ── Image search (4 free sources, no API keys needed) ────────────────────────
+// ── Image search (6 free sources, no API keys needed) ────────────────────────
+// Results are split into logos (shown first) and photos.
+// Sources that specifically return graphical band logos:
+//   • TheAudioDB strArtistLogo  (explicit logo field)
+//   • Wikimedia Commons          (file-namespace logo search)
+// Sources that return artist photos:
+//   • Deezer, iTunes, Discogs, Wikipedia
 
 async function searchBandImages(term: string): Promise<ArtResult[]> {
-  const combined: ArtResult[] = [];
+  const logos:  ArtResult[] = [];  // graphical band logos — shown first
+  const photos: ArtResult[] = [];  // artist/promo photos
 
-  // 1. iTunes — musicArtist entity returns the artist's own image
-  try {
-    const r = await fetch(
-      `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=musicArtist&limit=12&media=music`
-    );
-    const d = await r.json() as {
-      results: { artworkUrl100?: string; artistName?: string }[];
-    };
-    for (const item of d.results) {
-      if (item.artworkUrl100) {
-        combined.push({
-          url: item.artworkUrl100.replace('100x100bb', '600x600bb'),
-          label: item.artistName ?? term,
-          source: 'iTunes',
-        });
-      }
-    }
-  } catch { /* offline */ }
-
-  // 2. Deezer — free, no auth, returns artist photos
-  try {
-    const r = await fetch(
-      `https://api.deezer.com/search/artist?q=${encodeURIComponent(term)}&limit=10`
-    );
-    const d = await r.json() as {
-      data?: { name: string; picture_xl?: string; picture_big?: string }[];
-    };
-    for (const item of (d.data ?? [])) {
-      const pic = item.picture_xl ?? item.picture_big;
-      if (pic && !pic.includes('default')) {
-        combined.push({ url: pic, label: item.name, source: 'Deezer' });
-      }
-    }
-  } catch { /* offline */ }
-
-  // 3. TheAudioDB — free tier (key "2"), artist thumbnails + logos + banners
+  // 1. TheAudioDB — logo specifically tagged + other art types
   try {
     const r = await fetch(
       `https://theaudiodb.com/api/v1/json/2/search.php?s=${encodeURIComponent(term)}`
@@ -74,18 +46,90 @@ async function searchBandImages(term: string): Promise<ArtResult[]> {
       }[];
     };
     for (const a of (d.artists ?? [])) {
-      if (a.strArtistLogo)    combined.push({ url: a.strArtistLogo,    label: `${a.strArtist ?? term} — Logo`,    source: 'AudioDB' });
-      if (a.strArtistThumb)   combined.push({ url: a.strArtistThumb,   label: `${a.strArtist ?? term} — Thumb`,   source: 'AudioDB' });
-      if (a.strArtistBanner)  combined.push({ url: a.strArtistBanner,  label: `${a.strArtist ?? term} — Banner`,  source: 'AudioDB' });
-      if (a.strArtistFanart)  combined.push({ url: a.strArtistFanart,  label: `${a.strArtist ?? term} — Fanart`,  source: 'AudioDB' });
-      if (a.strArtistFanart2) combined.push({ url: a.strArtistFanart2, label: `${a.strArtist ?? term} — Fanart2`, source: 'AudioDB' });
+      const name = a.strArtist ?? term;
+      // Logo goes into logos[] — it's the actual band wordmark/logotype
+      if (a.strArtistLogo)    logos.push({ url: a.strArtistLogo,    label: `${name} — Logo`,    source: 'AudioDB', isLogo: true });
+      if (a.strArtistThumb)   photos.push({ url: a.strArtistThumb,  label: `${name} — Thumb`,   source: 'AudioDB' });
+      if (a.strArtistBanner)  photos.push({ url: a.strArtistBanner, label: `${name} — Banner`,  source: 'AudioDB' });
+      if (a.strArtistFanart)  photos.push({ url: a.strArtistFanart, label: `${name} — Fanart`,  source: 'AudioDB' });
+      if (a.strArtistFanart2) photos.push({ url: a.strArtistFanart2, label: `${name} — Fanart2`, source: 'AudioDB' });
     }
   } catch { /* offline */ }
 
-  // 4. Wikipedia — band article thumbnail
+  // 2. Wikimedia Commons — file-namespace search for "{term} logo"
+  // Often contains the official SVG/PNG band logo uploaded to Commons.
   try {
     const r = await fetch(
-      `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(term + ' band')}&prop=pageimages&pithumbsize=600&format=json&origin=*&gsrlimit=6`
+      `https://commons.wikimedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(term + ' logo')}&srnamespace=6&format=json&origin=*&srlimit=10`
+    );
+    const d = await r.json() as {
+      query?: { search?: { title: string }[] };
+    };
+    for (const item of (d.query?.search ?? [])) {
+      // Special:FilePath serves the file at any width; ?width=600 for reasonable size
+      const file = item.title.replace(/^File:/, '');
+      const url  = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(file)}?width=600`;
+      const label = file.replace(/\.[^.]+$/, '').replace(/_/g, ' ');
+      logos.push({ url, label, source: 'Commons', isLogo: true });
+    }
+  } catch { /* offline */ }
+
+  // 3. Deezer — free, no auth, returns artist photos
+  try {
+    const r = await fetch(
+      `https://api.deezer.com/search/artist?q=${encodeURIComponent(term)}&limit=10`
+    );
+    const d = await r.json() as {
+      data?: { name: string; picture_xl?: string; picture_big?: string }[];
+    };
+    for (const item of (d.data ?? [])) {
+      const pic = item.picture_xl ?? item.picture_big;
+      if (pic && !pic.includes('default')) {
+        photos.push({ url: pic, label: item.name, source: 'Deezer' });
+      }
+    }
+  } catch { /* offline */ }
+
+  // 4. Discogs — free artist search, returns artist images (no auth required)
+  try {
+    const r = await fetch(
+      `https://api.discogs.com/database/search?q=${encodeURIComponent(term)}&type=artist&per_page=8`,
+      { headers: { 'User-Agent': 'BandSpectrumMapper/1.0' } }
+    );
+    const d = await r.json() as {
+      results?: { thumb?: string; cover_image?: string; title: string }[];
+    };
+    for (const item of (d.results ?? [])) {
+      const img = item.cover_image ?? item.thumb;
+      if (img && !img.includes('spacer') && !img.includes('placeholder')) {
+        photos.push({ url: img, label: item.title, source: 'Discogs' });
+      }
+    }
+  } catch { /* offline */ }
+
+  // 5. iTunes — musicArtist entity returns artist art (promo photos)
+  try {
+    const r = await fetch(
+      `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=musicArtist&limit=8&media=music`
+    );
+    const d = await r.json() as {
+      results: { artworkUrl100?: string; artistName?: string }[];
+    };
+    for (const item of d.results) {
+      if (item.artworkUrl100) {
+        photos.push({
+          url: item.artworkUrl100.replace('100x100bb', '600x600bb'),
+          label: item.artistName ?? term,
+          source: 'iTunes',
+        });
+      }
+    }
+  } catch { /* offline */ }
+
+  // 6. Wikipedia — band article thumbnail (often a promo photo or album art)
+  try {
+    const r = await fetch(
+      `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(term + ' band')}&prop=pageimages&pithumbsize=600&format=json&origin=*&gsrlimit=5`
     );
     const d = await r.json() as {
       query?: { pages?: Record<string, { title: string; thumbnail?: { source: string } }> };
@@ -93,13 +137,14 @@ async function searchBandImages(term: string): Promise<ArtResult[]> {
     if (d.query?.pages) {
       for (const page of Object.values(d.query.pages)) {
         if (page.thumbnail?.source) {
-          combined.push({ url: page.thumbnail.source, label: page.title, source: 'Wikipedia' });
+          photos.push({ url: page.thumbnail.source, label: page.title, source: 'Wikipedia' });
         }
       }
     }
   } catch { /* offline */ }
 
-  return combined;
+  // Logos first, then photos — caller sees the most useful results at the top
+  return [...logos, ...photos];
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -214,6 +259,8 @@ const SOURCE_COLORS: Record<string, string> = {
   Deezer:    'bg-purple-100 text-purple-700',
   AudioDB:   'bg-blue-100 text-blue-700',
   Wikipedia: 'bg-orange-100 text-orange-700',
+  Commons:   'bg-emerald-100 text-emerald-700',
+  Discogs:   'bg-amber-100 text-amber-700',
 };
 
 function BandCard({
@@ -312,44 +359,71 @@ function BandCard({
         <>
           {state.results.length === 0 ? (
             <p className="text-sm text-surface-400 italic">No images found. Try a different search term or paste a URL above.</p>
-          ) : (
-            <div>
-              <p className="text-xs text-surface-400 mb-2">{state.results.length} results — click to select</p>
-              <div className="overflow-x-auto">
-                <div className="flex gap-3 pb-2" style={{ width: 'max-content' }}>
-                  {state.results.map((r, i) => (
-                    <button
-                      key={i}
-                      onClick={() => onSelect(r.url)}
-                      title={`${r.label} (${r.source})`}
-                      className={`relative shrink-0 rounded-xl overflow-hidden border-2 transition-all group ${
-                        state.selected === r.url
-                          ? 'border-indigo-500 ring-2 ring-indigo-400'
-                          : 'border-surface-200 hover:border-indigo-300'
-                      }`}
-                    >
-                      <img
-                        src={r.url}
-                        alt={r.label}
-                        className="w-24 h-24 object-cover"
-                        onError={(e) => {
-                          const btn = e.currentTarget.closest('button') as HTMLElement | null;
-                          if (btn) btn.style.display = 'none';
-                        }}
-                      />
-                      {/* Source badge */}
-                      <span className={`absolute bottom-1 left-1 text-[9px] font-bold px-1 rounded ${SOURCE_COLORS[r.source] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {r.source}
-                      </span>
-                      {state.selected === r.url && (
-                        <span className="absolute inset-0 flex items-center justify-center bg-indigo-900/50 text-white text-2xl">✓</span>
-                      )}
-                    </button>
-                  ))}
+          ) : (() => {
+            const logoResults  = state.results.filter((r) => r.isLogo);
+            const photoResults = state.results.filter((r) => !r.isLogo);
+
+            function ResultGrid({ items, heading }: { items: ArtResult[]; heading: string }) {
+              if (!items.length) return null;
+              return (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-surface-500 mb-1.5">
+                    {heading} <span className="font-normal text-surface-600">({items.length})</span>
+                  </p>
+                  <div className="overflow-x-auto">
+                    <div className="flex gap-3 pb-2" style={{ width: 'max-content' }}>
+                      {items.map((r, i) => (
+                        <button
+                          key={i}
+                          onClick={() => onSelect(r.url)}
+                          title={`${r.label} (${r.source})`}
+                          className={`relative shrink-0 rounded-xl overflow-hidden border-2 transition-all group ${
+                            state.selected === r.url
+                              ? 'border-indigo-500 ring-2 ring-indigo-400'
+                              : heading.startsWith('Logo')
+                                ? 'border-emerald-200 hover:border-emerald-400'
+                                : 'border-surface-200 hover:border-indigo-300'
+                          }`}
+                        >
+                          <img
+                            src={r.url}
+                            alt={r.label}
+                            className="w-24 h-24 object-contain bg-surface-100"
+                            onError={(e) => {
+                              const btn = e.currentTarget.closest('button') as HTMLElement | null;
+                              if (btn) btn.style.display = 'none';
+                            }}
+                          />
+                          <span className={`absolute bottom-1 left-1 text-[9px] font-bold px-1 rounded ${SOURCE_COLORS[r.source] ?? 'bg-gray-100 text-gray-600'}`}>
+                            {r.source}
+                          </span>
+                          {state.selected === r.url && (
+                            <span className="absolute inset-0 flex items-center justify-center bg-indigo-900/50 text-white text-2xl">✓</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
+              );
+            }
+
+            return (
+              <div className="space-y-4">
+                <ResultGrid items={logoResults}  heading="Logos — click to select" />
+                {logoResults.length > 0 && photoResults.length > 0 && (
+                  <div className="border-t border-surface-200" />
+                )}
+                <ResultGrid items={photoResults} heading="Photos — click to select" />
+                {logoResults.length === 0 && (
+                  <p className="text-xs text-surface-500 italic">
+                    No dedicated logos found. Try a more specific search term, or paste a URL from
+                    a Google Images search for "{state.searchTerm} band logo".
+                  </p>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {saveUrl && (
             <div className="flex items-start gap-4 pt-2 border-t border-surface-100">

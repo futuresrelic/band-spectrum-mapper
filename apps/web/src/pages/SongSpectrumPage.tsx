@@ -18,6 +18,7 @@ import SpectrogramViz from '../components/songSpectrum/SpectrogramViz';
 import SectionTimeline from '../components/songSpectrum/SectionTimeline';
 import ScoreBreakdown from '../components/songSpectrum/ScoreBreakdown';
 import AudioUploader from '../components/songSpectrum/AudioUploader';
+import RhythmRadarCanvas from '../components/songSpectrum/RhythmRadarCanvas';
 
 // ---------------------------------------------------------------------------
 // Radar chart — pure SVG, six-axis, dark style
@@ -1004,6 +1005,20 @@ function RhythmLabPanel({
                 })}
               </tbody>
             </table>
+          </div>
+
+          {/* Rhythm Radar */}
+          <div className="pt-4 border-t border-surface-700/30">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs font-bold uppercase tracking-widest text-indigo-400">Rhythm Radar</span>
+              <span className="text-xs text-surface-500">— onset patterns mapped to a circular grid</span>
+            </div>
+            <RhythmRadarCanvas
+              key={`${beatBpm}-${timeSigBeats}-${result.bands.length}`}
+              result={result}
+              beatBpm={beatBpm}
+              timeSigBeats={timeSigBeats}
+            />
           </div>
         </div>
       )}
