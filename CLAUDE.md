@@ -148,6 +148,8 @@ This means:
 | `YOUTUBE_API_KEY` | No | YouTube Data API v3 metadata (Song Spectrum) |
 | `AUDIO_WORKER_URL` | No | Python audio analysis worker URL |
 | `ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT` | No | Never set true in production |
+| `YTDLP_COOKIES_CONTENT` | No | Base64-encoded Netscape cookies.txt from a logged-in YouTube session — primary fix for 429/403 rate-limit errors on cloud IPs |
+| `YTDLP_COOKIES_FILE` | No | Path to cookies.txt on the container filesystem (alternative to YTDLP_COOKIES_CONTENT) |
 
 ---
 

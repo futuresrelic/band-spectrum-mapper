@@ -10,6 +10,11 @@ Environment variables:
     MAX_MB                           — maximum upload size in MB (default 150)
     ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT — set "true" to allow /analyze-youtube
                                         (local / personal use only, never in production)
+    YTDLP_COOKIES_CONTENT            — base64-encoded Netscape cookies.txt from a
+                                        logged-in YouTube session; primary fix for
+                                        429 / 403 / bot-detection errors on cloud IPs
+    YTDLP_COOKIES_FILE               — path to a cookies.txt on the container filesystem
+                                        (alternative to YTDLP_COOKIES_CONTENT)
 
 The Node.js API calls this service via AUDIO_WORKER_URL.
 """
@@ -36,6 +41,43 @@ MAX_MB = int(os.environ.get("MAX_MB", "150"))
 MAX_BYTES = MAX_MB * 1024 * 1024
 
 SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".opus"}
+
+# ---------------------------------------------------------------------------
+# YouTube cookies — loaded once at startup from environment variable.
+#
+# YTDLP_COOKIES_CONTENT  (preferred on Railway)
+#   Set to the base64-encoded contents of a Netscape cookies.txt file
+#   exported from a logged-in YouTube browser session.
+#   The worker decodes this to a temp file and passes it to yt-dlp.
+#
+# YTDLP_COOKIES_FILE  (alternative)
+#   Path to an already-present cookies.txt on the container filesystem.
+#
+# Without cookies, YouTube progressively rate-limits and blocks yt-dlp on
+# cloud server IPs.  These env vars are the primary fix for 429 / 403 errors.
+# ---------------------------------------------------------------------------
+
+_COOKIES_FILE: "str | None" = None
+
+_yt_cookies_content = os.environ.get("YTDLP_COOKIES_CONTENT", "").strip()
+_yt_cookies_file    = os.environ.get("YTDLP_COOKIES_FILE",    "").strip()
+
+if _yt_cookies_content:
+    import base64 as _b64
+    try:
+        _decoded = _b64.b64decode(_yt_cookies_content)
+        _tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="wb")
+        _tmp.write(_decoded)
+        _tmp.close()
+        _COOKIES_FILE = _tmp.name
+        log.info("YouTube cookies loaded from YTDLP_COOKIES_CONTENT (%d bytes)", len(_decoded))
+    except Exception as _exc:
+        log.warning("Failed to load YTDLP_COOKIES_CONTENT — yt-dlp will run unauthenticated: %s", _exc)
+elif _yt_cookies_file and os.path.isfile(_yt_cookies_file):
+    _COOKIES_FILE = _yt_cookies_file
+    log.info("YouTube cookies loaded from YTDLP_COOKIES_FILE: %s", _yt_cookies_file)
+else:
+    log.info("No YouTube cookies configured — yt-dlp running unauthenticated (set YTDLP_COOKIES_CONTENT to fix 429/403 errors)")
 
 app = FastAPI(
     title="BSM Audio Worker",
@@ -138,11 +180,10 @@ def _download_youtube_audio(url: str, tmpdir: str) -> str:
         "-o", output_template,
     ]
 
-    # Optional cookies file: export from a logged-in browser session and set
-    # YTDLP_COOKIES_FILE on Railway to bypass bot-detection on server IPs.
-    cookies_file = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
-    if cookies_file and os.path.isfile(cookies_file):
-        cmd += ["--cookies", cookies_file]
+    # Use authenticated cookies if available (YTDLP_COOKIES_CONTENT or YTDLP_COOKIES_FILE).
+    # Without cookies, Railway IPs are progressively rate-limited by YouTube.
+    if _COOKIES_FILE and os.path.isfile(_COOKIES_FILE):
+        cmd += ["--cookies", _COOKIES_FILE]
 
     cmd.append(url)
 
