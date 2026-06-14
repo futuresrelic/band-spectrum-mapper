@@ -646,29 +646,28 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
       `Full body standing pose, vibrant rock musician outfit, expressive pixel face, ` +
       `clean crisp pixel art, dark background, no text, game character sprite.`;
 
-    // Step 3: Generate image via Pollinations.ai (free, no API key required)
-    const seed = Math.floor(Math.random() * 999999);
-    const imageApiUrl =
-      `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}` +
-      `?width=512&height=512&seed=${seed}`;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90_000); // 90s max
-
-    let imgRes: Response;
-    try {
-      imgRes = await fetch(imageApiUrl, { signal: controller.signal });
-    } finally {
-      clearTimeout(timeoutId);
+    // Step 3: Generate pixel art sprite via OpenAI gpt-image-1
+    // Requires image generation to be enabled on the project at platform.openai.com
+    if (!openAiKey) {
+      res.status(503).json({ error: 'OPENAI_API_KEY is not configured.' }); return;
     }
 
-    if (!imgRes.ok) {
-      res.status(502).json({ error: `Image generation failed (${imgRes.status})` }); return;
-    }
+    const { default: OpenAI } = await import('openai');
+    const openaiForImage = new OpenAI({ apiKey: openAiKey });
 
-    const contentType = imgRes.headers.get('content-type') ?? 'image/jpeg';
-    const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
-    const dataUrl = `data:${contentType};base64,${imageBuffer.toString('base64')}`;
+    const imageResponse = await openaiForImage.images.generate({
+      model: 'gpt-image-1',
+      prompt,
+      n: 1,
+      size: '1024x1024',
+      quality: 'low',
+    });
+
+    const b64 = imageResponse.data?.[0]?.b64_json;
+    if (!b64) {
+      res.status(502).json({ error: 'No image data returned from OpenAI.' }); return;
+    }
+    const dataUrl = `data:image/png;base64,${b64}`;
 
     // Step 4: Persist the skin record
     const skinData: {
@@ -696,6 +695,13 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
     res.status(201).json(skin);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
+    if (msg.includes('does not have access') || msg.toLowerCase().includes('permission') || msg.includes('403')) {
+      res.status(503).json({
+        error:
+          'Image generation is not enabled on your OpenAI project. ' +
+          'Fix: go to platform.openai.com → your project → Settings → scroll to "Model capabilities" → enable gpt-image-1.',
+      }); return;
+    }
     res.status(502).json({ error: `Sprite generation failed: ${msg}` });
   }
 });
