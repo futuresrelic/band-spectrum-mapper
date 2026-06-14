@@ -646,11 +646,11 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
       `Full body standing pose, vibrant rock musician outfit, expressive pixel face, ` +
       `clean crisp pixel art, dark background, no text, game character sprite.`;
 
-    // Step 3: Generate image via Pollinations.ai (free, no API key required, FLUX-based)
+    // Step 3: Generate image via Pollinations.ai (free, no API key required)
     const seed = Math.floor(Math.random() * 999999);
     const imageApiUrl =
       `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}` +
-      `?width=512&height=512&model=flux&nologo=true&seed=${seed}`;
+      `?width=512&height=512&seed=${seed}`;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 90_000); // 90s max
