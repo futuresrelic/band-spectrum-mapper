@@ -656,7 +656,7 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
     const openaiForImage = new OpenAI({ apiKey: openAiKey });
 
     const imageResponse = await openaiForImage.images.generate({
-      model: 'gpt-image-1',
+      model: 'gpt-image-2',
       prompt,
       n: 1,
       size: '1024x1024',
@@ -698,8 +698,8 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
     if (msg.includes('does not have access') || msg.toLowerCase().includes('permission') || msg.includes('403')) {
       res.status(503).json({
         error:
-          'Image generation is not enabled on your OpenAI project. ' +
-          'Fix: go to platform.openai.com → your project → Settings → scroll to "Model capabilities" → enable gpt-image-1.',
+          'Image generation is not available on your OpenAI account yet. ' +
+          'Fix: go to platform.openai.com → Organization settings → Verifications → click Start next to Individual and complete identity verification. Image models unlock automatically after that.',
       }); return;
     }
     res.status(502).json({ error: `Sprite generation failed: ${msg}` });
