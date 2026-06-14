@@ -80,6 +80,7 @@ import AdminPlatformerPage from './pages/AdminPlatformerPage';
 import PlatformerPage from './pages/PlatformerPage';
 import PlaylistMakerPage from './pages/PlaylistMakerPage';
 import LyricLabPage from './pages/LyricLabPage';
+import AdminBandLogosPage from './pages/AdminBandLogosPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -210,6 +211,7 @@ export default function App() {
           <Route path="admin/games" element={<AdminGamesPage />} />
           <Route path="admin/crossword-builder" element={<AdminCrosswordPage />} />
           <Route path="admin/platformer" element={<AdminPlatformerPage />} />
+          <Route path="admin/band-logos" element={<AdminBandLogosPage />} />
           <Route path="pattern-lab" element={<PatternLabPage />} />
         </Route>
       </Routes>
