@@ -630,7 +630,6 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
       prompt,
       n: 1,
       size: '1024x1024',
-      response_format: 'url',
     });
 
     const imageUrl = response.data?.[0]?.url;
