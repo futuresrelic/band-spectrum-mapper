@@ -72,6 +72,11 @@ export function createApp() {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
+  // Public config — exposes non-secret values the frontend needs (client ID is public)
+  app.get('/api/config', (_req, res) => {
+    res.json({ googleClientId: process.env['GOOGLE_CLIENT_ID'] ?? '' });
+  });
+
   // Public brand assets (favicon, logo)
   app.use('/api/brand', brandRouter);
 

@@ -5,6 +5,23 @@ import SiteHeader from '../components/layout/SiteHeader';
 import { useAuth } from '../contexts/AuthContext';
 import { playlistApi, type RoundSong, type SavedPlaylist } from '../api/playlist';
 
+// Minimal type declaration for Google Identity Services token client
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        oauth2: {
+          initTokenClient: (config: {
+            client_id: string;
+            scope: string;
+            callback: (response: { access_token: string; error?: string }) => void;
+          }) => { requestAccessToken: () => void };
+        };
+      };
+    };
+  }
+}
+
 const MAX_SONGS = 500;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -139,6 +156,272 @@ function PlaylistPanel({
         </div>
       ))}
       <div ref={endRef} />
+    </div>
+  );
+}
+
+// ── Export Section ────────────────────────────────────────────────────────────
+
+type ExportSong = { title: string; band: { name: string } };
+
+type ExportState =
+  | { status: 'idle' }
+  | { status: 'working'; message: string; progress?: { current: number; total: number } }
+  | { status: 'done'; playlistUrl: string; added: number; skipped: number }
+  | { status: 'error'; message: string };
+
+function ytMusicSearchUrl(song: ExportSong): string {
+  return `https://music.youtube.com/search?q=${encodeURIComponent(`${song.band.name} ${song.title}`)}`;
+}
+
+function spotifySearchUrl(song: ExportSong): string {
+  return `https://open.spotify.com/search/${encodeURIComponent(`${song.band.name} ${song.title}`)}`;
+}
+
+function ExportSection({ songs, playlistName }: { songs: ExportSong[]; playlistName: string }) {
+  const [exportState, setExportState] = useState<ExportState>({ status: 'idle' });
+  const [showLinks, setShowLinks] = useState(false);
+  const [googleClientId, setGoogleClientId] = useState('');
+  const [gisReady, setGisReady] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/config')
+      .then((r) => r.json())
+      .then((d: { googleClientId?: string }) => setGoogleClientId(d.googleClientId ?? ''))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (window.google?.accounts?.oauth2) { setGisReady(true); return; }
+    const existing = document.getElementById('gis-client-script');
+    if (existing) { existing.addEventListener('load', () => setGisReady(true)); return; }
+    const script = document.createElement('script');
+    script.id = 'gis-client-script';
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = () => setGisReady(true);
+    document.head.appendChild(script);
+  }, []);
+
+  async function handleCreateYouTubePlaylist() {
+    if (!googleClientId || !gisReady || !window.google?.accounts?.oauth2) {
+      setExportState({ status: 'error', message: 'Google sign-in is not ready. Refresh the page and try again.' });
+      return;
+    }
+
+    setExportState({ status: 'working', message: 'Opening Google sign-in…' });
+
+    try {
+      // 1. Obtain YouTube OAuth token via GIS popup
+      const token = await new Promise<string>((resolve, reject) => {
+        window.google!.accounts.oauth2.initTokenClient({
+          client_id: googleClientId,
+          scope: 'https://www.googleapis.com/auth/youtube',
+          callback: (r) => {
+            if (r.error) {
+              reject(new Error(r.error === 'access_denied' ? 'Sign-in was cancelled.' : r.error));
+            } else {
+              resolve(r.access_token);
+            }
+          },
+        }).requestAccessToken();
+      });
+
+      // 2. Create the YouTube playlist
+      setExportState({ status: 'working', message: 'Creating YouTube playlist…' });
+      const createRes = await fetch('https://www.googleapis.com/youtube/v3/playlists?part=snippet,status', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          snippet: { title: playlistName || 'My Playlist', description: 'Created with Band Spectrum Mapper' },
+          status: { privacyStatus: 'private' },
+        }),
+      });
+      if (!createRes.ok) {
+        const errBody = await createRes.json() as { error?: { message?: string } };
+        throw new Error(errBody.error?.message ?? `Failed to create playlist (${createRes.status})`);
+      }
+      const createdPlaylist = await createRes.json() as { id: string };
+      const playlistId = createdPlaylist.id;
+
+      // 3. Search YouTube for each song and add to playlist (cap at 50 to respect quota)
+      const songsToAdd = songs.slice(0, 50);
+      let added = 0;
+      let skipped = 0;
+
+      for (let i = 0; i < songsToAdd.length; i++) {
+        const song = songsToAdd[i]!;
+        setExportState({
+          status: 'working',
+          message: `Finding "${song.title}"…`,
+          progress: { current: i + 1, total: songsToAdd.length },
+        });
+
+        try {
+          const q = encodeURIComponent(`${song.band.name} ${song.title}`);
+          const searchRes = await fetch(
+            `https://www.googleapis.com/youtube/v3/search?part=id&type=video&maxResults=1&q=${q}`,
+            { headers: { 'Authorization': `Bearer ${token}` } },
+          );
+          if (!searchRes.ok) { skipped++; continue; }
+
+          const searchData = await searchRes.json() as { items?: Array<{ id?: { videoId?: string } }> };
+          const videoId = searchData.items?.[0]?.id?.videoId;
+          if (!videoId) { skipped++; continue; }
+
+          const addRes = await fetch('https://www.googleapis.com/youtube/v3/playlistItems?part=snippet', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              snippet: { playlistId, resourceId: { kind: 'youtube#video', videoId } },
+            }),
+          });
+          if (addRes.ok) added++;
+          else skipped++;
+        } catch {
+          skipped++;
+        }
+
+        // Small delay between calls to stay within rate limits
+        if (i < songsToAdd.length - 1) await new Promise<void>((r) => setTimeout(r, 150));
+      }
+
+      setExportState({
+        status: 'done',
+        playlistUrl: `https://www.youtube.com/playlist?list=${playlistId}`,
+        added,
+        skipped,
+      });
+    } catch (e) {
+      setExportState({ status: 'error', message: e instanceof Error ? e.message : 'Unknown error' });
+    }
+  }
+
+  if (songs.length === 0) return null;
+
+  return (
+    <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mt-6">
+      <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Export</h2>
+
+      {/* YouTube playlist creation */}
+      {googleClientId && (
+        <div className="mb-5">
+          {exportState.status === 'idle' && (
+            <button
+              onClick={() => void handleCreateYouTubePlaylist()}
+              disabled={!gisReady}
+              className="flex items-center gap-2.5 bg-red-700 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-5 py-2.5 rounded-xl transition-colors text-sm"
+            >
+              <span className="text-base">▶</span>
+              Create YouTube Playlist
+            </button>
+          )}
+
+          {exportState.status === 'working' && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-3">
+                <div className="flex gap-1">
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce"
+                      style={{ animationDelay: `${i * 0.15}s` }} />
+                  ))}
+                </div>
+                <span className="text-sm text-gray-300">{exportState.message}</span>
+              </div>
+              {exportState.progress && (
+                <div className="h-1 bg-gray-800 rounded-full overflow-hidden w-full max-w-xs">
+                  <div
+                    className="h-full bg-red-600 transition-all duration-300"
+                    style={{ width: `${(exportState.progress.current / exportState.progress.total) * 100}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {exportState.status === 'done' && (
+            <div className="flex flex-col gap-2">
+              <a
+                href={exportState.playlistUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 bg-red-700 hover:bg-red-600 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors text-sm w-fit"
+              >
+                <span className="text-base">▶</span>
+                Open YouTube Playlist →
+              </a>
+              <p className="text-xs text-gray-500">
+                {exportState.added} song{exportState.added !== 1 ? 's' : ''} added
+                {exportState.skipped > 0 ? `, ${exportState.skipped} not found on YouTube` : ''}
+                {songs.length > 50 ? ` (first 50 processed — YouTube quota limit)` : ''}
+              </p>
+              <button
+                onClick={() => setExportState({ status: 'idle' })}
+                className="text-xs text-gray-600 hover:text-gray-400 w-fit"
+              >
+                Create another
+              </button>
+            </div>
+          )}
+
+          {exportState.status === 'error' && (
+            <div className="flex flex-col gap-2">
+              <p className="text-red-400 text-sm">{exportState.message}</p>
+              {exportState.message.includes('origin') && (
+                <p className="text-xs text-gray-500">
+                  Fix: In Google Cloud Console, add your app URL to <em>Authorized JavaScript origins</em> for your OAuth client.
+                </p>
+              )}
+              <button
+                onClick={() => setExportState({ status: 'idle' })}
+                className="text-xs text-violet-400 hover:text-violet-300 w-fit"
+              >
+                Try again
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Per-song search links */}
+      <div>
+        <button
+          onClick={() => setShowLinks((v) => !v)}
+          className="text-xs text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
+        >
+          <span>{showLinks ? '▾' : '▸'}</span>
+          {showLinks ? 'Hide' : 'Show'} per-song search links
+        </button>
+
+        {showLinks && (
+          <div className="mt-3 space-y-1.5 max-h-60 overflow-y-auto border border-gray-800 rounded-xl p-3">
+            {songs.map((song, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs group">
+                <span className="text-gray-700 w-5 text-right shrink-0">{i + 1}</span>
+                <span className="text-gray-500 truncate flex-1 min-w-0">{song.band.name} — {song.title}</span>
+                <a
+                  href={ytMusicSearchUrl(song)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-red-400 hover:text-red-300 shrink-0 font-medium"
+                  title="YouTube Music"
+                >
+                  YT
+                </a>
+                <a
+                  href={spotifySearchUrl(song)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-green-400 hover:text-green-300 shrink-0 font-medium"
+                  title="Spotify"
+                >
+                  SP
+                </a>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -689,6 +972,8 @@ function DoneScreen({
             </div>
           )}
         </div>
+
+        <ExportSection songs={songs} playlistName={name} />
       </main>
     </div>
   );
@@ -772,6 +1057,11 @@ function ViewPlaylistScreen({ playlistId }: { playlistId: string }) {
                 ))}
               </div>
             </div>
+
+            <ExportSection
+              songs={data.songs.map((ps) => ({ title: ps.song.title, band: { name: ps.song.band.name } }))}
+              playlistName={data.name}
+            />
           </>
         )}
       </main>

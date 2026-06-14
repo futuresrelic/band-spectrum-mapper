@@ -606,44 +606,85 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
       res.status(400).json({ error: 'bandName is required' }); return;
     }
 
-    const apiKey = process.env['OPENAI_API_KEY'];
-    if (!apiKey) {
-      res.status(503).json({ error: 'OPENAI_API_KEY is not configured' }); return;
+    const hfToken = process.env['HUGGINGFACE_TOKEN'];
+    if (!hfToken) {
+      res.status(503).json({ error: 'HUGGINGFACE_TOKEN is not configured. Add it to your Railway environment variables.' }); return;
     }
 
-    const OpenAI = (await import('openai')).default;
-    const openai = new OpenAI({ apiKey });
-
+    const nameStr = memberName.trim();
+    const bandStr = bandName.trim();
     const role = typeof memberRole === 'string' && memberRole ? memberRole.trim() : null;
-
-    // Use role + band aesthetic only — DALL-E 3 refuses prompts that name real individuals.
     const roleDesc = role ? `${role} player` : 'musician';
+
+    // Step 1: Ask GPT-4o-mini to describe the member's appearance for a more accurate sprite.
+    // We avoid naming the real person in the image prompt to stay within content policy.
+    let appearanceHint = '';
+    const openAiKey = process.env['OPENAI_API_KEY'];
+    if (openAiKey) {
+      try {
+        const OpenAI = (await import('openai')).default;
+        const openai = new OpenAI({ apiKey: openAiKey });
+        const descRes = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [{
+            role: 'user',
+            content:
+              `Describe the distinctive visual appearance of ${nameStr}, the ${roleDesc} from the band ${bandStr}, ` +
+              `in one short sentence for a pixel art video game sprite. ` +
+              `Focus on hair color/length, notable physical features, and signature stage clothing/style. ` +
+              `Output the description only — no name, no explanation.`,
+          }],
+          max_tokens: 80,
+        });
+        const hint = descRes.choices[0]?.message?.content?.trim();
+        if (hint) appearanceHint = `${hint} `;
+      } catch {
+        // Non-fatal: continue with generic prompt if GPT fails
+      }
+    }
+
+    // Step 2: Build the pixel art prompt using the appearance hint
     const prompt =
-      `Pixel art video game character sprite for a side-scrolling platformer. ` +
-      `A rock ${roleDesc} inspired by the ${bandName.trim()} band aesthetic. ` +
-      `Full body, standing pose, 16-bit retro RPG style, vibrant outfit matching a rock musician, ` +
-      `expressive face, dark background, no text, clean crisp pixels, ` +
-      `suitable as a playable video game character.`;
+      `Pixel art video game character sprite, 16-bit retro style, side-scrolling platformer. ` +
+      `Rock ${roleDesc}, ${bandStr} band aesthetic. ` +
+      appearanceHint +
+      `Full body standing pose, vibrant rock musician outfit, expressive pixel face, ` +
+      `clean crisp pixel art, dark background, no text, game character sprite.`;
 
-    const response = await openai.images.generate({
-      model: 'dall-e-2',
-      prompt,
-      n: 1,
-      size: '512x512',
-    });
+    // Step 3: Generate image via Hugging Face Inference API (FLUX.1-schnell)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90_000); // 90s max
 
-    const imageUrl = response.data?.[0]?.url;
-    if (!imageUrl) {
-      res.status(502).json({ error: 'No image URL returned from OpenAI' }); return;
+    let hfRes: Response;
+    try {
+      hfRes = await fetch('https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${hfToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ inputs: prompt, parameters: { num_inference_steps: 4 } }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
     }
 
-    const imgRes = await fetch(imageUrl);
-    if (!imgRes.ok) {
-      res.status(502).json({ error: `Failed to download generated image: ${imgRes.status}` }); return;
+    if (!hfRes.ok) {
+      const errText = await hfRes.text().catch(() => '');
+      if (hfRes.status === 503) {
+        let wait = 20;
+        try { const p = JSON.parse(errText) as { estimated_time?: number }; if (p.estimated_time) wait = Math.ceil(p.estimated_time); } catch {}
+        res.status(503).json({ error: `Image model is warming up (~${wait}s). Please try again in a moment.` }); return;
+      }
+      res.status(502).json({ error: `Image generation failed (${hfRes.status}): ${errText.slice(0, 200)}` }); return;
     }
-    const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
-    const dataUrl = `data:image/png;base64,${imgBuffer.toString('base64')}`;
 
+    const contentType = hfRes.headers.get('content-type') ?? 'image/jpeg';
+    const imageBuffer = Buffer.from(await hfRes.arrayBuffer());
+    const dataUrl = `data:${contentType};base64,${imageBuffer.toString('base64')}`;
+
+    // Step 4: Persist the skin record
     const skinData: {
       name: string;
       dataUrl: string;
@@ -652,7 +693,7 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
       bandId?: string;
       memberId?: string;
     } = {
-      name: `${memberName.trim()} (AI)`,
+      name: `${nameStr} (AI)`,
       dataUrl,
       isApproved: true,
       isAiGenerated: true,
@@ -660,7 +701,6 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
 
     if (typeof memberId === 'string' && memberId) skinData.memberId = memberId;
 
-    // Look up bandId from member if memberId provided
     if (typeof memberId === 'string' && memberId) {
       const member = await prisma.bandMember.findUnique({ where: { id: memberId }, select: { bandId: true } });
       if (member) skinData.bandId = member.bandId;
@@ -669,8 +709,7 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
     const skin = await prisma.platformerCharacterSkin.create({ data: skinData });
     res.status(201).json(skin);
   } catch (e: unknown) {
-    // Surface the OpenAI error message so the admin can see what went wrong.
     const msg = e instanceof Error ? e.message : 'Unknown error';
-    res.status(502).json({ error: msg });
+    res.status(502).json({ error: `Sprite generation failed: ${msg}` });
   }
 });
