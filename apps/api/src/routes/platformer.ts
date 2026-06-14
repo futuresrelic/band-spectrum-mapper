@@ -694,14 +694,18 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
     const skin = await prisma.platformerCharacterSkin.create({ data: skinData });
     res.status(201).json(skin);
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'Unknown error';
-    if (msg.includes('does not have access') || msg.toLowerCase().includes('permission') || msg.includes('403')) {
-      res.status(503).json({
-        error:
-          'Image generation is not available on your OpenAI account yet. ' +
-          'Fix: go to platform.openai.com → Organization settings → Verifications → click Start next to Individual and complete identity verification. Image models unlock automatically after that.',
-      }); return;
+    // Surface the raw OpenAI error so we can see exactly what's failing
+    let msg = 'Unknown error';
+    let status = 502;
+    if (e instanceof Error) {
+      msg = e.message;
+      const apiErr = e as Error & { status?: number; code?: string; error?: unknown };
+      if (apiErr.status) status = apiErr.status;
+      // Append any extra detail from the error body
+      if (apiErr.code) msg += ` [code: ${apiErr.code}]`;
+      if (apiErr.error) msg += ` [detail: ${JSON.stringify(apiErr.error)}]`;
     }
-    res.status(502).json({ error: `Sprite generation failed: ${msg}` });
+    console.error('[ai-generate] OpenAI error:', msg);
+    res.status(status < 400 ? 502 : status).json({ error: `Sprite generation failed: ${msg}` });
   }
 });
