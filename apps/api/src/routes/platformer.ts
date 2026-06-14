@@ -606,11 +606,6 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
       res.status(400).json({ error: 'bandName is required' }); return;
     }
 
-    const hfToken = process.env['HUGGINGFACE_TOKEN'];
-    if (!hfToken) {
-      res.status(503).json({ error: 'HUGGINGFACE_TOKEN is not configured. Add it to your Railway environment variables.' }); return;
-    }
-
     const nameStr = memberName.trim();
     const bandStr = bandName.trim();
     const role = typeof memberRole === 'string' && memberRole ? memberRole.trim() : null;
@@ -643,7 +638,7 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
       }
     }
 
-    // Step 2: Build the pixel art prompt using the appearance hint
+    // Step 2: Build the pixel art prompt
     const prompt =
       `Pixel art video game character sprite, 16-bit retro style, side-scrolling platformer. ` +
       `Rock ${roleDesc}, ${bandStr} band aesthetic. ` +
@@ -651,37 +646,28 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
       `Full body standing pose, vibrant rock musician outfit, expressive pixel face, ` +
       `clean crisp pixel art, dark background, no text, game character sprite.`;
 
-    // Step 3: Generate image via Hugging Face Inference API (FLUX.1-schnell)
+    // Step 3: Generate image via Pollinations.ai (free, no API key required, FLUX-based)
+    const seed = Math.floor(Math.random() * 999999);
+    const imageApiUrl =
+      `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}` +
+      `?width=512&height=512&model=flux&nologo=true&seed=${seed}`;
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 90_000); // 90s max
 
-    let hfRes: Response;
+    let imgRes: Response;
     try {
-      hfRes = await fetch('https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${hfToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ inputs: prompt, parameters: { num_inference_steps: 4 } }),
-        signal: controller.signal,
-      });
+      imgRes = await fetch(imageApiUrl, { signal: controller.signal });
     } finally {
       clearTimeout(timeoutId);
     }
 
-    if (!hfRes.ok) {
-      const errText = await hfRes.text().catch(() => '');
-      if (hfRes.status === 503) {
-        let wait = 20;
-        try { const p = JSON.parse(errText) as { estimated_time?: number }; if (p.estimated_time) wait = Math.ceil(p.estimated_time); } catch {}
-        res.status(503).json({ error: `Image model is warming up (~${wait}s). Please try again in a moment.` }); return;
-      }
-      res.status(502).json({ error: `Image generation failed (${hfRes.status}): ${errText.slice(0, 200)}` }); return;
+    if (!imgRes.ok) {
+      res.status(502).json({ error: `Image generation failed (${imgRes.status})` }); return;
     }
 
-    const contentType = hfRes.headers.get('content-type') ?? 'image/jpeg';
-    const imageBuffer = Buffer.from(await hfRes.arrayBuffer());
+    const contentType = imgRes.headers.get('content-type') ?? 'image/jpeg';
+    const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
     const dataUrl = `data:${contentType};base64,${imageBuffer.toString('base64')}`;
 
     // Step 4: Persist the skin record

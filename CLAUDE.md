@@ -150,7 +150,7 @@ This means:
 | `ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT` | No | Never set true in production |
 | `YTDLP_COOKIES_CONTENT` | No | Base64-encoded Netscape cookies.txt from a logged-in YouTube session — primary fix for 429/403 rate-limit errors on cloud IPs |
 | `YTDLP_COOKIES_FILE` | No | Path to cookies.txt on the container filesystem (alternative to YTDLP_COOKIES_CONTENT) |
-| `HUGGINGFACE_TOKEN` | No | Hugging Face access token — required for AI sprite generation in Vinyl Runner (`/admin/platformer`). Get one free at huggingface.co/settings/tokens |
+| `HUGGINGFACE_TOKEN` | No | No longer required — AI sprite generation now uses Pollinations.ai (free, no key needed) |
 
 ---
 
