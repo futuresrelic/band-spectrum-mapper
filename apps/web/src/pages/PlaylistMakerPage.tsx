@@ -164,9 +164,26 @@ function PlaylistPanel({
 
 type ExportSong = { title: string; band: { name: string } };
 
+interface YTVideoResult {
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  thumbnailUrl: string;
+}
+
+interface SearchedSong {
+  song: ExportSong;
+  index: number;
+  results: YTVideoResult[];
+  selectedVideoId: string | null; // null = skip this song
+}
+
 type ExportState =
   | { status: 'idle' }
-  | { status: 'working'; message: string; progress?: { current: number; total: number } }
+  | { status: 'authorizing' }
+  | { status: 'searching'; current: number; total: number }
+  | { status: 'reviewing'; token: string; songs: SearchedSong[] }
+  | { status: 'creating'; current: number; total: number }
   | { status: 'done'; playlistUrl: string; added: number; skipped: number }
   | { status: 'error'; message: string };
 
@@ -176,6 +193,25 @@ function ytMusicSearchUrl(song: ExportSong): string {
 
 function spotifySearchUrl(song: ExportSong): string {
   return `https://open.spotify.com/search/${encodeURIComponent(`${song.band.name} ${song.title}`)}`;
+}
+
+// Scores search results to auto-select the best match (official band channel preferred)
+function autoSelectVideoId(results: YTVideoResult[], bandName: string): string | null {
+  if (results.length === 0) return null;
+  const bl = bandName.toLowerCase();
+  const scored = results.map((r, i) => {
+    const cl = r.channelTitle.toLowerCase();
+    const tl = r.title.toLowerCase();
+    let score = -i; // earlier results win tiebreakers
+    if (cl === bl) score += 20;
+    else if (cl.includes(bl) || bl.includes(cl)) score += 10;
+    if (cl.includes('vevo')) score += 4;
+    if (tl.includes('official')) score += 3;
+    if (tl.includes('cover') || tl.includes('karaoke') || tl.includes('reaction') || tl.includes('tribute')) score -= 15;
+    return { videoId: r.videoId, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0]?.videoId ?? null;
 }
 
 function ExportSection({ songs, playlistName }: { songs: ExportSong[]; playlistName: string }) {
@@ -203,32 +239,86 @@ function ExportSection({ songs, playlistName }: { songs: ExportSong[]; playlistN
     document.head.appendChild(script);
   }, []);
 
-  async function handleCreateYouTubePlaylist() {
+  // Phase 1: OAuth → search YouTube for each song → show review screen
+  async function handleStartSearch() {
     if (!googleClientId || !gisReady || !window.google?.accounts?.oauth2) {
       setExportState({ status: 'error', message: 'Google sign-in is not ready. Refresh the page and try again.' });
       return;
     }
 
-    setExportState({ status: 'working', message: 'Opening Google sign-in…' });
+    setExportState({ status: 'authorizing' });
 
     try {
-      // 1. Obtain YouTube OAuth token via GIS popup
       const token = await new Promise<string>((resolve, reject) => {
         window.google!.accounts.oauth2.initTokenClient({
           client_id: googleClientId,
           scope: 'https://www.googleapis.com/auth/youtube',
           callback: (r) => {
-            if (r.error) {
-              reject(new Error(r.error === 'access_denied' ? 'Sign-in was cancelled.' : r.error));
-            } else {
-              resolve(r.access_token);
-            }
+            if (r.error) reject(new Error(r.error === 'access_denied' ? 'Sign-in was cancelled.' : r.error));
+            else resolve(r.access_token);
           },
         }).requestAccessToken();
       });
 
-      // 2. Create the YouTube playlist
-      setExportState({ status: 'working', message: 'Creating YouTube playlist…' });
+      const songsToSearch = songs.slice(0, 50);
+      const searchedSongs: SearchedSong[] = [];
+
+      for (let i = 0; i < songsToSearch.length; i++) {
+        const song = songsToSearch[i]!;
+        setExportState({ status: 'searching', current: i + 1, total: songsToSearch.length });
+
+        let results: YTVideoResult[] = [];
+        try {
+          const q = encodeURIComponent(`${song.band.name} ${song.title}`);
+          const res = await fetch(
+            `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=5&q=${q}`,
+            { headers: { 'Authorization': `Bearer ${token}` } },
+          );
+          if (res.ok) {
+            const data = await res.json() as {
+              items?: Array<{
+                id?: { videoId?: string };
+                snippet?: { title?: string; channelTitle?: string; thumbnails?: { default?: { url?: string } } };
+              }>;
+            };
+            results = (data.items ?? [])
+              .map((item) => ({
+                videoId: item.id?.videoId ?? '',
+                title: item.snippet?.title ?? '',
+                channelTitle: item.snippet?.channelTitle ?? '',
+                thumbnailUrl: item.snippet?.thumbnails?.default?.url ?? '',
+              }))
+              .filter((r) => r.videoId);
+          }
+        } catch { /* keep empty results for this song */ }
+
+        searchedSongs.push({
+          song,
+          index: i,
+          results,
+          selectedVideoId: autoSelectVideoId(results, song.band.name),
+        });
+
+        if (i < songsToSearch.length - 1) await new Promise<void>((r) => setTimeout(r, 200));
+      }
+
+      setExportState({ status: 'reviewing', token, songs: searchedSongs });
+    } catch (e) {
+      setExportState({ status: 'error', message: e instanceof Error ? e.message : 'Unknown error' });
+    }
+  }
+
+  // Phase 2: Create playlist with only the user-confirmed videos
+  async function handleCreatePlaylist(token: string, searchedSongs: SearchedSong[]) {
+    const selected = searchedSongs.filter((s) => s.selectedVideoId !== null);
+    if (selected.length === 0) {
+      setExportState({ status: 'error', message: 'No songs selected. Pick at least one video.' });
+      return;
+    }
+
+    setExportState({ status: 'creating', current: 0, total: selected.length });
+
+    try {
       const createRes = await fetch('https://www.googleapis.com/youtube/v3/playlists?part=snippet,status', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -241,49 +331,26 @@ function ExportSection({ songs, playlistName }: { songs: ExportSong[]; playlistN
         const errBody = await createRes.json() as { error?: { message?: string } };
         throw new Error(errBody.error?.message ?? `Failed to create playlist (${createRes.status})`);
       }
-      const createdPlaylist = await createRes.json() as { id: string };
-      const playlistId = createdPlaylist.id;
+      const { id: playlistId } = await createRes.json() as { id: string };
 
-      // 3. Search YouTube for each song and add to playlist (cap at 50 to respect quota)
-      const songsToAdd = songs.slice(0, 50);
       let added = 0;
       let skipped = 0;
 
-      for (let i = 0; i < songsToAdd.length; i++) {
-        const song = songsToAdd[i]!;
-        setExportState({
-          status: 'working',
-          message: `Finding "${song.title}"…`,
-          progress: { current: i + 1, total: songsToAdd.length },
-        });
-
+      for (let i = 0; i < selected.length; i++) {
+        const s = selected[i]!;
+        setExportState({ status: 'creating', current: i + 1, total: selected.length });
         try {
-          const q = encodeURIComponent(`${song.band.name} ${song.title}`);
-          const searchRes = await fetch(
-            `https://www.googleapis.com/youtube/v3/search?part=id&type=video&maxResults=1&q=${q}`,
-            { headers: { 'Authorization': `Bearer ${token}` } },
-          );
-          if (!searchRes.ok) { skipped++; continue; }
-
-          const searchData = await searchRes.json() as { items?: Array<{ id?: { videoId?: string } }> };
-          const videoId = searchData.items?.[0]?.id?.videoId;
-          if (!videoId) { skipped++; continue; }
-
           const addRes = await fetch('https://www.googleapis.com/youtube/v3/playlistItems?part=snippet', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              snippet: { playlistId, resourceId: { kind: 'youtube#video', videoId } },
+              snippet: { playlistId, resourceId: { kind: 'youtube#video', videoId: s.selectedVideoId } },
             }),
           });
           if (addRes.ok) added++;
           else skipped++;
-        } catch {
-          skipped++;
-        }
-
-        // Small delay between calls to stay within rate limits
-        if (i < songsToAdd.length - 1) await new Promise<void>((r) => setTimeout(r, 150));
+        } catch { skipped++; }
+        if (i < selected.length - 1) await new Promise<void>((r) => setTimeout(r, 100));
       }
 
       setExportState({
@@ -297,93 +364,222 @@ function ExportSection({ songs, playlistName }: { songs: ExportSong[]; playlistN
     }
   }
 
+  // Toggle a video selection within the reviewing state
+  function selectVideo(songIndex: number, videoId: string | null) {
+    setExportState((prev) => {
+      if (prev.status !== 'reviewing') return prev;
+      return {
+        status: 'reviewing',
+        token: prev.token,
+        songs: prev.songs.map((s) =>
+          s.index === songIndex ? { ...s, selectedVideoId: videoId } : s,
+        ),
+      };
+    });
+  }
+
   if (songs.length === 0) return null;
 
   return (
     <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mt-6">
       <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Export</h2>
 
-      {/* YouTube playlist creation */}
-      {googleClientId && (
+      {/* ── Idle ── */}
+      {exportState.status === 'idle' && googleClientId && (
         <div className="mb-5">
-          {exportState.status === 'idle' && (
-            <button
-              onClick={() => void handleCreateYouTubePlaylist()}
-              disabled={!gisReady}
-              className="flex items-center gap-2.5 bg-red-700 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-5 py-2.5 rounded-xl transition-colors text-sm"
-            >
-              <span className="text-base">▶</span>
-              Create YouTube Playlist
-            </button>
-          )}
-
-          {exportState.status === 'working' && (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-3">
-                <div className="flex gap-1">
-                  {[0, 1, 2].map((i) => (
-                    <div key={i} className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce"
-                      style={{ animationDelay: `${i * 0.15}s` }} />
-                  ))}
-                </div>
-                <span className="text-sm text-gray-300">{exportState.message}</span>
-              </div>
-              {exportState.progress && (
-                <div className="h-1 bg-gray-800 rounded-full overflow-hidden w-full max-w-xs">
-                  <div
-                    className="h-full bg-red-600 transition-all duration-300"
-                    style={{ width: `${(exportState.progress.current / exportState.progress.total) * 100}%` }}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          {exportState.status === 'done' && (
-            <div className="flex flex-col gap-2">
-              <a
-                href={exportState.playlistUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 bg-red-700 hover:bg-red-600 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors text-sm w-fit"
-              >
-                <span className="text-base">▶</span>
-                Open YouTube Playlist →
-              </a>
-              <p className="text-xs text-gray-500">
-                {exportState.added} song{exportState.added !== 1 ? 's' : ''} added
-                {exportState.skipped > 0 ? `, ${exportState.skipped} not found on YouTube` : ''}
-                {songs.length > 50 ? ` (first 50 processed — YouTube quota limit)` : ''}
-              </p>
-              <button
-                onClick={() => setExportState({ status: 'idle' })}
-                className="text-xs text-gray-600 hover:text-gray-400 w-fit"
-              >
-                Create another
-              </button>
-            </div>
-          )}
-
-          {exportState.status === 'error' && (
-            <div className="flex flex-col gap-2">
-              <p className="text-red-400 text-sm">{exportState.message}</p>
-              {exportState.message.includes('origin') && (
-                <p className="text-xs text-gray-500">
-                  Fix: In Google Cloud Console, add your app URL to <em>Authorized JavaScript origins</em> for your OAuth client.
-                </p>
-              )}
-              <button
-                onClick={() => setExportState({ status: 'idle' })}
-                className="text-xs text-violet-400 hover:text-violet-300 w-fit"
-              >
-                Try again
-              </button>
-            </div>
-          )}
+          <button
+            onClick={() => void handleStartSearch()}
+            disabled={!gisReady}
+            className="flex items-center gap-2.5 bg-red-700 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-5 py-2.5 rounded-xl transition-colors text-sm"
+          >
+            <span>▶</span>
+            Create YouTube Playlist
+          </button>
+          <p className="text-xs text-gray-600 mt-2">
+            Searches YouTube for each song so you can pick the official version before creating the playlist.
+          </p>
         </div>
       )}
 
-      {/* Per-song search links */}
+      {/* ── Authorizing ── */}
+      {exportState.status === 'authorizing' && (
+        <div className="flex items-center gap-3 mb-5 text-sm text-gray-300">
+          <div className="flex gap-1">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+            ))}
+          </div>
+          Waiting for Google sign-in…
+        </div>
+      )}
+
+      {/* ── Searching ── */}
+      {exportState.status === 'searching' && (
+        <div className="flex flex-col gap-2 mb-5">
+          <div className="flex items-center gap-3 text-sm text-gray-300">
+            <div className="flex gap-1">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+              ))}
+            </div>
+            Searching YouTube… {exportState.current} / {exportState.total}
+          </div>
+          <div className="h-1 bg-gray-800 rounded-full overflow-hidden w-full max-w-xs">
+            <div
+              className="h-full bg-red-600 transition-all duration-300"
+              style={{ width: `${(exportState.current / exportState.total) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Review — user picks the correct video per song ── */}
+      {exportState.status === 'reviewing' && (() => {
+        const { token, songs: searchedSongs } = exportState;
+        const selectedCount = searchedSongs.filter((s) => s.selectedVideoId !== null).length;
+        return (
+          <div className="mb-5">
+            <p className="text-sm text-gray-200 font-medium mb-1">Pick the right video for each song</p>
+            <p className="text-xs text-gray-500 mb-4">
+              Auto-selected the best match — change any that look wrong, then hit Create.
+              {songs.length > 50 && ' First 50 songs shown (YouTube quota limit).'}
+            </p>
+
+            <div className="space-y-5 max-h-[62vh] overflow-y-auto border border-gray-800 rounded-xl p-4">
+              {searchedSongs.map((s) => (
+                <div key={s.index} className="pb-4 border-b border-gray-800/50 last:border-0 last:pb-0">
+                  <p className="text-xs font-semibold text-gray-300 mb-2 truncate">
+                    {s.index + 1}. {s.song.band.name} — {s.song.title}
+                  </p>
+
+                  {s.results.length === 0 ? (
+                    <p className="text-xs text-gray-600 italic">Not found on YouTube — will be skipped.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {s.results.map((r) => (
+                        <label
+                          key={r.videoId}
+                          className={`flex items-center gap-2.5 rounded-lg p-2 cursor-pointer transition-colors ${
+                            s.selectedVideoId === r.videoId
+                              ? 'bg-red-900/30 border border-red-700/50'
+                              : 'border border-transparent hover:bg-gray-800/60'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name={`song-${s.index}`}
+                            checked={s.selectedVideoId === r.videoId}
+                            onChange={() => selectVideo(s.index, r.videoId)}
+                            className="accent-red-500 shrink-0"
+                          />
+                          {r.thumbnailUrl && (
+                            <img src={r.thumbnailUrl} alt="" className="w-14 h-10 object-cover rounded shrink-0 bg-gray-800" />
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-xs text-white leading-tight line-clamp-1">{r.title}</p>
+                            <p className="text-[11px] text-gray-500 truncate">{r.channelTitle}</p>
+                          </div>
+                        </label>
+                      ))}
+                      <label className="flex items-center gap-2 px-2 py-1 cursor-pointer">
+                        <input
+                          type="radio"
+                          name={`song-${s.index}`}
+                          checked={s.selectedVideoId === null}
+                          onChange={() => selectVideo(s.index, null)}
+                          className="accent-gray-500 shrink-0"
+                        />
+                        <span className="text-xs text-gray-600">Skip this song</span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-3 mt-4 flex-wrap">
+              <button
+                onClick={() => void handleCreatePlaylist(token, searchedSongs)}
+                disabled={selectedCount === 0}
+                className="bg-red-700 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-5 py-2.5 rounded-xl transition-colors text-sm"
+              >
+                Create Playlist ({selectedCount} song{selectedCount !== 1 ? 's' : ''}) →
+              </button>
+              <button
+                onClick={() => setExportState({ status: 'idle' })}
+                className="text-sm text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Creating ── */}
+      {exportState.status === 'creating' && (
+        <div className="flex flex-col gap-2 mb-5">
+          <div className="flex items-center gap-3 text-sm text-gray-300">
+            <div className="flex gap-1">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+              ))}
+            </div>
+            Adding to playlist… {exportState.current} / {exportState.total}
+          </div>
+          <div className="h-1 bg-gray-800 rounded-full overflow-hidden w-full max-w-xs">
+            <div
+              className="h-full bg-red-600 transition-all duration-300"
+              style={{ width: `${(exportState.current / exportState.total) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Done ── */}
+      {exportState.status === 'done' && (
+        <div className="flex flex-col gap-2 mb-5">
+          <a
+            href={exportState.playlistUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 bg-red-700 hover:bg-red-600 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors text-sm w-fit"
+          >
+            <span>▶</span>
+            Open YouTube Playlist →
+          </a>
+          <p className="text-xs text-gray-500">
+            {exportState.added} song{exportState.added !== 1 ? 's' : ''} added
+            {exportState.skipped > 0 ? `, ${exportState.skipped} failed` : ''}
+          </p>
+          <button
+            onClick={() => setExportState({ status: 'idle' })}
+            className="text-xs text-gray-600 hover:text-gray-400 w-fit"
+          >
+            Create another
+          </button>
+        </div>
+      )}
+
+      {/* ── Error ── */}
+      {exportState.status === 'error' && (
+        <div className="flex flex-col gap-2 mb-5">
+          <p className="text-red-400 text-sm">{exportState.message}</p>
+          {exportState.message.toLowerCase().includes('origin') && (
+            <p className="text-xs text-gray-500">
+              Fix: In Google Cloud Console, add your app URL to <em>Authorized JavaScript origins</em> for your OAuth client.
+            </p>
+          )}
+          <button
+            onClick={() => setExportState({ status: 'idle' })}
+            className="text-xs text-violet-400 hover:text-violet-300 w-fit"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {/* Per-song search links — zero-auth fallback */}
       <div>
         <button
           onClick={() => setShowLinks((v) => !v)}
@@ -396,7 +592,7 @@ function ExportSection({ songs, playlistName }: { songs: ExportSong[]; playlistN
         {showLinks && (
           <div className="mt-3 space-y-1.5 max-h-60 overflow-y-auto border border-gray-800 rounded-xl p-3">
             {songs.map((song, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs group">
+              <div key={i} className="flex items-center gap-2 text-xs">
                 <span className="text-gray-700 w-5 text-right shrink-0">{i + 1}</span>
                 <span className="text-gray-500 truncate flex-1 min-w-0">{song.band.name} — {song.title}</span>
                 <a
