@@ -626,24 +626,17 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
       `suitable as a playable video game character.`;
 
     const response = await openai.images.generate({
-      model: 'dall-e-3',
+      model: 'gpt-image-1',
       prompt,
       n: 1,
       size: '1024x1024',
     });
 
-    const imageUrl = response.data?.[0]?.url;
-    if (!imageUrl) {
+    const b64 = response.data?.[0]?.b64_json;
+    if (!b64) {
       res.status(502).json({ error: 'No image returned from OpenAI' }); return;
     }
-
-    // Fetch the image and convert to base64
-    const imgRes = await fetch(imageUrl);
-    if (!imgRes.ok) {
-      res.status(502).json({ error: 'Failed to fetch generated image' }); return;
-    }
-    const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
-    const dataUrl = `data:image/png;base64,${imgBuffer.toString('base64')}`;
+    const dataUrl = `data:image/png;base64,${b64}`;
 
     const skinData: {
       name: string;
