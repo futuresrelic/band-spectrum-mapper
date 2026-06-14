@@ -40,7 +40,7 @@ log = logging.getLogger("audio-worker")
 MAX_MB = int(os.environ.get("MAX_MB", "150"))
 MAX_BYTES = MAX_MB * 1024 * 1024
 
-SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".opus"}
+SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".opus", ".webm"}
 
 # ---------------------------------------------------------------------------
 # YouTube cookies — loaded once at startup from environment variable.

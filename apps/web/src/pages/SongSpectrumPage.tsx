@@ -18,6 +18,7 @@ import SpectrogramViz from '../components/songSpectrum/SpectrogramViz';
 import SectionTimeline from '../components/songSpectrum/SectionTimeline';
 import ScoreBreakdown from '../components/songSpectrum/ScoreBreakdown';
 import AudioUploader from '../components/songSpectrum/AudioUploader';
+import BrowserAudioCapture from '../components/songSpectrum/BrowserAudioCapture';
 import RhythmRadarCanvas from '../components/songSpectrum/RhythmRadarCanvas';
 
 // ---------------------------------------------------------------------------
@@ -1387,6 +1388,20 @@ export default function SongSpectrumPage() {
               )}
 
               <AudioUploader
+                onFile={(f) => {
+                  setAudioFile(f);
+                  analyzeMutation.mutate(f);
+                }}
+                disabled={analyzeMutation.isPending || ytAudioMutation.isPending || !status?.audioWorker}
+              />
+
+              <div className="flex items-center gap-3 text-xs text-surface-600">
+                <div className="flex-1 h-px bg-surface-800" />
+                <span>or</span>
+                <div className="flex-1 h-px bg-surface-800" />
+              </div>
+
+              <BrowserAudioCapture
                 onFile={(f) => {
                   setAudioFile(f);
                   analyzeMutation.mutate(f);
