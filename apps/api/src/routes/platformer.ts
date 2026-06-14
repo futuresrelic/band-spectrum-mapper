@@ -656,7 +656,7 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
     const openaiForImage = new OpenAI({ apiKey: openAiKey });
 
     const imageResponse = await openaiForImage.images.generate({
-      model: 'gpt-image-2',
+      model: 'gpt-image-1',
       prompt,
       n: 1,
       size: '1024x1024',
