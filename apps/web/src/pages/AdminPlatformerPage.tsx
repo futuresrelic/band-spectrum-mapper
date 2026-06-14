@@ -515,11 +515,18 @@ function MembersAndSkins() {
     setGeneratingId(member.id);
     setGenMsg(null);
     try {
-      await platformerApi.aiGenerateSkin({ memberId: member.id, memberName: member.name, bandName: band.name });
+      await platformerApi.aiGenerateSkin({
+        memberId: member.id,
+        memberName: member.name,
+        memberRole: member.role,
+        bandName: band.name,
+      });
       flash(setGenMsg, `AI skin generated for ${member.name}.`, true);
       invalidate();
-    } catch {
-      flash(setGenMsg, `AI generation failed for ${member.name}.`, false);
+    } catch (err: unknown) {
+      const msg = (err as { error?: string })?.error
+        ?? (err instanceof Error ? err.message : 'Unknown error');
+      flash(setGenMsg, `Failed: ${msg}`, false);
     } finally {
       setGeneratingId(null);
     }

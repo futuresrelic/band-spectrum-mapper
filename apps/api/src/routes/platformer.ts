@@ -595,8 +595,8 @@ platformerRouter.delete('/skins/:id', requireAuth, requireAdmin, async (req, res
 
 platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
   try {
-    const { memberId, memberName, bandName } = req.body as {
-      memberId?: unknown; memberName?: unknown; bandName?: unknown;
+    const { memberId, memberName, memberRole, bandName } = req.body as {
+      memberId?: unknown; memberName?: unknown; memberRole?: unknown; bandName?: unknown;
     };
 
     if (typeof memberName !== 'string' || !memberName.trim()) {
@@ -614,11 +614,16 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
     const OpenAI = (await import('openai')).default;
     const openai = new OpenAI({ apiKey });
 
-    const prompt = `Pixel art video game character sprite for a side-scrolling platformer game. ` +
-      `A musician named ${memberName.trim()} from the band ${bandName.trim()}. ` +
-      `Full body, standing pose, 16-bit retro RPG style, vibrant outfit matching a rock musician aesthetic, ` +
-      `expressive face, dark blue-purple background (#0f172a), no text, clean crisp pixels, ` +
-      `suitable for use as a playable video game character.`;
+    const role = typeof memberRole === 'string' && memberRole ? memberRole.trim() : null;
+
+    // Use role + band aesthetic only — DALL-E 3 refuses prompts that name real individuals.
+    const roleDesc = role ? `${role} player` : 'musician';
+    const prompt =
+      `Pixel art video game character sprite for a side-scrolling platformer. ` +
+      `A rock ${roleDesc} inspired by the ${bandName.trim()} band aesthetic. ` +
+      `Full body, standing pose, 16-bit retro RPG style, vibrant outfit matching a rock musician, ` +
+      `expressive face, dark background, no text, clean crisp pixels, ` +
+      `suitable as a playable video game character.`;
 
     const response = await openai.images.generate({
       model: 'dall-e-3',
@@ -665,5 +670,9 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
 
     const skin = await prisma.platformerCharacterSkin.create({ data: skinData });
     res.status(201).json(skin);
-  } catch (e) { next(e); }
+  } catch (e: unknown) {
+    // Surface the OpenAI error message so the admin can see what went wrong.
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    res.status(502).json({ error: msg });
+  }
 });

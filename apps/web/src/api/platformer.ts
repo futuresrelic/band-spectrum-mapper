@@ -175,6 +175,7 @@ export const platformerApi = {
   aiGenerateSkin(data: {
     memberId?: string;
     memberName: string;
+    memberRole?: string | null;
     bandName: string;
   }): Promise<CharacterSkin> {
     return api.post<CharacterSkin>('/api/platformer/skins/ai-generate', data);
