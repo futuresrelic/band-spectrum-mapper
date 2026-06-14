@@ -630,14 +630,19 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
       prompt,
       n: 1,
       size: '512x512',
-      response_format: 'b64_json',
     });
 
-    const b64 = response.data?.[0]?.b64_json;
-    if (!b64) {
-      res.status(502).json({ error: 'No image returned from OpenAI' }); return;
+    const imageUrl = response.data?.[0]?.url;
+    if (!imageUrl) {
+      res.status(502).json({ error: 'No image URL returned from OpenAI' }); return;
     }
-    const dataUrl = `data:image/png;base64,${b64}`;
+
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) {
+      res.status(502).json({ error: `Failed to download generated image: ${imgRes.status}` }); return;
+    }
+    const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+    const dataUrl = `data:image/png;base64,${imgBuffer.toString('base64')}`;
 
     const skinData: {
       name: string;
