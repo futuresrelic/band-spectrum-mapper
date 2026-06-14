@@ -626,10 +626,11 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
       `suitable as a playable video game character.`;
 
     const response = await openai.images.generate({
-      model: 'gpt-image-1',
+      model: 'dall-e-2',
       prompt,
       n: 1,
-      size: '1024x1024',
+      size: '512x512',
+      response_format: 'b64_json',
     });
 
     const b64 = response.data?.[0]?.b64_json;
