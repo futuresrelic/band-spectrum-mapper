@@ -78,6 +78,7 @@ export const lyricDuelApi = {
     rivalBandId?: string;
     mode: string;
     difficulty: string;
+    ruleCount?: number;
   }): Promise<MatchSetup> {
     return api.post<MatchSetup>('/api/lyric-duel/start', data);
   },

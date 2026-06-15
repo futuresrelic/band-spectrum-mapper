@@ -51,6 +51,20 @@ const ALBUM_TYPES = [
 
 const ALL_ALBUM_TYPE_VALUES = ALBUM_TYPES.map((t) => t.value);
 
+const RULE_COUNTS = [3, 6, 9, 10] as const;
+type RuleCount = (typeof RULE_COUNTS)[number];
+
+const RULE_COUNT_DEFAULTS: Record<Difficulty, RuleCount> = {
+  friendly: 3, normal: 6, ruthless: 9, legendary: 10,
+};
+
+const RULE_COUNT_LABELS: Record<RuleCount, string> = {
+  3:  'Quick — 3 rules',
+  6:  'Standard — 6 rules',
+  9:  'Deep — 9 rules',
+  10: 'Full — 10 rules',
+};
+
 // ---------------------------------------------------------------------------
 // Rule item with caveman short desc + expandable full info
 // ---------------------------------------------------------------------------
@@ -620,6 +634,16 @@ function RevealPanel({ round, roundNum, playerName, rivalName, onContinue }: {
 // Face-off animation — Mortal Kombat style fight sequence from completed rounds
 // ---------------------------------------------------------------------------
 
+// Caveman helpers: short punchy name + first sentence of longer AI text
+function shortName(name: string): string {
+  const first = name.trim().split(/\s+/)[0] ?? name;
+  return (first.length >= 3 ? first : name.slice(0, 8)).toUpperCase();
+}
+function firstSentence(text: string): string {
+  const m = text.match(/^.{8,}?[.!?]/);
+  return m ? m[0] : text.slice(0, 70) + (text.length > 70 ? '…' : '');
+}
+
 interface FightEvent {
   type: 'round-start' | 'hit' | 'clash' | 'round-end' | 'finale';
   attacker?: 'player' | 'rival';
@@ -669,7 +693,7 @@ function buildFightEvents(
       roundNum: ri + 1,
       playerHp,
       rivalHp,
-      caption: `ROUND ${ri + 1} — ${playerName} vs ${rivalName}`,
+      caption: `ROUND ${ri + 1} — FIGHT!`,
     });
 
     for (let bi = 0; bi < round.breakdown.length; bi++) {
@@ -685,7 +709,7 @@ function buildFightEvents(
           ruleName: b.ruleName,
           playerHp,
           rivalHp,
-          caption: b.note || `${playerName} lands "${b.ruleName}"!`,
+          caption: `${shortName(playerName)} WINS "${b.ruleName}"!`,
         });
       } else if (b.rivalScore > b.playerScore) {
         const dmg = Math.max(1, Math.round((b.rivalScore - b.playerScore) * scale));
@@ -696,7 +720,7 @@ function buildFightEvents(
           ruleName: b.ruleName,
           playerHp,
           rivalHp,
-          caption: b.note || `${rivalName} counters with "${b.ruleName}"!`,
+          caption: `${shortName(rivalName)} COUNTERS — "${b.ruleName}"!`,
         });
       } else {
         playerHp = Math.max(playerHp - 1, 1);
@@ -706,7 +730,7 @@ function buildFightEvents(
           ruleName: b.ruleName,
           playerHp,
           rivalHp,
-          caption: b.note || `"${b.ruleName}" — CLASH!`,
+          caption: `"${b.ruleName}" — CLASH!`,
         });
       }
     }
@@ -716,7 +740,7 @@ function buildFightEvents(
       roundNum: ri + 1,
       playerHp,
       rivalHp,
-      caption: round.commentary,
+      caption: firstSentence(round.commentary),
     });
   }
 
@@ -1140,6 +1164,13 @@ export default function LyricDuelPage() {
   const [rivalBandId, setRivalBandId] = useState<string | null>(null);
   const [selectedAlbumTypes, setSelectedAlbumTypes] = useState<string[]>([...ALL_ALBUM_TYPE_VALUES]);
 
+  const [ruleCount, setRuleCount] = useState<RuleCount>(6);
+
+  // Sync default rule count when difficulty changes
+  useEffect(() => {
+    setRuleCount(RULE_COUNT_DEFAULTS[difficulty]);
+  }, [difficulty]);
+
   const [match, setMatch] = useState<MatchSetup | null>(null);
   const [rounds, setRounds] = useState<RoundResult[]>([]);
   const [pendingRound, setPendingRound] = useState<RoundResult | null>(null);
@@ -1186,6 +1217,7 @@ export default function LyricDuelPage() {
         ...(rivalBandId && mode === 'custom' ? { rivalBandId } : {}),
         mode,
         difficulty,
+        ruleCount,
       });
       setMatch(setup);
       setRounds([]);
@@ -1314,7 +1346,7 @@ export default function LyricDuelPage() {
             <div className="text-center">
               <p className="text-4xl mb-2">⚔️</p>
               <h1 className="text-3xl sm:text-4xl font-black text-white">Lyric Duel</h1>
-              <p className="text-gray-400 mt-2">Celebrity Deathmatch · AI Judge · 10 Rules per Match</p>
+              <p className="text-gray-400 mt-2">Celebrity Deathmatch · AI Judge · Configurable Rules</p>
             </div>
 
             <div>
@@ -1350,6 +1382,27 @@ export default function LyricDuelPage() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Rule count selector */}
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Rules per Round</p>
+              <div className="flex gap-2 flex-wrap">
+                {RULE_COUNTS.map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setRuleCount(n)}
+                    className={`px-4 py-2 rounded-lg border text-sm font-bold transition-colors ${
+                      ruleCount === n
+                        ? 'border-rose-500 bg-rose-950/40 text-rose-300'
+                        : 'border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-500 hover:text-white'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-1.5">{RULE_COUNT_LABELS[ruleCount]}</p>
             </div>
 
             {/* Album type filter */}
@@ -1430,7 +1483,7 @@ export default function LyricDuelPage() {
 
             <div className="bg-gray-900 border border-gray-700 rounded-xl p-5">
               <p className="text-xs text-gray-400 uppercase tracking-wider mb-3">
-                The 10 Rules · {match.difficulty.toUpperCase()} · {match.totalRounds} Rounds
+                The {match.rules.length} Rules · {match.difficulty.toUpperCase()} · {match.totalRounds} Rounds
               </p>
               <p className="text-[11px] text-gray-500 mb-3">
                 Tap <span className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-gray-600 text-[10px]">i</span> next to any rule to read the full explanation.

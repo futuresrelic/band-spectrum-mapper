@@ -17,6 +17,10 @@ const TOTAL_ROUNDS: Record<string, number> = {
   friendly: 3, normal: 3, ruthless: 5, legendary: 5,
 };
 
+const RULES_PER_DIFFICULTY: Record<string, number> = {
+  friendly: 3, normal: 6, ruthless: 9, legendary: 10,
+};
+
 const DIFFICULTY_NOTE: Record<string, string> = {
   friendly: 'Be generous with both sides — reward strong moments from both bands.',
   normal: 'Be fair and balanced in your scoring.',
@@ -335,13 +339,13 @@ lyricDuelRouter.get('/bands', async (_req, res, next): Promise<void> => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/lyric-duel/start — AI generates theme + selects 10 rules from pool
+// POST /api/lyric-duel/start — AI generates theme + selects rules from pool
 // ---------------------------------------------------------------------------
 
 lyricDuelRouter.post('/start', async (req, res, next): Promise<void> => {
   try {
-    const { playerBandId, rivalBandId: rawRivalId, mode, difficulty } = req.body as {
-      playerBandId?: unknown; rivalBandId?: unknown; mode?: unknown; difficulty?: unknown;
+    const { playerBandId, rivalBandId: rawRivalId, mode, difficulty, ruleCount: rawRuleCount } = req.body as {
+      playerBandId?: unknown; rivalBandId?: unknown; mode?: unknown; difficulty?: unknown; ruleCount?: unknown;
     };
 
     if (typeof playerBandId !== 'string') { res.status(400).json({ error: 'playerBandId required' }); return; }
@@ -385,8 +389,14 @@ lyricDuelRouter.post('/start', async (req, res, next): Promise<void> => {
 
     const totalRounds = TOTAL_ROUNDS[safeDiff] ?? 3;
 
-    // Pick 10 rules from the curated pool — no AI needed for rules
-    const selectedRules = pickRules(10);
+    // Rule count: client may override the difficulty default (must be one of 3/6/9/10)
+    const defaultRuleCount = RULES_PER_DIFFICULTY[safeDiff] ?? 6;
+    const VALID_RULE_COUNTS = new Set([3, 6, 9, 10]);
+    const safeRuleCount = typeof rawRuleCount === 'number' && VALID_RULE_COUNTS.has(rawRuleCount)
+      ? rawRuleCount
+      : defaultRuleCount;
+
+    const selectedRules = pickRules(safeRuleCount);
 
     // AI: generate theme + intro speech only (rules come from the pool)
     const openai = getClient();
@@ -517,9 +527,9 @@ lyricDuelRouter.post('/round', async (req, res, next): Promise<void> => {
 
     const rulesArr = Array.isArray(rules) ? rules as { name: string; description: string }[] : [];
     const rulesFormatted = rulesArr
-      .slice(0, 10)
       .map((r, i) => `${i + 1}. ${r.name}: ${r.description}`)
       .join('\n');
+    const ruleN = rulesArr.length;
 
     const openai = getClient();
     const aiRes = await openai.chat.completions.create({
@@ -546,13 +556,13 @@ ${rivalText}
 DIFFICULTY: ${safeDiff}
 Judging note: ${DIFFICULTY_NOTE[safeDiff] ?? DIFFICULTY_NOTE['normal']}
 
-Score BOTH bands on EACH of these 10 rules (0–10 points each):
+Score BOTH bands on EACH of these ${ruleN} rules (0–10 points each):
 ${rulesFormatted}
 
 Respond ONLY with valid JSON:
 {
-  "playerScore": <integer 0-100, exact sum of your 10 rule scores for Band A>,
-  "rivalScore": <integer 0-100, exact sum of your 10 rule scores for Band B>,
+  "playerScore": <integer 0-${ruleN * 10}, exact sum of your ${ruleN} rule scores for Band A>,
+  "rivalScore": <integer 0-${ruleN * 10}, exact sum of your ${ruleN} rule scores for Band B>,
   "breakdown": [
     { "ruleName": "...", "playerScore": 0-10, "rivalScore": 0-10, "note": "one vivid sentence comparing both" }
   ],
@@ -561,7 +571,7 @@ Respond ONLY with valid JSON:
   "commentary": "dramatic 2-3 sentence judge commentary for this round, declare a round winner by name"
 }
 
-The breakdown array must have exactly 10 items matching the 10 rules above in order.`,
+The breakdown array must have exactly ${ruleN} items matching the ${ruleN} rules above in order.`,
       }],
     });
 
