@@ -182,6 +182,10 @@ export const platformerApi = {
     return api.delete<void>(`/api/platformer/skins/${encodeURIComponent(id)}`);
   },
 
+  assignSkin(id: string, data: { memberId?: string | null; bandId?: string | null }): Promise<CharacterSkin> {
+    return api.put<CharacterSkin>(`/api/platformer/skins/${encodeURIComponent(id)}/assign`, data);
+  },
+
   aiGenerateSkin(data: {
     memberId?: string;
     memberName: string;

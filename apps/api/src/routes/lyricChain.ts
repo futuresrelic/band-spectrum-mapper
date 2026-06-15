@@ -347,7 +347,7 @@ lyricChainRouter.get('/scores', async (req, res, next): Promise<void> => {
       take:    limit,
       select: {
         id: true, chainLength: true, hardMode: true, bandScope: true, createdAt: true,
-        user: { select: { name: true, avatarUrl: true } },
+        user: { select: { name: true, username: true, avatarUrl: true } },
       },
     });
 
@@ -365,7 +365,7 @@ lyricChainRouter.get('/scores', async (req, res, next): Promise<void> => {
 
     res.json(scores.map((s, i) => ({
       rank:           i + 1,
-      playerName:     s.user.name ?? 'Anonymous',
+      playerName:     s.user.username ?? s.user.name ?? 'Anonymous',
       avatarUrl:      s.user.avatarUrl,
       chainLength:    s.chainLength,
       hardMode:       s.hardMode,

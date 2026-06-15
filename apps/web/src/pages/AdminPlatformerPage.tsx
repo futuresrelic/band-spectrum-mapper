@@ -450,6 +450,11 @@ function MembersAndSkins() {
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [genMsg, setGenMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
+  // Reassign skin state
+  const [reassigningSkinId, setReassigningSkinId] = useState<string | null>(null);
+  const [reassignBandId, setReassignBandId] = useState('');
+  const [reassignMemberId, setReassignMemberId] = useState('');
+
   const { data: bands = [] } = useQuery<BandStub[]>({
     queryKey: ['bands-list'],
     queryFn: () => api.get<BandStub[]>('/api/bands'),
@@ -508,6 +513,17 @@ function MembersAndSkins() {
   const deleteSkinMut = useMutation({
     mutationFn: (id: string) => platformerApi.deleteSkin(id),
     onSuccess: () => invalidate(),
+  });
+
+  const assignSkinMut = useMutation({
+    mutationFn: ({ id, memberId }: { id: string; memberId: string | null }) =>
+      platformerApi.assignSkin(id, { memberId }),
+    onSuccess: () => {
+      setReassigningSkinId(null);
+      setReassignBandId('');
+      setReassignMemberId('');
+      invalidate();
+    },
   });
 
   async function handleAiGenerate(member: PlatformerMember) {
@@ -689,35 +705,92 @@ function MembersAndSkins() {
           <div className="px-5 py-3 border-b border-surface-100">
             <h3 className="text-sm font-semibold text-surface-800">Approved Skins ({approvedSkins.length})</h3>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-5">
-            {approvedSkins.map((skin) => (
-              <div key={skin.id} className="flex flex-col gap-2 bg-surface-50 border border-surface-200 rounded-xl p-3">
-                <img
-                  src={skin.dataUrl}
-                  alt={skin.name}
-                  className="w-full aspect-square object-cover rounded-lg"
-                  style={{ imageRendering: 'pixelated' }}
-                />
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-surface-800 truncate">{skin.name}</p>
-                  {skin.member && <p className="text-xs text-surface-500">{skin.member.name}</p>}
-                  {skin.band && <p className="text-xs text-surface-400">{skin.band.name}</p>}
-                  {skin.isAiGenerated && (
-                    <span className="text-[10px] bg-indigo-50 text-indigo-600 border border-indigo-200 rounded px-1.5 py-0.5 font-medium">AI</span>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 p-5">
+            {approvedSkins.map((skin) => {
+              const isReassigning = reassigningSkinId === skin.id;
+              const bandMembers = members.filter((m) => m.bandId === reassignBandId);
+              return (
+                <div key={skin.id} className="flex flex-col gap-2 bg-surface-50 border border-surface-200 rounded-xl p-3">
+                  <img
+                    src={skin.dataUrl}
+                    alt={skin.name}
+                    className="w-full aspect-square object-cover rounded-lg"
+                    style={{ imageRendering: 'pixelated' }}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-surface-800 truncate">{skin.name}</p>
+                    {skin.member && <p className="text-xs text-surface-500">{skin.member.name}</p>}
+                    {skin.band && <p className="text-xs text-surface-400">{skin.band.name}</p>}
+                    {skin.isAiGenerated && (
+                      <span className="text-[10px] bg-indigo-50 text-indigo-600 border border-indigo-200 rounded px-1.5 py-0.5 font-medium">AI</span>
+                    )}
+                  </div>
+
+                  {/* Reassign inline form */}
+                  {isReassigning ? (
+                    <div className="space-y-1.5">
+                      <select
+                        value={reassignBandId}
+                        onChange={(e) => { setReassignBandId(e.target.value); setReassignMemberId(''); }}
+                        className="w-full border border-surface-200 rounded px-2 py-1 text-xs text-surface-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      >
+                        <option value="">— Band —</option>
+                        {bands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                      {reassignBandId && (
+                        <select
+                          value={reassignMemberId}
+                          onChange={(e) => setReassignMemberId(e.target.value)}
+                          className="w-full border border-surface-200 rounded px-2 py-1 text-xs text-surface-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        >
+                          <option value="">— Member —</option>
+                          {bandMembers.map((m) => (
+                            <option key={m.id} value={m.id}>{m.name}{m.role ? ` (${m.role})` : ''}</option>
+                          ))}
+                        </select>
+                      )}
+                      <div className="flex gap-1">
+                        <button
+                          disabled={!reassignMemberId || assignSkinMut.isPending}
+                          onClick={() => { void assignSkinMut.mutate({ id: skin.id, memberId: reassignMemberId || null }); }}
+                          className="flex-1 text-[11px] bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white rounded px-2 py-1 font-medium transition-colors"
+                        >
+                          {assignSkinMut.isPending ? '…' : 'Save'}
+                        </button>
+                        <button
+                          onClick={() => { setReassigningSkinId(null); setReassignBandId(''); setReassignMemberId(''); }}
+                          className="flex-1 text-[11px] bg-surface-100 hover:bg-surface-200 text-surface-600 rounded px-2 py-1 font-medium transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setReassigningSkinId(skin.id);
+                        setReassignBandId(skin.bandId ?? '');
+                        setReassignMemberId('');
+                      }}
+                      className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded px-2 py-1.5 font-medium transition-colors"
+                    >
+                      Reassign
+                    </button>
                   )}
+
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`Delete "${skin.name}"?`)) {
+                        void deleteSkinMut.mutate(skin.id);
+                      }
+                    }}
+                    className="text-xs text-red-500 hover:text-red-700 transition-colors"
+                  >
+                    Delete
+                  </button>
                 </div>
-                <button
-                  onClick={() => {
-                    if (window.confirm(`Delete "${skin.name}"?`)) {
-                      void deleteSkinMut.mutate(skin.id);
-                    }
-                  }}
-                  className="text-xs text-red-500 hover:text-red-700 transition-colors"
-                >
-                  Delete
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

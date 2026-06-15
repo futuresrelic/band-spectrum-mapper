@@ -117,8 +117,8 @@ lyricDissectionRouter.get('/scores', async (req, res, next): Promise<void> => {
     const scores = await prisma.lyricDissectionScore.findMany({
       orderBy: { score: 'desc' },
       take: limit,
-      select: { id: true, score: true, totalRounds: true, createdAt: true, user: { select: { name: true, avatarUrl: true } } },
+      select: { id: true, score: true, totalRounds: true, createdAt: true, user: { select: { name: true, username: true, avatarUrl: true } } },
     });
-    res.json(scores.map((s, i) => ({ rank: i + 1, playerName: s.user.name ?? 'Anonymous', avatarUrl: s.user.avatarUrl, score: s.score, totalRounds: s.totalRounds, createdAt: s.createdAt })));
+    res.json(scores.map((s, i) => ({ rank: i + 1, playerName: s.user.username ?? s.user.name ?? 'Anonymous', avatarUrl: s.user.avatarUrl, score: s.score, totalRounds: s.totalRounds, createdAt: s.createdAt })));
   } catch (e) { next(e); }
 });

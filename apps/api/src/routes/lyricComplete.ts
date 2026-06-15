@@ -265,7 +265,7 @@ lyricCompleteRouter.get('/scores', async (req, res, next): Promise<void> => {
       select: {
         id: true, score: true, wordsCompleted: true, maxStreak: true,
         difficulty: true, bandScope: true, createdAt: true,
-        user: { select: { name: true, avatarUrl: true } },
+        user: { select: { name: true, username: true, avatarUrl: true } },
       },
     });
 
@@ -283,7 +283,7 @@ lyricCompleteRouter.get('/scores', async (req, res, next): Promise<void> => {
 
     res.json(scores.map((s, i) => ({
       rank:           i + 1,
-      playerName:     s.user.name ?? 'Anonymous',
+      playerName:     s.user.username ?? s.user.name ?? 'Anonymous',
       avatarUrl:      s.user.avatarUrl,
       score:          s.score,
       wordsCompleted: s.wordsCompleted,

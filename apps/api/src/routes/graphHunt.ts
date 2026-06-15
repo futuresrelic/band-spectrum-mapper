@@ -35,8 +35,8 @@ graphHuntRouter.get('/scores', async (req, res, next): Promise<void> => {
     const scores = await prisma.graphHuntScore.findMany({
       orderBy: { score: 'desc' },
       take: limit,
-      select: { id: true, score: true, moves: true, timeSec: true, createdAt: true, user: { select: { name: true, avatarUrl: true } } },
+      select: { id: true, score: true, moves: true, timeSec: true, createdAt: true, user: { select: { name: true, username: true, avatarUrl: true } } },
     });
-    res.json(scores.map((s, i) => ({ rank: i + 1, playerName: s.user.name ?? 'Anonymous', avatarUrl: s.user.avatarUrl, score: s.score, moves: s.moves, timeSec: s.timeSec, createdAt: s.createdAt })));
+    res.json(scores.map((s, i) => ({ rank: i + 1, playerName: s.user.username ?? s.user.name ?? 'Anonymous', avatarUrl: s.user.avatarUrl, score: s.score, moves: s.moves, timeSec: s.timeSec, createdAt: s.createdAt })));
   } catch (e) { next(e); }
 });

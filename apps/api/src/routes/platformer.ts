@@ -43,7 +43,7 @@ platformerRouter.get('/scores', async (req, res, next): Promise<void> => {
         distancePx: true,
         bandScope: true,
         createdAt: true,
-        user: { select: { name: true, avatarUrl: true } },
+        user: { select: { name: true, username: true, avatarUrl: true } },
       },
     });
 
@@ -67,7 +67,7 @@ platformerRouter.get('/scores', async (req, res, next): Promise<void> => {
 
     const result = scores.map((s, i) => ({
       rank: i + 1,
-      playerName: s.user?.name ?? 'Anonymous',
+      playerName: s.user?.username ?? s.user?.name ?? 'Anonymous',
       avatarUrl: s.user?.avatarUrl ?? null,
       score: s.score,
       level: s.level,
@@ -576,6 +576,48 @@ platformerRouter.put('/skins/:id/approve', requireAuth, requireAdmin, async (req
 });
 
 // ---------------------------------------------------------------------------
+// PUT /skins/:id/assign — reassign a skin to a different member / band (admin only)
+// ---------------------------------------------------------------------------
+
+platformerRouter.put('/skins/:id/assign', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const id = req.params['id'];
+    if (!id) { res.status(400).json({ error: 'id is required' }); return; }
+
+    const { memberId, bandId } = req.body as { memberId?: unknown; bandId?: unknown };
+
+    const updateData: { memberId?: string | null; bandId?: string | null } = {};
+
+    if (memberId === null || typeof memberId === 'string') {
+      updateData.memberId = memberId === null ? null : memberId || null;
+    }
+    if (bandId === null || typeof bandId === 'string') {
+      updateData.bandId = bandId === null ? null : bandId || null;
+    }
+
+    // If a memberId is given, auto-resolve bandId from the member record
+    if (updateData.memberId) {
+      const member = await prisma.bandMember.findUnique({
+        where: { id: updateData.memberId },
+        select: { bandId: true },
+      });
+      if (!member) { res.status(404).json({ error: 'Member not found' }); return; }
+      updateData.bandId = member.bandId;
+    }
+
+    const skin = await prisma.platformerCharacterSkin.update({
+      where: { id },
+      data: updateData,
+      include: {
+        member: { select: { name: true, role: true } },
+        band:   { select: { name: true } },
+      },
+    });
+    res.json(skin); return;
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
 // DELETE /skins/:id — delete a skin (admin only)
 // ---------------------------------------------------------------------------
 
@@ -641,12 +683,15 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
     // Step 2: Build the face-portrait prompt.
     // We generate the head/face only with a transparent background so it can be
     // composited onto the game character's animated body at runtime.
+    // Three-quarter angle so the face looks natural when the character runs sideways.
     const prompt =
-      `Pixel art face portrait for a retro platformer video game character. ` +
+      `Pixel art face portrait for a retro side-scrolling platformer video game character. ` +
       `Rock musician (${roleDesc}, ${bandStr} band). ` +
       appearanceHint +
+      `Three-quarter angle view — face turned slightly to the right so the character ` +
+      `appears to be looking forward while running left-to-right. ` +
       `Head and hair only — no body, no shoulders. ` +
-      `If the character has long hair, let it flow naturally downward below the chin. ` +
+      `If the character has long hair, let it flow naturally downward. ` +
       `Expressive pixelated face, bold pixel art style, transparent background, ` +
       `centered in a square canvas, no text, no border, clean crisp pixel art.`;
 
