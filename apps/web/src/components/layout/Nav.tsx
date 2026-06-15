@@ -80,6 +80,7 @@ const adminSections: NavSection[] = [
       { to: '/admin/data-grid',      label: 'Data Grid' },
       { to: '/admin/game',             label: 'Album Art Quiz' },
       { to: '/admin/games',           label: 'Game Visibility' },
+      { to: '/admin/platformer-levels', label: 'Vinyl Runner Levels' },
       { to: '/admin/crossword-builder', label: 'Crossword Builder' },
     ],
   },

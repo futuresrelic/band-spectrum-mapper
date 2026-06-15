@@ -1304,6 +1304,22 @@ model PlatformerBodySkin {
 }
 
 // ---------------------------------------------------------------------------
+// Vinyl Runner — admin-designed custom levels
+// ---------------------------------------------------------------------------
+
+model PlatformerLevel {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  isTemplate  Boolean  @default(false)
+  levelData   Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("platformer_levels")
+}
+
+// ---------------------------------------------------------------------------
 // Playlist maker — user-built playlists from song battles
 // ---------------------------------------------------------------------------
 

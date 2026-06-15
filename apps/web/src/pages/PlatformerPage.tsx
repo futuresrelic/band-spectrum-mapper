@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import SiteHeader from '../components/layout/SiteHeader';
-import { platformerApi, type PlatformerAlbum, type PlatformerScore, type CharacterSkin, type BodySkin } from '../api/platformer';
+import { platformerApi, type PlatformerAlbum, type PlatformerScore, type CharacterSkin, type BodySkin, type LevelData, type EditorCol, type PlatformerLevelSummary } from '../api/platformer';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -116,6 +116,7 @@ interface GameState {
   running: boolean;
   lastSafePlatform: Platform | null;
   lastTimestamp: number;
+  isCustomLevel: boolean;
 }
 
 interface InputState {
@@ -254,6 +255,93 @@ function generateWorld(
   }
 
   gs.worldEnd = cx;
+}
+
+// ---------------------------------------------------------------------------
+// Custom level loading
+// ---------------------------------------------------------------------------
+
+function colBaseToPlatY(base: EditorCol['base']): number {
+  if (base === 'plat-low') return 330;
+  if (base === 'plat-mid') return 270;
+  if (base === 'plat-high') return 210;
+  return GROUND_Y;
+}
+
+function loadCustomLevel(
+  gs: GameState,
+  levelData: LevelData,
+  albums: PlatformerAlbum[],
+  artCache: Map<string, HTMLImageElement>,
+): void {
+  const colW = levelData.colWidthUnits;
+  const cols = levelData.cols;
+
+  // Safe start zone
+  const startPlat = makePlatform(0, GROUND_Y, 400, false);
+  gs.platforms.push(startPlat);
+  gs.lastSafePlatform = startPlat;
+
+  // Build platforms — merge consecutive same-base columns
+  let i = 0;
+  while (i < cols.length) {
+    const col = cols[i];
+    if (!col || col.base === 'gap') { i++; continue; }
+
+    const platY = colBaseToPlatY(col.base);
+    const startWorldX = 400 + i * colW;
+
+    // Find the run of same base
+    let runEnd = i + 1;
+    while (runEnd < cols.length && cols[runEnd]?.base === col.base) runEnd++;
+
+    const platW = (runEnd - i) * colW;
+    const plat = makePlatform(startWorldX, platY, platW, false);
+    gs.platforms.push(plat);
+    if (platY === GROUND_Y) gs.lastSafePlatform = plat;
+
+    // Place decorations per column
+    for (let k = i; k < runEnd; k++) {
+      const c = cols[k];
+      if (!c) continue;
+      const cx = 400 + k * colW + colW / 2;
+
+      if (c.hasRecord) {
+        const album = albums.length > 0 ? albums[k % albums.length] ?? null : null;
+        let artImage: HTMLImageElement | null = null;
+        if (album?.artworkUrl) {
+          const cached = artCache.get(album.id);
+          if (cached) {
+            artImage = cached;
+          } else {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.src = album.artworkUrl;
+            artCache.set(album.id, img);
+            artImage = img;
+          }
+        }
+        gs.collectibles.push({
+          wx: cx, wy: platY - 40,
+          albumArt: artImage, albumTitle: album?.title ?? '',
+          collected: false, collectTime: 0, rotAngle: 0,
+        });
+      }
+
+      if (c.hasEnemy) {
+        const patrolLeft = startWorldX + 10;
+        const patrolRight = startWorldX + platW - 10;
+        gs.enemies.push(makeEnemy(cx, platY, patrolLeft, patrolRight));
+      }
+    }
+
+    i = runEnd;
+  }
+
+  // Wide finish platform at the end
+  const finishX = 400 + cols.length * colW;
+  gs.platforms.push(makePlatform(finishX, GROUND_Y, 600, false));
+  gs.worldEnd = finishX + 700;
 }
 
 // ---------------------------------------------------------------------------
@@ -515,8 +603,8 @@ function update(
   // ---- Distance score bonus ----
   gs.score = Math.max(gs.score, Math.floor(gs.distance / 10));
 
-  // ---- World generation ----
-  if (gs.worldEnd < gs.cameraX + 1200) {
+  // ---- World generation (random mode only) ----
+  if (!gs.isCustomLevel && gs.worldEnd < gs.cameraX + 1200) {
     generateWorld(gs, gs.cameraX, albums, artCache);
   }
 
@@ -588,11 +676,20 @@ function drawBackground(ctx: CanvasRenderingContext2D, cameraX: number, bgImages
   }
 }
 
-function drawGround(ctx: CanvasRenderingContext2D): void {
-  ctx.fillStyle = '#111827';
-  ctx.fillRect(0, GROUND_Y + PLATFORM_THICKNESS, CANVAS_W, CANVAS_H - GROUND_Y - PLATFORM_THICKNESS);
-  ctx.fillStyle = '#374151';
-  ctx.fillRect(0, GROUND_Y + PLATFORM_THICKNESS, CANVAS_W, 1);
+function drawGround(ctx: CanvasRenderingContext2D, platforms: Platform[], cameraX: number): void {
+  for (const p of platforms) {
+    if (p.baseY !== GROUND_Y) continue;
+    const sx = p.wx - cameraX;
+    const sw = p.w;
+    if (sx + sw < 0 || sx > CANVAS_W) continue;
+    const drawX = Math.max(0, sx);
+    const drawW = Math.min(CANVAS_W, sx + sw) - drawX;
+    if (drawW <= 0) continue;
+    ctx.fillStyle = '#111827';
+    ctx.fillRect(drawX, GROUND_Y + PLATFORM_THICKNESS, drawW, CANVAS_H - GROUND_Y - PLATFORM_THICKNESS);
+    ctx.fillStyle = '#374151';
+    ctx.fillRect(drawX, GROUND_Y + PLATFORM_THICKNESS, drawW, 1);
+  }
 }
 
 function drawPlatforms(ctx: CanvasRenderingContext2D, platforms: Platform[], cameraX: number): void {
@@ -895,24 +992,24 @@ function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, h
     const legImgW = 6; const legImgH = 16;
     const armImgW = 8; const armImgH = 14;
 
-    // Legs
-    ctx.save(); ctx.translate(-legOffsetX, 0); ctx.rotate(isJumping ? 0.3 : legSwing);
+    // Legs — pivot at hip, draw downward to feet
     if (bodySkinImages?.leg?.complete && bodySkinImages.leg.naturalWidth > 0) {
+      ctx.save(); ctx.translate(-legOffsetX, -legImgH); ctx.rotate(isJumping ? 0.3 : legSwing);
       ctx.drawImage(bodySkinImages.leg, -legImgW / 2, 0, legImgW, legImgH);
+      ctx.restore();
+      ctx.save(); ctx.translate(legOffsetX, -legImgH); ctx.rotate(isJumping ? -0.3 : -legSwing);
+      ctx.drawImage(bodySkinImages.leg, -legImgW / 2, 0, legImgW, legImgH);
+      ctx.restore();
     } else {
+      ctx.save(); ctx.translate(-legOffsetX, -legLength); ctx.rotate(isJumping ? 0.3 : legSwing);
       ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, legLength);
       ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke();
-    }
-    ctx.restore();
-
-    ctx.save(); ctx.translate(legOffsetX, 0); ctx.rotate(isJumping ? -0.3 : -legSwing);
-    if (bodySkinImages?.leg?.complete && bodySkinImages.leg.naturalWidth > 0) {
-      ctx.drawImage(bodySkinImages.leg, -legImgW / 2, 0, legImgW, legImgH);
-    } else {
+      ctx.restore();
+      ctx.save(); ctx.translate(legOffsetX, -legLength); ctx.rotate(isJumping ? -0.3 : -legSwing);
       ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, legLength);
       ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke();
+      ctx.restore();
     }
-    ctx.restore();
 
     // Torso
     if (bodySkinImages?.torso?.complete && bodySkinImages.torso.naturalWidth > 0) {
@@ -967,13 +1064,13 @@ function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, h
 
   // ── PROCEDURAL BODY (no body skin) ─────────────────────────────────────────
 
-  // Legs
-  ctx.save(); ctx.translate(-legOffsetX, 0); ctx.rotate(isJumping ? 0.3 : legSwing);
+  // Legs — translate to hip (above feet), draw leg downward to feet
+  ctx.save(); ctx.translate(-legOffsetX, -legLength); ctx.rotate(isJumping ? 0.3 : legSwing);
   ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, legLength);
   ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke();
   ctx.restore();
 
-  ctx.save(); ctx.translate(legOffsetX, 0); ctx.rotate(isJumping ? -0.3 : -legSwing);
+  ctx.save(); ctx.translate(legOffsetX, -legLength); ctx.rotate(isJumping ? -0.3 : -legSwing);
   ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, legLength);
   ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke();
   ctx.restore();
@@ -1136,7 +1233,7 @@ function draw(
   ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
   drawBackground(ctx, gs.cameraX, bgImages ?? {});
-  drawGround(ctx);
+  drawGround(ctx, gs.platforms, gs.cameraX);
   drawPlatforms(ctx, gs.platforms, gs.cameraX);
   drawCollectibles(ctx, gs.collectibles, gs.cameraX, now);
 
@@ -1162,10 +1259,11 @@ interface PlatformerGameProps {
   heroSkinDataUrl?: string;
   selectedBodySkin?: BodySkin | null;
   enemySkinDataUrls?: string[];
+  levelData?: LevelData | null;
   onGameOver: (score: number, level: number, recordsCollected: number, distancePx: number) => void;
 }
 
-function PlatformerGame({ bandIds, heroSkinDataUrl, selectedBodySkin, enemySkinDataUrls = [], onGameOver }: PlatformerGameProps) {
+function PlatformerGame({ bandIds, heroSkinDataUrl, selectedBodySkin, enemySkinDataUrls = [], levelData, onGameOver }: PlatformerGameProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gsRef = useRef<GameState | null>(null);
   const inputRef = useRef<InputState>({ left: false, right: false, jumpPressed: false, jumpConsumed: false });
@@ -1174,6 +1272,7 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, selectedBodySkin, enemySkinD
   const artCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const isMobileRef = useRef<boolean>(typeof window !== 'undefined' && 'ontouchstart' in window);
   const gameOverCalledRef = useRef(false);
+  const levelDataRef = useRef<LevelData | null | undefined>(levelData);
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -1317,6 +1416,7 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, selectedBodySkin, enemySkinD
       animTime: 0,
     };
 
+    const customLevel = levelDataRef.current ?? null;
     const gs: GameState = {
       hero: initHero,
       platforms: [],
@@ -1334,9 +1434,14 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, selectedBodySkin, enemySkinD
       running: true,
       lastSafePlatform: null,
       lastTimestamp: performance.now(),
+      isCustomLevel: customLevel !== null,
     };
 
-    generateWorld(gs, 0, albumsRef.current, artCacheRef.current);
+    if (customLevel) {
+      loadCustomLevel(gs, customLevel, albumsRef.current, artCacheRef.current);
+    } else {
+      generateWorld(gs, 0, albumsRef.current, artCacheRef.current);
+    }
     gsRef.current = gs;
 
     let lastLives = MAX_LIVES;
@@ -1536,10 +1641,15 @@ interface SetupScreenProps {
   bodySkins: BodySkin[];
   selectedBodySkinId: string | null;
   setSelectedBodySkinId: (id: string | null) => void;
+  gameMode: 'random' | 'level';
+  setGameMode: (m: 'random' | 'level') => void;
+  levels: PlatformerLevelSummary[];
+  selectedLevelId: string | null;
+  setSelectedLevelId: (id: string | null) => void;
   onStart: () => void;
 }
 
-function SetupScreen({ bands, selectedBandIds, setSelectedBandIds, skins, selectedSkinId, setSelectedSkinId, bodySkins, selectedBodySkinId, setSelectedBodySkinId, onStart }: SetupScreenProps) {
+function SetupScreen({ bands, selectedBandIds, setSelectedBandIds, skins, selectedSkinId, setSelectedSkinId, bodySkins, selectedBodySkinId, setSelectedBodySkinId, gameMode, setGameMode, levels, selectedLevelId, setSelectedLevelId, onStart }: SetupScreenProps) {
   function toggleBand(id: string) {
     if (selectedBandIds.includes(id)) {
       setSelectedBandIds(selectedBandIds.filter((b) => b !== id));
@@ -1691,6 +1801,51 @@ function SetupScreen({ bands, selectedBandIds, setSelectedBandIds, skins, select
           </div>
         )}
 
+        {/* Game mode selector */}
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-widest">Game mode</h2>
+          <div className="flex gap-2">
+            {(['random', 'level'] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setGameMode(m)}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                  gameMode === m
+                    ? 'bg-violet-700 border-violet-500 text-white'
+                    : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-violet-600'
+                }`}
+              >
+                {m === 'random' ? 'Endless Random' : 'Play a Level'}
+              </button>
+            ))}
+          </div>
+          {gameMode === 'level' && (
+            <div className="space-y-2">
+              {levels.length === 0 ? (
+                <p className="text-xs text-gray-500">No custom levels yet. Create one in the admin level designer.</p>
+              ) : (
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {levels.map((lv) => (
+                    <button
+                      key={lv.id}
+                      onClick={() => setSelectedLevelId(lv.id)}
+                      className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
+                        selectedLevelId === lv.id
+                          ? 'bg-violet-800 border-violet-500 text-white'
+                          : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-violet-600'
+                      }`}
+                    >
+                      <span className="font-medium">{lv.name}</span>
+                      {lv.isTemplate && <span className="ml-2 text-xs text-violet-400">template</span>}
+                      {lv.description && <div className="text-xs text-gray-500 truncate">{lv.description}</div>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Instructions */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-3">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-widest">How to play</h2>
@@ -1716,7 +1871,8 @@ function SetupScreen({ bands, selectedBandIds, setSelectedBandIds, skins, select
         {/* Play button */}
         <button
           onClick={onStart}
-          className="w-full py-4 bg-violet-700 hover:bg-violet-600 active:bg-violet-800 rounded-xl text-lg font-bold tracking-wide transition-colors shadow-lg shadow-violet-900/40"
+          disabled={gameMode === 'level' && (levels.length === 0 || selectedLevelId === null)}
+          className="w-full py-4 bg-violet-700 hover:bg-violet-600 active:bg-violet-800 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-lg font-bold tracking-wide transition-colors shadow-lg shadow-violet-900/40"
         >
           Play
         </button>
@@ -1906,6 +2062,9 @@ export default function PlatformerPage() {
   const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
   const [selectedSkinId, setSelectedSkinId] = useState<string | null>(null);
   const [selectedBodySkinId, setSelectedBodySkinId] = useState<string | null>(null);
+  const [gameMode, setGameMode] = useState<'random' | 'level'>('random');
+  const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
+  const [activeLevelData, setActiveLevelData] = useState<LevelData | null>(null);
   const [finalState, setFinalState] = useState({
     score: 0,
     level: 1,
@@ -1923,6 +2082,13 @@ export default function PlatformerPage() {
     queryKey: ['platformer-body-skins'],
     queryFn: () => platformerApi.getBodySkins(),
     staleTime: 300_000,
+  });
+
+  // Custom levels
+  const { data: levels = [] } = useQuery<PlatformerLevelSummary[]>({
+    queryKey: ['platformer-levels'],
+    queryFn: () => platformerApi.getLevels(),
+    staleTime: 60_000,
   });
 
   // Player-side skins: only skins belonging to selected bands (or all if none selected)
@@ -1946,6 +2112,12 @@ export default function PlatformerPage() {
   const enemySkinDataUrls = enemySkins.slice(0, 20).map((s) => s.dataUrl);
 
   function handleStart() {
+    if (gameMode === 'level' && selectedLevelId) {
+      const found = levels.find((lv) => lv.id === selectedLevelId);
+      setActiveLevelData(found?.levelData ?? null);
+    } else {
+      setActiveLevelData(null);
+    }
     setPhase('playing');
   }
 
@@ -1973,6 +2145,11 @@ export default function PlatformerPage() {
           bodySkins={bodySkins}
           selectedBodySkinId={selectedBodySkinId}
           setSelectedBodySkinId={setSelectedBodySkinId}
+          gameMode={gameMode}
+          setGameMode={setGameMode}
+          levels={levels}
+          selectedLevelId={selectedLevelId}
+          setSelectedLevelId={setSelectedLevelId}
           onStart={handleStart}
         />
       )}
@@ -1995,6 +2172,7 @@ export default function PlatformerPage() {
               heroSkinDataUrl={selectedSkin?.dataUrl}
               selectedBodySkin={selectedBodySkin}
               enemySkinDataUrls={enemySkinDataUrls}
+              levelData={activeLevelData}
               onGameOver={handleGameOver}
             />
           </div>

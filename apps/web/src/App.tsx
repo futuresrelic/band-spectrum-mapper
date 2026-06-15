@@ -78,6 +78,7 @@ import AdminCrosswordPage from './pages/AdminCrosswordPage';
 import WordSearchPage from './pages/WordSearchPage';
 import RecordCatcherPage from './pages/RecordCatcherPage';
 import AdminPlatformerPage from './pages/AdminPlatformerPage';
+import AdminPlatformerLevelsPage from './pages/AdminPlatformerLevelsPage';
 import PlatformerPage from './pages/PlatformerPage';
 import PlaylistMakerPage from './pages/PlaylistMakerPage';
 import LyricLabPage from './pages/LyricLabPage';
@@ -213,6 +214,7 @@ export default function App() {
           <Route path="admin/games" element={<AdminGamesPage />} />
           <Route path="admin/crossword-builder" element={<AdminCrosswordPage />} />
           <Route path="admin/platformer" element={<AdminPlatformerPage />} />
+          <Route path="admin/platformer-levels" element={<AdminPlatformerLevelsPage />} />
           <Route path="admin/band-logos" element={<AdminBandLogosPage />} />
           <Route path="pattern-lab" element={<PatternLabPage />} />
         </Route>

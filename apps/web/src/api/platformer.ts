@@ -65,6 +65,33 @@ export interface CharacterSkin {
 }
 
 // ---------------------------------------------------------------------------
+// Custom level types (used by level designer and game)
+// ---------------------------------------------------------------------------
+
+export type EditorColBase = 'ground' | 'gap' | 'plat-low' | 'plat-mid' | 'plat-high';
+
+export interface EditorCol {
+  base: EditorColBase;
+  hasRecord: boolean;
+  hasEnemy: boolean;
+}
+
+export interface LevelData {
+  colWidthUnits: number; // world units per column (default 100)
+  cols: EditorCol[];
+}
+
+export interface PlatformerLevelSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  isTemplate: boolean;
+  levelData: LevelData;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
 // API client
 // ---------------------------------------------------------------------------
 
@@ -237,5 +264,29 @@ export const platformerApi = {
 
   deleteBodySkin(id: string): Promise<void> {
     return api.delete<void>(`/api/platformer/body-skins/${encodeURIComponent(id)}`);
+  },
+
+  // ---------------------------------------------------------------------------
+  // Custom levels
+  // ---------------------------------------------------------------------------
+
+  getLevels(): Promise<PlatformerLevelSummary[]> {
+    return api.get<PlatformerLevelSummary[]>('/api/platformer/levels');
+  },
+
+  getLevel(id: string): Promise<PlatformerLevelSummary> {
+    return api.get<PlatformerLevelSummary>(`/api/platformer/levels/${encodeURIComponent(id)}`);
+  },
+
+  createLevel(data: { name: string; description?: string; isTemplate?: boolean; levelData: LevelData }): Promise<PlatformerLevelSummary> {
+    return api.post<PlatformerLevelSummary>('/api/platformer/levels', data);
+  },
+
+  updateLevel(id: string, data: { name?: string; description?: string | null; isTemplate?: boolean; levelData?: LevelData }): Promise<PlatformerLevelSummary> {
+    return api.put<PlatformerLevelSummary>(`/api/platformer/levels/${encodeURIComponent(id)}`, data);
+  },
+
+  deleteLevel(id: string): Promise<void> {
+    return api.delete<void>(`/api/platformer/levels/${encodeURIComponent(id)}`);
   },
 };

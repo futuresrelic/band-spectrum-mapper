@@ -980,3 +980,97 @@ platformerRouter.delete('/body-skins/:id', requireAuth, requireAdmin, async (req
     res.json({ ok: true }); return;
   } catch (e) { next(e); }
 });
+
+// ---------------------------------------------------------------------------
+// Custom Levels CRUD
+// ---------------------------------------------------------------------------
+
+// GET /levels — list all levels (auth required)
+platformerRouter.get('/levels', requireAuth, async (_req, res, next): Promise<void> => {
+  try {
+    const levels = await prisma.platformerLevel.findMany({
+      orderBy: [{ isTemplate: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        isTemplate: true,
+        levelData: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    res.json(levels); return;
+  } catch (e) { next(e); }
+});
+
+// GET /levels/:id — single level with full data (auth required)
+platformerRouter.get('/levels/:id', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const { id } = req.params as { id: string };
+    const level = await prisma.platformerLevel.findUnique({ where: { id } });
+    if (!level) { res.status(404).json({ error: 'Level not found' }); return; }
+    res.json(level); return;
+  } catch (e) { next(e); }
+});
+
+// POST /levels — create (admin only)
+platformerRouter.post('/levels', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const body = req.body as { name?: unknown; description?: unknown; isTemplate?: unknown; levelData?: unknown };
+    if (typeof body.name !== 'string' || body.name.trim() === '') {
+      res.status(400).json({ error: 'name is required' }); return;
+    }
+    if (!body.levelData || typeof body.levelData !== 'object') {
+      res.status(400).json({ error: 'levelData is required' }); return;
+    }
+
+    const level = await prisma.platformerLevel.create({
+      data: {
+        name: body.name.trim(),
+        ...(typeof body.description === 'string' && body.description.trim()
+          ? { description: body.description.trim() }
+          : {}),
+        isTemplate: body.isTemplate === true,
+        levelData: body.levelData as object,
+      },
+    });
+    res.json(level); return;
+  } catch (e) { next(e); }
+});
+
+// PUT /levels/:id — update (admin only)
+platformerRouter.put('/levels/:id', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const { id } = req.params as { id: string };
+    const existing = await prisma.platformerLevel.findUnique({ where: { id } });
+    if (!existing) { res.status(404).json({ error: 'Level not found' }); return; }
+
+    const body = req.body as { name?: unknown; description?: unknown; isTemplate?: unknown; levelData?: unknown };
+    const level = await prisma.platformerLevel.update({
+      where: { id },
+      data: {
+        ...(typeof body.name === 'string' && body.name.trim() ? { name: body.name.trim() } : {}),
+        ...(body.description !== undefined
+          ? { description: typeof body.description === 'string' && body.description.trim() ? body.description.trim() : null }
+          : {}),
+        ...(body.isTemplate !== undefined ? { isTemplate: body.isTemplate === true } : {}),
+        ...(body.levelData && typeof body.levelData === 'object'
+          ? { levelData: body.levelData as object }
+          : {}),
+      },
+    });
+    res.json(level); return;
+  } catch (e) { next(e); }
+});
+
+// DELETE /levels/:id — delete (admin only)
+platformerRouter.delete('/levels/:id', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const { id } = req.params as { id: string };
+    const existing = await prisma.platformerLevel.findUnique({ where: { id } });
+    if (!existing) { res.status(404).json({ error: 'Level not found' }); return; }
+    await prisma.platformerLevel.delete({ where: { id } });
+    res.json({ ok: true }); return;
+  } catch (e) { next(e); }
+});
