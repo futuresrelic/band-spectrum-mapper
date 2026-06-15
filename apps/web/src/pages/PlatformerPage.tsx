@@ -818,18 +818,13 @@ function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, now: number, heroSk
   const sx = CAMERA_LEAD;
   const sy = hero.wy;
   const flashing = now < hero.invincibleUntil && Math.floor(now / 100) % 2 === 0;
-  const useSkin = heroSkin?.complete && heroSkin.naturalWidth > 0;
 
   if (hero.state === 'die') {
     ctx.save();
     ctx.translate(sx, sy - HERO_H / 2);
     ctx.rotate(Math.PI / 2);
     ctx.globalAlpha = 0.5;
-    if (useSkin) {
-      ctx.drawImage(heroSkin!, -HERO_W / 2, -HERO_H, HERO_W, HERO_H);
-    } else {
-      drawHeroBody(ctx, hero, now);
-    }
+    drawHeroBody(ctx, hero, now, heroSkin);
     ctx.restore();
     return;
   }
@@ -838,15 +833,11 @@ function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, now: number, heroSk
   ctx.translate(sx, sy);
   if (!hero.facingRight) ctx.scale(-1, 1);
   if (flashing) ctx.globalAlpha = 0.45;
-  if (useSkin) {
-    ctx.drawImage(heroSkin!, -HERO_W / 2, -HERO_H, HERO_W, HERO_H);
-  } else {
-    drawHeroBody(ctx, hero, now);
-  }
+  drawHeroBody(ctx, hero, now, heroSkin);
   ctx.restore();
 }
 
-function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number): void {
+function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, heroSkin?: HTMLImageElement): void {
   const isJumping = hero.state === 'jump' || hero.state === 'fall';
   const legSwing = Math.sin(hero.animFrame * 0.5) * 0.4;
 
@@ -929,22 +920,31 @@ function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number): 
   ctx.stroke();
   ctx.restore();
 
-  // Head
+  // Head — use AI face portrait if available, otherwise draw default pixel head
   const headCY = torsoTop - 5;
-  ctx.beginPath();
-  ctx.arc(0, headCY, 11, 0, Math.PI * 2);
-  ctx.fillStyle = '#fde68a';
-  ctx.fill();
 
-  // Eye (always on the right side since we flip the whole ctx for facing direction)
-  ctx.beginPath();
-  ctx.arc(4, headCY - 1, 3, 0, Math.PI * 2);
-  ctx.fillStyle = 'white';
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(5, headCY - 1, 1.5, 0, Math.PI * 2);
-  ctx.fillStyle = '#1e1b4b';
-  ctx.fill();
+  if (heroSkin && heroSkin.complete && heroSkin.naturalWidth > 0) {
+    // Composite the face portrait onto the animated body.
+    // Width slightly wider than the torso; extra height below chin lets long hair overlap naturally.
+    const faceW = 32;
+    const faceH = 52; // tall enough for long hair to flow below the chin
+    ctx.drawImage(heroSkin, -faceW / 2, headCY - faceH * 0.52, faceW, faceH);
+  } else {
+    ctx.beginPath();
+    ctx.arc(0, headCY, 11, 0, Math.PI * 2);
+    ctx.fillStyle = '#fde68a';
+    ctx.fill();
+
+    // Eye (always on the right side since we flip the whole ctx for facing direction)
+    ctx.beginPath();
+    ctx.arc(4, headCY - 1, 3, 0, Math.PI * 2);
+    ctx.fillStyle = 'white';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(5, headCY - 1, 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#1e1b4b';
+    ctx.fill();
+  }
 }
 
 function drawParticles(ctx: CanvasRenderingContext2D, particles: Particle[], cameraX: number): void {

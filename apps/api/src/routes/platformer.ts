@@ -624,9 +624,9 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
           messages: [{
             role: 'user',
             content:
-              `Describe the distinctive visual appearance of ${nameStr}, the ${roleDesc} from the band ${bandStr}, ` +
-              `in one short sentence for a pixel art video game sprite. ` +
-              `Focus on hair color/length, notable physical features, and signature stage clothing/style. ` +
+              `Describe the distinctive facial and hair appearance of ${nameStr}, the ${roleDesc} from the band ${bandStr}, ` +
+              `in one short sentence for a pixel art face portrait. ` +
+              `Focus on hair color, hair length/style (including if it is long), skin tone, notable facial features, and any facial hair or signature accessories. ` +
               `Output the description only — no name, no explanation.`,
           }],
           max_tokens: 80,
@@ -638,13 +638,17 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
       }
     }
 
-    // Step 2: Build the pixel art prompt
+    // Step 2: Build the face-portrait prompt.
+    // We generate the head/face only with a transparent background so it can be
+    // composited onto the game character's animated body at runtime.
     const prompt =
-      `Pixel art video game character sprite, 16-bit retro style, side-scrolling platformer. ` +
-      `Rock ${roleDesc}, ${bandStr} band aesthetic. ` +
+      `Pixel art face portrait for a retro platformer video game character. ` +
+      `Rock musician (${roleDesc}, ${bandStr} band). ` +
       appearanceHint +
-      `Full body standing pose, vibrant rock musician outfit, expressive pixel face, ` +
-      `clean crisp pixel art, dark background, no text, game character sprite.`;
+      `Head and hair only — no body, no shoulders. ` +
+      `If the character has long hair, let it flow naturally downward below the chin. ` +
+      `Expressive pixelated face, bold pixel art style, transparent background, ` +
+      `centered in a square canvas, no text, no border, clean crisp pixel art.`;
 
     // Step 3: Generate pixel art sprite via OpenAI gpt-image-1
     // Requires image generation to be enabled on the project at platform.openai.com
@@ -661,6 +665,7 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
       n: 1,
       size: '1024x1024',
       quality: 'low',
+      background: 'transparent',
     });
 
     const b64 = imageResponse.data?.[0]?.b64_json;
