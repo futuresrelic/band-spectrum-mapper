@@ -64,6 +64,7 @@ interface Enemy {
   patrolRight: number;
   alive: boolean;
   dieTime: number;
+  skinIndex: number;
 }
 
 interface Particle {
@@ -159,6 +160,7 @@ function makeEnemy(wx: number, wy: number, patrolLeft: number, patrolRight: numb
     patrolRight,
     alive: true,
     dieTime: 0,
+    skinIndex: Math.floor(Math.random() * 10000),
   };
 }
 
@@ -718,12 +720,12 @@ function drawEnemy(
   const sy = e.wy;
   const movingLeft = e.vx < 0;
 
-  // Pick a skin deterministically by position so the same enemy always looks the same
+  // Skin is locked to the enemy at spawn via skinIndex — never changes while moving
   const skinImg =
     enemySkins && enemySkins.length > 0
-      ? enemySkins[Math.abs(Math.floor(e.wx / 120)) % enemySkins.length]
+      ? enemySkins[e.skinIndex % enemySkins.length]
       : undefined;
-  const useSkin = skinImg?.complete && skinImg.naturalWidth > 0;
+  const faceReady = skinImg?.complete && skinImg.naturalWidth > 0;
 
   if (!e.alive) {
     const age = now - e.dieTime;
@@ -733,11 +735,8 @@ function drawEnemy(
     ctx.globalAlpha = 1 - progress;
     ctx.translate(sx, sy - ENEMY_H * (1 - progress) * 0.5);
     ctx.scale(1, 1 - progress * 0.9);
-    if (useSkin) {
-      ctx.drawImage(skinImg!, -ENEMY_W / 2, -ENEMY_H, ENEMY_W, ENEMY_H);
-    } else {
-      drawEnemyBody(ctx, movingLeft);
-    }
+    drawEnemyBody(ctx, movingLeft);
+    if (faceReady) drawEnemyFace(ctx, skinImg!);
     ctx.restore();
     return;
   }
@@ -745,12 +744,17 @@ function drawEnemy(
   ctx.save();
   ctx.translate(sx, sy);
   if (movingLeft) ctx.scale(-1, 1);
-  if (useSkin) {
-    ctx.drawImage(skinImg!, -ENEMY_W / 2, -ENEMY_H, ENEMY_W, ENEMY_H);
-  } else {
-    drawEnemyBody(ctx, false);
-  }
+  drawEnemyBody(ctx, false);
+  if (faceReady) drawEnemyFace(ctx, skinImg!);
   ctx.restore();
+}
+
+// Draw the AI face portrait in the enemy's head area (upper portion of the body).
+function drawEnemyFace(ctx: CanvasRenderingContext2D, skin: HTMLImageElement): void {
+  // Enemy head centre is at y = -ENEMY_H + 10 (same position as the procedural eyes)
+  const headCY = -ENEMY_H + 10;
+  const faceSize = 28; // square, fits within ENEMY_W=34 with a small margin
+  ctx.drawImage(skin, -faceSize / 2, headCY - faceSize / 2, faceSize, faceSize);
 }
 
 function drawEnemyBody(ctx: CanvasRenderingContext2D, _flipped: boolean): void {

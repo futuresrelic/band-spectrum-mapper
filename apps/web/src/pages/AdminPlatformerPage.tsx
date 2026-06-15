@@ -802,6 +802,87 @@ function MembersAndSkins() {
 // BodySkinsSection
 // ---------------------------------------------------------------------------
 
+// Generate a 32×48 template showing the default stick-figure body so the
+// user has something to trace over when drawing a new body skin.
+// Canvas y=0 is top; hero-local y=0 is feet → offset = +48
+function generateBodyTemplate(): string {
+  const W = 32;
+  const H = 48;
+  const HERO_H_T = 48;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  // All coordinates below use hero-local space (y=0 = feet) then offset by +H
+  const cy = (heroY: number) => heroY + H;
+
+  // Legs (from y=0 downward, length 14)
+  const legOffsetX = 6;
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#1e3a5f';
+  ctx.beginPath();
+  ctx.moveTo(W / 2 - legOffsetX, cy(0));
+  ctx.lineTo(W / 2 - legOffsetX, cy(-14));
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(W / 2 + legOffsetX, cy(0));
+  ctx.lineTo(W / 2 + legOffsetX, cy(-14));
+  ctx.stroke();
+
+  // Torso
+  const torsoTop = -HERO_H_T + 14; // = -34 → canvas y = 14
+  const torsoH = 28;
+  const torsoW = 20;
+  const torsoR = 4;
+  const tx = W / 2; // centre x = 16
+  ctx.fillStyle = '#1c1917';
+  ctx.beginPath();
+  ctx.moveTo(tx - torsoW / 2 + torsoR, cy(torsoTop));
+  ctx.lineTo(tx + torsoW / 2 - torsoR, cy(torsoTop));
+  ctx.quadraticCurveTo(tx + torsoW / 2, cy(torsoTop), tx + torsoW / 2, cy(torsoTop + torsoR));
+  ctx.lineTo(tx + torsoW / 2, cy(torsoTop + torsoH - torsoR));
+  ctx.quadraticCurveTo(tx + torsoW / 2, cy(torsoTop + torsoH), tx + torsoW / 2 - torsoR, cy(torsoTop + torsoH));
+  ctx.lineTo(tx - torsoW / 2 + torsoR, cy(torsoTop + torsoH));
+  ctx.quadraticCurveTo(tx - torsoW / 2, cy(torsoTop + torsoH), tx - torsoW / 2, cy(torsoTop + torsoH - torsoR));
+  ctx.lineTo(tx - torsoW / 2, cy(torsoTop + torsoR));
+  ctx.quadraticCurveTo(tx - torsoW / 2, cy(torsoTop), tx - torsoW / 2 + torsoR, cy(torsoTop));
+  ctx.closePath();
+  ctx.fill();
+
+  // Arms
+  const armTop = torsoTop + 6; // = -28
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = '#292524';
+  ctx.beginPath();
+  ctx.moveTo(tx - torsoW / 2, cy(armTop));
+  ctx.lineTo(tx - torsoW / 2 - 8, cy(armTop - 10));
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(tx + torsoW / 2, cy(armTop));
+  ctx.lineTo(tx + torsoW / 2 + 8, cy(armTop - 10));
+  ctx.stroke();
+
+  // Head outline (dashed, so the user knows where the face will go)
+  const headCY = torsoTop - 5; // = -39 → canvas y = 9
+  ctx.strokeStyle = 'rgba(253,230,138,0.5)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 2]);
+  ctx.beginPath();
+  ctx.arc(tx, cy(headCY), 11, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // Label
+  ctx.fillStyle = 'rgba(253,230,138,0.4)';
+  ctx.font = '4px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('face', tx, cy(headCY) + 1.5);
+
+  return canvas.toDataURL('image/png');
+}
+
 const BODY_ROLES = ['vocals', 'guitar', 'bass', 'drums', 'piano', 'violin'] as const;
 type BodyRole = (typeof BODY_ROLES)[number];
 
@@ -818,9 +899,10 @@ function BodySkinsSection() {
   const queryClient = useQueryClient();
 
   // Create-new form state
-  const [newName, setNewName]   = useState('');
-  const [newRole, setNewRole]   = useState<BodyRole | ''>('');
-  const [creating, setCreating] = useState(false); // pixel editor open for new skin
+  const [newName, setNewName]       = useState('');
+  const [newRole, setNewRole]       = useState<BodyRole | ''>('');
+  const [creating, setCreating]     = useState(false);
+  const [templateUrl, setTemplateUrl] = useState<string | null>(null);
 
   // Edit existing state
   const [editingSkin, setEditingSkin] = useState<BodySkin | null>(null);
@@ -899,13 +981,13 @@ function BodySkinsSection() {
       {/* Editor overlays */}
       {creating && (
         <SpritePixelEditor
-          assetType="body-new"
+          assetType={`body-new-${newName}`}
           label={`New Body: ${newName.trim() || 'Body Skin'}${newRole ? ` (${ROLE_LABELS[newRole]})` : ''}`}
           spriteW={32}
           spriteH={48}
-          initialDataUrl={null}
+          initialDataUrl={templateUrl}
           onSave={handleCreateSave}
-          onClose={() => setCreating(false)}
+          onClose={() => { setCreating(false); setTemplateUrl(null); }}
         />
       )}
       {editingSkin && (
@@ -951,7 +1033,11 @@ function BodySkinsSection() {
             </select>
           </div>
           <button
-            onClick={() => { if (!newName.trim()) { flash('Enter a name first.', false); return; } setCreating(true); }}
+            onClick={() => {
+              if (!newName.trim()) { flash('Enter a name first.', false); return; }
+              setTemplateUrl(generateBodyTemplate());
+              setCreating(true);
+            }}
             className="bg-surface-900 hover:bg-surface-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors self-end"
           >
             Open Editor
