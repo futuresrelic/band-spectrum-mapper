@@ -174,6 +174,14 @@ export default function DashboardPage() {
         { to: '/admin/game',      label: 'Album Art Quiz',    desc: 'Leaderboard and quiz admin panel' },
       ]} />
 
+      {/* ── Admin — Vinyl Runner ── */}
+      <SectionHeading label="Admin — Vinyl Runner" />
+      <ToolGrid items={[
+        { to: '/admin/platformer',        label: 'Skins & Config',  desc: 'Character skins, body skins, assets, physics config' },
+        { to: '/admin/platformer-levels', label: 'Level Designer',  desc: 'Build and save custom levels for players' },
+        { to: '/play/platformer',         label: 'Play Vinyl Runner', desc: 'Launch the game as a player' },
+      ]} />
+
       {/* ── Admin — Users & Site ── */}
       <SectionHeading label="Admin — Users & Site" />
       <ToolGrid items={[
