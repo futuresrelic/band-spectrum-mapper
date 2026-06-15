@@ -10,6 +10,13 @@ import { platformerApi, type PlatformerAlbum, type PlatformerScore, type Charact
 // Constants
 // ---------------------------------------------------------------------------
 
+interface BodySkinImages {
+  torso?: HTMLImageElement;
+  arm?: HTMLImageElement;
+  leg?: HTMLImageElement;
+  legacy?: HTMLImageElement;
+}
+
 const CANVAS_W = 800;
 const CANVAS_H = 450;
 const GRAVITY = 0.58;
@@ -818,7 +825,7 @@ function drawEnemyBody(ctx: CanvasRenderingContext2D, _flipped: boolean): void {
   void hh;
 }
 
-function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, now: number, heroSkin?: HTMLImageElement, bodySkin?: HTMLImageElement): void {
+function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, now: number, heroSkin?: HTMLImageElement, bodySkinImages?: BodySkinImages): void {
   const sx = CAMERA_LEAD;
   const sy = hero.wy;
   const flashing = now < hero.invincibleUntil && Math.floor(now / 100) % 2 === 0;
@@ -828,7 +835,7 @@ function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, now: number, heroSk
     ctx.translate(sx, sy - HERO_H / 2);
     ctx.rotate(Math.PI / 2);
     ctx.globalAlpha = 0.5;
-    drawHeroBody(ctx, hero, now, heroSkin, bodySkin);
+    drawHeroBody(ctx, hero, now, heroSkin, bodySkinImages);
     ctx.restore();
     return;
   }
@@ -837,7 +844,7 @@ function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, now: number, heroSk
   ctx.translate(sx, sy);
   if (!hero.facingRight) ctx.scale(-1, 1);
   if (flashing) ctx.globalAlpha = 0.45;
-  drawHeroBody(ctx, hero, now, heroSkin, bodySkin);
+  drawHeroBody(ctx, hero, now, heroSkin, bodySkinImages);
   ctx.restore();
 }
 
@@ -866,63 +873,112 @@ function drawFace(ctx: CanvasRenderingContext2D, heroSkin: HTMLImageElement | un
   }
 }
 
-function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, heroSkin?: HTMLImageElement, bodySkin?: HTMLImageElement): void {
+function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, heroSkin?: HTMLImageElement, bodySkinImages?: BodySkinImages): void {
   const isIdle = hero.state === 'idle';
   const isJumping = hero.state === 'jump' || hero.state === 'fall';
+  const legSwing = isIdle ? 0 : Math.sin(hero.animFrame * 0.5) * 0.4;
+  const armSwing = isIdle ? 0 : Math.sin(hero.animFrame * 0.5 + Math.PI) * 0.4;
 
-  // ── Body skin mode: pixel-art sprite replaces all procedural drawing ────────
-  if (bodySkin && bodySkin.complete && bodySkin.naturalWidth > 0) {
-    ctx.save();
-    // Subtle walk bob — shifts the whole body up/down during walking
-    if (!isIdle && !isJumping) {
-      ctx.translate(0, Math.sin(hero.animFrame * 0.5) * 1.5);
-    } else if (isJumping) {
-      ctx.translate(0, -2);
+  const torsoTop = -HERO_H + 14;
+  const torsoH = isJumping ? 30 : 28;
+  const torsoW = 20;
+  const torsoR = 4;
+  const armTop = torsoTop + 6;
+  const legOffsetX = 6;
+  const legLength = 14;
+
+  const hasParts = !!(bodySkinImages?.torso || bodySkinImages?.arm || bodySkinImages?.leg);
+  const hasLegacy = !!(bodySkinImages?.legacy?.complete && bodySkinImages.legacy.naturalWidth > 0);
+
+  // ── SEGMENTED PARTS MODE: custom images with full animation ────────────────
+  if (hasParts) {
+    const legImgW = 6; const legImgH = 16;
+    const armImgW = 8; const armImgH = 14;
+
+    // Legs
+    ctx.save(); ctx.translate(-legOffsetX, 0); ctx.rotate(isJumping ? 0.3 : legSwing);
+    if (bodySkinImages?.leg?.complete && bodySkinImages.leg.naturalWidth > 0) {
+      ctx.drawImage(bodySkinImages.leg, -legImgW / 2, 0, legImgW, legImgH);
+    } else {
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, legLength);
+      ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke();
     }
-    // Draw body skin covering the full character space (feet at y=0, top at y=-HERO_H)
-    ctx.drawImage(bodySkin, -HERO_W / 2, -HERO_H, HERO_W, HERO_H);
     ctx.restore();
-    // Face composited on top at the same head position as the procedural path
+
+    ctx.save(); ctx.translate(legOffsetX, 0); ctx.rotate(isJumping ? -0.3 : -legSwing);
+    if (bodySkinImages?.leg?.complete && bodySkinImages.leg.naturalWidth > 0) {
+      ctx.drawImage(bodySkinImages.leg, -legImgW / 2, 0, legImgW, legImgH);
+    } else {
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, legLength);
+      ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke();
+    }
+    ctx.restore();
+
+    // Torso
+    if (bodySkinImages?.torso?.complete && bodySkinImages.torso.naturalWidth > 0) {
+      ctx.drawImage(bodySkinImages.torso, -torsoW / 2, torsoTop, torsoW, torsoH);
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(-torsoW / 2 + torsoR, torsoTop);
+      ctx.lineTo(torsoW / 2 - torsoR, torsoTop);
+      ctx.quadraticCurveTo(torsoW / 2, torsoTop, torsoW / 2, torsoTop + torsoR);
+      ctx.lineTo(torsoW / 2, torsoTop + torsoH - torsoR);
+      ctx.quadraticCurveTo(torsoW / 2, torsoTop + torsoH, torsoW / 2 - torsoR, torsoTop + torsoH);
+      ctx.lineTo(-torsoW / 2 + torsoR, torsoTop + torsoH);
+      ctx.quadraticCurveTo(-torsoW / 2, torsoTop + torsoH, -torsoW / 2, torsoTop + torsoH - torsoR);
+      ctx.lineTo(-torsoW / 2, torsoTop + torsoR);
+      ctx.quadraticCurveTo(-torsoW / 2, torsoTop, -torsoW / 2 + torsoR, torsoTop);
+      ctx.closePath(); ctx.fillStyle = '#1c1917'; ctx.fill();
+    }
+
+    // Arms
+    ctx.save(); ctx.translate(-torsoW / 2, armTop); ctx.rotate(isJumping ? -0.8 : armSwing);
+    if (bodySkinImages?.arm?.complete && bodySkinImages.arm.naturalWidth > 0) {
+      ctx.drawImage(bodySkinImages.arm, -armImgW / 2, 0, armImgW, armImgH);
+    } else {
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-8, 10);
+      ctx.strokeStyle = '#292524'; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.save(); ctx.translate(torsoW / 2, armTop); ctx.rotate(isJumping ? 0.8 : -armSwing);
+    if (bodySkinImages?.arm?.complete && bodySkinImages.arm.naturalWidth > 0) {
+      ctx.drawImage(bodySkinImages.arm, -armImgW / 2, 0, armImgW, armImgH);
+    } else {
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(8, 10);
+      ctx.strokeStyle = '#292524'; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.stroke();
+    }
+    ctx.restore();
+
     drawFace(ctx, heroSkin, HEAD_CY);
     return;
   }
 
-  // ── Procedural body (no body skin) ─────────────────────────────────────────
-  const legSwing = isIdle ? 0 : Math.sin(hero.animFrame * 0.5) * 0.4;
-  const legOffsetX = 6;
-  const legLength = 14;
+  // ── LEGACY SINGLE-IMAGE MODE: walk bob, no per-limb animation ─────────────
+  if (hasLegacy) {
+    ctx.save();
+    if (!isIdle && !isJumping) ctx.translate(0, Math.sin(hero.animFrame * 0.5) * 1.5);
+    else if (isJumping) ctx.translate(0, -2);
+    ctx.drawImage(bodySkinImages!.legacy!, -HERO_W / 2, -HERO_H, HERO_W, HERO_H);
+    ctx.restore();
+    drawFace(ctx, heroSkin, HEAD_CY);
+    return;
+  }
 
-  // Left leg
-  ctx.save();
-  ctx.translate(-legOffsetX, 0);
-  ctx.rotate(isJumping ? 0.3 : legSwing);
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(0, legLength);
-  ctx.strokeStyle = '#1e3a5f';
-  ctx.lineWidth = 5;
-  ctx.lineCap = 'round';
-  ctx.stroke();
+  // ── PROCEDURAL BODY (no body skin) ─────────────────────────────────────────
+
+  // Legs
+  ctx.save(); ctx.translate(-legOffsetX, 0); ctx.rotate(isJumping ? 0.3 : legSwing);
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, legLength);
+  ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke();
   ctx.restore();
 
-  // Right leg
-  ctx.save();
-  ctx.translate(legOffsetX, 0);
-  ctx.rotate(isJumping ? -0.3 : -legSwing);
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(0, legLength);
-  ctx.strokeStyle = '#1e3a5f';
-  ctx.lineWidth = 5;
-  ctx.lineCap = 'round';
-  ctx.stroke();
+  ctx.save(); ctx.translate(legOffsetX, 0); ctx.rotate(isJumping ? -0.3 : -legSwing);
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, legLength);
+  ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke();
   ctx.restore();
 
   // Torso
-  const torsoH = isJumping ? 30 : 28;
-  const torsoW = 20;
-  const torsoR = 4;
-  const torsoTop = -HERO_H + 14;
   ctx.beginPath();
   ctx.moveTo(-torsoW / 2 + torsoR, torsoTop);
   ctx.lineTo(torsoW / 2 - torsoR, torsoTop);
@@ -933,36 +989,17 @@ function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, h
   ctx.quadraticCurveTo(-torsoW / 2, torsoTop + torsoH, -torsoW / 2, torsoTop + torsoH - torsoR);
   ctx.lineTo(-torsoW / 2, torsoTop + torsoR);
   ctx.quadraticCurveTo(-torsoW / 2, torsoTop, -torsoW / 2 + torsoR, torsoTop);
-  ctx.closePath();
-  ctx.fillStyle = '#1c1917';
-  ctx.fill();
+  ctx.closePath(); ctx.fillStyle = '#1c1917'; ctx.fill();
 
   // Arms
-  const armSwing = isIdle ? 0 : Math.sin(hero.animFrame * 0.5 + Math.PI) * 0.4;
-  const armTop = torsoTop + 6;
-
-  ctx.save();
-  ctx.translate(-torsoW / 2, armTop);
-  ctx.rotate(isJumping ? -0.8 : armSwing);
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(-8, 10);
-  ctx.strokeStyle = '#292524';
-  ctx.lineWidth = 4;
-  ctx.lineCap = 'round';
-  ctx.stroke();
+  ctx.save(); ctx.translate(-torsoW / 2, armTop); ctx.rotate(isJumping ? -0.8 : armSwing);
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-8, 10);
+  ctx.strokeStyle = '#292524'; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.stroke();
   ctx.restore();
 
-  ctx.save();
-  ctx.translate(torsoW / 2, armTop);
-  ctx.rotate(isJumping ? 0.8 : -armSwing);
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(8, 10);
-  ctx.strokeStyle = '#292524';
-  ctx.lineWidth = 4;
-  ctx.lineCap = 'round';
-  ctx.stroke();
+  ctx.save(); ctx.translate(torsoW / 2, armTop); ctx.rotate(isJumping ? 0.8 : -armSwing);
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(8, 10);
+  ctx.strokeStyle = '#292524'; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.stroke();
   ctx.restore();
 
   drawFace(ctx, heroSkin, torsoTop - 5);
@@ -1094,7 +1131,7 @@ function draw(
   bgImages?: BgImages,
   heroSkin?: HTMLImageElement,
   enemySkins?: HTMLImageElement[],
-  bodySkin?: HTMLImageElement,
+  bodySkinImages?: BodySkinImages,
 ): void {
   ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
@@ -1107,7 +1144,7 @@ function draw(
     drawEnemy(ctx, e, gs.cameraX, now, enemySkins);
   }
 
-  drawHero(ctx, gs.hero, now, heroSkin, bodySkin);
+  drawHero(ctx, gs.hero, now, heroSkin, bodySkinImages);
   drawParticles(ctx, gs.particles, gs.cameraX);
   drawHUD(ctx, gs.lives, gs.score, gs.level, gs.distance, gs.levelRecords);
 
@@ -1123,12 +1160,12 @@ function draw(
 interface PlatformerGameProps {
   bandIds: string[];
   heroSkinDataUrl?: string;
-  bodySkinDataUrl?: string;
+  selectedBodySkin?: BodySkin | null;
   enemySkinDataUrls?: string[];
   onGameOver: (score: number, level: number, recordsCollected: number, distancePx: number) => void;
 }
 
-function PlatformerGame({ bandIds, heroSkinDataUrl, bodySkinDataUrl, enemySkinDataUrls = [], onGameOver }: PlatformerGameProps) {
+function PlatformerGame({ bandIds, heroSkinDataUrl, selectedBodySkin, enemySkinDataUrls = [], onGameOver }: PlatformerGameProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gsRef = useRef<GameState | null>(null);
   const inputRef = useRef<InputState>({ left: false, right: false, jumpPressed: false, jumpConsumed: false });
@@ -1146,9 +1183,27 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, bodySkinDataUrl, enemySkinDa
     }
   }, []);
 
+  const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ w: number; h: number }>({ w: CANVAS_W, h: CANVAS_H });
+
+  useEffect(() => {
+    function recalc() {
+      const buttonH = ('ontouchstart' in window) ? 108 : 0;
+      const availW = window.innerWidth;
+      const availH = window.innerHeight - buttonH;
+      const ratio = CANVAS_W / CANVAS_H;
+      let w = Math.min(availW, CANVAS_W);
+      let h = w / ratio;
+      if (h > availH) { h = availH; w = h * ratio; }
+      setCanvasDisplaySize({ w: Math.floor(w), h: Math.floor(h) });
+    }
+    recalc();
+    window.addEventListener('resize', recalc);
+    return () => window.removeEventListener('resize', recalc);
+  }, []);
+
   const bgImagesRef = useRef<BgImages>({});
   const heroSkinRef = useRef<HTMLImageElement | undefined>(undefined);
-  const bodySkinRef = useRef<HTMLImageElement | undefined>(undefined);
+  const bodySkinImagesRef = useRef<BodySkinImages>({});
   const enemySkinImagesRef = useRef<HTMLImageElement[]>([]);
 
   // Display state synced from game loop
@@ -1193,13 +1248,24 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, bodySkinDataUrl, enemySkinDa
     heroSkinRef.current = img;
   }, [heroSkinDataUrl]);
 
-  // Load body costume skin
+  // Load body skin parts
   useEffect(() => {
-    if (!bodySkinDataUrl) { bodySkinRef.current = undefined; return; }
-    const img = new Image();
-    img.src = bodySkinDataUrl;
-    bodySkinRef.current = img;
-  }, [bodySkinDataUrl]);
+    const parts: BodySkinImages = {};
+    if (!selectedBodySkin) { bodySkinImagesRef.current = {}; return; }
+
+    function loadImg(url: string | null | undefined, key: keyof BodySkinImages) {
+      if (!url) return;
+      const img = new Image();
+      img.src = url;
+      parts[key] = img;
+    }
+
+    loadImg(selectedBodySkin.torsoUrl, 'torso');
+    loadImg(selectedBodySkin.armUrl, 'arm');
+    loadImg(selectedBodySkin.legUrl, 'leg');
+    loadImg(selectedBodySkin.dataUrl, 'legacy');
+    bodySkinImagesRef.current = parts;
+  }, [selectedBodySkin]);
 
   // Load enemy skin images
   useEffect(() => {
@@ -1288,7 +1354,7 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, bodySkinDataUrl, enemySkinDa
       }
 
       update(state, dt, timestamp, inputRef.current, albumsRef.current, artCacheRef.current, handleGameOver);
-      draw(ctx, state, timestamp, false, bgImagesRef.current, heroSkinRef.current, enemySkinImagesRef.current, bodySkinRef.current);
+      draw(ctx, state, timestamp, false, bgImagesRef.current, heroSkinRef.current, enemySkinImagesRef.current, bodySkinImagesRef.current);
 
       // Sync display state only when changed
       if (state.lives !== lastLives) {
@@ -1397,12 +1463,11 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, bodySkinDataUrl, enemySkinDa
       <canvas
         ref={canvasRef}
         style={{
-          width: '100%',
-          maxWidth: `${CANVAS_W}px`,
-          ...(isMobile ? { maxHeight: 'calc(100dvh - 108px)' } : {}),
-          aspectRatio: `${CANVAS_W} / ${CANVAS_H}`,
+          width: canvasDisplaySize.w,
+          height: canvasDisplaySize.h,
           display: 'block',
           imageRendering: 'pixelated',
+          flexShrink: 0,
         }}
       />
       {isMobile && (
@@ -1604,11 +1669,21 @@ function SetupScreen({ bands, selectedBandIds, setSelectedBandIds, skins, select
                       : 'border-gray-700 bg-gray-800 hover:border-gray-600'
                   }`}
                 >
-                  <img
-                    src={bs.dataUrl}
-                    alt={bs.name}
-                    style={{ imageRendering: 'pixelated', width: 48, height: 72 }}
-                  />
+                  {bs.torsoUrl ? (
+                    <img
+                      src={bs.torsoUrl}
+                      alt={bs.name}
+                      style={{ imageRendering: 'pixelated', width: 20, height: 28 }}
+                    />
+                  ) : bs.dataUrl ? (
+                    <img
+                      src={bs.dataUrl}
+                      alt={bs.name}
+                      style={{ imageRendering: 'pixelated', width: 48, height: 72 }}
+                    />
+                  ) : (
+                    <div className="w-8 h-12 rounded bg-gray-700 flex items-center justify-center text-lg">🎭</div>
+                  )}
                   <span className="text-xs text-gray-400 max-w-[48px] truncate">{bs.name}</span>
                 </button>
               ))}
@@ -1918,7 +1993,7 @@ export default function PlatformerPage() {
             <PlatformerGame
               bandIds={selectedBandIds}
               heroSkinDataUrl={selectedSkin?.dataUrl}
-              bodySkinDataUrl={selectedBodySkin?.dataUrl}
+              selectedBodySkin={selectedBodySkin}
               enemySkinDataUrls={enemySkinDataUrls}
               onGameOver={handleGameOver}
             />

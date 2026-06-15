@@ -777,26 +777,42 @@ platformerRouter.get('/body-skins', async (_req, res, next): Promise<void> => {
 // POST /body-skins — create
 platformerRouter.post('/body-skins', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
   try {
-    const { name, role, dataUrl, isDefault } = req.body as {
-      name?: unknown; role?: unknown; dataUrl?: unknown; isDefault?: unknown;
+    const { name, role, dataUrl, torsoUrl, armUrl, legUrl, isDefault } = req.body as {
+      name?: unknown; role?: unknown; dataUrl?: unknown;
+      torsoUrl?: unknown; armUrl?: unknown; legUrl?: unknown; isDefault?: unknown;
     };
     if (typeof name !== 'string' || !name.trim()) {
       res.status(400).json({ error: 'name is required' }); return;
     }
-    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
-      res.status(400).json({ error: 'dataUrl must be a valid image data URL' }); return;
-    }
-    if (Buffer.byteLength(dataUrl) > MAX_DATA_URL_BYTES) {
-      res.status(413).json({ error: 'dataUrl too large (max 5 MB)' }); return;
-    }
     const validRoles = new Set(['vocals', 'guitar', 'bass', 'drums', 'piano', 'violin']);
     const roleVal = typeof role === 'string' && validRoles.has(role) ? role : null;
+
+    function validatePart(val: unknown, field: string): string | null {
+      if (val === undefined || val === null) return null;
+      if (typeof val !== 'string' || !val.startsWith('data:image/')) {
+        throw new Error(`${field} must be a valid image data URL`);
+      }
+      if (Buffer.byteLength(val) > MAX_DATA_URL_BYTES) throw new Error(`${field} too large (max 5 MB)`);
+      return val;
+    }
+    let torsoVal: string | null, armVal: string | null, legVal: string | null, dataUrlVal: string | null;
+    try {
+      torsoVal = validatePart(torsoUrl, 'torsoUrl');
+      armVal = validatePart(armUrl, 'armUrl');
+      legVal = validatePart(legUrl, 'legUrl');
+      dataUrlVal = validatePart(dataUrl, 'dataUrl');
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message }); return;
+    }
 
     const skin = await prisma.platformerBodySkin.create({
       data: {
         name: name.trim(),
         ...(roleVal !== null ? { role: roleVal } : {}),
-        dataUrl,
+        ...(dataUrlVal !== null ? { dataUrl: dataUrlVal } : {}),
+        ...(torsoVal !== null ? { torsoUrl: torsoVal } : {}),
+        ...(armVal !== null ? { armUrl: armVal } : {}),
+        ...(legVal !== null ? { legUrl: legVal } : {}),
         ...(isDefault === true ? { isDefault: true } : {}),
       },
     });
@@ -808,8 +824,9 @@ platformerRouter.post('/body-skins', requireAuth, requireAdmin, async (req, res,
 platformerRouter.put('/body-skins/:id', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
   try {
     const { id } = req.params as { id: string };
-    const { name, role, dataUrl, isDefault } = req.body as {
-      name?: unknown; role?: unknown; dataUrl?: unknown; isDefault?: unknown;
+    const { name, role, dataUrl, torsoUrl, armUrl, legUrl, isDefault } = req.body as {
+      name?: unknown; role?: unknown; dataUrl?: unknown;
+      torsoUrl?: unknown; armUrl?: unknown; legUrl?: unknown; isDefault?: unknown;
     };
 
     const existing = await prisma.platformerBodySkin.findUnique({ where: { id } });
@@ -818,20 +835,31 @@ platformerRouter.put('/body-skins/:id', requireAuth, requireAdmin, async (req, r
     const validRoles = new Set(['vocals', 'guitar', 'bass', 'drums', 'piano', 'violin']);
 
     const updateData: {
-      name?: string; role?: string | null; dataUrl?: string; isDefault?: boolean;
+      name?: string; role?: string | null; isDefault?: boolean;
+      dataUrl?: string | null; torsoUrl?: string | null; armUrl?: string | null; legUrl?: string | null;
     } = {};
 
     if (typeof name === 'string' && name.trim()) updateData.name = name.trim();
     if (role === null || (typeof role === 'string' && validRoles.has(role))) {
       updateData.role = role === null ? null : role;
     }
-    if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
-      if (Buffer.byteLength(dataUrl) > MAX_DATA_URL_BYTES) {
-        res.status(413).json({ error: 'dataUrl too large (max 5 MB)' }); return;
-      }
-      updateData.dataUrl = dataUrl;
-    }
     if (typeof isDefault === 'boolean') updateData.isDefault = isDefault;
+
+    function validateAndSet(val: unknown, key: 'dataUrl' | 'torsoUrl' | 'armUrl' | 'legUrl') {
+      if (val === undefined) return;
+      if (val === null) { (updateData as Record<string, unknown>)[key] = null; return; }
+      if (typeof val !== 'string' || !val.startsWith('data:image/')) throw new Error(`${key} must be a valid image data URL`);
+      if (Buffer.byteLength(val) > MAX_DATA_URL_BYTES) throw new Error(`${key} too large (max 5 MB)`);
+      (updateData as Record<string, unknown>)[key] = val;
+    }
+    try {
+      validateAndSet(dataUrl, 'dataUrl');
+      validateAndSet(torsoUrl, 'torsoUrl');
+      validateAndSet(armUrl, 'armUrl');
+      validateAndSet(legUrl, 'legUrl');
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message }); return;
+    }
 
     const skin = await prisma.platformerBodySkin.update({ where: { id }, data: updateData });
     res.json(skin); return;

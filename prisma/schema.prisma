@@ -1286,10 +1286,18 @@ model PlatformerBodySkin {
   id        String   @id @default(cuid())
   name      String
   role      String?  // 'vocals' | 'guitar' | 'bass' | 'drums' | 'piano' | 'violin' | null = any
-  dataUrl   String   @db.Text  // transparent PNG, 32×48 logical pixels
   isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Segmented animated parts — each drawn with independent rotation for full walk/jump animation
+  // torso: 20×28 px, arm: 8×14 px (used for both arms), leg: 6×16 px (used for both legs)
+  torsoUrl  String?  @db.Text
+  armUrl    String?  @db.Text
+  legUrl    String?  @db.Text
+
+  // Legacy: single full-body replacement image (static, no per-limb animation)
+  dataUrl   String?  @db.Text
 
   @@map("platformer_body_skins")
 }

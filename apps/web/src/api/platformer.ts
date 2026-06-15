@@ -42,7 +42,10 @@ export interface BodySkin {
   id: string;
   name: string;
   role: string | null;
-  dataUrl: string;
+  dataUrl: string | null;
+  torsoUrl: string | null;
+  armUrl: string | null;
+  legUrl: string | null;
   isDefault: boolean;
   createdAt: string;
   updatedAt: string;
@@ -203,11 +206,27 @@ export const platformerApi = {
     return api.get<BodySkin[]>('/api/platformer/body-skins');
   },
 
-  createBodySkin(data: { name: string; dataUrl: string; role?: string | null; isDefault?: boolean }): Promise<BodySkin> {
+  createBodySkin(data: {
+    name: string;
+    role?: string | null;
+    isDefault?: boolean;
+    dataUrl?: string | null;
+    torsoUrl?: string | null;
+    armUrl?: string | null;
+    legUrl?: string | null;
+  }): Promise<BodySkin> {
     return api.post<BodySkin>('/api/platformer/body-skins', data);
   },
 
-  updateBodySkin(id: string, data: { name?: string; dataUrl?: string; role?: string | null; isDefault?: boolean }): Promise<BodySkin> {
+  updateBodySkin(id: string, data: {
+    name?: string;
+    role?: string | null;
+    isDefault?: boolean;
+    dataUrl?: string | null;
+    torsoUrl?: string | null;
+    armUrl?: string | null;
+    legUrl?: string | null;
+  }): Promise<BodySkin> {
     return api.put<BodySkin>(`/api/platformer/body-skins/${encodeURIComponent(id)}`, data);
   },
 

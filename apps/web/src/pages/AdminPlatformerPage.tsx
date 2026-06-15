@@ -802,84 +802,51 @@ function MembersAndSkins() {
 // BodySkinsSection
 // ---------------------------------------------------------------------------
 
-// Generate a 32×48 template showing the default stick-figure body so the
-// user has something to trace over when drawing a new body skin.
-// Canvas y=0 is top; hero-local y=0 is feet → offset = +48
-function generateBodyTemplate(): string {
-  const W = 32;
-  const H = 48;
-  const HERO_H_T = 48;
+function generateTorsoTemplate(): string {
+  const W = 20; const H = 28;
   const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
+  canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
-
-  // All coordinates below use hero-local space (y=0 = feet) then offset by +H
-  const cy = (heroY: number) => heroY + H;
-
-  // Legs (from y=0 downward, length 14)
-  const legOffsetX = 6;
-  ctx.lineWidth = 5;
-  ctx.lineCap = 'round';
-  ctx.strokeStyle = '#1e3a5f';
+  const r = 4;
   ctx.beginPath();
-  ctx.moveTo(W / 2 - legOffsetX, cy(0));
-  ctx.lineTo(W / 2 - legOffsetX, cy(-14));
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(W / 2 + legOffsetX, cy(0));
-  ctx.lineTo(W / 2 + legOffsetX, cy(-14));
-  ctx.stroke();
-
-  // Torso
-  const torsoTop = -HERO_H_T + 14; // = -34 → canvas y = 14
-  const torsoH = 28;
-  const torsoW = 20;
-  const torsoR = 4;
-  const tx = W / 2; // centre x = 16
-  ctx.fillStyle = '#1c1917';
-  ctx.beginPath();
-  ctx.moveTo(tx - torsoW / 2 + torsoR, cy(torsoTop));
-  ctx.lineTo(tx + torsoW / 2 - torsoR, cy(torsoTop));
-  ctx.quadraticCurveTo(tx + torsoW / 2, cy(torsoTop), tx + torsoW / 2, cy(torsoTop + torsoR));
-  ctx.lineTo(tx + torsoW / 2, cy(torsoTop + torsoH - torsoR));
-  ctx.quadraticCurveTo(tx + torsoW / 2, cy(torsoTop + torsoH), tx + torsoW / 2 - torsoR, cy(torsoTop + torsoH));
-  ctx.lineTo(tx - torsoW / 2 + torsoR, cy(torsoTop + torsoH));
-  ctx.quadraticCurveTo(tx - torsoW / 2, cy(torsoTop + torsoH), tx - torsoW / 2, cy(torsoTop + torsoH - torsoR));
-  ctx.lineTo(tx - torsoW / 2, cy(torsoTop + torsoR));
-  ctx.quadraticCurveTo(tx - torsoW / 2, cy(torsoTop), tx - torsoW / 2 + torsoR, cy(torsoTop));
+  ctx.moveTo(r, 0); ctx.lineTo(W - r, 0);
+  ctx.quadraticCurveTo(W, 0, W, r);
+  ctx.lineTo(W, H - r);
+  ctx.quadraticCurveTo(W, H, W - r, H);
+  ctx.lineTo(r, H);
+  ctx.quadraticCurveTo(0, H, 0, H - r);
+  ctx.lineTo(0, r);
+  ctx.quadraticCurveTo(0, 0, r, 0);
   ctx.closePath();
-  ctx.fill();
+  ctx.fillStyle = '#1c1917'; ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1; ctx.stroke();
+  return canvas.toDataURL('image/png');
+}
 
-  // Arms
-  const armTop = torsoTop + 6; // = -28
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = '#292524';
+function generateArmTemplate(): string {
+  const W = 8; const H = 14;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
   ctx.beginPath();
-  ctx.moveTo(tx - torsoW / 2, cy(armTop));
-  ctx.lineTo(tx - torsoW / 2 - 8, cy(armTop - 10));
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(tx + torsoW / 2, cy(armTop));
-  ctx.lineTo(tx + torsoW / 2 + 8, cy(armTop - 10));
-  ctx.stroke();
+  ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H);
+  ctx.strokeStyle = '#292524'; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1; ctx.stroke();
+  return canvas.toDataURL('image/png');
+}
 
-  // Head outline (dashed, so the user knows where the face will go)
-  const headCY = torsoTop - 5; // = -39 → canvas y = 9
-  ctx.strokeStyle = 'rgba(253,230,138,0.5)';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([2, 2]);
+function generateLegTemplate(): string {
+  const W = 6; const H = 16;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
   ctx.beginPath();
-  ctx.arc(tx, cy(headCY), 11, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  // Label
-  ctx.fillStyle = 'rgba(253,230,138,0.4)';
-  ctx.font = '4px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('face', tx, cy(headCY) + 1.5);
-
+  ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H);
+  ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1; ctx.stroke();
   return canvas.toDataURL('image/png');
 }
 
@@ -897,17 +864,12 @@ const ROLE_LABELS: Record<BodyRole, string> = {
 
 function BodySkinsSection() {
   const queryClient = useQueryClient();
-
-  // Create-new form state
-  const [newName, setNewName]       = useState('');
-  const [newRole, setNewRole]       = useState<BodyRole | ''>('');
-  const [creating, setCreating]     = useState(false);
-  const [templateUrl, setTemplateUrl] = useState<string | null>(null);
-
-  // Edit existing state
-  const [editingSkin, setEditingSkin] = useState<BodySkin | null>(null);
-
+  const [newName, setNewName] = useState('');
+  const [newRole, setNewRole] = useState<BodyRole | ''>('');
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  // Which skin + which part is being edited in the pixel editor
+  const [editing, setEditing] = useState<{ skinId: string; part: 'torso' | 'arm' | 'leg' } | null>(null);
 
   const { data: skins = [], isLoading } = useQuery<BodySkin[]>({
     queryKey: ['platformer-body-skins'],
@@ -915,142 +877,120 @@ function BodySkinsSection() {
     staleTime: 30_000,
   });
 
-  function invalidate() {
-    void queryClient.invalidateQueries({ queryKey: ['platformer-body-skins'] });
-  }
+  function invalidate() { void queryClient.invalidateQueries({ queryKey: ['platformer-body-skins'] }); }
 
   function flash(text: string, ok: boolean) {
     setMsg({ text, ok });
     setTimeout(() => setMsg(null), 4000);
   }
 
-  async function handleCreateSave(dataUrl: string) {
+  const createMut = useMutation({
+    mutationFn: () => platformerApi.createBodySkin({
+      name: newName.trim() || 'Body Skin',
+      ...(newRole ? { role: newRole } : {}),
+    }),
+    onSuccess: () => {
+      setNewName(''); setNewRole('');
+      flash('Body skin created. Now use the Edit buttons to draw each part.', true);
+      invalidate();
+    },
+    onError: () => flash('Failed to create body skin.', false),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => platformerApi.deleteBodySkin(id),
+    onSuccess: () => { flash('Deleted.', true); invalidate(); },
+  });
+
+  const toggleDefaultMut = useMutation({
+    mutationFn: ({ id, val }: { id: string; val: boolean }) => platformerApi.updateBodySkin(id, { isDefault: val }),
+    onSuccess: () => invalidate(),
+  });
+
+  // When saving a part from the pixel editor
+  async function handlePartSave(dataUrl: string) {
+    if (!editing) return;
+    const field: 'torsoUrl' | 'armUrl' | 'legUrl' =
+      editing.part === 'torso' ? 'torsoUrl' :
+      editing.part === 'arm'   ? 'armUrl'   : 'legUrl';
     try {
-      await platformerApi.createBodySkin({
-        name: newName.trim() || 'Body Skin',
-        dataUrl,
-        ...(newRole ? { role: newRole } : {}),
-      });
-      flash('Body skin created.', true);
-      setCreating(false);
-      setNewName('');
-      setNewRole('');
+      await platformerApi.updateBodySkin(editing.skinId, { [field]: dataUrl });
+      flash(`${editing.part} saved.`, true);
+      setEditing(null);
       invalidate();
     } catch {
-      flash('Failed to create body skin.', false);
+      flash(`Failed to save ${editing.part}.`, false);
       throw new Error('save failed');
     }
   }
 
-  async function handleEditSave(dataUrl: string) {
-    if (!editingSkin) return;
-    try {
-      await platformerApi.updateBodySkin(editingSkin.id, { dataUrl });
-      flash('Body skin updated.', true);
-      setEditingSkin(null);
-      invalidate();
-    } catch {
-      flash('Failed to update body skin.', false);
-      throw new Error('save failed');
-    }
-  }
+  const editingSkin = editing ? skins.find(s => s.id === editing.skinId) : null;
+  const partConfig = editing ? {
+    torso: { label: 'Torso', spriteW: 20, spriteH: 28, template: generateTorsoTemplate },
+    arm:   { label: 'Arm',   spriteW: 8,  spriteH: 14, template: generateArmTemplate },
+    leg:   { label: 'Leg',   spriteW: 6,  spriteH: 16, template: generateLegTemplate },
+  }[editing.part] : null;
 
-  async function handleDelete(skin: BodySkin) {
-    if (!window.confirm(`Delete "${skin.name}"? This cannot be undone.`)) return;
-    try {
-      await platformerApi.deleteBodySkin(skin.id);
-      flash('Deleted.', true);
-      invalidate();
-    } catch {
-      flash('Failed to delete.', false);
-    }
-  }
-
-  async function handleToggleDefault(skin: BodySkin) {
-    try {
-      await platformerApi.updateBodySkin(skin.id, { isDefault: !skin.isDefault });
-      invalidate();
-    } catch {
-      flash('Failed to update.', false);
-    }
-  }
+  const currentPartUrl = editing && editingSkin ? {
+    torso: editingSkin.torsoUrl,
+    arm:   editingSkin.armUrl,
+    leg:   editingSkin.legUrl,
+  }[editing.part] : null;
 
   return (
     <div className="space-y-6">
-
-      {/* Editor overlays */}
-      {creating && (
+      {/* Pixel editor overlay */}
+      {editing && partConfig && (
         <SpritePixelEditor
-          assetType={`body-new-${newName}`}
-          label={`New Body: ${newName.trim() || 'Body Skin'}${newRole ? ` (${ROLE_LABELS[newRole]})` : ''}`}
-          spriteW={32}
-          spriteH={48}
-          initialDataUrl={templateUrl}
-          onSave={handleCreateSave}
-          onClose={() => { setCreating(false); setTemplateUrl(null); }}
-        />
-      )}
-      {editingSkin && (
-        <SpritePixelEditor
-          assetType={`body-${editingSkin.id}`}
-          label={`Edit: ${editingSkin.name}`}
-          spriteW={32}
-          spriteH={48}
-          initialDataUrl={editingSkin.dataUrl}
-          onSave={handleEditSave}
-          onClose={() => setEditingSkin(null)}
+          assetType={`body-${editing.skinId}-${editing.part}`}
+          label={`${editingSkin?.name ?? ''} — ${partConfig.label}`}
+          spriteW={partConfig.spriteW}
+          spriteH={partConfig.spriteH}
+          initialDataUrl={currentPartUrl ?? partConfig.template()}
+          onSave={handlePartSave}
+          onClose={() => setEditing(null)}
         />
       )}
 
-      {/* Create new form */}
+      {/* Create new */}
       <div className="bg-white border border-surface-200 rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-surface-800 mb-4">Create New Body Skin</h3>
+        <h3 className="text-sm font-semibold text-surface-800 mb-2">Create New Body Skin</h3>
         <p className="text-xs text-surface-500 mb-4">
-          Draw the full character body — arms, legs, torso, hands, feet. The image replaces the default stick-figure
-          entirely. Leave the top portion (head area) transparent or minimal — the AI face portrait composites there automatically.
-          Assign a role so this body appears when that role is selected for a band member.
+          Create a body skin, then draw each part separately: Torso (20×28 px), Arm (8×14 px), Leg (6×16 px).
+          Arms and legs animate independently — they swing while walking and raise on jump.
+          Leave the upper head area (top ~10px of torso) minimal — the AI face portrait overlaps there.
         </p>
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex flex-col gap-1 flex-1 min-w-[160px]">
             <label className="text-xs text-surface-500 font-medium">Name</label>
             <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="e.g. Classic Rocker"
+              type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
+              placeholder="e.g. Rock Guitarist"
               className="border border-surface-200 rounded-lg px-3 py-2 text-sm text-surface-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-surface-500 font-medium">Role (optional)</label>
-            <select
-              value={newRole}
-              onChange={(e) => setNewRole(e.target.value as BodyRole | '')}
-              className="border border-surface-200 rounded-lg px-3 py-2 text-sm text-surface-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
+            <select value={newRole} onChange={(e) => setNewRole(e.target.value as BodyRole | '')}
+              className="border border-surface-200 rounded-lg px-3 py-2 text-sm text-surface-900 focus:outline-none focus:ring-2 focus:ring-indigo-500">
               <option value="">Any role</option>
               {BODY_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
             </select>
           </div>
           <button
-            onClick={() => {
-              if (!newName.trim()) { flash('Enter a name first.', false); return; }
-              setTemplateUrl(generateBodyTemplate());
-              setCreating(true);
-            }}
-            className="bg-surface-900 hover:bg-surface-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors self-end"
+            onClick={() => { if (!newName.trim()) { flash('Enter a name first.', false); return; } void createMut.mutate(); }}
+            disabled={createMut.isPending}
+            className="bg-surface-900 hover:bg-surface-700 disabled:opacity-40 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors self-end"
           >
-            Open Editor
+            {createMut.isPending ? 'Creating…' : 'Create'}
           </button>
         </div>
-        {msg && (
-          <p className={`text-sm mt-3 font-medium ${msg.ok ? 'text-emerald-600' : 'text-red-600'}`}>{msg.text}</p>
-        )}
+        {msg && <p className={`text-sm mt-3 font-medium ${msg.ok ? 'text-emerald-600' : 'text-red-600'}`}>{msg.text}</p>}
       </div>
 
       {/* Existing skins */}
       {isLoading ? (
-        <div className="text-sm text-surface-400 py-6 text-center">Loading body skins…</div>
+        <div className="text-sm text-surface-400 py-6 text-center">Loading…</div>
       ) : skins.length === 0 ? (
         <p className="text-sm text-surface-400 text-center py-4">No body skins yet — create one above.</p>
       ) : (
@@ -1058,46 +998,76 @@ function BodySkinsSection() {
           <div className="px-5 py-3 border-b border-surface-100">
             <h3 className="text-sm font-semibold text-surface-800">Body Skins ({skins.length})</h3>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-5">
+          <div className="divide-y divide-surface-100">
             {skins.map((skin) => (
-              <div key={skin.id} className="flex flex-col gap-2 bg-surface-50 border border-surface-200 rounded-xl p-3">
-                <div className="w-full flex items-center justify-center bg-surface-100 rounded-lg py-4">
-                  <img
-                    src={skin.dataUrl}
-                    alt={skin.name}
-                    style={{ imageRendering: 'pixelated', width: 64, height: 96 }}
-                  />
+              <div key={skin.id} className="p-4 flex flex-col sm:flex-row gap-4">
+                {/* Part previews */}
+                <div className="flex items-end gap-4">
+                  {/* Torso */}
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="bg-surface-100 rounded flex items-center justify-center" style={{ width: 40, height: 56 }}>
+                      {skin.torsoUrl ? (
+                        <img src={skin.torsoUrl} alt="torso" style={{ imageRendering: 'pixelated', width: 20, height: 28 }} />
+                      ) : (
+                        <span className="text-[10px] text-surface-400 text-center">no torso</span>
+                      )}
+                    </div>
+                    <button onClick={() => setEditing({ skinId: skin.id, part: 'torso' })}
+                      className="text-[11px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded px-2 py-1 font-medium">
+                      Torso
+                    </button>
+                  </div>
+                  {/* Arm */}
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="bg-surface-100 rounded flex items-center justify-center" style={{ width: 28, height: 42 }}>
+                      {skin.armUrl ? (
+                        <img src={skin.armUrl} alt="arm" style={{ imageRendering: 'pixelated', width: 16, height: 28 }} />
+                      ) : (
+                        <span className="text-[10px] text-surface-400 text-center leading-tight">no arm</span>
+                      )}
+                    </div>
+                    <button onClick={() => setEditing({ skinId: skin.id, part: 'arm' })}
+                      className="text-[11px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded px-2 py-1 font-medium">
+                      Arm
+                    </button>
+                  </div>
+                  {/* Leg */}
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="bg-surface-100 rounded flex items-center justify-center" style={{ width: 24, height: 48 }}>
+                      {skin.legUrl ? (
+                        <img src={skin.legUrl} alt="leg" style={{ imageRendering: 'pixelated', width: 12, height: 32 }} />
+                      ) : (
+                        <span className="text-[10px] text-surface-400 text-center leading-tight">no leg</span>
+                      )}
+                    </div>
+                    <button onClick={() => setEditing({ skinId: skin.id, part: 'leg' })}
+                      className="text-[11px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded px-2 py-1 font-medium">
+                      Leg
+                    </button>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-surface-800 truncate">{skin.name}</p>
-                  <p className="text-xs text-surface-400 mt-0.5">
-                    {skin.role ? ROLE_LABELS[skin.role as BodyRole] ?? skin.role : 'Any role'}
-                  </p>
-                  {skin.isDefault && (
-                    <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 font-medium mt-1 inline-block">
-                      Default
-                    </span>
-                  )}
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <button
-                    onClick={() => setEditingSkin(skin)}
-                    className="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded px-2 py-1.5 font-medium transition-colors"
-                  >
-                    Edit in Pixel Editor
-                  </button>
-                  <button
-                    onClick={() => { void handleToggleDefault(skin); }}
-                    className="text-xs bg-surface-50 hover:bg-surface-100 text-surface-600 border border-surface-200 rounded px-2 py-1.5 font-medium transition-colors"
-                  >
-                    {skin.isDefault ? 'Unset Default' : 'Set as Default'}
-                  </button>
-                  <button
-                    onClick={() => { void handleDelete(skin); }}
-                    className="text-xs text-red-500 hover:text-red-700 transition-colors py-0.5"
-                  >
-                    Delete
-                  </button>
+                {/* Info + actions */}
+                <div className="flex-1 min-w-0 flex flex-col justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-surface-800">{skin.name}</p>
+                    <p className="text-xs text-surface-400 mt-0.5">
+                      {skin.role ? ROLE_LABELS[skin.role as BodyRole] ?? skin.role : 'Any role'}
+                      {skin.isDefault && <span className="ml-2 text-amber-600 font-medium">• Default</span>}
+                    </p>
+                    <p className="text-xs text-surface-400 mt-1">
+                      {[skin.torsoUrl && 'Torso ✓', skin.armUrl && 'Arm ✓', skin.legUrl && 'Leg ✓'].filter(Boolean).join(' · ') || 'No parts drawn yet'}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <button onClick={() => { void toggleDefaultMut.mutate({ id: skin.id, val: !skin.isDefault }); }}
+                      className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded px-2 py-1 font-medium">
+                      {skin.isDefault ? 'Unset Default' : 'Set Default'}
+                    </button>
+                    <button onClick={() => { if (window.confirm(`Delete "${skin.name}"?`)) void deleteMut.mutate(skin.id); }}
+                      className="text-xs text-red-500 hover:text-red-700 transition-colors">
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
