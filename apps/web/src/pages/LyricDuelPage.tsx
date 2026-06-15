@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import SiteHeader from '../components/layout/SiteHeader';
 import { useAuth } from '../contexts/AuthContext';
-import { platformerApi } from '../api/platformer';
+import { platformerApi, type BodySkin } from '../api/platformer';
 import {
   lyricDuelApi,
   type DuelBand,
@@ -733,14 +733,182 @@ function buildFightEvents(
   return events;
 }
 
+// ---------------------------------------------------------------------------
+// CharacterCanvas — canvas-rendered puppet with body parts + face + animation
+// ---------------------------------------------------------------------------
+
+type FightAction = 'idle' | 'lunge' | 'shake' | 'clash' | 'victory' | 'defeat';
+
+const CANVAS_W = 128;
+const CANVAS_H = 165;
+
+function CharacterCanvas({
+  faceUrl, torsoUrl, armUrl, legUrl, action, mirrored,
+}: {
+  faceUrl:  string | null;
+  torsoUrl: string | null;
+  armUrl:   string | null;
+  legUrl:   string | null;
+  action:   FightAction;
+  mirrored: boolean;
+}) {
+  const canvasRef    = useRef<HTMLCanvasElement>(null);
+  const imgs         = useRef<{ face: HTMLImageElement | null; torso: HTMLImageElement | null; arm: HTMLImageElement | null; leg: HTMLImageElement | null }>({ face: null, torso: null, arm: null, leg: null });
+  const frameRef     = useRef(0);
+  const actionRef    = useRef<FightAction>(action);
+  const actionMs     = useRef(performance.now());
+  const mirroredRef  = useRef(mirrored);
+  const rafRef       = useRef(0);
+
+  useEffect(() => { mirroredRef.current = mirrored; }, [mirrored]);
+
+  useEffect(() => {
+    actionRef.current = action;
+    actionMs.current  = performance.now();
+  }, [action]);
+
+  // Load sprite images whenever URLs change
+  useEffect(() => {
+    let live = true;
+    function loadImg(src: string | null): Promise<HTMLImageElement | null> {
+      if (!src) return Promise.resolve(null);
+      return new Promise((res) => {
+        const img = new Image();
+        img.onload  = () => res(img);
+        img.onerror = () => res(null);
+        img.src = src;
+      });
+    }
+    void Promise.all([loadImg(faceUrl), loadImg(torsoUrl), loadImg(armUrl), loadImg(legUrl)])
+      .then(([face, torso, arm, leg]) => {
+        if (live) imgs.current = { face, torso, arm, leg };
+      });
+    return () => { live = false; };
+  }, [faceUrl, torsoUrl, armUrl, legUrl]);
+
+  // Draw loop — runs once, reads everything from refs
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    function part(
+      img: HTMLImageElement | null, fill: string,
+      tx: number, ty: number, w: number, h: number, rot: number,
+    ) {
+      ctx!.save();
+      ctx!.translate(tx, ty);
+      if (rot) ctx!.rotate(rot);
+      if (img) { ctx!.drawImage(img, -w / 2, 0, w, h); }
+      else      { ctx!.fillStyle = fill; ctx!.fillRect(-w / 2, 0, w, h); }
+      ctx!.restore();
+    }
+
+    function draw() {
+      const W = CANVAS_W, H = CANVAS_H;
+      ctx!.clearRect(0, 0, W, H);
+      ctx!.save();
+      ctx!.imageSmoothingEnabled = false;
+
+      const isM    = mirroredRef.current;
+      const f      = frameRef.current;
+      const act    = actionRef.current;
+      const elapsed = performance.now() - actionMs.current;
+
+      if (isM) { ctx!.translate(W, 0); ctx!.scale(-1, 1); }
+
+      // Reference point = feet
+      const feetX = W / 2;
+      const feetY = H - 12;
+
+      // Sprite sizes (≈2× the Vinyl Runner game scale)
+      const TW = 40, TH = 52;  // torso
+      const AW = 16, AH = 26;  // arm
+      const LW = 12, LH = 30;  // leg
+      const FW = 48, FH = 48;  // face
+      const LO = 9;             // leg lateral offset from centre
+
+      // Y offsets (relative to feet = 0, negative = up)
+      const legY   = -LH;
+      const torsoY = legY - TH + 12;   // legs tuck 12px into torso base
+      const armY   = torsoY + 8;
+      const faceY  = torsoY - FH + 10; // face overlaps 10px of torso top
+
+      // Idle pendulum
+      const sp       = 0.10;
+      const legSwing = Math.sin(f * sp) * 0.35;
+      const armSwing = Math.sin(f * sp + Math.PI) * 0.28;
+
+      // Action modifiers
+      let dx = 0, dy = 0, lean = 0, punch = 0;
+      if (act === 'lunge') {
+        const t     = Math.min(elapsed / 1400, 1);
+        const curve = Math.sin(t * Math.PI);   // 0→peak→0
+        dx    = curve * 26;
+        lean  = curve * 0.22;
+        punch = curve * 0.75;
+      } else if (act === 'shake') {
+        const t = Math.min(elapsed / 900, 1);
+        dx = Math.sin(t * Math.PI * 9) * 10 * (1 - t);
+      } else if (act === 'clash') {
+        const t = Math.min(elapsed / 1100, 1);
+        dy = -Math.sin(t * Math.PI) * 20;
+      } else if (act === 'victory') {
+        dy = Math.sin(f * 0.18) * 5;
+      } else if (act === 'defeat') {
+        lean = 0.3;
+        dy   = 10;
+      }
+
+      ctx!.translate(feetX + dx, feetY + dy);
+      if (lean) ctx!.rotate(lean);
+
+      // Left leg
+      part(imgs.current.leg,   '#1e3a8a', -LO, legY,   LW, LH,  legSwing + (act === 'lunge' ? 0.18 : 0));
+      // Right leg
+      part(imgs.current.leg,   '#1e3a8a',  LO, legY,   LW, LH, -legSwing - (act === 'lunge' ? 0.18 : 0));
+      // Torso
+      part(imgs.current.torso, '#27272a',   0, torsoY, TW, TH,  0);
+      // Left arm
+      part(imgs.current.arm,   '#3f3f46', -TW / 2, armY, AW, AH,  armSwing + punch);
+      // Right arm (extends during lunge punch)
+      part(imgs.current.arm,   '#3f3f46',  TW / 2, armY, AW, AH, -(armSwing + punch));
+      // Face (always on top)
+      part(imgs.current.face,  '#374151',   0, faceY,  FW, FH,  0);
+
+      ctx!.restore();
+      frameRef.current += 1;
+      rafRef.current = requestAnimationFrame(draw);
+    }
+
+    rafRef.current = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, []); // intentional: loop runs once, reads state via refs
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={CANVAS_W}
+      height={CANVAS_H}
+      style={{ imageRendering: 'pixelated', display: 'block' }}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// FaceOffArena — full-screen animated duel overlay
+// ---------------------------------------------------------------------------
+
 function FaceOffArena({
-  rounds, playerName, rivalName, playerSkinUrl, rivalSkinUrl, onClose,
+  rounds, playerName, rivalName, playerSkinUrl, rivalSkinUrl, bodySkin, onClose,
 }: {
   rounds: RoundResult[];
   playerName: string;
   rivalName: string;
   playerSkinUrl: string | null;
   rivalSkinUrl: string | null;
+  bodySkin: BodySkin | null;
   onClose: () => void;
 }) {
   const events = useMemo(
@@ -777,6 +945,24 @@ function FaceOffArena({
   const rivalAnimating  = !done && current.type === 'hit' && current.attacker === 'rival';
   const isClash         = !done && current.type === 'clash';
 
+  // Derive per-character action for the canvas puppets
+  const pWins = rounds.filter((r) => r.roundWinner === 'player').length;
+  const rWins = rounds.filter((r) => r.roundWinner === 'rival').length;
+
+  const playerAction: FightAction = done
+    ? (pWins >= rWins ? 'victory' : 'defeat')
+    : playerAnimating ? 'lunge'
+    : rivalAnimating  ? 'shake'
+    : isClash         ? 'clash'
+    : 'idle';
+
+  const rivalAction: FightAction = done
+    ? (rWins > pWins ? 'victory' : 'defeat')
+    : rivalAnimating  ? 'lunge'
+    : playerAnimating ? 'shake'
+    : isClash         ? 'clash'
+    : 'idle';
+
   function hpColor(hp: number): string {
     if (hp > 60) return 'bg-green-500';
     if (hp > 30) return 'bg-amber-500';
@@ -785,13 +971,7 @@ function FaceOffArena({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4">
-      <style>{`
-        @keyframes fo-lunge-right { 0%{transform:translateX(0)} 40%{transform:translateX(18px)} 70%{transform:translateX(-4px)} 100%{transform:translateX(0)} }
-        @keyframes fo-shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-6px)} 40%{transform:translateX(6px)} 60%{transform:translateX(-4px)} 80%{transform:translateX(4px)} }
-        @keyframes fo-clash { 0%,100%{transform:scale(1)} 50%{transform:scale(1.12)} }
-      `}</style>
-
-      <div className="w-full max-w-md space-y-5">
+      <div className="w-full max-w-md space-y-4">
 
         <p className="text-center text-xs font-black text-gray-500 uppercase tracking-widest">
           ⚔️ Face-Off
@@ -821,78 +1001,57 @@ function FaceOffArena({
           </div>
         </div>
 
-        {/* Arena */}
-        <div className="flex items-end justify-between gap-6 py-6 px-2">
+        {/* Arena — relative container so characters can be absolutely positioned */}
+        <div className="relative" style={{ height: CANVAS_H + 24 }}>
 
-          {/* Player (left) */}
-          <div className="flex flex-col items-center">
-            <div
-              key={`p-${eventIndex}`}
-              style={{
-                animation: playerAnimating ? 'fo-lunge-right 0.55s ease-out'
-                  : rivalAnimating ? 'fo-shake 0.5s ease-out'
-                  : isClash ? 'fo-clash 0.45s ease-out'
-                  : 'none',
-              }}
-            >
-              {playerSkinUrl ? (
-                <img
-                  src={playerSkinUrl}
-                  alt={playerName}
-                  style={{ width: 80, height: 80, imageRendering: 'pixelated', objectFit: 'contain' }}
-                />
-              ) : (
-                <div className="w-20 h-20 rounded-xl bg-rose-900/60 border-2 border-rose-600 flex items-center justify-center text-3xl">
-                  🎤
-                </div>
-              )}
-            </div>
-            <p className="text-[10px] text-rose-300 mt-1 max-w-[80px] text-center truncate">{playerName}</p>
+          {/* Player (left) — faces RIGHT by default */}
+          <div className="absolute flex flex-col items-center" style={{ left: 0, bottom: 0 }}>
+            <CharacterCanvas
+              faceUrl={playerSkinUrl}
+              torsoUrl={bodySkin?.torsoUrl ?? null}
+              armUrl={bodySkin?.armUrl ?? null}
+              legUrl={bodySkin?.legUrl ?? null}
+              action={playerAction}
+              mirrored={false}
+            />
+            <p className="text-[10px] text-rose-300 text-center truncate mt-1" style={{ maxWidth: CANVAS_W }}>
+              {playerName}
+            </p>
           </div>
 
-          {/* Center event indicator */}
-          <div className="flex flex-col items-center gap-1 shrink-0">
-            {current.type === 'round-start' && <p className="text-base font-black text-white">RND {current.roundNum}</p>}
-            {current.type === 'hit'         && <p className="text-3xl">💥</p>}
-            {current.type === 'clash'       && <p className="text-3xl">⚡</p>}
-            {current.type === 'round-end'   && <p className="text-xl text-gray-500">—</p>}
-            {current.type === 'finale'      && <p className="text-3xl">🏆</p>}
+          {/* Centre event flash */}
+          <div
+            className="absolute flex flex-col items-center justify-center"
+            style={{ left: '50%', top: '40%', transform: 'translate(-50%, -50%)' }}
+          >
+            {current.type === 'round-start' && (
+              <p className="text-base font-black text-white leading-none">RND {current.roundNum}</p>
+            )}
+            {current.type === 'hit'       && <p className="text-4xl leading-none">💥</p>}
+            {current.type === 'clash'     && <p className="text-4xl leading-none">⚡</p>}
+            {current.type === 'round-end' && <p className="text-2xl text-gray-600 leading-none">—</p>}
+            {current.type === 'finale'    && <p className="text-4xl leading-none">🏆</p>}
           </div>
 
-          {/* Rival (right, mirrored image) */}
-          <div className="flex flex-col items-center">
-            {/* Mirror wrapper — animation runs on inner div so transform doesn't conflict */}
-            <div style={{ transform: 'scaleX(-1)' }}>
-              <div
-                key={`r-${eventIndex}`}
-                style={{
-                  animation: rivalAnimating ? 'fo-lunge-right 0.55s ease-out'
-                    : playerAnimating ? 'fo-shake 0.5s ease-out'
-                    : isClash ? 'fo-clash 0.45s ease-out'
-                    : 'none',
-                }}
-              >
-                {rivalSkinUrl ? (
-                  <img
-                    src={rivalSkinUrl}
-                    alt={rivalName}
-                    style={{ width: 80, height: 80, imageRendering: 'pixelated', objectFit: 'contain' }}
-                  />
-                ) : (
-                  <div className="w-20 h-20 rounded-xl bg-amber-900/60 border-2 border-amber-600 flex items-center justify-center text-3xl">
-                    🎸
-                  </div>
-                )}
-              </div>
-            </div>
-            {/* Name outside mirror so text isn't flipped */}
-            <p className="text-[10px] text-amber-300 mt-1 max-w-[80px] text-center truncate">{rivalName}</p>
+          {/* Rival (right) — mirrored in canvas so faces LEFT toward player */}
+          <div className="absolute flex flex-col items-center" style={{ right: 0, bottom: 0 }}>
+            <CharacterCanvas
+              faceUrl={rivalSkinUrl}
+              torsoUrl={bodySkin?.torsoUrl ?? null}
+              armUrl={bodySkin?.armUrl ?? null}
+              legUrl={bodySkin?.legUrl ?? null}
+              action={rivalAction}
+              mirrored={true}
+            />
+            <p className="text-[10px] text-amber-300 text-center truncate mt-1" style={{ maxWidth: CANVAS_W }}>
+              {rivalName}
+            </p>
           </div>
 
         </div>
 
         {/* Caption box */}
-        <div className="min-h-[4.5rem] bg-gray-900/80 rounded-xl border border-gray-700 p-4 text-center space-y-1">
+        <div className="min-h-[4rem] bg-gray-900/80 rounded-xl border border-gray-700 p-4 text-center space-y-1">
           {current.ruleName && (
             <p className="text-[10px] text-gray-500 uppercase tracking-widest">{current.ruleName}</p>
           )}
@@ -996,7 +1155,8 @@ export default function LyricDuelPage() {
   const [playerSkinUrl, setPlayerSkinUrl] = useState<string | null>(null);
   const [rivalSkinUrl, setRivalSkinUrl]   = useState<string | null>(null);
 
-  const [faceOffOpen, setFaceOffOpen] = useState(false);
+  const [faceOffOpen, setFaceOffOpen]       = useState(false);
+  const [defaultBodySkin, setDefaultBodySkin] = useState<BodySkin | null>(null);
 
   const playerWins   = rounds.filter((r) => r.roundWinner === 'player').length;
   const rivalWins    = rounds.filter((r) => r.roundWinner === 'rival').length;
@@ -1034,7 +1194,7 @@ export default function LyricDuelPage() {
       setSavedRank(null);
       setPhase('pregame');
 
-      // Fetch Vinyl Runner face avatars for both bands (non-critical)
+      // Fetch Vinyl Runner face avatars + default body skin (non-critical, purely cosmetic)
       setPlayerSkinUrl(null);
       setRivalSkinUrl(null);
       platformerApi.getSkins({ bandIds: [setup.playerBandId, setup.rivalBandId] })
@@ -1045,6 +1205,11 @@ export default function LyricDuelPage() {
           setRivalSkinUrl(rSkin?.dataUrl ?? null);
         })
         .catch(() => { /* avatars are purely cosmetic */ });
+      platformerApi.getBodySkins()
+        .then((skins) => {
+          setDefaultBodySkin(skins.find((s) => s.isDefault) ?? skins[0] ?? null);
+        })
+        .catch(() => { /* body skin is purely cosmetic */ });
     } catch {
       setError('Could not start the match. Make sure your selected bands have lyrics in the database.');
     } finally {
@@ -1444,6 +1609,7 @@ export default function LyricDuelPage() {
           rivalName={match.rivalBandName}
           playerSkinUrl={playerSkinUrl}
           rivalSkinUrl={rivalSkinUrl}
+          bodySkin={defaultBodySkin}
           onClose={() => setFaceOffOpen(false)}
         />
       )}
