@@ -440,6 +440,7 @@ function GameplayConfig({ initialConfig }: GameplayConfigProps) {
 // ---------------------------------------------------------------------------
 
 interface BandStub { id: string; name: string; }
+interface MemberSuggestion { name: string; role: string; }
 
 function MembersAndSkins() {
   const queryClient = useQueryClient();
@@ -449,6 +450,12 @@ function MembersAndSkins() {
   const [addMsg, setAddMsg]       = useState<{ text: string; ok: boolean } | null>(null);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [genMsg, setGenMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  // AI suggestions state
+  const [suggestions, setSuggestions]           = useState<MemberSuggestion[]>([]);
+  const [suggestLoading, setSuggestLoading]     = useState(false);
+  const [suggestError, setSuggestError]         = useState<string | null>(null);
+  const [addingAllSuggestions, setAddingAll]    = useState(false);
 
   // Reassign skin state
   const [reassigningSkinId, setReassigningSkinId] = useState<string | null>(null);
@@ -488,6 +495,14 @@ function MembersAndSkins() {
   function flash(setter: (v: { text: string; ok: boolean } | null) => void, text: string, ok: boolean) {
     setter({ text, ok });
     setTimeout(() => setter(null), 4000);
+  }
+
+  function handleBandChange(bandId: string) {
+    setAddBandId(bandId);
+    setSuggestions([]);
+    setSuggestError(null);
+    setAddName('');
+    setAddRole('');
   }
 
   const addMemberMut = useMutation({
@@ -537,6 +552,7 @@ function MembersAndSkins() {
         memberName: member.name,
         memberRole: member.role,
         bandName: band.name,
+        bandId: member.bandId,
       });
       flash(setGenMsg, `AI skin generated for ${member.name}.`, true);
       invalidate();
@@ -549,6 +565,45 @@ function MembersAndSkins() {
     }
   }
 
+  async function handleSuggest() {
+    if (!addBandId) return;
+    setSuggestLoading(true);
+    setSuggestError(null);
+    setSuggestions([]);
+    try {
+      const res = await platformerApi.suggestMembers(addBandId);
+      setSuggestions(res.suggestions);
+    } catch {
+      setSuggestError('Could not fetch suggestions. Try again.');
+    } finally {
+      setSuggestLoading(false);
+    }
+  }
+
+  async function addSuggestion(s: MemberSuggestion) {
+    await platformerApi.addMember({ bandId: addBandId, name: s.name, role: s.role || undefined });
+    invalidate();
+  }
+
+  async function addAllSuggestions() {
+    if (!addBandId || suggestions.length === 0) return;
+    const existingNames = new Set(
+      members.filter((m) => m.bandId === addBandId).map((m) => m.name.toLowerCase()),
+    );
+    const toAdd = suggestions.filter((s) => !existingNames.has(s.name.toLowerCase()));
+    if (toAdd.length === 0) { flash(setAddMsg, 'All suggestions already in the database.', false); return; }
+    setAddingAll(true);
+    try {
+      await Promise.all(toAdd.map((s) => platformerApi.addMember({ bandId: addBandId, name: s.name, role: s.role || undefined })));
+      flash(setAddMsg, `Added ${toAdd.length} member${toAdd.length === 1 ? '' : 's'}.`, true);
+      invalidate();
+    } catch {
+      flash(setAddMsg, 'Some members could not be added.', false);
+    } finally {
+      setAddingAll(false);
+    }
+  }
+
   // Group members by band for display
   const membersByBand = members.reduce<Record<string, { band: BandStub; members: PlatformerMember[] }>>((acc, m) => {
     const band = bands.find((b) => b.id === m.bandId);
@@ -558,18 +613,25 @@ function MembersAndSkins() {
     return acc;
   }, {});
 
+  // Members already in DB for the selected band (for suggestion deduplication)
+  const existingNamesForBand = new Set(
+    members.filter((m) => m.bandId === addBandId).map((m) => m.name.toLowerCase()),
+  );
+
   return (
     <div className="space-y-8">
 
       {/* ── Add member ────────────────────────────────────────────────── */}
       <div className="bg-white border border-surface-200 rounded-xl p-5">
         <h3 className="text-sm font-semibold text-surface-800 mb-4">Add Band Member</h3>
+
+        {/* Band selector + manual entry row */}
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex flex-col gap-1 min-w-[160px]">
             <label className="text-xs text-surface-500 font-medium">Band</label>
             <select
               value={addBandId}
-              onChange={(e) => setAddBandId(e.target.value)}
+              onChange={(e) => handleBandChange(e.target.value)}
               className="border border-surface-200 rounded-lg px-3 py-2 text-sm text-surface-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="">— pick a band —</option>
@@ -604,6 +666,90 @@ function MembersAndSkins() {
             {addMemberMut.isPending ? 'Adding…' : 'Add'}
           </button>
         </div>
+
+        {/* Suggest via AI — shown once a band is selected */}
+        {addBandId && (
+          <div className="mt-4 pt-4 border-t border-surface-100">
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={() => { void handleSuggest(); }}
+                disabled={suggestLoading}
+                className="text-sm bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+              >
+                {suggestLoading ? '🤖 Asking AI…' : '🤖 Suggest Members via AI'}
+              </button>
+              <p className="text-xs text-surface-400">
+                AI looks up the band roster using your database context and general knowledge.
+              </p>
+            </div>
+
+            {suggestError && (
+              <p className="text-sm text-red-600 mt-2">{suggestError}</p>
+            )}
+
+            {suggestions.length > 0 && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                  <p className="text-xs font-semibold text-surface-700">
+                    AI suggested {suggestions.length} member{suggestions.length === 1 ? '' : 's'}
+                    {existingNamesForBand.size > 0 && (
+                      <span className="text-surface-400 font-normal ml-1">
+                        (✓ = already in DB)
+                      </span>
+                    )}
+                  </p>
+                  <button
+                    onClick={() => { void addAllSuggestions(); }}
+                    disabled={addingAllSuggestions}
+                    className="text-xs bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    {addingAllSuggestions ? 'Adding…' : 'Add All New'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {suggestions.map((s, i) => {
+                    const alreadyInDb = existingNamesForBand.has(s.name.toLowerCase());
+                    return (
+                      <div
+                        key={i}
+                        className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-sm ${
+                          alreadyInDb
+                            ? 'bg-surface-50 border-surface-200 opacity-60'
+                            : 'bg-indigo-50 border-indigo-200'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <span className={`font-medium ${alreadyInDb ? 'text-surface-500' : 'text-surface-800'}`}>
+                            {alreadyInDb && <span className="text-emerald-600 mr-1">✓</span>}
+                            {s.name}
+                          </span>
+                          {s.role && (
+                            <span className="text-xs text-surface-400 ml-2">{s.role}</span>
+                          )}
+                        </div>
+                        {!alreadyInDb && (
+                          <button
+                            onClick={() => {
+                              void addSuggestion(s).then(() => {
+                                flash(setAddMsg, `${s.name} added.`, true);
+                              }).catch(() => {
+                                flash(setAddMsg, `Failed to add ${s.name}.`, false);
+                              });
+                            }}
+                            className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-2.5 py-1 rounded transition-colors shrink-0"
+                          >
+                            Add
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {addMsg && (
           <p className={`text-sm mt-3 font-medium ${addMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>{addMsg.text}</p>
         )}
@@ -653,7 +799,7 @@ function MembersAndSkins() {
         </div>
       )}
       {members.length === 0 && (
-        <p className="text-sm text-surface-400 text-center py-4">No members added yet. Add some above.</p>
+        <p className="text-sm text-surface-400 text-center py-4">No members added yet. Select a band and use the AI suggestion above.</p>
       )}
 
       {/* ── Pending skins ─────────────────────────────────────────────── */}

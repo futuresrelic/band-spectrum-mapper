@@ -468,6 +468,81 @@ platformerRouter.delete('/members/:id', requireAuth, requireAdmin, async (req, r
 });
 
 // ---------------------------------------------------------------------------
+// POST /members/suggest — AI-suggest members for a band (admin only)
+// Uses Band.description + BandContextAnalysis + AdminKnowledgeEntry for context
+// ---------------------------------------------------------------------------
+
+platformerRouter.post('/members/suggest', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const { bandId } = req.body as { bandId?: unknown };
+    if (typeof bandId !== 'string' || !bandId.trim()) {
+      res.status(400).json({ error: 'bandId is required' }); return;
+    }
+
+    const band = await prisma.band.findUnique({
+      where: { id: bandId.trim() },
+      select: {
+        name: true,
+        description: true,
+        contextAnalysis: { select: { overallNarrative: true } },
+      },
+    });
+    if (!band) { res.status(404).json({ error: 'Band not found' }); return; }
+
+    const knowledgeEntries = await prisma.adminKnowledgeEntry.findMany({
+      where: { scope: 'band', scopeId: bandId.trim(), isActive: true },
+      select: { content: true },
+      take: 3,
+    });
+
+    const contextParts: string[] = [];
+    if (band.description) contextParts.push(`About: ${band.description.slice(0, 600)}`);
+    if (band.contextAnalysis?.overallNarrative) {
+      contextParts.push(`Analysis: ${band.contextAnalysis.overallNarrative.slice(0, 600)}`);
+    }
+    for (const k of knowledgeEntries) contextParts.push(k.content.slice(0, 400));
+
+    const openAiKey = process.env['OPENAI_API_KEY'];
+    if (!openAiKey) { res.status(503).json({ error: 'OPENAI_API_KEY not configured' }); return; }
+
+    const { default: OpenAI } = await import('openai');
+    const openai = new OpenAI({ apiKey: openAiKey });
+
+    const contextBlock = contextParts.length > 0
+      ? `\n\nContext about this band:\n${contextParts.join('\n\n')}`
+      : '';
+
+    const aiRes = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.1,
+      response_format: { type: 'json_object' },
+      messages: [{
+        role: 'user',
+        content: `List the known members of the band "${band.name}" with their primary musical roles.${contextBlock}\n\nRespond ONLY with JSON:\n{ "members": [{ "name": "Full Name", "role": "role" }] }\n\nUse concise role labels: vocals, guitar, bass, drums, keyboard, violin, cello, percussion, synthesizer, samples. List only musicians — not managers or producers. Maximum 12 members.`,
+      }],
+    });
+
+    const raw = aiRes.choices[0]?.message?.content ?? '{}';
+    let parsed: { members?: unknown } = {};
+    try { parsed = JSON.parse(raw) as typeof parsed; } catch { /* empty */ }
+
+    const suggestions = Array.isArray(parsed.members)
+      ? (parsed.members as unknown[])
+          .filter((m): m is { name: string; role?: unknown } =>
+            typeof (m as Record<string, unknown>)['name'] === 'string')
+          .map((m) => ({
+            name: (m.name as string).trim(),
+            role: typeof m.role === 'string' ? m.role.trim() : '',
+          }))
+          .filter((m) => m.name.length > 0)
+          .slice(0, 12)
+      : [];
+
+    res.json({ suggestions }); return;
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
 // GET /skins — list approved character skins (public)
 // Query: ?bandIds=id1,id2&excludeBandIds=id3
 // ---------------------------------------------------------------------------
@@ -653,14 +728,42 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
     const role = typeof memberRole === 'string' && memberRole ? memberRole.trim() : null;
     const roleDesc = role ? `${role} player` : 'musician';
 
+    // Resolve bandId: prefer passed memberId lookup, then passed bandId field
+    const passedBandId = typeof (req.body as Record<string, unknown>)['bandId'] === 'string'
+      ? ((req.body as Record<string, unknown>)['bandId'] as string)
+      : null;
+
     // Step 1: Ask GPT-4o-mini to describe the member's appearance for a more accurate sprite.
     // We avoid naming the real person in the image prompt to stay within content policy.
+    // We include any band description / analysis context to guide the description.
     let appearanceHint = '';
     const openAiKey = process.env['OPENAI_API_KEY'];
     if (openAiKey) {
       try {
         const OpenAI = (await import('openai')).default;
         const openai = new OpenAI({ apiKey: openAiKey });
+
+        // Fetch band context to improve appearance descriptions
+        let bandContextLine = '';
+        const lookupBandId = passedBandId ?? (typeof memberId === 'string' && memberId ? memberId : null);
+        if (lookupBandId) {
+          const bandRecord = await prisma.band.findFirst({
+            where: typeof memberId === 'string' && memberId
+              ? { members: { some: { id: memberId } } }
+              : { id: lookupBandId },
+            select: {
+              description: true,
+              contextAnalysis: { select: { overallNarrative: true } },
+            },
+          });
+          const parts: string[] = [];
+          if (bandRecord?.description) parts.push(bandRecord.description.slice(0, 300));
+          if (bandRecord?.contextAnalysis?.overallNarrative) {
+            parts.push(bandRecord.contextAnalysis.overallNarrative.slice(0, 300));
+          }
+          if (parts.length > 0) bandContextLine = `Band context: ${parts.join(' ')} `;
+        }
+
         const descRes = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
           messages: [{
@@ -668,6 +771,7 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
             content:
               `Describe the distinctive facial and hair appearance of ${nameStr}, the ${roleDesc} from the band ${bandStr}, ` +
               `in one short sentence for a pixel art face portrait. ` +
+              `${bandContextLine}` +
               `Focus on hair color, hair length/style (including if it is long), skin tone, notable facial features, and any facial hair or signature accessories. ` +
               `Output the description only — no name, no explanation.`,
           }],

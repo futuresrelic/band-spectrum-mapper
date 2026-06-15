@@ -152,6 +152,10 @@ export const platformerApi = {
     return api.delete<void>(`/api/platformer/members/${encodeURIComponent(id)}`);
   },
 
+  suggestMembers(bandId: string): Promise<{ suggestions: { name: string; role: string }[] }> {
+    return api.post<{ suggestions: { name: string; role: string }[] }>('/api/platformer/members/suggest', { bandId });
+  },
+
   // ---------------------------------------------------------------------------
   // Character skins
   // ---------------------------------------------------------------------------
@@ -194,6 +198,7 @@ export const platformerApi = {
     memberName: string;
     memberRole?: string | null;
     bandName: string;
+    bandId?: string;
   }): Promise<CharacterSkin> {
     return api.post<CharacterSkin>('/api/platformer/skins/ai-generate', data);
   },
