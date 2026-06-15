@@ -733,17 +733,17 @@ export default function LyricDuelPage() {
         {/* ── BATTLING ── */}
         {phase === 'battling' && match && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-3 min-w-0">
                 <BandAvatar skinUrl={playerSkinUrl} size={40} />
-                <p className="text-sm font-bold text-white truncate">{match.playerBandName}</p>
+                <p className="text-sm font-bold text-white leading-snug">{match.playerBandName}</p>
               </div>
               <div className="shrink-0 text-center">
                 <p className="text-[10px] text-gray-500 uppercase tracking-widest">Theme</p>
                 <p className="text-xs font-black text-rose-300">"{match.theme}"</p>
               </div>
-              <div className="flex items-center gap-3">
-                <p className="text-sm font-bold text-white truncate text-right">{match.rivalBandName}</p>
+              <div className="flex items-center gap-3 min-w-0">
+                <p className="text-sm font-bold text-white text-right leading-snug">{match.rivalBandName}</p>
                 <div style={{ transform: 'scaleX(-1)' }}>
                   <BandAvatar skinUrl={rivalSkinUrl} size={40} />
                 </div>

@@ -3,7 +3,7 @@ import OpenAI from 'openai';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { HttpError } from '../middleware/errorHandler.js';
-import { AlbumType } from '@prisma/client';
+import type { AlbumType } from '@prisma/client';
 
 export const lyricDuelRouter = Router();
 
@@ -283,7 +283,11 @@ function pickRules(count = 10): PoolRule[] {
   return shuffled.slice(0, Math.min(count, shuffled.length));
 }
 
-const VALID_ALBUM_TYPES = new Set(Object.values(AlbumType));
+const VALID_ALBUM_TYPES = new Set<string>([
+  'studio', 'ep', 'live', 'compilation', 'bootleg',
+  'single', 'demo', 'lp', 'remix', 'mixtape',
+  'boxset', 'soundtrack', 'acoustic', 'instrumental',
+]);
 
 // ---------------------------------------------------------------------------
 // GET /api/lyric-duel/bands — bands that have lyric-capable songs
@@ -561,7 +565,7 @@ The breakdown array must have exactly 10 items matching the 10 rules above in or
       roundWinner,
       roundIndex: typeof roundIndex === 'number' ? roundIndex : 0,
     }); return;
-  } catch (e) { next(e); }
+  } catch (e) { console.error('[lyric-duel/round] error:', e); next(e); }
 });
 
 // ---------------------------------------------------------------------------
