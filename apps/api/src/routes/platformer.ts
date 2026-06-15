@@ -693,6 +693,29 @@ platformerRouter.put('/skins/:id/assign', requireAuth, requireAdmin, async (req,
 });
 
 // ---------------------------------------------------------------------------
+// PUT /skins/:id — update a skin's image data (admin only)
+// Body: { dataUrl: string }
+// ---------------------------------------------------------------------------
+
+platformerRouter.put('/skins/:id', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const id = req.params['id'];
+    if (!id) { res.status(400).json({ error: 'id is required' }); return; }
+
+    const { dataUrl } = req.body as { dataUrl?: unknown };
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+      res.status(400).json({ error: 'dataUrl must be a valid image data URL' }); return;
+    }
+
+    const skin = await prisma.platformerCharacterSkin.update({
+      where: { id },
+      data:  { dataUrl },
+    });
+    res.json(skin); return;
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
 // DELETE /skins/:id — delete a skin (admin only)
 // ---------------------------------------------------------------------------
 

@@ -216,6 +216,10 @@ export const platformerApi = {
     return api.delete<void>(`/api/platformer/skins/${encodeURIComponent(id)}`);
   },
 
+  updateSkin(id: string, data: { dataUrl: string }): Promise<CharacterSkin> {
+    return api.put<CharacterSkin>(`/api/platformer/skins/${encodeURIComponent(id)}`, data);
+  },
+
   assignSkin(id: string, data: { memberId?: string | null; bandId?: string | null }): Promise<CharacterSkin> {
     return api.put<CharacterSkin>(`/api/platformer/skins/${encodeURIComponent(id)}/assign`, data);
   },

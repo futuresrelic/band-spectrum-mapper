@@ -16,6 +16,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { platformerApi, type PlatformerAsset, type PlatformerMember, type CharacterSkin, type BodySkin } from '../api/platformer';
 import { api } from '../lib/api';
 import { SpritePixelEditor, SPRITE_SIZES } from '../components/SpritePixelEditor';
+import HeadshotEditor from '../components/HeadshotEditor';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -462,6 +463,9 @@ function MembersAndSkins() {
   const [reassignBandId, setReassignBandId] = useState('');
   const [reassignMemberId, setReassignMemberId] = useState('');
 
+  // Edit skin (headshot editor) state
+  const [editingSkin, setEditingSkin] = useState<CharacterSkin | null>(null);
+
   const { data: bands = [] } = useQuery<BandStub[]>({
     queryKey: ['bands-list'],
     queryFn: () => api.get<BandStub[]>('/api/bands'),
@@ -540,6 +544,22 @@ function MembersAndSkins() {
       invalidate();
     },
   });
+
+  const updateSkinMut = useMutation({
+    mutationFn: ({ id, dataUrl }: { id: string; dataUrl: string }) =>
+      platformerApi.updateSkin(id, { dataUrl }),
+    onSuccess: () => {
+      setEditingSkin(null);
+      flash(setGenMsg, 'Skin saved.', true);
+      invalidate();
+    },
+    onError: () => flash(setGenMsg, 'Failed to save skin.', false),
+  });
+
+  async function handleSkinEditorSave(dataUrl: string) {
+    if (!editingSkin) return;
+    await updateSkinMut.mutateAsync({ id: editingSkin.id, dataUrl });
+  }
 
   async function handleAiGenerate(member: PlatformerMember) {
     const band = bands.find((b) => b.id === member.bandId);
@@ -620,6 +640,16 @@ function MembersAndSkins() {
 
   return (
     <div className="space-y-8">
+
+      {/* Headshot editor overlay */}
+      {editingSkin && (
+        <HeadshotEditor
+          label={editingSkin.name}
+          initialDataUrl={editingSkin.dataUrl}
+          onSave={handleSkinEditorSave}
+          onClose={() => setEditingSkin(null)}
+        />
+      )}
 
       {/* ── Add member ────────────────────────────────────────────────── */}
       <div className="bg-white border border-surface-200 rounded-xl p-5">
@@ -825,7 +855,13 @@ function MembersAndSkins() {
                     <p className="text-xs text-surface-400">by {skin.submittedBy.name ?? 'user'}</p>
                   )}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-1.5 flex-wrap">
+                  <button
+                    onClick={() => setEditingSkin(skin)}
+                    className="flex-1 text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded px-2 py-1.5 font-medium transition-colors"
+                  >
+                    Edit
+                  </button>
                   <button
                     onClick={() => { void approveSkinMut.mutate(skin.id); }}
                     className="flex-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2 py-1.5 font-medium transition-colors"
@@ -871,6 +907,16 @@ function MembersAndSkins() {
                       <span className="text-[10px] bg-indigo-50 text-indigo-600 border border-indigo-200 rounded px-1.5 py-0.5 font-medium">AI</span>
                     )}
                   </div>
+
+                  {/* Edit button — always visible when not reassigning */}
+                  {!isReassigning && (
+                    <button
+                      onClick={() => setEditingSkin(skin)}
+                      className="w-full text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded px-2 py-1.5 font-medium transition-colors"
+                    >
+                      Edit Image
+                    </button>
+                  )}
 
                   {/* Reassign inline form */}
                   {isReassigning ? (
