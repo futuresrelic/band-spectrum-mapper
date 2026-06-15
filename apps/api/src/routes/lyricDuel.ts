@@ -278,6 +278,34 @@ export const RULE_POOL: PoolRule[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Lyric text cleaner — removes structural markers and annotation noise
+// ---------------------------------------------------------------------------
+
+function cleanLyricText(raw: string): string {
+  // Strip a leading structural tag like [Chorus] or [Verse 1] from the start of a line.
+  // Using non-greedy so nested/mismatched brackets don't swallow real content.
+  const LEADING_TAG  = /^\[.*?\]\s*/;
+  // Multiplier annotations: (x2), (x3), (3x), (×2), etc.
+  const PAREN_MULTI  = /\(\s*[x×]\s*\d+\s*\)|\(\s*\d+\s*[x×]\s*\)/gi;
+  // Explicit repeat annotations
+  const PAREN_REPEAT = /\(\s*repeat(?:s)?\s*\)/gi;
+
+  return raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) =>
+      line
+        .replace(LEADING_TAG, '')   // strip [Tag] / [Tag x2] from line start
+        .replace(PAREN_MULTI, '')   // strip (x2), (3x), (×4), etc.
+        .replace(PAREN_REPEAT, '')  // strip (repeat), (repeats)
+        .trim(),
+    )
+    .filter((line) => line.length > 0) // drop lines that became empty after stripping
+    .join('\n');
+}
+
 function pickRules(count = 10): PoolRule[] {
   const shuffled = [...RULE_POOL].sort(() => Math.random() - 0.5);
   return shuffled.slice(0, Math.min(count, shuffled.length));
@@ -484,8 +512,8 @@ lyricDuelRouter.post('/round', async (req, res, next): Promise<void> => {
       res.status(400).json({ error: 'Not enough songs with lyrics for this round. Try adding more song types in filters.' }); return;
     }
 
-    const playerText = (playerSong.lyrics[0]?.text ?? '').slice(0, 900);
-    const rivalText = (rivalSong.lyrics[0]?.text ?? '').slice(0, 900);
+    const playerText = cleanLyricText(playerSong.lyrics[0]?.text ?? '').slice(0, 900);
+    const rivalText  = cleanLyricText(rivalSong.lyrics[0]?.text ?? '').slice(0, 900);
 
     const rulesArr = Array.isArray(rules) ? rules as { name: string; description: string }[] : [];
     const rulesFormatted = rulesArr

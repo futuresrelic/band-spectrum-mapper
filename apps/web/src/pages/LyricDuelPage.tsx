@@ -417,7 +417,15 @@ function useTypewriter(text: string, active: boolean): { output: string; done: b
 type RevealPhase = 'matchup' | 'commentary' | 'breakdown' | 'done';
 
 function getExcerptLines(text: string, max: number): string[] {
-  return text.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, max);
+  const LEADING_TAG  = /^\[.*?\]\s*/;
+  const PAREN_MULTI  = /\(\s*[x×]\s*\d+\s*\)|\(\s*\d+\s*[x×]\s*\)/gi;
+  const PAREN_REPEAT = /\(\s*repeat(?:s)?\s*\)/gi;
+  return text
+    .split('\n')
+    .map((l) => l.trim())
+    .map((l) => l.replace(LEADING_TAG, '').replace(PAREN_MULTI, '').replace(PAREN_REPEAT, '').trim())
+    .filter(Boolean)
+    .slice(0, max);
 }
 
 function RevealPanel({ round, roundNum, playerName, rivalName, onContinue }: {
