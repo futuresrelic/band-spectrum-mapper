@@ -837,12 +837,54 @@ function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, now: number, heroSk
   ctx.restore();
 }
 
+// headCY: y-position of the head centre in hero-local space (y=0 = feet).
+// Kept as a constant so both the procedural path and the body-skin path agree.
+const HEAD_CY = -HERO_H + 9; // -39 for HERO_H=48
+
+function drawFace(ctx: CanvasRenderingContext2D, heroSkin: HTMLImageElement | undefined, headCY: number): void {
+  if (heroSkin && heroSkin.complete && heroSkin.naturalWidth > 0) {
+    const faceW = 48;
+    const faceH = 48;
+    ctx.drawImage(heroSkin, -faceW / 2, headCY - faceH / 2, faceW, faceH);
+  } else {
+    ctx.beginPath();
+    ctx.arc(0, headCY, 11, 0, Math.PI * 2);
+    ctx.fillStyle = '#fde68a';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(4, headCY - 1, 3, 0, Math.PI * 2);
+    ctx.fillStyle = 'white';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(5, headCY - 1, 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#1e1b4b';
+    ctx.fill();
+  }
+}
+
 function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, heroSkin?: HTMLImageElement, bodySkin?: HTMLImageElement): void {
   const isIdle = hero.state === 'idle';
   const isJumping = hero.state === 'jump' || hero.state === 'fall';
-  const legSwing = isIdle ? 0 : Math.sin(hero.animFrame * 0.5) * 0.4;
 
-  // Legs
+  // ── Body skin mode: pixel-art sprite replaces all procedural drawing ────────
+  if (bodySkin && bodySkin.complete && bodySkin.naturalWidth > 0) {
+    ctx.save();
+    // Subtle walk bob — shifts the whole body up/down during walking
+    if (!isIdle && !isJumping) {
+      ctx.translate(0, Math.sin(hero.animFrame * 0.5) * 1.5);
+    } else if (isJumping) {
+      ctx.translate(0, -2);
+    }
+    // Draw body skin covering the full character space (feet at y=0, top at y=-HERO_H)
+    ctx.drawImage(bodySkin, -HERO_W / 2, -HERO_H, HERO_W, HERO_H);
+    ctx.restore();
+    // Face composited on top at the same head position as the procedural path
+    drawFace(ctx, heroSkin, HEAD_CY);
+    return;
+  }
+
+  // ── Procedural body (no body skin) ─────────────────────────────────────────
+  const legSwing = isIdle ? 0 : Math.sin(hero.animFrame * 0.5) * 0.4;
   const legOffsetX = 6;
   const legLength = 14;
 
@@ -895,7 +937,6 @@ function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, h
   const armSwing = isIdle ? 0 : Math.sin(hero.animFrame * 0.5 + Math.PI) * 0.4;
   const armTop = torsoTop + 6;
 
-  // Left arm
   ctx.save();
   ctx.translate(-torsoW / 2, armTop);
   ctx.rotate(isJumping ? -0.8 : armSwing);
@@ -908,7 +949,6 @@ function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, h
   ctx.stroke();
   ctx.restore();
 
-  // Right arm
   ctx.save();
   ctx.translate(torsoW / 2, armTop);
   ctx.rotate(isJumping ? 0.8 : -armSwing);
@@ -921,38 +961,7 @@ function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, h
   ctx.stroke();
   ctx.restore();
 
-  // Costume overlay — drawn after animated limbs so transparent areas reveal limb animation
-  if (bodySkin && bodySkin.complete && bodySkin.naturalWidth > 0) {
-    ctx.drawImage(bodySkin, -HERO_W / 2, -HERO_H, HERO_W, HERO_H);
-  }
-
-  // Head — use AI face portrait if available, otherwise draw default pixel head
-  const headCY = torsoTop - 5;
-
-  if (heroSkin && heroSkin.complete && heroSkin.naturalWidth > 0) {
-    // Composite the face portrait onto the animated body.
-    // Drawn square to match the 1:1 source image (avoids horizontal squish).
-    // Centered on headCY so hair in the lower portion of the image naturally
-    // overlaps the torso, which looks correct for long-haired characters.
-    const faceW = 48;
-    const faceH = 48;
-    ctx.drawImage(heroSkin, -faceW / 2, headCY - faceH / 2, faceW, faceH);
-  } else {
-    ctx.beginPath();
-    ctx.arc(0, headCY, 11, 0, Math.PI * 2);
-    ctx.fillStyle = '#fde68a';
-    ctx.fill();
-
-    // Eye (always on the right side since we flip the whole ctx for facing direction)
-    ctx.beginPath();
-    ctx.arc(4, headCY - 1, 3, 0, Math.PI * 2);
-    ctx.fillStyle = 'white';
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(5, headCY - 1, 1.5, 0, Math.PI * 2);
-    ctx.fillStyle = '#1e1b4b';
-    ctx.fill();
-  }
+  drawFace(ctx, heroSkin, torsoTop - 5);
 }
 
 function drawParticles(ctx: CanvasRenderingContext2D, particles: Particle[], cameraX: number): void {
@@ -1594,7 +1603,7 @@ function SetupScreen({ bands, selectedBandIds, setSelectedBandIds, skins, select
                   <img
                     src={bs.dataUrl}
                     alt={bs.name}
-                    style={{ imageRendering: 'pixelated', width: 32, height: 48 }}
+                    style={{ imageRendering: 'pixelated', width: 48, height: 72 }}
                   />
                   <span className="text-xs text-gray-400 max-w-[48px] truncate">{bs.name}</span>
                 </button>

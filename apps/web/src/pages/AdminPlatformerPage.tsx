@@ -5,7 +5,7 @@
  *   1. Hero & Sprites  — upload / preview / remove per-asset-type sprites
  *   2. Gameplay Config — gravity, jumpForce, playerSpeed, recordsPerLevel, enemySpeed
  *   3. Members & Skins — band members + AI sprite generation
- *   4. Body Skins      — role-based costume overlays (pixel editor, transparent PNG)
+ *   4. Body Skins      — full pixel-art body (replaces procedural stick figure, per role)
  *   5. Leaderboard     — top 10 scores at a glance
  *
  * Route: /admin/platformer  (must be registered in App.tsx)
@@ -924,8 +924,9 @@ function BodySkinsSection() {
       <div className="bg-white border border-surface-200 rounded-xl p-5">
         <h3 className="text-sm font-semibold text-surface-800 mb-4">Create New Body Skin</h3>
         <p className="text-xs text-surface-500 mb-4">
-          Draw a 32×48 pixel body costume. Transparent areas let the character's animated limbs show through.
-          Assign a role so the body is available when that role is selected for a band member.
+          Draw the full character body — arms, legs, torso, hands, feet. The image replaces the default stick-figure
+          entirely. Leave the top portion (head area) transparent or minimal — the AI face portrait composites there automatically.
+          Assign a role so this body appears when that role is selected for a band member.
         </p>
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex flex-col gap-1 flex-1 min-w-[160px]">
@@ -974,11 +975,11 @@ function BodySkinsSection() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-5">
             {skins.map((skin) => (
               <div key={skin.id} className="flex flex-col gap-2 bg-surface-50 border border-surface-200 rounded-xl p-3">
-                <div className="w-full flex items-center justify-center bg-surface-100 rounded-lg py-3">
+                <div className="w-full flex items-center justify-center bg-surface-100 rounded-lg py-4">
                   <img
                     src={skin.dataUrl}
                     alt={skin.name}
-                    style={{ imageRendering: 'pixelated', width: 32, height: 48 }}
+                    style={{ imageRendering: 'pixelated', width: 64, height: 96 }}
                   />
                 </div>
                 <div className="min-w-0">
@@ -1127,7 +1128,7 @@ export default function AdminPlatformerPage() {
           <div className="mb-4">
             <h2 className="text-base font-bold text-surface-900">Body Skins</h2>
             <p className="text-sm text-surface-500 mt-0.5">
-              Create costume overlays for each instrument role. Draw in the pixel editor — transparent areas let animated limbs show through. Body skins are layered between the procedural animation and the AI face portrait.
+              Draw the full character body in the pixel editor — arms, legs, torso, hands, feet. When selected, the body skin image completely replaces the default stick-figure. The AI face portrait is always composited on top automatically. Assign a role so the right body style is offered when that instrument role is picked.
             </p>
           </div>
           <BodySkinsSection />
