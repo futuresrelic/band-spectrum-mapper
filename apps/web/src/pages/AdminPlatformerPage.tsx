@@ -1,18 +1,19 @@
 /**
  * AdminPlatformerPage — configure the BSM 2D Platformer game.
  *
- * Four sections:
+ * Five sections:
  *   1. Hero & Sprites  — upload / preview / remove per-asset-type sprites
  *   2. Gameplay Config — gravity, jumpForce, playerSpeed, recordsPerLevel, enemySpeed
- *   3. Leaderboard     — top 10 scores at a glance
- *   4. Info / Tips     — static guidance for the admin
+ *   3. Members & Skins — band members + AI sprite generation
+ *   4. Body Skins      — role-based costume overlays (pixel editor, transparent PNG)
+ *   5. Leaderboard     — top 10 scores at a glance
  *
  * Route: /admin/platformer  (must be registered in App.tsx)
  */
 
 import { useState, useRef, type ChangeEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { platformerApi, type PlatformerAsset, type PlatformerMember, type CharacterSkin } from '../api/platformer';
+import { platformerApi, type PlatformerAsset, type PlatformerMember, type CharacterSkin, type BodySkin } from '../api/platformer';
 import { api } from '../lib/api';
 import { SpritePixelEditor, SPRITE_SIZES } from '../components/SpritePixelEditor';
 
@@ -725,6 +726,229 @@ function MembersAndSkins() {
 }
 
 // ---------------------------------------------------------------------------
+// BodySkinsSection
+// ---------------------------------------------------------------------------
+
+const BODY_ROLES = ['vocals', 'guitar', 'bass', 'drums', 'piano', 'violin'] as const;
+type BodyRole = (typeof BODY_ROLES)[number];
+
+const ROLE_LABELS: Record<BodyRole, string> = {
+  vocals: 'Vocals',
+  guitar: 'Guitar',
+  bass:   'Bass',
+  drums:  'Drums',
+  piano:  'Piano',
+  violin: 'Violin',
+};
+
+function BodySkinsSection() {
+  const queryClient = useQueryClient();
+
+  // Create-new form state
+  const [newName, setNewName]   = useState('');
+  const [newRole, setNewRole]   = useState<BodyRole | ''>('');
+  const [creating, setCreating] = useState(false); // pixel editor open for new skin
+
+  // Edit existing state
+  const [editingSkin, setEditingSkin] = useState<BodySkin | null>(null);
+
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const { data: skins = [], isLoading } = useQuery<BodySkin[]>({
+    queryKey: ['platformer-body-skins'],
+    queryFn: () => platformerApi.getBodySkins(),
+    staleTime: 30_000,
+  });
+
+  function invalidate() {
+    void queryClient.invalidateQueries({ queryKey: ['platformer-body-skins'] });
+  }
+
+  function flash(text: string, ok: boolean) {
+    setMsg({ text, ok });
+    setTimeout(() => setMsg(null), 4000);
+  }
+
+  async function handleCreateSave(dataUrl: string) {
+    try {
+      await platformerApi.createBodySkin({
+        name: newName.trim() || 'Body Skin',
+        dataUrl,
+        ...(newRole ? { role: newRole } : {}),
+      });
+      flash('Body skin created.', true);
+      setCreating(false);
+      setNewName('');
+      setNewRole('');
+      invalidate();
+    } catch {
+      flash('Failed to create body skin.', false);
+      throw new Error('save failed');
+    }
+  }
+
+  async function handleEditSave(dataUrl: string) {
+    if (!editingSkin) return;
+    try {
+      await platformerApi.updateBodySkin(editingSkin.id, { dataUrl });
+      flash('Body skin updated.', true);
+      setEditingSkin(null);
+      invalidate();
+    } catch {
+      flash('Failed to update body skin.', false);
+      throw new Error('save failed');
+    }
+  }
+
+  async function handleDelete(skin: BodySkin) {
+    if (!window.confirm(`Delete "${skin.name}"? This cannot be undone.`)) return;
+    try {
+      await platformerApi.deleteBodySkin(skin.id);
+      flash('Deleted.', true);
+      invalidate();
+    } catch {
+      flash('Failed to delete.', false);
+    }
+  }
+
+  async function handleToggleDefault(skin: BodySkin) {
+    try {
+      await platformerApi.updateBodySkin(skin.id, { isDefault: !skin.isDefault });
+      invalidate();
+    } catch {
+      flash('Failed to update.', false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+
+      {/* Editor overlays */}
+      {creating && (
+        <SpritePixelEditor
+          assetType="body-new"
+          label={`New Body: ${newName.trim() || 'Body Skin'}${newRole ? ` (${ROLE_LABELS[newRole]})` : ''}`}
+          spriteW={32}
+          spriteH={48}
+          initialDataUrl={null}
+          onSave={handleCreateSave}
+          onClose={() => setCreating(false)}
+        />
+      )}
+      {editingSkin && (
+        <SpritePixelEditor
+          assetType={`body-${editingSkin.id}`}
+          label={`Edit: ${editingSkin.name}`}
+          spriteW={32}
+          spriteH={48}
+          initialDataUrl={editingSkin.dataUrl}
+          onSave={handleEditSave}
+          onClose={() => setEditingSkin(null)}
+        />
+      )}
+
+      {/* Create new form */}
+      <div className="bg-white border border-surface-200 rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-surface-800 mb-4">Create New Body Skin</h3>
+        <p className="text-xs text-surface-500 mb-4">
+          Draw a 32×48 pixel body costume. Transparent areas let the character's animated limbs show through.
+          Assign a role so the body is available when that role is selected for a band member.
+        </p>
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="flex flex-col gap-1 flex-1 min-w-[160px]">
+            <label className="text-xs text-surface-500 font-medium">Name</label>
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="e.g. Classic Rocker"
+              className="border border-surface-200 rounded-lg px-3 py-2 text-sm text-surface-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-surface-500 font-medium">Role (optional)</label>
+            <select
+              value={newRole}
+              onChange={(e) => setNewRole(e.target.value as BodyRole | '')}
+              className="border border-surface-200 rounded-lg px-3 py-2 text-sm text-surface-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="">Any role</option>
+              {BODY_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+            </select>
+          </div>
+          <button
+            onClick={() => { if (!newName.trim()) { flash('Enter a name first.', false); return; } setCreating(true); }}
+            className="bg-surface-900 hover:bg-surface-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors self-end"
+          >
+            Open Editor
+          </button>
+        </div>
+        {msg && (
+          <p className={`text-sm mt-3 font-medium ${msg.ok ? 'text-emerald-600' : 'text-red-600'}`}>{msg.text}</p>
+        )}
+      </div>
+
+      {/* Existing skins */}
+      {isLoading ? (
+        <div className="text-sm text-surface-400 py-6 text-center">Loading body skins…</div>
+      ) : skins.length === 0 ? (
+        <p className="text-sm text-surface-400 text-center py-4">No body skins yet — create one above.</p>
+      ) : (
+        <div className="bg-white border border-surface-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-surface-100">
+            <h3 className="text-sm font-semibold text-surface-800">Body Skins ({skins.length})</h3>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-5">
+            {skins.map((skin) => (
+              <div key={skin.id} className="flex flex-col gap-2 bg-surface-50 border border-surface-200 rounded-xl p-3">
+                <div className="w-full flex items-center justify-center bg-surface-100 rounded-lg py-3">
+                  <img
+                    src={skin.dataUrl}
+                    alt={skin.name}
+                    style={{ imageRendering: 'pixelated', width: 32, height: 48 }}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-surface-800 truncate">{skin.name}</p>
+                  <p className="text-xs text-surface-400 mt-0.5">
+                    {skin.role ? ROLE_LABELS[skin.role as BodyRole] ?? skin.role : 'Any role'}
+                  </p>
+                  {skin.isDefault && (
+                    <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 font-medium mt-1 inline-block">
+                      Default
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <button
+                    onClick={() => setEditingSkin(skin)}
+                    className="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded px-2 py-1.5 font-medium transition-colors"
+                  >
+                    Edit in Pixel Editor
+                  </button>
+                  <button
+                    onClick={() => { void handleToggleDefault(skin); }}
+                    className="text-xs bg-surface-50 hover:bg-surface-100 text-surface-600 border border-surface-200 rounded px-2 py-1.5 font-medium transition-colors"
+                  >
+                    {skin.isDefault ? 'Unset Default' : 'Set as Default'}
+                  </button>
+                  <button
+                    onClick={() => { void handleDelete(skin); }}
+                    className="text-xs text-red-500 hover:text-red-700 transition-colors py-0.5"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -825,7 +1049,18 @@ export default function AdminPlatformerPage() {
           <MembersAndSkins />
         </section>
 
-        {/* ── SECTION 4: Leaderboard Preview ───────────────────────────── */}
+        {/* ── SECTION 4: Body Skins ────────────────────────────────────── */}
+        <section>
+          <div className="mb-4">
+            <h2 className="text-base font-bold text-surface-900">Body Skins</h2>
+            <p className="text-sm text-surface-500 mt-0.5">
+              Create costume overlays for each instrument role. Draw in the pixel editor — transparent areas let animated limbs show through. Body skins are layered between the procedural animation and the AI face portrait.
+            </p>
+          </div>
+          <BodySkinsSection />
+        </section>
+
+        {/* ── SECTION 5: Leaderboard Preview ───────────────────────────── */}
         <section>
           <div className="mb-4">
             <h2 className="text-base font-bold text-surface-900">Leaderboard</h2>

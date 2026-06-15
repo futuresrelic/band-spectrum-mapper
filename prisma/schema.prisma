@@ -1279,6 +1279,22 @@ model PlatformerCharacterSkin {
 }
 
 // ---------------------------------------------------------------------------
+// Body skins — role-specific full-body costumes that overlay the animated hero
+// ---------------------------------------------------------------------------
+
+model PlatformerBodySkin {
+  id        String   @id @default(cuid())
+  name      String
+  role      String?  // 'vocals' | 'guitar' | 'bass' | 'drums' | 'piano' | 'violin' | null = any
+  dataUrl   String   @db.Text  // transparent PNG, 32×48 logical pixels
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("platformer_body_skins")
+}
+
+// ---------------------------------------------------------------------------
 // Playlist maker — user-built playlists from song battles
 // ---------------------------------------------------------------------------
 

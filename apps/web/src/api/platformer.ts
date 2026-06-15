@@ -38,6 +38,16 @@ export interface PlatformerMember {
   bandId: string;
 }
 
+export interface BodySkin {
+  id: string;
+  name: string;
+  role: string | null;
+  dataUrl: string;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CharacterSkin {
   id: string;
   name: string;
@@ -179,5 +189,25 @@ export const platformerApi = {
     bandName: string;
   }): Promise<CharacterSkin> {
     return api.post<CharacterSkin>('/api/platformer/skins/ai-generate', data);
+  },
+
+  // ---------------------------------------------------------------------------
+  // Body skins
+  // ---------------------------------------------------------------------------
+
+  getBodySkins(): Promise<BodySkin[]> {
+    return api.get<BodySkin[]>('/api/platformer/body-skins');
+  },
+
+  createBodySkin(data: { name: string; dataUrl: string; role?: string | null; isDefault?: boolean }): Promise<BodySkin> {
+    return api.post<BodySkin>('/api/platformer/body-skins', data);
+  },
+
+  updateBodySkin(id: string, data: { name?: string; dataUrl?: string; role?: string | null; isDefault?: boolean }): Promise<BodySkin> {
+    return api.put<BodySkin>(`/api/platformer/body-skins/${encodeURIComponent(id)}`, data);
+  },
+
+  deleteBodySkin(id: string): Promise<void> {
+    return api.delete<void>(`/api/platformer/body-skins/${encodeURIComponent(id)}`);
   },
 };

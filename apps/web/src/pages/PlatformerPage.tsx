@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import SiteHeader from '../components/layout/SiteHeader';
-import { platformerApi, type PlatformerAlbum, type PlatformerScore, type CharacterSkin } from '../api/platformer';
+import { platformerApi, type PlatformerAlbum, type PlatformerScore, type CharacterSkin, type BodySkin } from '../api/platformer';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -814,7 +814,7 @@ function drawEnemyBody(ctx: CanvasRenderingContext2D, _flipped: boolean): void {
   void hh;
 }
 
-function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, now: number, heroSkin?: HTMLImageElement): void {
+function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, now: number, heroSkin?: HTMLImageElement, bodySkin?: HTMLImageElement): void {
   const sx = CAMERA_LEAD;
   const sy = hero.wy;
   const flashing = now < hero.invincibleUntil && Math.floor(now / 100) % 2 === 0;
@@ -824,7 +824,7 @@ function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, now: number, heroSk
     ctx.translate(sx, sy - HERO_H / 2);
     ctx.rotate(Math.PI / 2);
     ctx.globalAlpha = 0.5;
-    drawHeroBody(ctx, hero, now, heroSkin);
+    drawHeroBody(ctx, hero, now, heroSkin, bodySkin);
     ctx.restore();
     return;
   }
@@ -833,11 +833,11 @@ function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, now: number, heroSk
   ctx.translate(sx, sy);
   if (!hero.facingRight) ctx.scale(-1, 1);
   if (flashing) ctx.globalAlpha = 0.45;
-  drawHeroBody(ctx, hero, now, heroSkin);
+  drawHeroBody(ctx, hero, now, heroSkin, bodySkin);
   ctx.restore();
 }
 
-function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, heroSkin?: HTMLImageElement): void {
+function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, heroSkin?: HTMLImageElement, bodySkin?: HTMLImageElement): void {
   const isIdle = hero.state === 'idle';
   const isJumping = hero.state === 'jump' || hero.state === 'fall';
   const legSwing = isIdle ? 0 : Math.sin(hero.animFrame * 0.5) * 0.4;
@@ -920,6 +920,11 @@ function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, h
   ctx.lineCap = 'round';
   ctx.stroke();
   ctx.restore();
+
+  // Costume overlay — drawn after animated limbs so transparent areas reveal limb animation
+  if (bodySkin && bodySkin.complete && bodySkin.naturalWidth > 0) {
+    ctx.drawImage(bodySkin, -HERO_W / 2, -HERO_H, HERO_W, HERO_H);
+  }
 
   // Head — use AI face portrait if available, otherwise draw default pixel head
   const headCY = torsoTop - 5;
@@ -1076,6 +1081,7 @@ function draw(
   bgImages?: BgImages,
   heroSkin?: HTMLImageElement,
   enemySkins?: HTMLImageElement[],
+  bodySkin?: HTMLImageElement,
 ): void {
   ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
@@ -1088,7 +1094,7 @@ function draw(
     drawEnemy(ctx, e, gs.cameraX, now, enemySkins);
   }
 
-  drawHero(ctx, gs.hero, now, heroSkin);
+  drawHero(ctx, gs.hero, now, heroSkin, bodySkin);
   drawParticles(ctx, gs.particles, gs.cameraX);
   drawHUD(ctx, gs.lives, gs.score, gs.level, gs.distance, gs.levelRecords);
 
@@ -1104,11 +1110,12 @@ function draw(
 interface PlatformerGameProps {
   bandIds: string[];
   heroSkinDataUrl?: string;
+  bodySkinDataUrl?: string;
   enemySkinDataUrls?: string[];
   onGameOver: (score: number, level: number, recordsCollected: number, distancePx: number) => void;
 }
 
-function PlatformerGame({ bandIds, heroSkinDataUrl, enemySkinDataUrls = [], onGameOver }: PlatformerGameProps) {
+function PlatformerGame({ bandIds, heroSkinDataUrl, bodySkinDataUrl, enemySkinDataUrls = [], onGameOver }: PlatformerGameProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gsRef = useRef<GameState | null>(null);
   const inputRef = useRef<InputState>({ left: false, right: false, jumpPressed: false, jumpConsumed: false });
@@ -1128,6 +1135,7 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, enemySkinDataUrls = [], onGa
 
   const bgImagesRef = useRef<BgImages>({});
   const heroSkinRef = useRef<HTMLImageElement | undefined>(undefined);
+  const bodySkinRef = useRef<HTMLImageElement | undefined>(undefined);
   const enemySkinImagesRef = useRef<HTMLImageElement[]>([]);
 
   // Display state synced from game loop
@@ -1171,6 +1179,14 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, enemySkinDataUrls = [], onGa
     img.src = heroSkinDataUrl;
     heroSkinRef.current = img;
   }, [heroSkinDataUrl]);
+
+  // Load body costume skin
+  useEffect(() => {
+    if (!bodySkinDataUrl) { bodySkinRef.current = undefined; return; }
+    const img = new Image();
+    img.src = bodySkinDataUrl;
+    bodySkinRef.current = img;
+  }, [bodySkinDataUrl]);
 
   // Load enemy skin images
   useEffect(() => {
@@ -1259,7 +1275,7 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, enemySkinDataUrls = [], onGa
       }
 
       update(state, dt, timestamp, inputRef.current, albumsRef.current, artCacheRef.current, handleGameOver);
-      draw(ctx, state, timestamp, false, bgImagesRef.current, heroSkinRef.current, enemySkinImagesRef.current);
+      draw(ctx, state, timestamp, false, bgImagesRef.current, heroSkinRef.current, enemySkinImagesRef.current, bodySkinRef.current);
 
       // Sync display state only when changed
       if (state.lives !== lastLives) {
@@ -1439,10 +1455,13 @@ interface SetupScreenProps {
   skins: CharacterSkin[];
   selectedSkinId: string | null;
   setSelectedSkinId: (id: string | null) => void;
+  bodySkins: BodySkin[];
+  selectedBodySkinId: string | null;
+  setSelectedBodySkinId: (id: string | null) => void;
   onStart: () => void;
 }
 
-function SetupScreen({ bands, selectedBandIds, setSelectedBandIds, skins, selectedSkinId, setSelectedSkinId, onStart }: SetupScreenProps) {
+function SetupScreen({ bands, selectedBandIds, setSelectedBandIds, skins, selectedSkinId, setSelectedSkinId, bodySkins, selectedBodySkinId, setSelectedBodySkinId, onStart }: SetupScreenProps) {
   function toggleBand(id: string) {
     if (selectedBandIds.includes(id)) {
       setSelectedBandIds(selectedBandIds.filter((b) => b !== id));
@@ -1534,6 +1553,50 @@ function SetupScreen({ bands, selectedBandIds, setSelectedBandIds, skins, select
                     style={{ imageRendering: 'pixelated' }}
                   />
                   <span className="text-xs text-gray-400 max-w-[56px] truncate">{skin.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Body skin selector */}
+        {bodySkins.length > 0 && (
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-widest">
+              Choose body style
+            </h2>
+            <div className="flex flex-wrap gap-3">
+              {/* Default body option */}
+              <button
+                onClick={() => setSelectedBodySkinId(null)}
+                className={`flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-colors ${
+                  selectedBodySkinId === null
+                    ? 'border-violet-500 bg-violet-900/40'
+                    : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                }`}
+              >
+                <div className="w-8 h-12 rounded bg-gray-700 flex items-center justify-center text-lg">
+                  🎮
+                </div>
+                <span className="text-xs text-gray-400 max-w-[48px] truncate">Default</span>
+              </button>
+              {bodySkins.map((bs) => (
+                <button
+                  key={bs.id}
+                  onClick={() => setSelectedBodySkinId(bs.id)}
+                  title={`${bs.name}${bs.role ? ` (${bs.role})` : ''}`}
+                  className={`flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-colors ${
+                    selectedBodySkinId === bs.id
+                      ? 'border-violet-500 bg-violet-900/40'
+                      : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                  }`}
+                >
+                  <img
+                    src={bs.dataUrl}
+                    alt={bs.name}
+                    style={{ imageRendering: 'pixelated', width: 32, height: 48 }}
+                  />
+                  <span className="text-xs text-gray-400 max-w-[48px] truncate">{bs.name}</span>
                 </button>
               ))}
             </div>
@@ -1754,6 +1817,7 @@ export default function PlatformerPage() {
   const [phase, setPhase] = useState<'setup' | 'playing' | 'gameover'>('setup');
   const [selectedBandIds, setSelectedBandIds] = useState<string[]>([]);
   const [selectedSkinId, setSelectedSkinId] = useState<string | null>(null);
+  const [selectedBodySkinId, setSelectedBodySkinId] = useState<string | null>(null);
   const [finalState, setFinalState] = useState({
     score: 0,
     level: 1,
@@ -1765,6 +1829,12 @@ export default function PlatformerPage() {
     queryKey: ['bands-list'],
     queryFn: () => api.get<Band[]>('/api/bands'),
     staleTime: 120_000,
+  });
+
+  const { data: bodySkins = [] } = useQuery<BodySkin[]>({
+    queryKey: ['platformer-body-skins'],
+    queryFn: () => platformerApi.getBodySkins(),
+    staleTime: 300_000,
   });
 
   // Player-side skins: only skins belonging to selected bands (or all if none selected)
@@ -1784,6 +1854,7 @@ export default function PlatformerPage() {
   });
 
   const selectedSkin = playerSkins.find((s) => s.id === selectedSkinId) ?? null;
+  const selectedBodySkin = bodySkins.find((bs) => bs.id === selectedBodySkinId) ?? null;
   const enemySkinDataUrls = enemySkins.slice(0, 20).map((s) => s.dataUrl);
 
   function handleStart() {
@@ -1811,6 +1882,9 @@ export default function PlatformerPage() {
           skins={playerSkins}
           selectedSkinId={selectedSkinId}
           setSelectedSkinId={setSelectedSkinId}
+          bodySkins={bodySkins}
+          selectedBodySkinId={selectedBodySkinId}
+          setSelectedBodySkinId={setSelectedBodySkinId}
           onStart={handleStart}
         />
       )}
@@ -1831,6 +1905,7 @@ export default function PlatformerPage() {
             <PlatformerGame
               bandIds={selectedBandIds}
               heroSkinDataUrl={selectedSkin?.dataUrl}
+              bodySkinDataUrl={selectedBodySkin?.dataUrl}
               enemySkinDataUrls={enemySkinDataUrls}
               onGameOver={handleGameOver}
             />
