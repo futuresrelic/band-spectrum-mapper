@@ -5,7 +5,7 @@ import type { RhythmAnalysisResult } from '@band-spectrum-mapper/shared';
 // Types
 // ---------------------------------------------------------------------------
 
-type RadarMode = 'radar' | 'constellation' | 'orbit' | 'polyrhythm';
+type RadarMode = 'radar' | 'constellation' | 'orbit' | 'polyrhythm' | 'pattern';
 
 interface PhaseNode {
   angle:  number;   // 0–2π, position within a bar
@@ -38,21 +38,29 @@ const CANVAS_SIZE = 340;
 // ---------------------------------------------------------------------------
 // Phase-node computation
 // Clusters onset times into angular positions within one bar.
-// O(n log n): sort angles, then linear scan + wrap-around merge.
+// Weight = fraction of bars in which this position is hit (0–1).
+// Only the strongest accent positions are kept (max 14, min weight 0.08).
 // ---------------------------------------------------------------------------
 
 function computePhaseNodes(
   onsetTimes: number[],
   barLength: number,
+  duration: number,
 ): PhaseNode[] {
   if (!onsetTimes.length || barLength <= 0) return [];
+
+  // How many complete bars fit in the song — used to normalise weight.
+  // A weight of 1.0 means this position was hit in every single bar.
+  const totalBars = Math.max(duration / barLength, 1);
 
   const angles = onsetTimes
     .map((t) => ((t % barLength) / barLength) * 2 * Math.PI)
     .sort((a, b) => a - b);
 
-  const CLUSTER_RAD = 0.1; // ~5.7° — nearby hits treated as one position
-  const nodes: PhaseNode[] = [];
+  const CLUSTER_RAD = 0.12; // ~7° — nearby hits treated as one position
+
+  interface RawCluster { angle: number; count: number; }
+  const raw: RawCluster[] = [];
   let i = 0;
 
   while (i < angles.length) {
@@ -64,25 +72,29 @@ function computePhaseNodes(
       count++;
       j++;
     }
-    nodes.push({ angle: sum / count, weight: Math.min(count / 8, 1) });
+    raw.push({ angle: sum / count, count });
     i = j;
   }
 
   // Wrap-around merge: first and last clusters may straddle 0/2π boundary
-  if (nodes.length > 1) {
-    const first = nodes[0]!;
-    const last  = nodes[nodes.length - 1]!;
+  if (raw.length > 1) {
+    const first = raw[0]!;
+    const last  = raw[raw.length - 1]!;
     const gap   = 2 * Math.PI - last.angle + first.angle;
     if (gap < CLUSTER_RAD) {
-      const cA = Math.round(first.weight * 8);
-      const cB = Math.round(last.weight * 8);
-      first.angle  = (first.angle * cA + last.angle * cB) / (cA + cB);
-      first.weight = Math.min((cA + cB) / 8, 1);
-      nodes.pop();
+      first.angle = (first.angle * first.count + last.angle * last.count) / (first.count + last.count);
+      first.count += last.count;
+      raw.pop();
     }
   }
 
-  return nodes;
+  // Convert to PhaseNode with properly normalised weight, then keep only
+  // the strongest accent positions so rings don't collapse into solid donuts.
+  return raw
+    .map(({ angle, count }) => ({ angle, weight: Math.min(count / totalBars, 1) }))
+    .sort((a, b) => b.weight - a.weight)
+    .filter((n) => n.weight >= 0.08)
+    .slice(0, 14);
 }
 
 // ---------------------------------------------------------------------------
@@ -501,6 +513,114 @@ function drawPolyrhythmMode(
 }
 
 // ---------------------------------------------------------------------------
+// Mode: Pattern — accent polygons, one per band.
+// The number of polygon vertices = number of detected accent positions.
+// Overlapping N-gons (e.g. triangle + square) directly reveal polyrhythm.
+// ---------------------------------------------------------------------------
+
+function drawPatternMode(
+  ctx:     CanvasRenderingContext2D,
+  result:  RhythmAnalysisResult,
+  nodes:   PhaseNode[][],
+  sweep:   number,
+  visible: Set<number>,
+  beats:   number,
+) {
+  const { cx, cy, maxR, innerR, step } = ringLayout(result.bands.length);
+  fillBg(ctx, cx, cy, maxR);
+  drawBeatSpokes(ctx, cx, cy, maxR, beats);
+
+  // Faint ring guides
+  for (let i = 0; i < result.bands.length; i++) {
+    const r   = innerR + (i + 0.5) * step;
+    const col = bandColor(i);
+    ctx.strokeStyle = visible.has(i) ? `${col}18` : 'rgba(255,255,255,0.03)';
+    ctx.lineWidth   = 0.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+    ctx.stroke();
+  }
+
+  for (let i = 0; i < result.bands.length; i++) {
+    if (!visible.has(i)) continue;
+    const col  = bandColor(i);
+    const r    = innerR + (i + 0.5) * step;
+    // Top accent positions only (up to 8) — enough to see the shape, not noise
+    const accents = [...(nodes[i] ?? [])]
+      .sort((a, b) => b.weight - a.weight)
+      .slice(0, 8)
+      .sort((a, b) => a.angle - b.angle); // sort by angle for polygon winding
+
+    const N = accents.length;
+    if (N < 2) continue;
+
+    // --- Filled polygon at accent positions ---
+    ctx.beginPath();
+    for (let k = 0; k < N; k++) {
+      const nd = accents[k]!;
+      const a  = nd.angle - Math.PI / 2;
+      const x  = cx + r * Math.cos(a);
+      const y  = cy + r * Math.sin(a);
+      if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle   = `${col}18`;
+    ctx.fill();
+    ctx.strokeStyle = `${col}55`;
+    ctx.lineWidth   = 1.2;
+    ctx.stroke();
+
+    // --- Vertex dots — size and brightness by weight + sweep proximity ---
+    for (const nd of accents) {
+      const a   = nd.angle - Math.PI / 2;
+      const prx = sweepProximity(nd.angle, sweep);
+      const nx  = cx + r * Math.cos(a);
+      const ny  = cy + r * Math.sin(a);
+      const dotR = 3.5 + nd.weight * 4 + prx * 5;
+
+      if (prx > 0.04) {
+        const gl = ctx.createRadialGradient(nx, ny, 0, nx, ny, dotR * 3);
+        gl.addColorStop(0, `${col}99`);
+        gl.addColorStop(1, `${col}00`);
+        ctx.fillStyle = gl;
+        ctx.beginPath();
+        ctx.arc(nx, ny, dotR * 3, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+
+      const alpha = Math.min(1, 0.55 + nd.weight * 0.35 + prx * 0.4);
+      ctx.fillStyle = col + Math.round(alpha * 255).toString(16).padStart(2, '0');
+      ctx.beginPath();
+      ctx.arc(nx, ny, dotR, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+
+    // --- N label at top of ring (inside the arc, near 12-o'clock) ---
+    ctx.font          = `bold 9px ui-monospace, monospace`;
+    ctx.textAlign     = 'center';
+    ctx.textBaseline  = 'middle';
+    const labelR      = r - step * 0.32;
+    ctx.fillStyle     = `${col}cc`;
+    ctx.fillText(`${N}`, cx + labelR * Math.cos(-Math.PI / 2 + 0.18), cy + labelR * Math.sin(-Math.PI / 2 + 0.18));
+  }
+
+  drawSweep(ctx, cx, cy, maxR, sweep);
+  drawCenterDot(ctx, cx, cy);
+
+  // Bottom: N-count ratio across visible bands
+  const nCounts = result.bands
+    .map((_, i) => (visible.has(i) ? (nodes[i] ?? []).slice(0, 8).length : null))
+    .filter((n): n is number => n !== null && n > 0);
+  if (nCounts.length > 1) {
+    ctx.fillStyle    = 'rgba(251,191,36,0.50)';
+    ctx.font         = 'bold 9px ui-monospace, monospace';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(nCounts.join(' : '), CANVAS_SIZE / 2, CANVAS_SIZE - 8);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -517,7 +637,7 @@ export default function RhythmRadarCanvas({ result, beatBpm, timeSigBeats }: Pro
 
   const phaseNodes = useMemo<PhaseNode[][]>(() => {
     const barLen = (60 / Math.max(beatBpm, 1)) * Math.max(timeSigBeats, 1);
-    return result.bands.map((b) => computePhaseNodes(b.onsetTimes, barLen));
+    return result.bands.map((b) => computePhaseNodes(b.onsetTimes, barLen, result.duration));
   }, [result, beatBpm, timeSigBeats]);
 
   useEffect(() => {
@@ -566,6 +686,9 @@ export default function RhythmRadarCanvas({ result, beatBpm, timeSigBeats }: Pro
         case 'polyrhythm':
           drawPolyrhythmMode(ctx!, result, phaseNodes, sweepAngle, visibleBands, timeSigBeats);
           break;
+        case 'pattern':
+          drawPatternMode(ctx!, result, phaseNodes, sweepAngle, visibleBands, timeSigBeats);
+          break;
       }
 
       rafRef.current = requestAnimationFrame(frame);
@@ -604,7 +727,7 @@ export default function RhythmRadarCanvas({ result, beatBpm, timeSigBeats }: Pro
       {/* Controls row */}
       <div className="flex flex-wrap gap-2 items-center">
         <span className="text-xs text-surface-400 shrink-0">Mode:</span>
-        {(['radar', 'constellation', 'orbit', 'polyrhythm'] as RadarMode[]).map((m) => (
+        {(['radar', 'constellation', 'orbit', 'polyrhythm', 'pattern'] as RadarMode[]).map((m) => (
           <button
             key={m}
             className={`text-xs px-2.5 py-0.5 rounded transition-colors capitalize ${
@@ -698,6 +821,8 @@ export default function RhythmRadarCanvas({ result, beatBpm, timeSigBeats }: Pro
               'Each band orbits at its own detected BPM. Orbit speed shows rhythmic relationship.'}
             {mode === 'polyrhythm' &&
               'Golden lines connect cross-rhythmic hit pairs. Highlighted when cross-rhythms detected.'}
+            {mode === 'pattern' &&
+              'Accent polygons: each vertex = a recurring accent position. Triangle=3, Square=4, Pentagon=5. Overlapping shapes reveal polyrhythm. Number = accent count per bar.'}
           </div>
         </div>
       </div>
