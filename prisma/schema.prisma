@@ -420,6 +420,7 @@ model User {
   spectrumGuesserScores SpectrumGuesserScore[]
   lyricMatchScores      LyricMatchScore[]
   graphHuntScores       GraphHuntScore[]
+  lyricDuelScores       LyricDuelScore[]
   platformerScores      PlatformerScore[]
   submittedSkins        PlatformerCharacterSkin[] @relation("SkinSubmitter")
   playlists             Playlist[]
@@ -1341,5 +1342,32 @@ model SiteConfig {
   updatedAt DateTime @updatedAt
 
   @@map("site_config")
+}
+
+// ---------------------------------------------------------------------------
+// Lyric Duel — Celebrity Deathmatch lyric battle game
+// ---------------------------------------------------------------------------
+
+model LyricDuelScore {
+  id           String   @id @default(cuid())
+  userId       String?
+  playerBandId String
+  rivalBandId  String
+  playerName   String   // band name at time of play
+  rivalName    String
+  playerPoints Int
+  rivalPoints  Int
+  playerWins   Int
+  rivalWins    Int
+  totalRounds  Int
+  difficulty   String
+  mode         String
+  theme        String
+  won          Boolean
+  createdAt    DateTime @default(now())
+
+  user         User?    @relation(fields: [userId], references: [id])
+
+  @@map("lyric_duel_scores")
 }
 

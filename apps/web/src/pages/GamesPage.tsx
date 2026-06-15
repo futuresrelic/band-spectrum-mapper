@@ -200,6 +200,19 @@ const GAMES = [
     btnColor: 'bg-violet-700 hover:bg-violet-600',
     accentText: 'text-violet-400',
   },
+  {
+    id: 'lyric-duel',
+    icon: '⚔️',
+    title: 'Lyric Duel',
+    subtitle: 'Celebrity Deathmatch',
+    desc: "Two bands enter, one leaves. Pick your champion, face a rival, and let the AI judge decide whose lyrics reign supreme. The AI generates a unique battle theme and 10 scoring rules every single match — no two duels are ever the same.",
+    rules: ['AI generates a fresh battle theme and 10 rules every match', 'Each round: one song per band, scored on word power, metaphors, thematic fit & more', 'Friendly / Normal / Ruthless / Legendary difficulty — challenge or custom duel modes'],
+    href: '/play/lyric-duel',
+    cta: 'Enter the Arena',
+    color: 'border-rose-500/40 hover:border-rose-400/70',
+    btnColor: 'bg-rose-600 hover:bg-rose-500',
+    accentText: 'text-rose-400',
+  },
 ];
 
 const COMING_SOON: { id: string; icon: string; title: string; desc: string }[] = [];

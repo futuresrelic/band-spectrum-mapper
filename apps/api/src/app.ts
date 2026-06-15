@@ -54,6 +54,7 @@ import { platformerRouter } from './routes/platformer.js';
 import { spectrumGuesserRouter } from './routes/spectrumGuesser.js';
 import { lyricMatchRouter } from './routes/lyricMatch.js';
 import { graphHuntRouter } from './routes/graphHunt.js';
+import { lyricDuelRouter } from './routes/lyricDuel.js';
 import { playlistRouter } from './routes/playlist.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -207,6 +208,9 @@ export function createApp() {
 
   // 3D Graph Hunt scores
   app.use('/api/graph-hunt', graphHuntRouter);
+
+  // Lyric Duel — Celebrity Deathmatch lyric battle
+  app.use('/api/lyric-duel', lyricDuelRouter);
 
   // Playlist Maker — build, save, and retrieve playlists
   app.use('/api/playlist', playlistRouter);

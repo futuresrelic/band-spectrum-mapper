@@ -72,6 +72,7 @@ import PatternLabPage from './pages/PatternLabPage';
 import AdminGamesPage from './pages/AdminGamesPage';
 import SongConnectionsPage from './pages/SongConnectionsPage';
 import LyricCompletePage from './pages/LyricCompletePage';
+import LyricDuelPage from './pages/LyricDuelPage';
 import CrosswordPage from './pages/CrosswordPage';
 import AdminCrosswordPage from './pages/AdminCrosswordPage';
 import WordSearchPage from './pages/WordSearchPage';
@@ -155,6 +156,7 @@ export default function App() {
         <Route path="/play/lyric-match" element={<LyricMatchPage />} />
         <Route path="/play/bracket" element={<AlbumBracketPage />} />
         <Route path="/play/lyric-complete" element={<LyricCompletePage />} />
+        <Route path="/play/lyric-duel" element={<LyricDuelPage />} />
         <Route path="/play/crossword" element={<CrosswordPage />} />
         <Route path="/play/word-search" element={<WordSearchPage />} />
         <Route path="/play/record-catcher" element={<RecordCatcherPage />} />
