@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import SiteHeader from '../components/layout/SiteHeader';
@@ -609,6 +609,321 @@ function RevealPanel({ round, roundNum, playerName, rivalName, onContinue }: {
 }
 
 // ---------------------------------------------------------------------------
+// Face-off animation — Mortal Kombat style fight sequence from completed rounds
+// ---------------------------------------------------------------------------
+
+interface FightEvent {
+  type: 'round-start' | 'hit' | 'clash' | 'round-end' | 'finale';
+  attacker?: 'player' | 'rival';
+  ruleName?: string;
+  roundNum?: number;
+  playerHp: number;
+  rivalHp: number;
+  caption: string;
+}
+
+const EVENT_DURATIONS: Record<string, number> = {
+  'round-start': 1200,
+  'hit': 1400,
+  'clash': 1100,
+  'round-end': 2800,
+  'finale': 99999,
+};
+
+function buildFightEvents(
+  rounds: RoundResult[],
+  playerName: string,
+  rivalName: string,
+): FightEvent[] {
+  const events: FightEvent[] = [];
+
+  // Compute total raw damage to each side to derive a damage scale
+  let rawDmgToPlayer = 0;
+  let rawDmgToRival  = 0;
+  for (const round of rounds) {
+    for (const b of round.breakdown) {
+      if (b.playerScore > b.rivalScore) rawDmgToRival  += b.playerScore - b.rivalScore;
+      else if (b.rivalScore > b.playerScore) rawDmgToPlayer += b.rivalScore - b.playerScore;
+    }
+  }
+  const maxRaw = Math.max(rawDmgToPlayer, rawDmgToRival, 1);
+  const scale  = 80 / maxRaw; // loser ends around 20 HP
+
+  let playerHp = 100;
+  let rivalHp  = 100;
+
+  for (let ri = 0; ri < rounds.length; ri++) {
+    const round = rounds[ri];
+    if (!round) continue;
+
+    events.push({
+      type: 'round-start',
+      roundNum: ri + 1,
+      playerHp,
+      rivalHp,
+      caption: `ROUND ${ri + 1} — ${playerName} vs ${rivalName}`,
+    });
+
+    for (let bi = 0; bi < round.breakdown.length; bi++) {
+      const b = round.breakdown[bi];
+      if (!b) continue;
+
+      if (b.playerScore > b.rivalScore) {
+        const dmg = Math.max(1, Math.round((b.playerScore - b.rivalScore) * scale));
+        rivalHp = Math.max(rivalHp - dmg, 1);
+        events.push({
+          type: 'hit',
+          attacker: 'player',
+          ruleName: b.ruleName,
+          playerHp,
+          rivalHp,
+          caption: b.note || `${playerName} lands "${b.ruleName}"!`,
+        });
+      } else if (b.rivalScore > b.playerScore) {
+        const dmg = Math.max(1, Math.round((b.rivalScore - b.playerScore) * scale));
+        playerHp = Math.max(playerHp - dmg, 1);
+        events.push({
+          type: 'hit',
+          attacker: 'rival',
+          ruleName: b.ruleName,
+          playerHp,
+          rivalHp,
+          caption: b.note || `${rivalName} counters with "${b.ruleName}"!`,
+        });
+      } else {
+        playerHp = Math.max(playerHp - 1, 1);
+        rivalHp  = Math.max(rivalHp  - 1, 1);
+        events.push({
+          type: 'clash',
+          ruleName: b.ruleName,
+          playerHp,
+          rivalHp,
+          caption: b.note || `"${b.ruleName}" — CLASH!`,
+        });
+      }
+    }
+
+    events.push({
+      type: 'round-end',
+      roundNum: ri + 1,
+      playerHp,
+      rivalHp,
+      caption: round.commentary,
+    });
+  }
+
+  const pWins = rounds.filter((r) => r.roundWinner === 'player').length;
+  const rWins = rounds.filter((r) => r.roundWinner === 'rival').length;
+  const finaleCaption = pWins > rWins
+    ? `${playerName.toUpperCase()} WINS THE DUEL!`
+    : rWins > pWins
+    ? `${rivalName.toUpperCase()} WINS THE DUEL!`
+    : 'THE DUEL IS A DRAW!';
+
+  events.push({ type: 'finale', playerHp, rivalHp, caption: finaleCaption });
+
+  return events;
+}
+
+function FaceOffArena({
+  rounds, playerName, rivalName, playerSkinUrl, rivalSkinUrl, onClose,
+}: {
+  rounds: RoundResult[];
+  playerName: string;
+  rivalName: string;
+  playerSkinUrl: string | null;
+  rivalSkinUrl: string | null;
+  onClose: () => void;
+}) {
+  const events = useMemo(
+    () => buildFightEvents(rounds, playerName, rivalName),
+    [rounds, playerName, rivalName],
+  );
+
+  const [eventIndex, setEventIndex] = useState(0);
+  const [done, setDone] = useState(false);
+
+  const current = events[eventIndex];
+
+  useEffect(() => {
+    if (done || !current || current.type === 'finale') { setDone(true); return; }
+    const duration = EVENT_DURATIONS[current.type] ?? 1400;
+    const id = setTimeout(() => {
+      setEventIndex((i) => {
+        const next = i + 1;
+        if (next >= events.length) { setDone(true); return i; }
+        return next;
+      });
+    }, duration);
+    return () => clearTimeout(id);
+  }, [eventIndex, done, current, events.length]);
+
+  function doSkip() {
+    setEventIndex(events.length - 1);
+    setDone(true);
+  }
+
+  if (!current) return null;
+
+  const playerAnimating = !done && current.type === 'hit' && current.attacker === 'player';
+  const rivalAnimating  = !done && current.type === 'hit' && current.attacker === 'rival';
+  const isClash         = !done && current.type === 'clash';
+
+  function hpColor(hp: number): string {
+    if (hp > 60) return 'bg-green-500';
+    if (hp > 30) return 'bg-amber-500';
+    return 'bg-rose-500';
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4">
+      <style>{`
+        @keyframes fo-lunge-right { 0%{transform:translateX(0)} 40%{transform:translateX(18px)} 70%{transform:translateX(-4px)} 100%{transform:translateX(0)} }
+        @keyframes fo-shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-6px)} 40%{transform:translateX(6px)} 60%{transform:translateX(-4px)} 80%{transform:translateX(4px)} }
+        @keyframes fo-clash { 0%,100%{transform:scale(1)} 50%{transform:scale(1.12)} }
+      `}</style>
+
+      <div className="w-full max-w-md space-y-5">
+
+        <p className="text-center text-xs font-black text-gray-500 uppercase tracking-widest">
+          ⚔️ Face-Off
+        </p>
+
+        {/* HP bars */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] font-bold text-rose-300 w-24 truncate shrink-0">{playerName}</span>
+            <div className="flex-1 h-3 bg-gray-800 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-700 ${hpColor(current.playerHp)}`}
+                style={{ width: `${current.playerHp}%` }}
+              />
+            </div>
+            <span className="text-[11px] text-gray-500 w-6 text-right shrink-0">{current.playerHp}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] font-bold text-amber-300 w-24 truncate shrink-0">{rivalName}</span>
+            <div className="flex-1 h-3 bg-gray-800 rounded-full overflow-hidden flex justify-end">
+              <div
+                className={`h-full rounded-full transition-all duration-700 ${hpColor(current.rivalHp)}`}
+                style={{ width: `${current.rivalHp}%` }}
+              />
+            </div>
+            <span className="text-[11px] text-gray-500 w-6 text-right shrink-0">{current.rivalHp}</span>
+          </div>
+        </div>
+
+        {/* Arena */}
+        <div className="flex items-end justify-between gap-6 py-6 px-2">
+
+          {/* Player (left) */}
+          <div className="flex flex-col items-center">
+            <div
+              key={`p-${eventIndex}`}
+              style={{
+                animation: playerAnimating ? 'fo-lunge-right 0.55s ease-out'
+                  : rivalAnimating ? 'fo-shake 0.5s ease-out'
+                  : isClash ? 'fo-clash 0.45s ease-out'
+                  : 'none',
+              }}
+            >
+              {playerSkinUrl ? (
+                <img
+                  src={playerSkinUrl}
+                  alt={playerName}
+                  style={{ width: 80, height: 80, imageRendering: 'pixelated', objectFit: 'contain' }}
+                />
+              ) : (
+                <div className="w-20 h-20 rounded-xl bg-rose-900/60 border-2 border-rose-600 flex items-center justify-center text-3xl">
+                  🎤
+                </div>
+              )}
+            </div>
+            <p className="text-[10px] text-rose-300 mt-1 max-w-[80px] text-center truncate">{playerName}</p>
+          </div>
+
+          {/* Center event indicator */}
+          <div className="flex flex-col items-center gap-1 shrink-0">
+            {current.type === 'round-start' && <p className="text-base font-black text-white">RND {current.roundNum}</p>}
+            {current.type === 'hit'         && <p className="text-3xl">💥</p>}
+            {current.type === 'clash'       && <p className="text-3xl">⚡</p>}
+            {current.type === 'round-end'   && <p className="text-xl text-gray-500">—</p>}
+            {current.type === 'finale'      && <p className="text-3xl">🏆</p>}
+          </div>
+
+          {/* Rival (right, mirrored image) */}
+          <div className="flex flex-col items-center">
+            {/* Mirror wrapper — animation runs on inner div so transform doesn't conflict */}
+            <div style={{ transform: 'scaleX(-1)' }}>
+              <div
+                key={`r-${eventIndex}`}
+                style={{
+                  animation: rivalAnimating ? 'fo-lunge-right 0.55s ease-out'
+                    : playerAnimating ? 'fo-shake 0.5s ease-out'
+                    : isClash ? 'fo-clash 0.45s ease-out'
+                    : 'none',
+                }}
+              >
+                {rivalSkinUrl ? (
+                  <img
+                    src={rivalSkinUrl}
+                    alt={rivalName}
+                    style={{ width: 80, height: 80, imageRendering: 'pixelated', objectFit: 'contain' }}
+                  />
+                ) : (
+                  <div className="w-20 h-20 rounded-xl bg-amber-900/60 border-2 border-amber-600 flex items-center justify-center text-3xl">
+                    🎸
+                  </div>
+                )}
+              </div>
+            </div>
+            {/* Name outside mirror so text isn't flipped */}
+            <p className="text-[10px] text-amber-300 mt-1 max-w-[80px] text-center truncate">{rivalName}</p>
+          </div>
+
+        </div>
+
+        {/* Caption box */}
+        <div className="min-h-[4.5rem] bg-gray-900/80 rounded-xl border border-gray-700 p-4 text-center space-y-1">
+          {current.ruleName && (
+            <p className="text-[10px] text-gray-500 uppercase tracking-widest">{current.ruleName}</p>
+          )}
+          <p className="text-sm text-gray-100 italic leading-relaxed">{current.caption}</p>
+        </div>
+
+        {/* Progress dots */}
+        <div className="flex justify-center gap-1 flex-wrap">
+          {events.slice(0, 24).map((_, i) => (
+            <div
+              key={i}
+              className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                i <= eventIndex ? 'bg-rose-500' : 'bg-gray-700'
+              }`}
+            />
+          ))}
+          {events.length > 24 && (
+            <span className="text-[10px] text-gray-600 self-center ml-1">+{events.length - 24}</span>
+          )}
+        </div>
+
+        {/* Skip / close */}
+        <button
+          onClick={done ? onClose : doSkip}
+          className={`w-full py-3 rounded-xl font-bold transition-colors ${
+            done
+              ? 'bg-rose-600 hover:bg-rose-500 text-white'
+              : 'border border-gray-700 text-gray-500 hover:text-white hover:border-gray-500'
+          }`}
+        >
+          {done ? '✕ Close' : 'Skip →'}
+        </button>
+
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Leaderboard
 // ---------------------------------------------------------------------------
 
@@ -671,7 +986,9 @@ export default function LyricDuelPage() {
 
   // Character skin avatars fetched after match starts
   const [playerSkinUrl, setPlayerSkinUrl] = useState<string | null>(null);
-  const [rivalSkinUrl, setRivalSkinUrl] = useState<string | null>(null);
+  const [rivalSkinUrl, setRivalSkinUrl]   = useState<string | null>(null);
+
+  const [faceOffOpen, setFaceOffOpen] = useState(false);
 
   const playerWins   = rounds.filter((r) => r.roundWinner === 'player').length;
   const rivalWins    = rounds.filter((r) => r.roundWinner === 'rival').length;
@@ -800,6 +1117,7 @@ export default function LyricDuelPage() {
     setSavedRank(null);
     setPlayerSkinUrl(null);
     setRivalSkinUrl(null);
+    setFaceOffOpen(false);
     usedPlayerSongIds.current = [];
     usedRivalSongIds.current  = [];
   }
@@ -1069,6 +1387,13 @@ export default function LyricDuelPage() {
               playerName={match.playerBandName} rivalName={match.rivalBandName}
             />
 
+            <button
+              onClick={() => setFaceOffOpen(true)}
+              className="w-full py-3 bg-gray-800 hover:bg-gray-700 border border-gray-600 hover:border-rose-500/50 text-white font-bold rounded-xl transition-colors"
+            >
+              ⚔️ Watch the Face-Off
+            </button>
+
             <div className="space-y-3">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">All Rounds</p>
               {rounds.map((r, i) => (
@@ -1102,6 +1427,19 @@ export default function LyricDuelPage() {
           </div>
         )}
       </div>
+
+      {/* Face-off overlay — fixed, covers everything */}
+      {faceOffOpen && match && rounds.length > 0 && (
+        <FaceOffArena
+          rounds={rounds}
+          playerName={match.playerBandName}
+          rivalName={match.rivalBandName}
+          playerSkinUrl={playerSkinUrl}
+          rivalSkinUrl={rivalSkinUrl}
+          onClose={() => setFaceOffOpen(false)}
+        />
+      )}
+
     </div>
   );
 }
