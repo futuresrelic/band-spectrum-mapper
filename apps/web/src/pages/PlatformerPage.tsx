@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
@@ -1114,6 +1114,15 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, enemySkinDataUrls = [], onGa
   const artCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const isMobileRef = useRef<boolean>(typeof window !== 'undefined' && 'ontouchstart' in window);
   const gameOverCalledRef = useRef(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    if ('ontouchstart' in window) {
+      setIsMobile(true);
+      isMobileRef.current = true;
+    }
+  }, []);
+
   const bgImagesRef = useRef<BgImages>({});
   const heroSkinRef = useRef<HTMLImageElement | undefined>(undefined);
   const enemySkinImagesRef = useRef<HTMLImageElement[]>([]);
@@ -1178,31 +1187,6 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, enemySkinDataUrls = [], onGa
     },
     [onGameOver],
   );
-
-  // Touch regions (computed from canvas client rect)
-  const getTouchRegions = useCallback((rect: DOMRect) => {
-    const scaleX = CANVAS_W / rect.width;
-    const scaleY = CANVAS_H / rect.height;
-    const margin = 16;
-    const btnW = 60;
-    const btnH = 50;
-    const bottomY = CANVAS_H - margin - btnH;
-    return {
-      left: { x: margin, y: bottomY, w: btnW, h: btnH },
-      right: { x: margin + btnW + 10, y: bottomY, w: btnW, h: btnH },
-      jump: { x: CANVAS_W - margin - btnW, y: bottomY, w: btnW, h: btnH },
-      scaleX,
-      scaleY,
-    };
-  }, []);
-
-  function inRegion(
-    cx: number,
-    cy: number,
-    region: { x: number; y: number; w: number; h: number },
-  ): boolean {
-    return cx >= region.x && cx <= region.x + region.w && cy >= region.y && cy <= region.y + region.h;
-  }
 
   useEffect(() => {
     const canvasOrNull = canvasRef.current;
@@ -1272,7 +1256,7 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, enemySkinDataUrls = [], onGa
       }
 
       update(state, dt, timestamp, inputRef.current, albumsRef.current, artCacheRef.current, handleGameOver);
-      draw(ctx, state, timestamp, isMobileRef.current, bgImagesRef.current, heroSkinRef.current, enemySkinImagesRef.current);
+      draw(ctx, state, timestamp, false, bgImagesRef.current, heroSkinRef.current, enemySkinImagesRef.current);
 
       // Sync display state only when changed
       if (state.lives !== lastLives) {
@@ -1336,74 +1320,10 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, enemySkinDataUrls = [], onGa
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
 
-    // Touch handlers
-    const activeTouches = new Map<number, { left: boolean; right: boolean; jump: boolean }>();
-
-    function updateTouchInput() {
-      let left = false;
-      let right = false;
-      let jump = false;
-      for (const t of activeTouches.values()) {
-        if (t.left) left = true;
-        if (t.right) right = true;
-        if (t.jump) jump = true;
-      }
-      inputRef.current.left = left;
-      inputRef.current.right = right;
-      if (jump && !inputRef.current.jumpPressed) {
-        inputRef.current.jumpPressed = true;
-        inputRef.current.jumpConsumed = false;
-      } else if (!jump) {
-        inputRef.current.jumpPressed = false;
-        inputRef.current.jumpConsumed = false;
-      }
-    }
-
-    function onTouchStart(e: TouchEvent) {
-      const rect = canvas.getBoundingClientRect();
-      const regions = getTouchRegions(rect);
-      for (let i = 0; i < e.changedTouches.length; i++) {
-        const touch = e.changedTouches[i];
-        if (!touch) continue;
-        const cx = (touch.clientX - rect.left) * regions.scaleX;
-        const cy = (touch.clientY - rect.top) * regions.scaleY;
-        activeTouches.set(touch.identifier, {
-          left: inRegion(cx, cy, regions.left),
-          right: inRegion(cx, cy, regions.right),
-          jump: inRegion(cx, cy, regions.jump),
-        });
-      }
-      updateTouchInput();
-      e.preventDefault();
-    }
-
-    function onTouchMove(e: TouchEvent) {
-      const rect = canvas.getBoundingClientRect();
-      const regions = getTouchRegions(rect);
-      for (let i = 0; i < e.changedTouches.length; i++) {
-        const touch = e.changedTouches[i];
-        if (!touch) continue;
-        const cx = (touch.clientX - rect.left) * regions.scaleX;
-        const cy = (touch.clientY - rect.top) * regions.scaleY;
-        activeTouches.set(touch.identifier, {
-          left: inRegion(cx, cy, regions.left),
-          right: inRegion(cx, cy, regions.right),
-          jump: inRegion(cx, cy, regions.jump),
-        });
-      }
-      updateTouchInput();
-      e.preventDefault();
-    }
-
-    function onTouchEnd(e: TouchEvent) {
-      for (let i = 0; i < e.changedTouches.length; i++) {
-        const touch = e.changedTouches[i];
-        if (!touch) continue;
-        activeTouches.delete(touch.identifier);
-      }
-      updateTouchInput();
-      e.preventDefault();
-    }
+    // Canvas touch handlers — only prevent page scroll; actual game input comes from HTML overlay buttons
+    function onTouchStart(e: TouchEvent) { e.preventDefault(); }
+    function onTouchMove(e: TouchEvent) { e.preventDefault(); }
+    function onTouchEnd(e: TouchEvent) { e.preventDefault(); }
 
     canvas.addEventListener('touchstart', onTouchStart, { passive: false });
     canvas.addEventListener('touchmove', onTouchMove, { passive: false });
@@ -1419,12 +1339,29 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, enemySkinDataUrls = [], onGa
       canvas.removeEventListener('touchend', onTouchEnd);
       canvas.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [handleGameOver, getTouchRegions]);
+  }, [handleGameOver]);
 
   void displayLives; // used in HUD via canvas draw, not React DOM
 
+  const ctrlBtn: React.CSSProperties = {
+    width: 76,
+    height: 76,
+    borderRadius: 16,
+    background: 'rgba(0,0,0,0.6)',
+    border: '2px solid rgba(255,255,255,0.28)',
+    color: 'white',
+    fontSize: 28,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    userSelect: 'none',
+    touchAction: 'none',
+    cursor: 'pointer',
+    WebkitUserSelect: 'none',
+  };
+
   return (
-    <div className="flex items-center justify-center w-full h-full bg-gray-950">
+    <div className="flex items-center justify-center w-full h-full bg-gray-950" style={{ position: 'relative' }}>
       <canvas
         ref={canvasRef}
         style={{
@@ -1435,6 +1372,57 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, enemySkinDataUrls = [], onGa
           imageRendering: 'pixelated',
         }}
       />
+      {isMobile && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 24,
+            left: 0,
+            right: 0,
+            display: 'flex',
+            justifyContent: 'space-between',
+            paddingLeft: 20,
+            paddingRight: 20,
+            pointerEvents: 'none',
+          }}
+        >
+          {/* Left + Right movement buttons */}
+          <div style={{ display: 'flex', gap: 12, pointerEvents: 'auto' }}>
+            <div
+              style={ctrlBtn}
+              onPointerDown={(e) => {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+                inputRef.current.left = true;
+              }}
+              onPointerUp={() => { inputRef.current.left = false; }}
+              onPointerLeave={() => { inputRef.current.left = false; }}
+              onPointerCancel={() => { inputRef.current.left = false; }}
+            >◀</div>
+            <div
+              style={ctrlBtn}
+              onPointerDown={(e) => {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+                inputRef.current.right = true;
+              }}
+              onPointerUp={() => { inputRef.current.right = false; }}
+              onPointerLeave={() => { inputRef.current.right = false; }}
+              onPointerCancel={() => { inputRef.current.right = false; }}
+            >▶</div>
+          </div>
+          {/* Jump button */}
+          <div
+            style={{ ...ctrlBtn, pointerEvents: 'auto' }}
+            onPointerDown={(e) => {
+              e.currentTarget.releasePointerCapture(e.pointerId);
+              inputRef.current.jumpPressed = true;
+              inputRef.current.jumpConsumed = false;
+            }}
+            onPointerUp={() => { inputRef.current.jumpPressed = false; inputRef.current.jumpConsumed = false; }}
+            onPointerLeave={() => { inputRef.current.jumpPressed = false; inputRef.current.jumpConsumed = false; }}
+            onPointerCancel={() => { inputRef.current.jumpPressed = false; inputRef.current.jumpConsumed = false; }}
+          >▲</div>
+        </div>
+      )}
     </div>
   );
 }
