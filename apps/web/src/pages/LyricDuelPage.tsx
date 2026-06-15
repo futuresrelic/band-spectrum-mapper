@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import SiteHeader from '../components/layout/SiteHeader';
@@ -387,6 +387,228 @@ function RoundCard({ round, roundNum, playerName, rivalName }: {
 }
 
 // ---------------------------------------------------------------------------
+// Typewriter hook — types text one character at a time
+// ---------------------------------------------------------------------------
+
+const CHAR_SPEED = 15; // ms per character (~67 chars/sec, medium-high)
+
+function useTypewriter(text: string, active: boolean): { output: string; done: boolean } {
+  const [output, setOutput] = useState(() => (active ? '' : text));
+
+  useEffect(() => {
+    if (!active) { setOutput(text); return; }
+    setOutput('');
+    let i = 0;
+    const id = setInterval(() => {
+      i++;
+      setOutput(text.slice(0, i));
+      if (i >= text.length) clearInterval(id);
+    }, CHAR_SPEED);
+    return () => clearInterval(id);
+  }, [text, active]);
+
+  return { output, done: output.length >= text.length };
+}
+
+// ---------------------------------------------------------------------------
+// RevealPanel — animated round-result reveal with optional skip
+// ---------------------------------------------------------------------------
+
+type RevealPhase = 'matchup' | 'commentary' | 'breakdown' | 'done';
+
+function getExcerptLines(text: string, max: number): string[] {
+  return text.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, max);
+}
+
+function RevealPanel({ round, roundNum, playerName, rivalName, onContinue }: {
+  round: RoundResult;
+  roundNum: number;
+  playerName: string;
+  rivalName: string;
+  onContinue: () => void;
+}) {
+  const [phase, setPhase]           = useState<RevealPhase>('matchup');
+  const [skipped, setSkipped]       = useState(false);
+  const [linesShown, setLinesShown] = useState(0);
+  const [rulesShown, setRulesShown] = useState(0);
+
+  // Build interleaved lyric lines (max 2 per side → max 4 total)
+  const pLines = getExcerptLines(round.playerLyricsExcerpt, 2);
+  const rLines = getExcerptLines(round.rivalLyricsExcerpt, 2);
+  const maxPairs = Math.min(pLines.length, rLines.length);
+  const interleaved: { side: 'player' | 'rival'; text: string }[] = [];
+  for (let i = 0; i < maxPairs; i++) {
+    if (pLines[i]) interleaved.push({ side: 'player', text: pLines[i]! });
+    if (rLines[i]) interleaved.push({ side: 'rival',  text: rLines[i]! });
+  }
+  const totalLines = interleaved.length;
+
+  function doSkip() {
+    setSkipped(true);
+    setLinesShown(totalLines);
+    setRulesShown(round.breakdown.length);
+    setPhase('done');
+  }
+
+  // matchup phase: advance lyric lines every 240ms, then→commentary
+  useEffect(() => {
+    if (phase !== 'matchup' || skipped) return;
+    if (linesShown < totalLines) {
+      const id = setTimeout(() => setLinesShown((n) => n + 1), 240);
+      return () => clearTimeout(id);
+    }
+    const id = setTimeout(() => setPhase('commentary'), 480);
+    return () => clearTimeout(id);
+  }, [phase, linesShown, totalLines, skipped]);
+
+  // commentary typewriter
+  const { output: commentaryOut, done: commentaryDone } = useTypewriter(
+    round.commentary,
+    phase === 'commentary' && !skipped,
+  );
+
+  // commentary done → breakdown
+  useEffect(() => {
+    if (phase !== 'commentary' || !commentaryDone || skipped) return;
+    const id = setTimeout(() => setPhase('breakdown'), 380);
+    return () => clearTimeout(id);
+  }, [phase, commentaryDone, skipped]);
+
+  // breakdown: reveal rules one by one, 105ms apart
+  useEffect(() => {
+    if (phase !== 'breakdown' || skipped) return;
+    if (rulesShown >= round.breakdown.length) { setPhase('done'); return; }
+    const id = setTimeout(() => setRulesShown((n) => n + 1), 105);
+    return () => clearTimeout(id);
+  }, [phase, rulesShown, round.breakdown.length, skipped]);
+
+  const winnerColor = round.roundWinner === 'player' ? 'text-rose-400'
+    : round.roundWinner === 'rival' ? 'text-amber-400' : 'text-gray-400';
+  const winnerLabel = round.roundWinner === 'player' ? `${playerName} wins round ${roundNum}!`
+    : round.roundWinner === 'rival' ? `${rivalName} wins round ${roundNum}!` : 'Round drawn!';
+
+  const showCommentary = phase !== 'matchup' || skipped;
+  const showScores     = (phase === 'breakdown' || phase === 'done') || skipped;
+  const showBreakdown  = phase === 'breakdown' || phase === 'done' || skipped;
+  const isDone         = phase === 'done' || skipped;
+
+  return (
+    <div className="bg-gray-900 border border-gray-700 rounded-xl overflow-hidden">
+      {/* Header bar */}
+      <div className="flex items-center justify-between px-5 py-3 bg-gray-800/60 border-b border-gray-700">
+        <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Round {roundNum}</span>
+        {!isDone && (
+          <button
+            onClick={doSkip}
+            className="text-xs text-gray-500 hover:text-white transition-colors px-2.5 py-1 rounded border border-gray-700 hover:border-gray-500"
+          >
+            Skip →
+          </button>
+        )}
+      </div>
+
+      <div className="p-5 space-y-5">
+
+        {/* Song matchup */}
+        <div className="grid grid-cols-[1fr_auto_1fr] gap-4 items-start">
+          <div>
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">{playerName}</p>
+            <p className="text-sm font-bold text-rose-300 leading-snug">"{round.playerSongTitle}"</p>
+          </div>
+          <div className="text-lg text-gray-600 pt-4">⚔️</div>
+          <div className="text-right">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">{rivalName}</p>
+            <p className="text-sm font-bold text-amber-300 leading-snug">"{round.rivalSongTitle}"</p>
+          </div>
+        </div>
+
+        {/* Lyric battle: alternating lines from each side */}
+        {totalLines > 0 && (
+          <div className="space-y-2 border-t border-b border-gray-800 py-4 min-h-[4rem]">
+            {interleaved.slice(0, skipped ? totalLines : linesShown).map((line, i) => (
+              <p
+                key={i}
+                className={`text-xs italic leading-relaxed ${
+                  line.side === 'player'
+                    ? 'text-rose-300/80 pl-3 border-l-2 border-rose-800'
+                    : 'text-amber-300/80 pr-3 border-r-2 border-amber-800 text-right'
+                }`}
+              >
+                {line.text}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {/* Commentary — types in progressively */}
+        {showCommentary && (
+          <p className="text-sm text-gray-100 italic leading-relaxed min-h-[3em]">
+            {skipped ? round.commentary : commentaryOut}
+            {!skipped && phase === 'commentary' && !commentaryDone && (
+              <span className="animate-pulse ml-0.5 not-italic text-rose-400">▋</span>
+            )}
+          </p>
+        )}
+
+        {/* Winner + scores */}
+        {showScores && (
+          <div className="space-y-2">
+            <p className={`text-base font-black ${winnerColor}`}>{winnerLabel}</p>
+            <div className="flex gap-8">
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase">{playerName}</p>
+                <p className="text-2xl font-black text-rose-400">
+                  {round.playerScore} <span className="text-xs font-normal text-gray-500">pts</span>
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase">{rivalName}</p>
+                <p className="text-2xl font-black text-amber-400">
+                  {round.rivalScore} <span className="text-xs font-normal text-gray-500">pts</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Rule breakdown — rules appear one by one */}
+        {showBreakdown && round.breakdown.length > 0 && (
+          <div className="space-y-1 pt-1 border-t border-gray-800">
+            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Rule Breakdown</p>
+            {round.breakdown.slice(0, skipped ? round.breakdown.length : rulesShown).map((b, i) => {
+              const pWins = b.playerScore > b.rivalScore;
+              const rWins = b.rivalScore > b.playerScore;
+              return (
+                <div key={i} className="grid grid-cols-[auto_1fr_auto] gap-2 items-center text-xs">
+                  <span className={`font-bold w-5 text-center ${pWins ? 'text-rose-300' : 'text-gray-600'}`}>
+                    {b.playerScore}
+                  </span>
+                  <span className="text-gray-500 text-center truncate">{b.ruleName}</span>
+                  <span className={`font-bold w-5 text-center ${rWins ? 'text-amber-300' : 'text-gray-600'}`}>
+                    {b.rivalScore}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Continue button — appears when animation is complete or skipped */}
+        {isDone && (
+          <button
+            onClick={onContinue}
+            className="w-full py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl transition-colors"
+          >
+            Continue →
+          </button>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Leaderboard
 // ---------------------------------------------------------------------------
 
@@ -438,6 +660,7 @@ export default function LyricDuelPage() {
 
   const [match, setMatch] = useState<MatchSetup | null>(null);
   const [rounds, setRounds] = useState<RoundResult[]>([]);
+  const [pendingRound, setPendingRound] = useState<RoundResult | null>(null);
   const [currentRoundLoading, setCurrentRoundLoading] = useState(false);
   const usedPlayerSongIds = useRef<string[]>([]);
   const usedRivalSongIds  = useRef<string[]>([]);
@@ -525,36 +748,7 @@ export default function LyricDuelPage() {
       });
       usedPlayerSongIds.current = [...usedPlayerSongIds.current, result.playerSongId];
       usedRivalSongIds.current  = [...usedRivalSongIds.current,  result.rivalSongId];
-      const newRounds = [...rounds, result];
-      setRounds(newRounds);
-
-      if (newRounds.length >= match.totalRounds) {
-        setPhase('gameover');
-        if (user && match.mode !== 'ai-showdown') {
-          const pW = newRounds.filter((r) => r.roundWinner === 'player').length;
-          const rW = newRounds.filter((r) => r.roundWinner === 'rival').length;
-          const pP = newRounds.reduce((s, r) => s + r.playerScore, 0);
-          const rP = newRounds.reduce((s, r) => s + r.rivalScore, 0);
-          try {
-            const saved = await lyricDuelApi.saveScore({
-              playerBandId: match.playerBandId,
-              rivalBandId:  match.rivalBandId,
-              playerName:   match.playerBandName,
-              rivalName:    match.rivalBandName,
-              playerPoints: pP,
-              rivalPoints:  rP,
-              playerWins:   pW,
-              rivalWins:    rW,
-              totalRounds:  match.totalRounds,
-              difficulty:   match.difficulty,
-              mode:         match.mode,
-              theme:        match.theme,
-              won:          pW > rW,
-            });
-            if (pW > rW) setSavedRank(saved.rank);
-          } catch { /* non-critical */ }
-        }
-      }
+      setPendingRound(result); // trigger animated reveal
     } catch {
       setError('The judge stepped out. Try again.');
     } finally {
@@ -562,10 +756,46 @@ export default function LyricDuelPage() {
     }
   }
 
+  async function handleRevealDone() {
+    if (!match || !pendingRound) return;
+    const newRounds = [...rounds, pendingRound];
+    setRounds(newRounds);
+    setPendingRound(null);
+
+    if (newRounds.length >= match.totalRounds) {
+      setPhase('gameover');
+      if (user && match.mode !== 'ai-showdown') {
+        const pW = newRounds.filter((r) => r.roundWinner === 'player').length;
+        const rW = newRounds.filter((r) => r.roundWinner === 'rival').length;
+        const pP = newRounds.reduce((s, r) => s + r.playerScore, 0);
+        const rP = newRounds.reduce((s, r) => s + r.rivalScore, 0);
+        try {
+          const saved = await lyricDuelApi.saveScore({
+            playerBandId: match.playerBandId,
+            rivalBandId:  match.rivalBandId,
+            playerName:   match.playerBandName,
+            rivalName:    match.rivalBandName,
+            playerPoints: pP,
+            rivalPoints:  rP,
+            playerWins:   pW,
+            rivalWins:    rW,
+            totalRounds:  match.totalRounds,
+            difficulty:   match.difficulty,
+            mode:         match.mode,
+            theme:        match.theme,
+            won:          pW > rW,
+          });
+          if (pW > rW) setSavedRank(saved.rank);
+        } catch { /* non-critical */ }
+      }
+    }
+  }
+
   function handleReset() {
     setPhase('setup');
     setMatch(null);
     setRounds([]);
+    setPendingRound(null);
     setError(null);
     setSavedRank(null);
     setPlayerSkinUrl(null);
@@ -769,18 +999,28 @@ export default function LyricDuelPage() {
 
             {error && <p className="text-sm text-rose-400 text-center">{error}</p>}
 
-            <button
-              onClick={handlePlayRound}
-              disabled={currentRoundLoading}
-              className="w-full py-4 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-black text-lg rounded-xl transition-colors"
-            >
-              {currentRoundLoading
-                ? '⚖️ Judge reviewing lyrics…'
-                : isLastRound
-                  ? '⚔️ FINAL ROUND — FIGHT!'
-                  : `⚔️ ROUND ${currentRoundNum} — FIGHT!`
-              }
-            </button>
+            {pendingRound ? (
+              <RevealPanel
+                round={pendingRound}
+                roundNum={rounds.length + 1}
+                playerName={match.playerBandName}
+                rivalName={match.rivalBandName}
+                onContinue={() => { void handleRevealDone(); }}
+              />
+            ) : (
+              <button
+                onClick={handlePlayRound}
+                disabled={currentRoundLoading}
+                className="w-full py-4 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-black text-lg rounded-xl transition-colors"
+              >
+                {currentRoundLoading
+                  ? '⚖️ Judge reviewing lyrics…'
+                  : isLastRound
+                    ? '⚔️ FINAL ROUND — FIGHT!'
+                    : `⚔️ ROUND ${currentRoundNum} — FIGHT!`
+                }
+              </button>
+            )}
           </div>
         )}
 
