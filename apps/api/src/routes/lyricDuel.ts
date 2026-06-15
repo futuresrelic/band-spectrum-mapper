@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { HttpError } from '../middleware/errorHandler.js';
+import { AlbumType } from '@prisma/client';
 
 export const lyricDuelRouter = Router();
 
@@ -24,6 +25,267 @@ const DIFFICULTY_NOTE: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Curated rule pool — 10 random rules drawn per match so players learn them
+// ---------------------------------------------------------------------------
+
+export interface PoolRule {
+  id: string;
+  name: string;
+  shortDesc: string;    // caveman-style: short, punchy, immediately understandable
+  description: string;  // full explanation shown on demand
+}
+
+export const RULE_POOL: PoolRule[] = [
+  {
+    id: 'theme-lock',
+    name: 'Theme Lock',
+    shortDesc: 'Lyric hits theme? Big points.',
+    description: 'Directly addressing the battle theme scores highest. Tangential or unrelated lyrics lose ground fast.',
+  },
+  {
+    id: 'rare-words',
+    name: 'Rare Words',
+    shortDesc: 'Weird words = smart words.',
+    description: 'Uncommon, precise vocabulary shows range and intelligence. Generic filler words score low.',
+  },
+  {
+    id: 'raw-feeling',
+    name: 'Raw Feeling',
+    shortDesc: 'If it hurts, it scores.',
+    description: 'Emotional intensity — does this lyric make you feel something visceral? Detached or clinical lyrics lose points.',
+  },
+  {
+    id: 'killer-line',
+    name: 'Killer Line',
+    shortDesc: 'One line to rule all.',
+    description: 'The single most devastating line in the excerpt. If one line could stand alone as a quote, it wins big here.',
+  },
+  {
+    id: 'story-flow',
+    name: 'Story Flow',
+    shortDesc: 'Does it go somewhere?',
+    description: 'Narrative arc — setup, tension, resolution. Lyrics that wander without purpose score low.',
+  },
+  {
+    id: 'metaphor-game',
+    name: 'Metaphor Game',
+    shortDesc: 'Say it weird. Mean it deep.',
+    description: 'Quality of figurative language — similes, metaphors, symbolism. Tired clichés score nothing.',
+  },
+  {
+    id: 'word-economy',
+    name: 'Word Economy',
+    shortDesc: 'Short but loud.',
+    description: 'More meaning with fewer words wins. Filler lines and padding cost points — every word must earn its place.',
+  },
+  {
+    id: 'authenticity',
+    name: 'Authenticity',
+    shortDesc: 'Sounds real, not written.',
+    description: 'Does this feel lived-in and genuine, or polished and hollow? Listeners can smell performance from a mile away.',
+  },
+  {
+    id: 'image-power',
+    name: 'Image Power',
+    shortDesc: 'Paint picture in head.',
+    description: 'Vivid visual imagery that places a scene in the listener\'s mind. Abstract vagueness without images scores low.',
+  },
+  {
+    id: 'rhythm-brain',
+    name: 'Rhythm Brain',
+    shortDesc: 'Words flow like water.',
+    description: 'Vocabulary variety and rhythmic complexity — the musical quality of the word choices themselves.',
+  },
+  {
+    id: 'concept-depth',
+    name: 'Concept Depth',
+    shortDesc: 'Big idea, small words.',
+    description: 'Philosophical or abstract thinking packed efficiently into lyrical form. Surface-level observations score low.',
+  },
+  {
+    id: 'context-fit',
+    name: 'Context Fit',
+    shortDesc: 'Song born for this?',
+    description: 'Was this song actually written about something relevant to the theme, or does it feel shoehorned in? Bad fit = points lost.',
+  },
+  {
+    id: 'originality',
+    name: 'Originality',
+    shortDesc: 'Nobody said it this way.',
+    description: 'How fresh and distinctive is the expression? Recognizable clichés and borrowed phrases lose significant points.',
+  },
+  {
+    id: 'crowd-line',
+    name: 'Crowd Line',
+    shortDesc: 'Whole crowd sings it.',
+    description: 'Memorability — is there a hook or phrase here that sticks immediately? A strong crowd line is worth extra.',
+  },
+  {
+    id: 'vulnerability',
+    name: 'Vulnerability',
+    shortDesc: 'Shows the wound.',
+    description: 'Openness and emotional honesty. Hiding behind irony or cleverness when the theme demands sincerity loses points.',
+  },
+  {
+    id: 'density',
+    name: 'Density',
+    shortDesc: 'Pack more meaning per word.',
+    description: 'How much meaning is compressed per line? Dense, layered lyrics beat sparse, padded ones.',
+  },
+  {
+    id: 'signature-sound',
+    name: 'Signature Sound',
+    shortDesc: 'Sound like nobody else.',
+    description: 'Does this lyric sound like only THIS artist could have written it? Interchangeable lyrics score low.',
+  },
+  {
+    id: 'aggression',
+    name: 'Aggression',
+    shortDesc: 'Who hits harder?',
+    description: 'Assertiveness, attack energy, and lyrical dominance. Which side comes out swinging hardest?',
+  },
+  {
+    id: 'profundity',
+    name: 'Profundity',
+    shortDesc: 'Says something true.',
+    description: 'Does this contain a universal truth or insight that resonates beyond the song? Cheap observations score nothing.',
+  },
+  {
+    id: 'subversion',
+    name: 'Subversion',
+    shortDesc: 'Flip the expected.',
+    description: 'Taking a familiar idea and turning it completely upside down. The most rewarding surprise gets the most points.',
+  },
+  {
+    id: 'specificity',
+    name: 'Specificity',
+    shortDesc: 'Real details win.',
+    description: 'Concrete, specific details beat vague generalities. "A faded blue Chevy" beats "an old car" every time.',
+  },
+  {
+    id: 'time-capsule',
+    name: 'Time Capsule',
+    shortDesc: 'Still hits in 50 years.',
+    description: 'Does this lyric feel timeless, or does it feel dated to a specific trend or era? Timeless scores highest.',
+  },
+  {
+    id: 'internal-logic',
+    name: 'Internal Logic',
+    shortDesc: 'Makes sense on own terms.',
+    description: 'Even if surreal or abstract, the lyric must be coherent within its own world. Random confusion scores zero.',
+  },
+  {
+    id: 'urgency',
+    name: 'Urgency',
+    shortDesc: 'Says: this matters NOW.',
+    description: 'Does the lyric feel urgent and immediate, like it cannot wait to be said? Passive or detached writing loses.',
+  },
+  {
+    id: 'wordplay',
+    name: 'Wordplay',
+    shortDesc: 'Double meaning? Yes please.',
+    description: 'Clever wordplay, double entendres, or linguistic wit that rewards attention. Surface-only lyrics score low.',
+  },
+  {
+    id: 'defiance',
+    name: 'Defiance',
+    shortDesc: 'Refuses to bow.',
+    description: 'Resistance, refusal, and refusal to accept defeat or convention. If the theme calls for defiance, show it.',
+  },
+  {
+    id: 'hunger',
+    name: 'Hunger',
+    shortDesc: 'Wants something badly.',
+    description: 'Desire and longing as a driving force — ache and yearning score high when they feel unresolvable.',
+  },
+  {
+    id: 'battle-cry',
+    name: 'Battle Cry',
+    shortDesc: 'Makes you want to fight.',
+    description: 'Anthemic, rallying quality — words that make you want to stand up. Quiet resignation scores low here.',
+  },
+  {
+    id: 'restraint',
+    name: 'Restraint',
+    shortDesc: 'Calm contains the storm.',
+    description: 'Understatement and restraint used to maximum effect. Sometimes saying less hits harder than screaming.',
+  },
+  {
+    id: 'final-word',
+    name: 'Final Word',
+    shortDesc: 'Last line hits hardest.',
+    description: 'Does the excerpt end on its strongest note? Endings matter most — a weak landing loses major points.',
+  },
+  {
+    id: 'contradiction',
+    name: 'Contradiction',
+    shortDesc: 'Holds two truths at once.',
+    description: 'Paradox used to reveal deeper truth. Holding contradictory feelings simultaneously shows lyrical maturity.',
+  },
+  {
+    id: 'aftermath',
+    name: 'Aftermath',
+    shortDesc: 'Deals with what\'s left.',
+    description: 'The lyric captures the state after the event — grief, silence, consequence. Aftermath is often more powerful than the event itself.',
+  },
+  {
+    id: 'tension-arc',
+    name: 'Tension Arc',
+    shortDesc: 'Gets worse before better.',
+    description: 'Building and releasing tension within the lyric structure. Flat emotional delivery loses to a well-constructed arc.',
+  },
+  {
+    id: 'mythology',
+    name: 'Mythology',
+    shortDesc: 'References big things.',
+    description: 'Use of archetypal, mythological, or historical concepts that elevate the lyrical weight beyond the personal.',
+  },
+  {
+    id: 'sonic-weight',
+    name: 'Sonic Weight',
+    shortDesc: 'Heavy sounds heavy.',
+    description: 'Hard consonants, density, and sonic texture in the actual word choices — the feel of the words in the mouth.',
+  },
+  {
+    id: 'dark-energy',
+    name: 'Dark Energy',
+    shortDesc: 'Darkness = power here.',
+    description: 'For dark or painful themes: embracing pain, anger, or dread rather than softening it scores highest.',
+  },
+  {
+    id: 'resolution',
+    name: 'Resolution',
+    shortDesc: 'Does it land?',
+    description: 'Does the lyric reach a satisfying conclusion, or does it trail off without payoff? Unresolved lyrics lose points.',
+  },
+  {
+    id: 'rebellion',
+    name: 'Rebellion',
+    shortDesc: 'Break the rules. Win.',
+    description: 'Counter-culture attitude and anti-establishment energy in the words. Safe, obedient lyrics score low.',
+  },
+  {
+    id: 'melancholy',
+    name: 'Melancholy',
+    shortDesc: 'Beauty found in sadness.',
+    description: 'Poetic sadness that transforms pain into art. Wallowing without beauty scores low; transformation scores high.',
+  },
+  {
+    id: 'lyricism',
+    name: 'Pure Lyricism',
+    shortDesc: 'Poetry for its own sake.',
+    description: 'Pure lyrical beauty divorced from meaning — the sound and rhythm of the words alone, as pure poetry.',
+  },
+];
+
+function pickRules(count = 10): PoolRule[] {
+  const shuffled = [...RULE_POOL].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, Math.min(count, shuffled.length));
+}
+
+const VALID_ALBUM_TYPES = new Set(Object.values(AlbumType));
+
+// ---------------------------------------------------------------------------
 // GET /api/lyric-duel/bands — bands that have lyric-capable songs
 // ---------------------------------------------------------------------------
 
@@ -41,7 +303,7 @@ lyricDuelRouter.get('/bands', async (_req, res, next): Promise<void> => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/lyric-duel/start — AI generates theme + 10 rules + rival (if needed)
+// POST /api/lyric-duel/start — AI generates theme + selects 10 rules from pool
 // ---------------------------------------------------------------------------
 
 lyricDuelRouter.post('/start', async (req, res, next): Promise<void> => {
@@ -60,7 +322,6 @@ lyricDuelRouter.post('/start', async (req, res, next): Promise<void> => {
     // Resolve rival band
     let rivalBandId = typeof rawRivalId === 'string' ? rawRivalId : null;
     if (!rivalBandId || safeMode === 'ai-showdown') {
-      // Pick a random band with lyrics that isn't the player band
       const eligibleIds = await prisma.band.findMany({
         where: {
           id: { not: playerBandId },
@@ -74,7 +335,7 @@ lyricDuelRouter.post('/start', async (req, res, next): Promise<void> => {
       rivalBandId = pick.id;
     }
 
-    // AI showdown: also replace playerBand if mode is ai-showdown
+    // AI showdown: also pick a random player band
     let finalPlayerBandId = playerBandId;
     let finalPlayerBand = playerBand;
     if (safeMode === 'ai-showdown') {
@@ -92,7 +353,10 @@ lyricDuelRouter.post('/start', async (req, res, next): Promise<void> => {
 
     const totalRounds = TOTAL_ROUNDS[safeDiff] ?? 3;
 
-    // AI: generate theme + 10 rules + intro
+    // Pick 10 rules from the curated pool — no AI needed for rules
+    const selectedRules = pickRules(10);
+
+    // AI: generate theme + intro speech only (rules come from the pool)
     const openai = getClient();
     const aiRes = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -110,24 +374,15 @@ Generate a dramatic battle setup. Respond ONLY with valid JSON:
 {
   "theme": "2-5 word battle theme (e.g. 'The Weight of Regret', 'Defiance and Fire')",
   "themeDescription": "One sentence explaining what this theme means in this battle context",
-  "rules": [
-    { "name": "short rule name", "description": "what it measures and how strong performance scores" }
-  ],
   "introSpeech": "Dramatic 2-3 sentence announcer speech hyping the crowd for this specific matchup",
   "rivalPickReason": "One vivid sentence explaining why this rival stepped up to face the challenger"
-}
-
-The rules array must contain EXACTLY 10 items. Make them creative and specific to lyric battles.
-Cover: thematic relevance, word rarity, emotional intensity, metaphor power, narrative coherence,
-killer line impact, contextual fit, originality, rhythmic vocabulary complexity, and conceptual depth —
-but rephrase them in dramatic language unique to this match.`,
+}`,
       }],
     });
 
     const raw = aiRes.choices[0]?.message?.content ?? '{}';
     let aiData: {
       theme?: string; themeDescription?: string;
-      rules?: { name: string; description: string }[];
       introSpeech?: string; rivalPickReason?: string;
     } = {};
     try { aiData = JSON.parse(raw) as typeof aiData; } catch { /* use defaults */ }
@@ -139,19 +394,8 @@ but rephrase them in dramatic language unique to this match.`,
       rivalBandName: rivalBand.name,
       theme: aiData.theme ?? 'The Ultimate Showdown',
       themeDescription: aiData.themeDescription ?? 'Two bands face off in a battle of lyrical supremacy.',
-      rules: Array.isArray(aiData.rules) && aiData.rules.length >= 5 ? aiData.rules : [
-        { name: 'Thematic Relevance', description: 'How closely the lyrics align with the battle theme' },
-        { name: 'Word Rarity', description: 'Unique and uncommon vocabulary that shows range' },
-        { name: 'Emotional Intensity', description: 'Rawness and emotional power of the lyrics' },
-        { name: 'Metaphor Power', description: 'Quality and originality of figurative language' },
-        { name: 'Narrative Coherence', description: 'Story structure and internal logic of the lyrics' },
-        { name: 'Killer Line', description: 'Impact of the single most powerful line' },
-        { name: 'Contextual Fit', description: 'Whether the song truly belongs in this theme or is out of context' },
-        { name: 'Originality', description: 'Freshness and distinctiveness of ideas' },
-        { name: 'Rhythmic Complexity', description: 'Vocabulary variety and linguistic dexterity' },
-        { name: 'Conceptual Depth', description: 'Abstract thinking and philosophical weight of the lyrics' },
-      ],
-      introSpeech: aiData.introSpeech ?? `Tonight, two legendary acts face off in the ultimate lyric showdown. ${finalPlayerBand.name} versus ${rivalBand.name}. Only one will walk away with their reputation intact.`,
+      rules: selectedRules,
+      introSpeech: aiData.introSpeech ?? `Tonight, two legendary acts face off in the ultimate lyric showdown. ${finalPlayerBand.name} versus ${rivalBand.name}. Only one walks away.`,
       rivalPickReason: aiData.rivalPickReason ?? null,
       totalRounds,
       difficulty: safeDiff,
@@ -169,12 +413,12 @@ lyricDuelRouter.post('/round', async (req, res, next): Promise<void> => {
     const {
       playerBandId, rivalBandId, theme, themeDescription, rules,
       difficulty, roundIndex, usedPlayerSongIds, usedRivalSongIds,
-      playerBandName, rivalBandName,
+      playerBandName, rivalBandName, albumTypes,
     } = req.body as {
       playerBandId?: unknown; rivalBandId?: unknown; theme?: unknown; themeDescription?: unknown;
       rules?: unknown; difficulty?: unknown; roundIndex?: unknown;
       usedPlayerSongIds?: unknown; usedRivalSongIds?: unknown;
-      playerBandName?: unknown; rivalBandName?: unknown;
+      playerBandName?: unknown; rivalBandName?: unknown; albumTypes?: unknown;
     };
 
     if (typeof playerBandId !== 'string' || typeof rivalBandId !== 'string') {
@@ -187,20 +431,38 @@ lyricDuelRouter.post('/round', async (req, res, next): Promise<void> => {
       ? usedRivalSongIds.filter((x): x is string => typeof x === 'string') : [];
     const safeDiff = typeof difficulty === 'string' ? difficulty : 'normal';
 
+    // Validate and normalize album types filter
+    const safeAlbumTypes: AlbumType[] = Array.isArray(albumTypes)
+      ? albumTypes.filter((x): x is string => typeof x === 'string')
+          .filter((x) => VALID_ALBUM_TYPES.has(x as AlbumType))
+          .map((x) => x as AlbumType)
+      : [];
+
+    // Album type filter: if types specified, only songs whose album matches
+    // (songs with no album are included when filtering is active)
+    const albumTypeFilter = safeAlbumTypes.length > 0
+      ? { OR: [
+          { albumId: null },
+          { album: { albumType: { in: safeAlbumTypes } } },
+        ] }
+      : {};
+
     async function pickSong(bandId: string, excludeIds: string[]) {
+      const baseWhere = {
+        bandId,
+        isInstrumental: false,
+        lyrics: { some: { isPrimary: true } },
+        ...albumTypeFilter,
+      };
       let songs = await prisma.song.findMany({
-        where: {
-          bandId, isInstrumental: false,
-          ...(excludeIds.length > 0 ? { id: { notIn: excludeIds } } : {}),
-          lyrics: { some: { isPrimary: true } },
-        },
+        where: { ...baseWhere, ...(excludeIds.length > 0 ? { id: { notIn: excludeIds } } : {}) },
         select: { id: true, title: true, lyrics: { where: { isPrimary: true }, select: { text: true }, take: 1 } },
         take: 80,
       });
-      // If nothing left, allow reuse
+      // Allow reuse if all songs exhausted
       if (songs.length === 0) {
         songs = await prisma.song.findMany({
-          where: { bandId, isInstrumental: false, lyrics: { some: { isPrimary: true } } },
+          where: baseWhere,
           select: { id: true, title: true, lyrics: { where: { isPrimary: true }, select: { text: true }, take: 1 } },
           take: 80,
         });
@@ -215,7 +477,7 @@ lyricDuelRouter.post('/round', async (req, res, next): Promise<void> => {
     ]);
 
     if (!playerSong || !rivalSong) {
-      res.status(400).json({ error: 'Not enough songs with lyrics for this round' }); return;
+      res.status(400).json({ error: 'Not enough songs with lyrics for this round. Try adding more song types in filters.' }); return;
     }
 
     const playerText = (playerSong.lyrics[0]?.text ?? '').slice(0, 900);
@@ -267,7 +529,7 @@ Respond ONLY with valid JSON:
   "commentary": "dramatic 2-3 sentence judge commentary for this round, declare a round winner by name"
 }
 
-The breakdown array must have exactly 10 items matching the 10 rules above.`,
+The breakdown array must have exactly 10 items matching the 10 rules above in order.`,
       }],
     });
 
@@ -297,6 +559,7 @@ The breakdown array must have exactly 10 items matching the 10 rules above.`,
       rivalHighlight: scored.rivalHighlight ?? '',
       commentary: scored.commentary ?? 'The judge deliberates...',
       roundWinner,
+      roundIndex: typeof roundIndex === 'number' ? roundIndex : 0,
     }); return;
   } catch (e) { next(e); }
 });

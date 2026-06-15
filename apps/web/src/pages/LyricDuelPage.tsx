@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import SiteHeader from '../components/layout/SiteHeader';
 import { useAuth } from '../contexts/AuthContext';
+import { platformerApi } from '../api/platformer';
 import {
   lyricDuelApi,
   type DuelBand,
@@ -13,16 +14,12 @@ import {
 } from '../api/lyricDuel';
 
 // ---------------------------------------------------------------------------
-// Types
+// Types + constants
 // ---------------------------------------------------------------------------
 
 type Phase = 'setup' | 'pregame' | 'battling' | 'gameover';
 type GameMode = 'challenge' | 'custom' | 'ai-showdown';
 type Difficulty = 'friendly' | 'normal' | 'ruthless' | 'legendary';
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
 const MODES: { id: GameMode; label: string; desc: string; icon: string }[] = [
   { id: 'challenge',   label: 'Challenge',   icon: '🎯', desc: 'Pick your band — AI picks your rival' },
@@ -37,8 +34,76 @@ const DIFFICULTIES: { id: Difficulty; label: string; desc: string; color: string
   { id: 'legendary',label: 'Legendary', desc: '5 rounds · The rival is a living legend',       color: 'border-rose-500/50 bg-rose-950/30 text-rose-300' },
 ];
 
+const ALBUM_TYPES = [
+  { value: 'studio',      label: 'Studio' },
+  { value: 'lp',          label: 'LP' },
+  { value: 'ep',          label: 'EP' },
+  { value: 'single',      label: 'Single' },
+  { value: 'live',        label: 'Live' },
+  { value: 'remix',       label: 'Remix' },
+  { value: 'compilation', label: 'Compilation' },
+  { value: 'demo',        label: 'Demo' },
+  { value: 'acoustic',    label: 'Acoustic' },
+  { value: 'mixtape',     label: 'Mixtape' },
+  { value: 'bootleg',     label: 'Bootleg' },
+  { value: 'soundtrack',  label: 'Soundtrack' },
+];
+
+const ALL_ALBUM_TYPE_VALUES = ALBUM_TYPES.map((t) => t.value);
+
 // ---------------------------------------------------------------------------
-// Sub-components
+// Rule item with caveman short desc + expandable full info
+// ---------------------------------------------------------------------------
+
+function RuleItem({ rule, idx }: { rule: DuelRule; idx: number }) {
+  const [showInfo, setShowInfo] = useState(false);
+  return (
+    <li className="flex gap-3">
+      <span className="text-xs font-bold text-rose-400 w-5 shrink-0 mt-0.5">{idx + 1}.</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-bold text-white">{rule.name}</span>
+          <span className="text-xs text-gray-400">{rule.shortDesc}</span>
+          <button
+            onClick={() => setShowInfo((v) => !v)}
+            aria-label="More info"
+            className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-gray-600 text-gray-500 hover:border-gray-400 hover:text-gray-300 text-[10px] font-bold shrink-0 transition-colors"
+          >
+            i
+          </button>
+        </div>
+        {showInfo && (
+          <p className="text-xs text-gray-400 mt-1.5 pl-2 border-l-2 border-gray-600 leading-relaxed">
+            {rule.description}
+          </p>
+        )}
+      </div>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Band face avatar
+// ---------------------------------------------------------------------------
+
+function BandAvatar({ skinUrl, size = 56 }: { skinUrl: string | null; size?: number }) {
+  if (!skinUrl) return null;
+  return (
+    <div
+      className="rounded-xl border-2 border-gray-600 overflow-hidden bg-gray-800 shrink-0"
+      style={{ width: size, height: size }}
+    >
+      <img
+        src={skinUrl}
+        alt="avatar"
+        style={{ width: '100%', height: '100%', objectFit: 'cover', imageRendering: 'pixelated' }}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// BandGrid
 // ---------------------------------------------------------------------------
 
 function BandGrid({ bands, selectedId, onSelect, label }: {
@@ -69,21 +134,101 @@ function BandGrid({ bands, selectedId, onSelect, label }: {
   );
 }
 
-function VSBanner({ playerName, rivalName, theme }: { playerName: string; rivalName: string; theme: string }) {
+// ---------------------------------------------------------------------------
+// Album type filter
+// ---------------------------------------------------------------------------
+
+function AlbumTypeFilter({ selected, onChange }: {
+  selected: string[];
+  onChange: (types: string[]) => void;
+}) {
+  const allSelected = selected.length === ALL_ALBUM_TYPE_VALUES.length;
+
+  function toggle(value: string) {
+    if (selected.includes(value)) {
+      onChange(selected.filter((v) => v !== value));
+    } else {
+      onChange([...selected, value]);
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Song Sources</p>
+        <button
+          onClick={() => onChange(allSelected ? [] : [...ALL_ALBUM_TYPE_VALUES])}
+          className="text-[11px] text-gray-500 hover:text-gray-300 underline underline-offset-2"
+        >
+          {allSelected ? 'Deselect all' : 'Select all'}
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {ALBUM_TYPES.map((t) => {
+          const checked = selected.includes(t.value);
+          return (
+            <button
+              key={t.value}
+              onClick={() => toggle(t.value)}
+              className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-colors ${
+                checked
+                  ? 'border-rose-500/60 bg-rose-950/40 text-rose-300'
+                  : 'border-gray-700 bg-gray-900 text-gray-500 hover:border-gray-500'
+              }`}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+      {selected.length === 0 && (
+        <p className="text-[11px] text-amber-500 mt-2">
+          ⚠️ No types selected — all songs will be used (no filter applied).
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// VS banner with optional face avatars
+// ---------------------------------------------------------------------------
+
+function VSBanner({ playerName, rivalName, theme, playerSkinUrl, rivalSkinUrl }: {
+  playerName: string;
+  rivalName: string;
+  theme: string;
+  playerSkinUrl: string | null;
+  rivalSkinUrl: string | null;
+}) {
   return (
     <div className="text-center py-8">
       <div className="flex items-center justify-center gap-4 flex-wrap">
-        <div className="text-right">
-          <p className="text-xs text-gray-400 uppercase tracking-widest mb-1">Challenger</p>
-          <p className="text-2xl sm:text-3xl font-black text-white leading-tight">{playerName}</p>
+        <div className="flex flex-col items-end gap-2">
+          {playerSkinUrl && (
+            <div className="self-end">
+              <BandAvatar skinUrl={playerSkinUrl} size={64} />
+            </div>
+          )}
+          <div className="text-right">
+            <p className="text-xs text-gray-400 uppercase tracking-widest mb-1">Challenger</p>
+            <p className="text-2xl sm:text-3xl font-black text-white leading-tight">{playerName}</p>
+          </div>
         </div>
         <div className="flex flex-col items-center">
           <span className="text-4xl sm:text-5xl">⚔️</span>
           <span className="text-lg font-black text-rose-400 mt-1">VS</span>
         </div>
-        <div className="text-left">
-          <p className="text-xs text-gray-400 uppercase tracking-widest mb-1">Rival</p>
-          <p className="text-2xl sm:text-3xl font-black text-white leading-tight">{rivalName}</p>
+        <div className="flex flex-col items-start gap-2">
+          {rivalSkinUrl && (
+            <div className="self-start" style={{ transform: 'scaleX(-1)' }}>
+              <BandAvatar skinUrl={rivalSkinUrl} size={64} />
+            </div>
+          )}
+          <div className="text-left">
+            <p className="text-xs text-gray-400 uppercase tracking-widest mb-1">Rival</p>
+            <p className="text-2xl sm:text-3xl font-black text-white leading-tight">{rivalName}</p>
+          </div>
         </div>
       </div>
       <div className="mt-6 inline-block bg-gray-900 border border-rose-500/40 rounded-xl px-6 py-3">
@@ -93,6 +238,10 @@ function VSBanner({ playerName, rivalName, theme }: { playerName: string; rivalN
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Score bar
+// ---------------------------------------------------------------------------
 
 function ScoreBar({ playerWins, rivalWins, totalRounds, playerPoints, rivalPoints, playerName, rivalName }: {
   playerWins: number; rivalWins: number; totalRounds: number;
@@ -120,12 +269,20 @@ function ScoreBar({ playerWins, rivalWins, totalRounds, playerPoints, rivalPoint
   );
 }
 
+// ---------------------------------------------------------------------------
+// Round card
+// ---------------------------------------------------------------------------
+
 function RoundCard({ round, roundNum, playerName, rivalName }: {
   round: RoundResult; roundNum: number; playerName: string; rivalName: string;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const winnerColor = round.roundWinner === 'player' ? 'text-rose-400' : round.roundWinner === 'rival' ? 'text-amber-400' : 'text-gray-400';
-  const winnerLabel = round.roundWinner === 'player' ? `${playerName} wins` : round.roundWinner === 'rival' ? `${rivalName} wins` : 'Draw';
+  const winnerColor = round.roundWinner === 'player'
+    ? 'text-rose-400' : round.roundWinner === 'rival'
+    ? 'text-amber-400' : 'text-gray-400';
+  const winnerLabel = round.roundWinner === 'player'
+    ? `${playerName} wins` : round.roundWinner === 'rival'
+    ? `${rivalName} wins` : 'Draw';
 
   return (
     <div className="bg-gray-900 border border-gray-700 rounded-xl overflow-hidden">
@@ -145,20 +302,18 @@ function RoundCard({ round, roundNum, playerName, rivalName }: {
             <span className="text-gray-500 text-xs">{expanded ? '▲' : '▼'}</span>
           </div>
         </div>
-        <div className="flex gap-4 mt-1 text-xs text-gray-500">
+        <div className="flex gap-4 mt-1 text-xs text-gray-500 truncate">
           <span>🎵 {playerName}: "{round.playerSongTitle}"</span>
-          <span>🎵 {rivalName}: "{round.rivalSongTitle}"</span>
+          <span className="hidden sm:inline">🎵 {rivalName}: "{round.rivalSongTitle}"</span>
         </div>
       </button>
 
       {expanded && (
         <div className="border-t border-gray-700 p-4 space-y-4">
-          {/* Commentary */}
           <blockquote className="border-l-4 border-rose-500/60 pl-4 text-sm text-gray-300 italic">
             {round.commentary}
           </blockquote>
 
-          {/* Killer lines */}
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="bg-gray-800 rounded-lg p-3">
               <p className="text-[10px] font-bold text-rose-400 uppercase tracking-wider mb-1">
@@ -174,15 +329,14 @@ function RoundCard({ round, roundNum, playerName, rivalName }: {
             </div>
           </div>
 
-          {/* Breakdown table */}
           {round.breakdown.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-gray-700">
                     <th className="text-left text-gray-400 py-1 pr-2">Rule</th>
-                    <th className="text-center text-rose-400 py-1 px-2 w-14">{playerName.split(' ')[0]}</th>
-                    <th className="text-center text-amber-400 py-1 px-2 w-14">{rivalName.split(' ')[0]}</th>
+                    <th className="text-center text-rose-400 py-1 px-2 w-12">{playerName.split(' ')[0]}</th>
+                    <th className="text-center text-amber-400 py-1 px-2 w-12">{rivalName.split(' ')[0]}</th>
                     <th className="text-left text-gray-500 py-1 pl-2 hidden sm:table-cell">Note</th>
                   </tr>
                 </thead>
@@ -208,7 +362,6 @@ function RoundCard({ round, roundNum, playerName, rivalName }: {
             </div>
           )}
 
-          {/* Lyrics excerpts */}
           <div className="grid sm:grid-cols-2 gap-3">
             <div>
               <p className="text-[10px] font-bold text-rose-400 uppercase tracking-wider mb-1">
@@ -232,6 +385,10 @@ function RoundCard({ round, roundNum, playerName, rivalName }: {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Leaderboard
+// ---------------------------------------------------------------------------
 
 function Leaderboard({ difficulty }: { difficulty: string }) {
   const { data: scores = [], isLoading } = useQuery<DuelScore[]>({
@@ -272,41 +429,43 @@ function Leaderboard({ difficulty }: { difficulty: string }) {
 export default function LyricDuelPage() {
   const { user } = useAuth();
 
-  // Phase
   const [phase, setPhase] = useState<Phase>('setup');
-
-  // Setup state
   const [mode, setMode] = useState<GameMode>('challenge');
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const [playerBandId, setPlayerBandId] = useState<string | null>(null);
   const [rivalBandId, setRivalBandId] = useState<string | null>(null);
+  const [selectedAlbumTypes, setSelectedAlbumTypes] = useState<string[]>([...ALL_ALBUM_TYPE_VALUES]);
 
-  // Match state
   const [match, setMatch] = useState<MatchSetup | null>(null);
   const [rounds, setRounds] = useState<RoundResult[]>([]);
   const [currentRoundLoading, setCurrentRoundLoading] = useState(false);
   const usedPlayerSongIds = useRef<string[]>([]);
-  const usedRivalSongIds = useRef<string[]>([]);
+  const usedRivalSongIds  = useRef<string[]>([]);
 
-  // Starting state
   const [startLoading, setStartLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Score saved
   const [savedRank, setSavedRank] = useState<number | null>(null);
 
-  // Computed
-  const playerWins = rounds.filter((r) => r.roundWinner === 'player').length;
-  const rivalWins  = rounds.filter((r) => r.roundWinner === 'rival').length;
+  // Character skin avatars fetched after match starts
+  const [playerSkinUrl, setPlayerSkinUrl] = useState<string | null>(null);
+  const [rivalSkinUrl, setRivalSkinUrl] = useState<string | null>(null);
+
+  const playerWins   = rounds.filter((r) => r.roundWinner === 'player').length;
+  const rivalWins    = rounds.filter((r) => r.roundWinner === 'rival').length;
   const playerPoints = rounds.reduce((s, r) => s + r.playerScore, 0);
   const rivalPoints  = rounds.reduce((s, r) => s + r.rivalScore, 0);
-  const matchWon = match ? playerWins > rivalWins : false;
+  const matchWon     = match ? playerWins > rivalWins : false;
 
   const { data: bands = [], isLoading: bandsLoading } = useQuery<DuelBand[]>({
     queryKey: ['lyric-duel-bands'],
     queryFn: () => lyricDuelApi.getBands(),
     staleTime: 60_000,
   });
+
+  // Effective album types to send: empty = no filter (all included)
+  const effectiveAlbumTypes = selectedAlbumTypes.length === ALL_ALBUM_TYPE_VALUES.length
+    ? []
+    : selectedAlbumTypes;
 
   async function handleStart() {
     if (mode !== 'ai-showdown' && !playerBandId) { setError('Pick your band first.'); return; }
@@ -323,9 +482,21 @@ export default function LyricDuelPage() {
       setMatch(setup);
       setRounds([]);
       usedPlayerSongIds.current = [];
-      usedRivalSongIds.current = [];
+      usedRivalSongIds.current  = [];
       setSavedRank(null);
       setPhase('pregame');
+
+      // Fetch Vinyl Runner face avatars for both bands (non-critical)
+      setPlayerSkinUrl(null);
+      setRivalSkinUrl(null);
+      platformerApi.getSkins({ bandIds: [setup.playerBandId, setup.rivalBandId] })
+        .then((skins) => {
+          const pSkin = skins.find((s) => s.bandId === setup.playerBandId);
+          const rSkin = skins.find((s) => s.bandId === setup.rivalBandId);
+          setPlayerSkinUrl(pSkin?.dataUrl ?? null);
+          setRivalSkinUrl(rSkin?.dataUrl ?? null);
+        })
+        .catch(() => { /* avatars are purely cosmetic */ });
     } catch {
       setError('Could not start the match. Make sure your selected bands have lyrics in the database.');
     } finally {
@@ -347,46 +518,45 @@ export default function LyricDuelPage() {
         difficulty: match.difficulty,
         roundIndex: rounds.length,
         usedPlayerSongIds: usedPlayerSongIds.current,
-        usedRivalSongIds: usedRivalSongIds.current,
+        usedRivalSongIds:  usedRivalSongIds.current,
         playerBandName: match.playerBandName,
-        rivalBandName: match.rivalBandName,
+        rivalBandName:  match.rivalBandName,
+        ...(effectiveAlbumTypes.length > 0 ? { albumTypes: effectiveAlbumTypes } : {}),
       });
       usedPlayerSongIds.current = [...usedPlayerSongIds.current, result.playerSongId];
       usedRivalSongIds.current  = [...usedRivalSongIds.current,  result.rivalSongId];
       const newRounds = [...rounds, result];
       setRounds(newRounds);
 
-      // Check if match is over
       if (newRounds.length >= match.totalRounds) {
         setPhase('gameover');
-        // Auto-save score if user is logged in and mode isn't AI showdown
         if (user && match.mode !== 'ai-showdown') {
-          const pWins = newRounds.filter((r) => r.roundWinner === 'player').length;
-          const rWins = newRounds.filter((r) => r.roundWinner === 'rival').length;
-          const pPts = newRounds.reduce((s, r) => s + r.playerScore, 0);
-          const rPts = newRounds.reduce((s, r) => s + r.rivalScore, 0);
+          const pW = newRounds.filter((r) => r.roundWinner === 'player').length;
+          const rW = newRounds.filter((r) => r.roundWinner === 'rival').length;
+          const pP = newRounds.reduce((s, r) => s + r.playerScore, 0);
+          const rP = newRounds.reduce((s, r) => s + r.rivalScore, 0);
           try {
             const saved = await lyricDuelApi.saveScore({
               playerBandId: match.playerBandId,
-              rivalBandId: match.rivalBandId,
-              playerName: match.playerBandName,
-              rivalName: match.rivalBandName,
-              playerPoints: pPts,
-              rivalPoints: rPts,
-              playerWins: pWins,
-              rivalWins: rWins,
-              totalRounds: match.totalRounds,
-              difficulty: match.difficulty,
-              mode: match.mode,
-              theme: match.theme,
-              won: pWins > rWins,
+              rivalBandId:  match.rivalBandId,
+              playerName:   match.playerBandName,
+              rivalName:    match.rivalBandName,
+              playerPoints: pP,
+              rivalPoints:  rP,
+              playerWins:   pW,
+              rivalWins:    rW,
+              totalRounds:  match.totalRounds,
+              difficulty:   match.difficulty,
+              mode:         match.mode,
+              theme:        match.theme,
+              won:          pW > rW,
             });
-            if (pWins > rWins) setSavedRank(saved.rank);
+            if (pW > rW) setSavedRank(saved.rank);
           } catch { /* non-critical */ }
         }
       }
     } catch {
-      setError('The judge stepped out for a moment. Try again.');
+      setError('The judge stepped out. Try again.');
     } finally {
       setCurrentRoundLoading(false);
     }
@@ -398,15 +568,17 @@ export default function LyricDuelPage() {
     setRounds([]);
     setError(null);
     setSavedRank(null);
+    setPlayerSkinUrl(null);
+    setRivalSkinUrl(null);
     usedPlayerSongIds.current = [];
-    usedRivalSongIds.current = [];
+    usedRivalSongIds.current  = [];
   }
 
-  const isLastRound = match ? rounds.length === match.totalRounds - 1 : false;
+  const isLastRound    = match ? rounds.length === match.totalRounds - 1 : false;
   const currentRoundNum = rounds.length + 1;
 
   // ---------------------------------------------------------------------------
-  // Render phases
+  // Render
   // ---------------------------------------------------------------------------
 
   return (
@@ -424,7 +596,6 @@ export default function LyricDuelPage() {
               <p className="text-gray-400 mt-2">Celebrity Deathmatch · AI Judge · 10 Rules per Match</p>
             </div>
 
-            {/* Mode selector */}
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Game Mode</p>
               <div className="grid sm:grid-cols-3 gap-3">
@@ -443,7 +614,6 @@ export default function LyricDuelPage() {
               </div>
             </div>
 
-            {/* Difficulty selector */}
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Difficulty</p>
               <div className="grid sm:grid-cols-2 gap-3">
@@ -461,7 +631,9 @@ export default function LyricDuelPage() {
               </div>
             </div>
 
-            {/* Band pickers */}
+            {/* Album type filter */}
+            <AlbumTypeFilter selected={selectedAlbumTypes} onChange={setSelectedAlbumTypes} />
+
             {bandsLoading ? (
               <div className="text-sm text-gray-500 text-center py-4">Loading bands…</div>
             ) : (
@@ -496,7 +668,6 @@ export default function LyricDuelPage() {
               {startLoading ? '⏳ Setting the stage…' : 'ENTER THE ARENA'}
             </button>
 
-            {/* Leaderboard */}
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Leaderboard · {difficulty}</p>
               <Leaderboard difficulty={difficulty} />
@@ -511,7 +682,13 @@ export default function LyricDuelPage() {
         {/* ── PREGAME ── */}
         {phase === 'pregame' && match && (
           <div className="space-y-6">
-            <VSBanner playerName={match.playerBandName} rivalName={match.rivalBandName} theme={match.theme} />
+            <VSBanner
+              playerName={match.playerBandName}
+              rivalName={match.rivalBandName}
+              theme={match.theme}
+              playerSkinUrl={playerSkinUrl}
+              rivalSkinUrl={rivalSkinUrl}
+            />
 
             <div className="bg-gray-900 border border-gray-700 rounded-xl p-5">
               <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">Theme</p>
@@ -534,15 +711,12 @@ export default function LyricDuelPage() {
               <p className="text-xs text-gray-400 uppercase tracking-wider mb-3">
                 The 10 Rules · {match.difficulty.toUpperCase()} · {match.totalRounds} Rounds
               </p>
-              <ol className="space-y-2">
+              <p className="text-[11px] text-gray-500 mb-3">
+                Tap <span className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-gray-600 text-[10px]">i</span> next to any rule to read the full explanation.
+              </p>
+              <ol className="space-y-3">
                 {match.rules.map((r: DuelRule, i: number) => (
-                  <li key={i} className="flex gap-3">
-                    <span className="text-xs font-bold text-rose-400 w-5 shrink-0 mt-0.5">{i + 1}.</span>
-                    <div>
-                      <span className="text-sm font-semibold text-white">{r.name}</span>
-                      <span className="text-xs text-gray-400 ml-2">— {r.description}</span>
-                    </div>
-                  </li>
+                  <RuleItem key={r.id} rule={r} idx={i} />
                 ))}
               </ol>
             </div>
@@ -559,11 +733,21 @@ export default function LyricDuelPage() {
         {/* ── BATTLING ── */}
         {phase === 'battling' && match && (
           <div className="space-y-6">
-            <div className="text-center">
-              <p className="text-xs text-gray-400 uppercase tracking-wider">
-                {match.playerBandName} vs {match.rivalBandName}
-              </p>
-              <h2 className="text-xl font-black text-rose-300 mt-1">"{match.theme}"</h2>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <BandAvatar skinUrl={playerSkinUrl} size={40} />
+                <p className="text-sm font-bold text-white truncate">{match.playerBandName}</p>
+              </div>
+              <div className="shrink-0 text-center">
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest">Theme</p>
+                <p className="text-xs font-black text-rose-300">"{match.theme}"</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <p className="text-sm font-bold text-white truncate text-right">{match.rivalBandName}</p>
+                <div style={{ transform: 'scaleX(-1)' }}>
+                  <BandAvatar skinUrl={rivalSkinUrl} size={40} />
+                </div>
+              </div>
             </div>
 
             <ScoreBar
@@ -572,7 +756,6 @@ export default function LyricDuelPage() {
               playerName={match.playerBandName} rivalName={match.rivalBandName}
             />
 
-            {/* Past rounds */}
             {rounds.length > 0 && (
               <div className="space-y-3">
                 {rounds.map((r, i) => (
@@ -586,7 +769,6 @@ export default function LyricDuelPage() {
 
             {error && <p className="text-sm text-rose-400 text-center">{error}</p>}
 
-            {/* Fight button */}
             <button
               onClick={handlePlayRound}
               disabled={currentRoundLoading}
@@ -595,7 +777,7 @@ export default function LyricDuelPage() {
               {currentRoundLoading
                 ? '⚖️ Judge reviewing lyrics…'
                 : isLastRound
-                  ? `⚔️ FINAL ROUND — FIGHT!`
+                  ? '⚔️ FINAL ROUND — FIGHT!'
                   : `⚔️ ROUND ${currentRoundNum} — FIGHT!`
               }
             </button>
@@ -605,7 +787,6 @@ export default function LyricDuelPage() {
         {/* ── GAMEOVER ── */}
         {phase === 'gameover' && match && (
           <div className="space-y-6">
-            {/* Winner banner */}
             <div className={`text-center py-8 rounded-2xl border-2 ${
               matchWon
                 ? 'border-rose-500/60 bg-rose-950/30'
@@ -613,7 +794,13 @@ export default function LyricDuelPage() {
                   ? 'border-gray-600 bg-gray-900'
                   : 'border-amber-500/60 bg-amber-950/20'
             }`}>
-              <p className="text-5xl mb-3">{matchWon ? '🏆' : playerWins === rivalWins ? '🤝' : '💀'}</p>
+              <div className="flex items-center justify-center gap-4 mb-4">
+                <BandAvatar skinUrl={playerSkinUrl} size={48} />
+                <p className="text-5xl">{matchWon ? '🏆' : playerWins === rivalWins ? '🤝' : '💀'}</p>
+                <div style={{ transform: 'scaleX(-1)' }}>
+                  <BandAvatar skinUrl={rivalSkinUrl} size={48} />
+                </div>
+              </div>
               <h2 className={`text-3xl font-black ${
                 matchWon ? 'text-rose-300' : playerWins === rivalWins ? 'text-gray-300' : 'text-amber-400'
               }`}>
@@ -636,14 +823,12 @@ export default function LyricDuelPage() {
               )}
             </div>
 
-            {/* Final scores */}
             <ScoreBar
               playerWins={playerWins} rivalWins={rivalWins} totalRounds={match.totalRounds}
               playerPoints={playerPoints} rivalPoints={rivalPoints}
               playerName={match.playerBandName} rivalName={match.rivalBandName}
             />
 
-            {/* Round summaries */}
             <div className="space-y-3">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">All Rounds</p>
               {rounds.map((r, i) => (
@@ -654,7 +839,6 @@ export default function LyricDuelPage() {
               ))}
             </div>
 
-            {/* Leaderboard */}
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
                 Leaderboard · {match.difficulty}

@@ -7,7 +7,9 @@ export interface DuelBand {
 }
 
 export interface DuelRule {
+  id: string;
   name: string;
+  shortDesc: string;
   description: string;
 }
 
@@ -92,6 +94,7 @@ export const lyricDuelApi = {
     usedRivalSongIds: string[];
     playerBandName: string;
     rivalBandName: string;
+    albumTypes?: string[];
   }): Promise<RoundResult> {
     return api.post<RoundResult>('/api/lyric-duel/round', data);
   },
