@@ -667,10 +667,12 @@ function RhythmLabPanel({
   analysisYoutubeUrl,
   youtubeAudioEnabled,
   initialResult,
+  autoRunFile,
 }: {
   analysisYoutubeUrl: string | null;
   youtubeAudioEnabled: boolean;
   initialResult?: RhythmAnalysisResult;
+  autoRunFile?: File | null;
 }) {
   const [bands, setBands] = useState<RhythmBand[]>(DEFAULT_RHYTHM_BANDS);
   const [rhythmFile, setRhythmFile] = useState<File | null>(null);
@@ -687,6 +689,14 @@ function RhythmLabPanel({
     onSuccess: (r) => { setResult(r); setBeatBpm(Math.round(r.globalBpm)); setRlError(null); setFromYouTube(false); },
     onError: (e: Error) => setRlError(friendlyRlError(e.message)),
   });
+
+  // Auto-run rhythm analysis when a file is provided from the parent (e.g. after spectrum upload)
+  useEffect(() => {
+    if (autoRunFile && !initialResult) {
+      fileMutation.mutate(autoRunFile);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const ytMutation = useMutation({
     mutationFn: () => songSpectrumApi.analyzeRhythmBandsFromYouTube(analysisYoutubeUrl!, bands),
@@ -1112,9 +1122,13 @@ export default function SongSpectrumPage() {
       setStep('results');
       qc.invalidateQueries({ queryKey: ['song-spectrum-analyses'] });
       setError(null);
+      if (audioFile) setRhythmAutoFile({ forAnalysisId: result.id, file: audioFile });
     },
     onError: (e: Error) => setError(friendlyWorkerError(e.message)),
   });
+
+  // Auto-run rhythm analysis after a file-based spectrum upload
+  const [rhythmAutoFile, setRhythmAutoFile] = useState<{ forAnalysisId: string; file: File } | null>(null);
 
   // YouTube rhythm result captured from the combined analysis (one download → both results)
   const [ytRhythmResult, setYtRhythmResult] = useState<RhythmAnalysisResult | null>(null);
@@ -1688,6 +1702,11 @@ export default function SongSpectrumPage() {
                       analysisYoutubeUrl={activeAnalysis.youtubeUrl}
                       youtubeAudioEnabled={status?.youtubeAudio ?? false}
                       {...(ytRhythmResult ? { initialResult: ytRhythmResult } : {})}
+                      autoRunFile={
+                        rhythmAutoFile?.forAnalysisId === activeAnalysis.id
+                          ? rhythmAutoFile.file
+                          : null
+                      }
                     />
                   </div>
                 </div>
