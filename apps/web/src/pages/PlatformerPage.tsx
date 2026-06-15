@@ -13,8 +13,8 @@ import { platformerApi, type PlatformerAlbum, type PlatformerScore, type Charact
 const CANVAS_W = 800;
 const CANVAS_H = 450;
 const GRAVITY = 0.58;
-const JUMP_FORCE = 12.8;
-const DOUBLE_JUMP_FORCE = 10.5;
+const JUMP_FORCE = 11.2;
+const DOUBLE_JUMP_FORCE = 8.8;
 const MAX_VX = 4.8;
 const MAX_VY_DOWN = 15;
 const FRICTION = 0.82;
@@ -838,8 +838,9 @@ function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, now: number, heroSk
 }
 
 function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, heroSkin?: HTMLImageElement): void {
+  const isIdle = hero.state === 'idle';
   const isJumping = hero.state === 'jump' || hero.state === 'fall';
-  const legSwing = Math.sin(hero.animFrame * 0.5) * 0.4;
+  const legSwing = isIdle ? 0 : Math.sin(hero.animFrame * 0.5) * 0.4;
 
   // Legs
   const legOffsetX = 6;
@@ -852,7 +853,7 @@ function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, h
   ctx.beginPath();
   ctx.moveTo(0, 0);
   ctx.lineTo(0, legLength);
-  ctx.strokeStyle = '#5b21b6';
+  ctx.strokeStyle = '#1e3a5f';
   ctx.lineWidth = 5;
   ctx.lineCap = 'round';
   ctx.stroke();
@@ -865,7 +866,7 @@ function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, h
   ctx.beginPath();
   ctx.moveTo(0, 0);
   ctx.lineTo(0, legLength);
-  ctx.strokeStyle = '#5b21b6';
+  ctx.strokeStyle = '#1e3a5f';
   ctx.lineWidth = 5;
   ctx.lineCap = 'round';
   ctx.stroke();
@@ -887,11 +888,11 @@ function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, h
   ctx.lineTo(-torsoW / 2, torsoTop + torsoR);
   ctx.quadraticCurveTo(-torsoW / 2, torsoTop, -torsoW / 2 + torsoR, torsoTop);
   ctx.closePath();
-  ctx.fillStyle = '#7c3aed';
+  ctx.fillStyle = '#1c1917';
   ctx.fill();
 
   // Arms
-  const armSwing = Math.sin(hero.animFrame * 0.5 + Math.PI) * 0.4;
+  const armSwing = isIdle ? 0 : Math.sin(hero.animFrame * 0.5 + Math.PI) * 0.4;
   const armTop = torsoTop + 6;
 
   // Left arm
@@ -901,7 +902,7 @@ function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, h
   ctx.beginPath();
   ctx.moveTo(0, 0);
   ctx.lineTo(-8, 10);
-  ctx.strokeStyle = '#6d28d9';
+  ctx.strokeStyle = '#292524';
   ctx.lineWidth = 4;
   ctx.lineCap = 'round';
   ctx.stroke();
@@ -914,7 +915,7 @@ function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, h
   ctx.beginPath();
   ctx.moveTo(0, 0);
   ctx.lineTo(8, 10);
-  ctx.strokeStyle = '#6d28d9';
+  ctx.strokeStyle = '#292524';
   ctx.lineWidth = 4;
   ctx.lineCap = 'round';
   ctx.stroke();
@@ -925,10 +926,12 @@ function drawHeroBody(ctx: CanvasRenderingContext2D, hero: Hero, _now: number, h
 
   if (heroSkin && heroSkin.complete && heroSkin.naturalWidth > 0) {
     // Composite the face portrait onto the animated body.
-    // Width slightly wider than the torso; extra height below chin lets long hair overlap naturally.
-    const faceW = 32;
-    const faceH = 52; // tall enough for long hair to flow below the chin
-    ctx.drawImage(heroSkin, -faceW / 2, headCY - faceH * 0.52, faceW, faceH);
+    // Drawn square to match the 1:1 source image (avoids horizontal squish).
+    // Centered on headCY so hair in the lower portion of the image naturally
+    // overlaps the torso, which looks correct for long-haired characters.
+    const faceW = 48;
+    const faceH = 48;
+    ctx.drawImage(heroSkin, -faceW / 2, headCY - faceH / 2, faceW, faceH);
   } else {
     ctx.beginPath();
     ctx.arc(0, headCY, 11, 0, Math.PI * 2);
@@ -1361,12 +1364,13 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, enemySkinDataUrls = [], onGa
   };
 
   return (
-    <div className="flex items-center justify-center w-full h-full bg-gray-950" style={{ position: 'relative' }}>
+    <div className="w-full h-full bg-gray-950 flex flex-col items-center justify-center">
       <canvas
         ref={canvasRef}
         style={{
           width: '100%',
           maxWidth: `${CANVAS_W}px`,
+          ...(isMobile ? { maxHeight: 'calc(100dvh - 108px)' } : {}),
           aspectRatio: `${CANVAS_W} / ${CANVAS_H}`,
           display: 'block',
           imageRendering: 'pixelated',
@@ -1375,19 +1379,16 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, enemySkinDataUrls = [], onGa
       {isMobile && (
         <div
           style={{
-            position: 'absolute',
-            bottom: 24,
-            left: 0,
-            right: 0,
+            width: '100%',
+            maxWidth: CANVAS_W,
             display: 'flex',
             justifyContent: 'space-between',
-            paddingLeft: 20,
-            paddingRight: 20,
-            pointerEvents: 'none',
+            padding: '12px 20px',
+            flexShrink: 0,
           }}
         >
           {/* Left + Right movement buttons */}
-          <div style={{ display: 'flex', gap: 12, pointerEvents: 'auto' }}>
+          <div style={{ display: 'flex', gap: 12 }}>
             <div
               style={ctrlBtn}
               onPointerDown={(e) => {
@@ -1411,7 +1412,7 @@ function PlatformerGame({ bandIds, heroSkinDataUrl, enemySkinDataUrls = [], onGa
           </div>
           {/* Jump button */}
           <div
-            style={{ ...ctrlBtn, pointerEvents: 'auto' }}
+            style={ctrlBtn}
             onPointerDown={(e) => {
               e.currentTarget.releasePointerCapture(e.pointerId);
               inputRef.current.jumpPressed = true;
@@ -1570,8 +1571,8 @@ function SetupScreen({ bands, selectedBandIds, setSelectedBandIds, skins, select
         </button>
 
         <div className="text-center">
-          <Link to="/play" className="text-sm text-gray-500 hover:text-gray-300 transition-colors">
-            ← Back to games
+          <Link to="/games" className="text-sm text-gray-500 hover:text-gray-300 transition-colors">
+            ← All games
           </Link>
         </div>
       </div>
@@ -1734,10 +1735,10 @@ function GameOverScreen({
             Play Again
           </button>
           <Link
-            to="/play"
+            to="/games"
             className="flex-1 py-3 bg-gray-800 hover:bg-gray-700 rounded-xl font-semibold transition-colors text-center"
           >
-            Back to Games
+            All Games
           </Link>
         </div>
       </div>

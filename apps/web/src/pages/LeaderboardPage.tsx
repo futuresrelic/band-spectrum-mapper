@@ -51,7 +51,18 @@ interface Band2048Entry {
   createdAt: string;
 }
 
-type Tab = 'quiz' | 'wordhunt' | 'lyricchain' | 'band2048';
+interface VinylRunnerEntry {
+  rank: number;
+  playerName: string;
+  avatarUrl: string | null;
+  score: number;
+  level: number;
+  recordsCollected: number;
+  distancePx: number;
+  createdAt: string;
+}
+
+type Tab = 'quiz' | 'wordhunt' | 'lyricchain' | 'band2048' | 'vinylrunner';
 
 // ---------------------------------------------------------------------------
 // Shared sub-components
@@ -326,6 +337,63 @@ function Band2048Tab() {
   );
 }
 
+function VinylRunnerTab() {
+  const { data: entries = [], isLoading } = useQuery({
+    queryKey: ['leaderboard-vinylrunner'],
+    queryFn: () => api.get<VinylRunnerEntry[]>('/api/platformer/scores?limit=20'),
+  });
+
+  return (
+    <div className="rounded-xl bg-gray-900 border border-gray-800 overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-800">
+        <h2 className="font-semibold text-white">Vinyl Runner</h2>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Side-scrolling platformer — collect vinyl records, stomp enemies, survive.
+        </p>
+      </div>
+
+      {isLoading ? (
+        <p className="text-center text-gray-600 text-sm py-10">Loading…</p>
+      ) : entries.length === 0 ? (
+        <p className="text-center text-gray-600 text-sm py-10">
+          No scores yet —{' '}
+          <Link to="/play/platformer" className="text-violet-400 hover:underline">
+            be the first
+          </Link>
+          !
+        </p>
+      ) : (
+        <div className="divide-y divide-gray-800">
+          {entries.map((e) => (
+            <div key={`${e.rank}-${e.score}-${e.createdAt}`} className="flex items-center gap-3 px-5 py-3.5">
+              <RankBadge rank={e.rank} />
+              <Avatar name={e.playerName} url={e.avatarUrl} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-white truncate">{e.playerName}</p>
+                <p className="text-xs text-gray-500">
+                  Lv {e.level} · {e.recordsCollected} records · {Math.round(e.distancePx / 100)} m
+                </p>
+              </div>
+              <span className="text-sm font-bold text-violet-400 tabular-nums">
+                {e.score.toLocaleString()}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="px-5 py-4 border-t border-gray-800">
+        <Link
+          to="/play/platformer"
+          className="block w-full text-center bg-violet-700 hover:bg-violet-600 text-white text-sm font-semibold py-2.5 rounded-lg transition-colors"
+        >
+          Play Vinyl Runner →
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -347,10 +415,11 @@ export default function LeaderboardPage() {
         {/* Tab switcher */}
         <div className="flex flex-wrap gap-1 mb-8 bg-gray-900 p-1 rounded-xl w-fit">
           {([
-            ['quiz',       'Album Art Quiz', 'bg-indigo-600'],
-            ['wordhunt',   'Word Hunt',      'bg-emerald-700'],
-            ['lyricchain', 'Lyric Chain',    'bg-violet-700'],
-            ['band2048',   'Band 2048',      'bg-purple-700'],
+            ['quiz',        'Album Art Quiz', 'bg-indigo-600'],
+            ['wordhunt',    'Word Hunt',      'bg-emerald-700'],
+            ['lyricchain',  'Lyric Chain',    'bg-violet-700'],
+            ['band2048',    'Band 2048',      'bg-purple-700'],
+            ['vinylrunner', 'Vinyl Runner',   'bg-violet-800'],
           ] as const).map(([key, label, activeCls]) => (
             <button
               key={key}
@@ -364,13 +433,15 @@ export default function LeaderboardPage() {
           ))}
         </div>
 
-        {tab === 'quiz'       && <QuizTab />}
-        {tab === 'wordhunt'   && <WordHuntTab />}
-        {tab === 'lyricchain' && <LyricChainTab />}
-        {tab === 'band2048'   && <Band2048Tab />}
+        {tab === 'quiz'        && <QuizTab />}
+        {tab === 'wordhunt'    && <WordHuntTab />}
+        {tab === 'lyricchain'  && <LyricChainTab />}
+        {tab === 'band2048'    && <Band2048Tab />}
+        {tab === 'vinylrunner' && <VinylRunnerTab />}
 
         {/* Bottom nav links */}
         <div className="mt-10 pt-8 border-t border-gray-800 flex flex-wrap gap-4 justify-center text-sm text-gray-500">
+          <Link to="/games"   className="hover:text-gray-300 transition-colors">All Games</Link>
           <Link to="/explore" className="hover:text-gray-300 transition-colors">Explore the Graph</Link>
           <Link to="/view"    className="hover:text-gray-300 transition-colors">Browse Library</Link>
           <Link to="/landing" className="hover:text-gray-300 transition-colors">Home</Link>

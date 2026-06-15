@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import SiteHeader from '../components/layout/SiteHeader';
@@ -545,13 +546,19 @@ function ScoreScreen({
           )}
         </div>
 
-        <div className="flex gap-3 justify-center">
+        <div className="flex gap-3 justify-center flex-wrap">
           <button
             onClick={onPlayAgain}
             className="bg-cyan-600 hover:bg-cyan-500 text-white font-semibold px-8 py-3 rounded-xl transition-colors"
           >
             Play Again
           </button>
+          <Link
+            to="/games"
+            className="bg-gray-800 hover:bg-gray-700 text-white font-semibold px-8 py-3 rounded-xl transition-colors"
+          >
+            All Games
+          </Link>
         </div>
       </main>
     </div>
