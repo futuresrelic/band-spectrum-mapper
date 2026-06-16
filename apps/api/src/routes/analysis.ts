@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { prisma } from '../lib/prisma.js';
 import { analysisService } from '../services/analysisService.js';
 import { aiAnalysisService } from '../services/aiAnalysisService.js';
 import { songResearchService } from '../services/songResearchService.js';
@@ -201,5 +202,38 @@ analysisRouter.get('/ai/:songId/music-score', async (req, res, next) => {
 analysisRouter.post('/ai/:songId/music-score/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     res.json(await songMusicScoreService.regenerate(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// Audio Spectrum — most recent SongSpectrumAnalysis scores linked to a song
+// Returns { aggression, complexity, atmosphere, emotion, psychedelic, concept }
+// on a 0-10 scale (audio worker scores are 0-100, divided by 10).
+// Returns null when no audio analysis is linked to the song.
+// ---------------------------------------------------------------------------
+analysisRouter.get('/ai/:songId/audio-spectrum', async (req, res, next) => {
+  try {
+    const songId = req.params['songId']!;
+    const analysis = await prisma.songSpectrumAnalysis.findFirst({
+      where: { songId },
+      orderBy: { createdAt: 'desc' },
+      select: { scores: true, songTitle: true, artistName: true, createdAt: true },
+    });
+    if (!analysis) { res.json(null); return; }
+
+    const raw = analysis.scores as Record<string, number>;
+    // Normalise 0-100 → 0-10, clamp to valid range
+    const axes = ['aggression', 'complexity', 'atmosphere', 'emotion', 'psychedelic', 'concept'] as const;
+    const normalised: Record<string, number> = {};
+    for (const ax of axes) {
+      const v = raw[ax];
+      normalised[ax] = v !== undefined ? Math.min(10, Math.max(0, v / 10)) : 0;
+    }
+    res.json({
+      ...normalised,
+      songTitle:   analysis.songTitle,
+      artistName:  analysis.artistName,
+      analyzedAt:  analysis.createdAt,
+    }); return;
   } catch (e) { next(e); }
 });

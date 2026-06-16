@@ -342,50 +342,81 @@ lyricDuelRouter.get('/bands', async (_req, res, next): Promise<void> => {
 // POST /api/lyric-duel/start — AI generates theme + selects rules from pool
 // ---------------------------------------------------------------------------
 
+// GET /api/lyric-duel/songs?bandId=xxx — songs with lyrics for manual mode picker
+lyricDuelRouter.get('/songs', async (req, res, next): Promise<void> => {
+  try {
+    const { bandId } = req.query as { bandId?: string };
+    if (!bandId) { res.status(400).json({ error: 'bandId required' }); return; }
+    const songs = await prisma.song.findMany({
+      where: { bandId, isInstrumental: false, lyrics: { some: { isPrimary: true } } },
+      select: {
+        id: true, title: true,
+        album: { select: { title: true, albumType: true } },
+      },
+      orderBy: [{ album: { title: 'asc' } }, { trackNumber: 'asc' }],
+    });
+    res.json(songs); return;
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/lyric-duel/start — AI generates theme + selects rules from pool
+// ---------------------------------------------------------------------------
+
 lyricDuelRouter.post('/start', async (req, res, next): Promise<void> => {
   try {
     const { playerBandId, rivalBandId: rawRivalId, mode, difficulty, ruleCount: rawRuleCount } = req.body as {
       playerBandId?: unknown; rivalBandId?: unknown; mode?: unknown; difficulty?: unknown; ruleCount?: unknown;
     };
 
-    if (typeof playerBandId !== 'string') { res.status(400).json({ error: 'playerBandId required' }); return; }
     const safeMode = typeof mode === 'string' ? mode : 'challenge';
     const safeDiff = typeof difficulty === 'string' && TOTAL_ROUNDS[difficulty] ? difficulty : 'normal';
 
-    const playerBand = await prisma.band.findUnique({ where: { id: playerBandId }, select: { id: true, name: true } });
-    if (!playerBand) { res.status(404).json({ error: 'Player band not found' }); return; }
+    // Common query for eligible bands (have non-instrumental songs with primary lyrics)
+    const eligibleWhere = { songs: { some: { isInstrumental: false, lyrics: { some: { isPrimary: true } } } } };
 
-    // Resolve rival band
-    let rivalBandId = typeof rawRivalId === 'string' ? rawRivalId : null;
-    if (!rivalBandId || safeMode === 'ai-showdown') {
-      const eligibleIds = await prisma.band.findMany({
-        where: {
-          id: { not: playerBandId },
-          songs: { some: { isInstrumental: false, lyrics: { some: { isPrimary: true } } } },
-        },
-        select: { id: true },
-      });
-      if (eligibleIds.length === 0) { res.status(400).json({ error: 'Not enough bands with lyrics for a duel' }); return; }
-      const pick = eligibleIds[Math.floor(Math.random() * eligibleIds.length)];
-      if (!pick) { res.status(400).json({ error: 'Could not pick rival band' }); return; }
-      rivalBandId = pick.id;
-    }
+    let finalPlayerBandId: string;
+    let finalPlayerBand: { id: string; name: string };
+    let rivalBandId: string;
+    let rivalBand: { id: string; name: string };
 
-    // AI showdown: also pick a random player band
-    let finalPlayerBandId = playerBandId;
-    let finalPlayerBand = playerBand;
     if (safeMode === 'ai-showdown') {
-      const allEligible = await prisma.band.findMany({
-        where: { songs: { some: { isInstrumental: false, lyrics: { some: { isPrimary: true } } } } },
-        select: { id: true, name: true },
-      });
-      const candidatesForPlayer = allEligible.filter((b) => b.id !== rivalBandId);
-      const playerPick = candidatesForPlayer[Math.floor(Math.random() * candidatesForPlayer.length)];
-      if (playerPick) { finalPlayerBandId = playerPick.id; finalPlayerBand = playerPick; }
-    }
+      // AI picks both bands randomly
+      const allEligible = await prisma.band.findMany({ where: eligibleWhere, select: { id: true, name: true } });
+      if (allEligible.length < 2) { res.status(400).json({ error: 'Not enough bands with lyrics for a duel' }); return; }
+      const shuffled = [...allEligible].sort(() => Math.random() - 0.5);
+      finalPlayerBand = shuffled[0]!;
+      rivalBand = shuffled[1]!;
+      finalPlayerBandId = finalPlayerBand.id;
+      rivalBandId = rivalBand.id;
+    } else {
+      // Non-showdown modes require a valid playerBandId
+      if (typeof playerBandId !== 'string' || !playerBandId) {
+        res.status(400).json({ error: 'playerBandId required' }); return;
+      }
+      const playerBand = await prisma.band.findUnique({ where: { id: playerBandId }, select: { id: true, name: true } });
+      if (!playerBand) { res.status(404).json({ error: 'Player band not found' }); return; }
+      finalPlayerBandId = playerBandId;
+      finalPlayerBand = playerBand;
 
-    const rivalBand = await prisma.band.findUnique({ where: { id: rivalBandId }, select: { id: true, name: true } });
-    if (!rivalBand) { res.status(404).json({ error: 'Rival band not found' }); return; }
+      // Resolve rival: provided (custom/manual) or random (challenge)
+      const rawId = typeof rawRivalId === 'string' ? rawRivalId : null;
+      if (rawId) {
+        const found = await prisma.band.findUnique({ where: { id: rawId }, select: { id: true, name: true } });
+        if (!found) { res.status(404).json({ error: 'Rival band not found' }); return; }
+        rivalBandId = found.id;
+        rivalBand = found;
+      } else {
+        const eligible = await prisma.band.findMany({
+          where: { ...eligibleWhere, id: { not: playerBandId } },
+          select: { id: true, name: true },
+        });
+        if (eligible.length === 0) { res.status(400).json({ error: 'Not enough bands with lyrics for a duel' }); return; }
+        const pick = eligible[Math.floor(Math.random() * eligible.length)]!;
+        rivalBandId = pick.id;
+        rivalBand = pick;
+      }
+    }
 
     const totalRounds = TOTAL_ROUNDS[safeDiff] ?? 3;
 
@@ -456,11 +487,13 @@ lyricDuelRouter.post('/round', async (req, res, next): Promise<void> => {
       playerBandId, rivalBandId, theme, themeDescription, rules,
       difficulty, roundIndex, usedPlayerSongIds, usedRivalSongIds,
       playerBandName, rivalBandName, albumTypes,
+      forcedPlayerSongId, forcedRivalSongId,
     } = req.body as {
       playerBandId?: unknown; rivalBandId?: unknown; theme?: unknown; themeDescription?: unknown;
       rules?: unknown; difficulty?: unknown; roundIndex?: unknown;
       usedPlayerSongIds?: unknown; usedRivalSongIds?: unknown;
       playerBandName?: unknown; rivalBandName?: unknown; albumTypes?: unknown;
+      forcedPlayerSongId?: unknown; forcedRivalSongId?: unknown;
     };
 
     if (typeof playerBandId !== 'string' || typeof rivalBandId !== 'string') {
@@ -472,6 +505,9 @@ lyricDuelRouter.post('/round', async (req, res, next): Promise<void> => {
     const safeUsedRival = Array.isArray(usedRivalSongIds)
       ? usedRivalSongIds.filter((x): x is string => typeof x === 'string') : [];
     const safeDiff = typeof difficulty === 'string' ? difficulty : 'normal';
+
+    const forcedPlayer = typeof forcedPlayerSongId === 'string' ? forcedPlayerSongId : null;
+    const forcedRival  = typeof forcedRivalSongId  === 'string' ? forcedRivalSongId  : null;
 
     // Validate and normalize album types filter
     const safeAlbumTypes: AlbumType[] = Array.isArray(albumTypes)
@@ -489,6 +525,12 @@ lyricDuelRouter.post('/round', async (req, res, next): Promise<void> => {
         ] }
       : {};
 
+    const SONG_SELECT = { id: true, title: true, lyrics: { where: { isPrimary: true }, select: { text: true }, take: 1 } } as const;
+
+    async function fetchForcedSong(songId: string) {
+      return prisma.song.findUnique({ where: { id: songId }, select: SONG_SELECT });
+    }
+
     async function pickSong(bandId: string, excludeIds: string[]) {
       const baseWhere = {
         bandId,
@@ -498,24 +540,20 @@ lyricDuelRouter.post('/round', async (req, res, next): Promise<void> => {
       };
       let songs = await prisma.song.findMany({
         where: { ...baseWhere, ...(excludeIds.length > 0 ? { id: { notIn: excludeIds } } : {}) },
-        select: { id: true, title: true, lyrics: { where: { isPrimary: true }, select: { text: true }, take: 1 } },
+        select: SONG_SELECT,
         take: 80,
       });
       // Allow reuse if all songs exhausted
       if (songs.length === 0) {
-        songs = await prisma.song.findMany({
-          where: baseWhere,
-          select: { id: true, title: true, lyrics: { where: { isPrimary: true }, select: { text: true }, take: 1 } },
-          take: 80,
-        });
+        songs = await prisma.song.findMany({ where: baseWhere, select: SONG_SELECT, take: 80 });
       }
       if (songs.length === 0) return null;
       return songs[Math.floor(Math.random() * songs.length)] ?? null;
     }
 
     const [playerSong, rivalSong] = await Promise.all([
-      pickSong(playerBandId, safeUsedPlayer),
-      pickSong(rivalBandId, safeUsedRival),
+      forcedPlayer ? fetchForcedSong(forcedPlayer) : pickSong(playerBandId, safeUsedPlayer),
+      forcedRival  ? fetchForcedSong(forcedRival)  : pickSong(rivalBandId,  safeUsedRival),
     ]);
 
     if (!playerSong || !rivalSong) {

@@ -83,6 +83,7 @@ import PlatformerPage from './pages/PlatformerPage';
 import PlaylistMakerPage from './pages/PlaylistMakerPage';
 import LyricLabPage from './pages/LyricLabPage';
 import AdminBandLogosPage from './pages/AdminBandLogosPage';
+import MinesweeperPage from './pages/MinesweeperPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -162,6 +163,7 @@ export default function App() {
         <Route path="/play/word-search" element={<WordSearchPage />} />
         <Route path="/play/record-catcher" element={<RecordCatcherPage />} />
         <Route path="/play/platformer" element={<PlatformerPage />} />
+        <Route path="/play/minesweeper" element={<MinesweeperPage />} />
 
         {/* ── ADMIN: full app, isAdmin required ── */}
         <Route

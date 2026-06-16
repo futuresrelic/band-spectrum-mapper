@@ -7,6 +7,7 @@ import { platformerApi, type BodySkin } from '../api/platformer';
 import {
   lyricDuelApi,
   type DuelBand,
+  type DuelSong,
   type MatchSetup,
   type RoundResult,
   type DuelScore,
@@ -18,12 +19,13 @@ import {
 // ---------------------------------------------------------------------------
 
 type Phase = 'setup' | 'pregame' | 'battling' | 'gameover';
-type GameMode = 'challenge' | 'custom' | 'ai-showdown';
+type GameMode = 'challenge' | 'custom' | 'ai-showdown' | 'manual';
 type Difficulty = 'friendly' | 'normal' | 'ruthless' | 'legendary';
 
 const MODES: { id: GameMode; label: string; desc: string; icon: string }[] = [
   { id: 'challenge',   label: 'Challenge',   icon: '🎯', desc: 'Pick your band — AI picks your rival' },
   { id: 'custom',      label: 'Custom Duel', icon: '⚔️', desc: 'You choose both sides' },
+  { id: 'manual',      label: 'Manual Pick', icon: '🎵', desc: 'You hand-pick every song for each round' },
   { id: 'ai-showdown', label: 'AI Showdown', icon: '🤖', desc: 'AI picks both — just watch the carnage' },
 ];
 
@@ -50,6 +52,10 @@ const ALBUM_TYPES = [
 ];
 
 const ALL_ALBUM_TYPE_VALUES = ALBUM_TYPES.map((t) => t.value);
+
+const TOTAL_ROUNDS_FRONTEND: Record<Difficulty, number> = {
+  friendly: 3, normal: 3, ruthless: 5, legendary: 5,
+};
 
 const RULE_COUNTS = [3, 6, 9, 10] as const;
 type RuleCount = (typeof RULE_COUNTS)[number];
@@ -1151,6 +1157,114 @@ function Leaderboard({ difficulty }: { difficulty: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Manual Song Picker — lets user hand-pick songs for each round
+// ---------------------------------------------------------------------------
+
+function ManualSongPicker({
+  playerBandId, rivalBandId,
+  playerBandName, rivalBandName,
+  roundCount,
+  playerSongs, rivalSongs,
+  onChangePlayer, onChangeRival,
+}: {
+  playerBandId: string; rivalBandId: string;
+  playerBandName: string; rivalBandName: string;
+  roundCount: number;
+  playerSongs: DuelSong[]; rivalSongs: DuelSong[];
+  onChangePlayer: (s: DuelSong[]) => void;
+  onChangeRival:  (s: DuelSong[]) => void;
+}) {
+  const { data: pSongs = [], isLoading: pLoading } = useQuery<DuelSong[]>({
+    queryKey: ['duel-songs', playerBandId],
+    queryFn: () => lyricDuelApi.getSongs(playerBandId),
+    staleTime: 120_000,
+  });
+  const { data: rSongs = [], isLoading: rLoading } = useQuery<DuelSong[]>({
+    queryKey: ['duel-songs', rivalBandId],
+    queryFn: () => lyricDuelApi.getSongs(rivalBandId),
+    staleTime: 120_000,
+  });
+
+  function toggleSong(song: DuelSong, current: DuelSong[], onChange: (s: DuelSong[]) => void) {
+    const already = current.find((s) => s.id === song.id);
+    if (already) {
+      onChange(current.filter((s) => s.id !== song.id));
+    } else if (current.length < roundCount) {
+      onChange([...current, song]);
+    }
+  }
+
+  function renderSide(
+    label: string, songs: DuelSong[], allSongs: DuelSong[], loading: boolean,
+    onChange: (s: DuelSong[]) => void,
+  ) {
+    return (
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+          {label} <span className="text-rose-400 normal-case">{songs.length}/{roundCount}</span>
+        </p>
+
+        {/* Selected order */}
+        {songs.length > 0 && (
+          <div className="mb-2 space-y-1">
+            {songs.map((s, i) => (
+              <div key={s.id} className="flex items-center gap-2 bg-rose-950/30 border border-rose-500/30 rounded-lg px-3 py-1.5">
+                <span className="text-xs font-bold text-rose-400 w-4 shrink-0">R{i + 1}</span>
+                <span className="text-xs text-white flex-1 truncate">{s.title}</span>
+                <button onClick={() => toggleSong(s, songs, onChange)} className="text-gray-500 hover:text-rose-400 text-xs shrink-0">✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Song pool */}
+        {loading ? (
+          <p className="text-xs text-gray-500">Loading songs…</p>
+        ) : (
+          <div className="max-h-48 overflow-y-auto space-y-0.5 pr-1">
+            {allSongs.map((s) => {
+              const selected = songs.find((x) => x.id === s.id);
+              const pos = songs.indexOf(s) + 1;
+              const full = !selected && songs.length >= roundCount;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => toggleSong(s, songs, onChange)}
+                  disabled={full}
+                  className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors ${
+                    selected
+                      ? 'bg-rose-950/40 border border-rose-500/50 text-rose-200'
+                      : full
+                        ? 'text-gray-600 cursor-not-allowed'
+                        : 'text-gray-300 hover:bg-gray-800'
+                  }`}
+                >
+                  {selected && <span className="text-rose-400 font-bold mr-1.5">R{pos}</span>}
+                  <span className="truncate">{s.title}</span>
+                  {s.album && <span className="text-gray-500 ml-1 text-[10px]">({s.album.title})</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-gray-900 border border-gray-700 rounded-xl p-5">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">
+        Pick {roundCount} songs per band — they'll fight in that order
+      </p>
+      <div className="flex gap-6 flex-col sm:flex-row">
+        {renderSide(playerBandName, playerSongs, pSongs, pLoading, onChangePlayer)}
+        {renderSide(rivalBandName, rivalSongs, rSongs, rLoading, onChangeRival)}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -1178,6 +1292,10 @@ export default function LyricDuelPage() {
   const usedPlayerSongIds = useRef<string[]>([]);
   const usedRivalSongIds  = useRef<string[]>([]);
 
+  // Manual mode: ordered song lists chosen before match starts
+  const [manualPlayerSongs, setManualPlayerSongs] = useState<DuelSong[]>([]);
+  const [manualRivalSongs, setManualRivalSongs]   = useState<DuelSong[]>([]);
+
   const [startLoading, setStartLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedRank, setSavedRank] = useState<number | null>(null);
@@ -1201,6 +1319,9 @@ export default function LyricDuelPage() {
     staleTime: 60_000,
   });
 
+  // Rounds count for the selected difficulty (used in manual song picker)
+  const totalRoundsForDifficulty = TOTAL_ROUNDS_FRONTEND[difficulty];
+
   // Effective album types to send: empty = no filter (all included)
   const effectiveAlbumTypes = selectedAlbumTypes.length === ALL_ALBUM_TYPE_VALUES.length
     ? []
@@ -1208,13 +1329,21 @@ export default function LyricDuelPage() {
 
   async function handleStart() {
     if (mode !== 'ai-showdown' && !playerBandId) { setError('Pick your band first.'); return; }
-    if (mode === 'custom' && !rivalBandId) { setError('Pick a rival band too.'); return; }
+    if ((mode === 'custom' || mode === 'manual') && !rivalBandId) { setError('Pick a rival band too.'); return; }
+    if (mode === 'manual') {
+      if (manualPlayerSongs.length < totalRoundsForDifficulty) {
+        setError(`Pick ${totalRoundsForDifficulty} songs for your band first.`); return;
+      }
+      if (manualRivalSongs.length < totalRoundsForDifficulty) {
+        setError(`Pick ${totalRoundsForDifficulty} songs for the rival band first.`); return;
+      }
+    }
     setError(null);
     setStartLoading(true);
     try {
       const setup = await lyricDuelApi.startMatch({
         playerBandId: playerBandId ?? '',
-        ...(rivalBandId && mode === 'custom' ? { rivalBandId } : {}),
+        ...(rivalBandId && (mode === 'custom' || mode === 'manual') ? { rivalBandId } : {}),
         mode,
         difficulty,
         ruleCount,
@@ -1254,6 +1383,10 @@ export default function LyricDuelPage() {
     setCurrentRoundLoading(true);
     setError(null);
     try {
+      const roundIdx = rounds.length;
+      const isManual = match.mode === 'manual';
+      const forcedPlayer = isManual ? (manualPlayerSongs[roundIdx]?.id ?? undefined) : undefined;
+      const forcedRival  = isManual ? (manualRivalSongs[roundIdx]?.id  ?? undefined) : undefined;
       const result = await lyricDuelApi.playRound({
         playerBandId: match.playerBandId,
         rivalBandId: match.rivalBandId,
@@ -1261,12 +1394,14 @@ export default function LyricDuelPage() {
         themeDescription: match.themeDescription,
         rules: match.rules,
         difficulty: match.difficulty,
-        roundIndex: rounds.length,
+        roundIndex: roundIdx,
         usedPlayerSongIds: usedPlayerSongIds.current,
         usedRivalSongIds:  usedRivalSongIds.current,
         playerBandName: match.playerBandName,
         rivalBandName:  match.rivalBandName,
         ...(effectiveAlbumTypes.length > 0 ? { albumTypes: effectiveAlbumTypes } : {}),
+        ...(forcedPlayer ? { forcedPlayerSongId: forcedPlayer } : {}),
+        ...(forcedRival  ? { forcedRivalSongId:  forcedRival  } : {}),
       });
       usedPlayerSongIds.current = [...usedPlayerSongIds.current, result.playerSongId];
       usedRivalSongIds.current  = [...usedRivalSongIds.current,  result.rivalSongId];
@@ -1323,6 +1458,8 @@ export default function LyricDuelPage() {
     setPlayerSkinUrl(null);
     setRivalSkinUrl(null);
     setFaceOffOpen(false);
+    setManualPlayerSongs([]);
+    setManualRivalSongs([]);
     usedPlayerSongIds.current = [];
     usedRivalSongIds.current  = [];
   }
@@ -1413,13 +1550,18 @@ export default function LyricDuelPage() {
             ) : (
               <div className="space-y-4">
                 {mode !== 'ai-showdown' && (
-                  <BandGrid bands={bands} selectedId={playerBandId} onSelect={setPlayerBandId} label="Your Band" />
+                  <BandGrid
+                    bands={bands}
+                    selectedId={playerBandId}
+                    onSelect={(id) => { setPlayerBandId(id); setManualPlayerSongs([]); }}
+                    label="Your Band"
+                  />
                 )}
-                {mode === 'custom' && (
+                {(mode === 'custom' || mode === 'manual') && (
                   <BandGrid
                     bands={bands.filter((b) => b.id !== playerBandId)}
                     selectedId={rivalBandId}
-                    onSelect={setRivalBandId}
+                    onSelect={(id) => { setRivalBandId(id); setManualRivalSongs([]); }}
                     label="Rival Band"
                   />
                 )}
@@ -1432,11 +1574,31 @@ export default function LyricDuelPage() {
               </div>
             )}
 
+            {/* Manual song picker — shown once both bands are chosen */}
+            {mode === 'manual' && playerBandId && rivalBandId && (
+              <ManualSongPicker
+                playerBandId={playerBandId}
+                rivalBandId={rivalBandId}
+                playerBandName={bands.find((b) => b.id === playerBandId)?.name ?? ''}
+                rivalBandName={bands.find((b) => b.id === rivalBandId)?.name ?? ''}
+                roundCount={totalRoundsForDifficulty}
+                playerSongs={manualPlayerSongs}
+                rivalSongs={manualRivalSongs}
+                onChangePlayer={setManualPlayerSongs}
+                onChangeRival={setManualRivalSongs}
+              />
+            )}
+
             {error && <p className="text-sm text-rose-400 text-center">{error}</p>}
 
             <button
               onClick={handleStart}
-              disabled={startLoading || (mode !== 'ai-showdown' && !playerBandId) || (mode === 'custom' && !rivalBandId)}
+              disabled={
+                startLoading ||
+                (mode !== 'ai-showdown' && !playerBandId) ||
+                (mode === 'custom' && !rivalBandId) ||
+                (mode === 'manual' && (!rivalBandId || manualPlayerSongs.length < totalRoundsForDifficulty || manualRivalSongs.length < totalRoundsForDifficulty))
+              }
               className="w-full py-4 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-black text-lg rounded-xl transition-colors"
             >
               {startLoading ? '⏳ Setting the stage…' : 'ENTER THE ARENA'}

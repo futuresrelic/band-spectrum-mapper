@@ -21,7 +21,7 @@ import {
 
 type DataType  = 'core' | 'genre' | 'themes';
 type ViewType  = 'radar' | 'bars' | 'pillars';
-type CoreSrc   = 'core' | 'community' | 'ai' | 'mine';
+type CoreSrc   = 'core' | 'community' | 'ai' | 'mine' | 'audio';
 type GenreSrc  = 'community' | 'ai' | 'mine';
 
 type GenreRatingsResponse = {
@@ -184,7 +184,7 @@ function EmptyState({ source, dataType }: { source: string; dataType: DataType }
 // ── Main panel ─────────────────────────────────────────────────────────────
 
 const CORE_SRC_COLOR: Record<CoreSrc, string>  = {
-  core: '#374151', community: '#6366F1', ai: '#8B5CF6', mine: '#10B981',
+  core: '#374151', community: '#6366F1', ai: '#8B5CF6', mine: '#10B981', audio: '#F59E0B',
 };
 const GENRE_SRC_COLOR: Record<GenreSrc, string> = {
   community: '#6366F1', ai: '#8B5CF6', mine: '#10B981',
@@ -211,6 +211,11 @@ export default function SongSpectrumPanel({ songId, coreScore }: Props) {
   const { data: aiSpectrum } = useQuery({
     queryKey: ['ai-spectrum', songId],
     queryFn: () => analysisApi.getAiSpectrum(songId),
+    staleTime: Infinity,
+  });
+  const { data: audioSpectrum } = useQuery({
+    queryKey: ['audio-spectrum', songId],
+    queryFn: () => analysisApi.getAudioSpectrum(songId),
     staleTime: Infinity,
   });
   const { data: communityRatings } = useQuery({
@@ -246,6 +251,7 @@ export default function SongSpectrumPanel({ songId, coreScore }: Props) {
     if (coreSrc === 'community') return communityRatings?.[songId]?.scores ?? null;
     if (coreSrc === 'mine')      return myRatings?.myRating ? axisMap(myRatings.myRating as unknown as Record<string, unknown>) : null;
     if (coreSrc === 'ai')        return aiSpectrum ? axisMap(aiSpectrum as unknown as Record<string, unknown>) : null;
+    if (coreSrc === 'audio')     return audioSpectrum ? axisMap(audioSpectrum as unknown as Record<string, unknown>) : null;
     return null;
   }
 
@@ -279,8 +285,9 @@ export default function SongSpectrumPanel({ songId, coreScore }: Props) {
     const srcs: { id: CoreSrc; label: string }[] = [
       ...(coreScore ? [{ id: 'core' as CoreSrc, label: 'Core' }] : []),
       { id: 'community', label: `Community${communityCount > 0 ? ` (${communityCount})` : ''}` },
-      { id: 'ai', label: 'AI' },
+      { id: 'ai', label: 'Lyric Score' },
       ...(user ? [{ id: 'mine' as CoreSrc, label: 'Mine' }] : []),
+      ...(audioSpectrum ? [{ id: 'audio' as CoreSrc, label: 'Music Score' }] : []),
     ];
     return srcs.map(({ id, label }) => (
       <button key={id} onClick={() => setCoreSrc(id)}
@@ -320,6 +327,11 @@ export default function SongSpectrumPanel({ songId, coreScore }: Props) {
             {coreSrc === 'ai' && (aiSpectrum as SongAiSpectrum | undefined)?.rationale && (
               <p className="text-xs text-surface-600 mt-2 leading-relaxed">
                 {(aiSpectrum as SongAiSpectrum).rationale}
+              </p>
+            )}
+            {coreSrc === 'audio' && audioSpectrum && (
+              <p className="text-xs text-surface-400 mt-2 italic">
+                Music Score — derived from audio analysis (DSP) of "{audioSpectrum.songTitle}". Axes share the same 6 dimensions as the Lyric Score for direct comparison.
               </p>
             )}
           </>

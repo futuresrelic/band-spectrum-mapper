@@ -90,6 +90,11 @@ export const analysisApi = {
   regenerateMusicScore: (songId: string) =>
     api.post<SongMusicScore>(`/api/analysis/ai/${songId}/music-score/regenerate`, {}),
 
+  getAudioSpectrum: (songId: string) =>
+    api.get<{ aggression: number; complexity: number; atmosphere: number; emotion: number; psychedelic: number; concept: number; songTitle: string; artistName: string; analyzedAt: string } | null>(
+      `/api/analysis/ai/${songId}/audio-spectrum`,
+    ),
+
   getAiTags: (songId: string) =>
     api.get<{ tags: { name: string; description: string }[] }>(`/api/analysis/ai/${songId}/tags`),
   generateAiTags: (songId: string) =>

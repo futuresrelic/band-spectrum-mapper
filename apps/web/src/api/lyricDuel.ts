@@ -6,6 +6,12 @@ export interface DuelBand {
   _count: { songs: number };
 }
 
+export interface DuelSong {
+  id: string;
+  title: string;
+  album: { title: string; albumType: string } | null;
+}
+
 export interface DuelRule {
   id: string;
   name: string;
@@ -73,6 +79,10 @@ export const lyricDuelApi = {
     return api.get<DuelBand[]>('/api/lyric-duel/bands');
   },
 
+  getSongs(bandId: string): Promise<DuelSong[]> {
+    return api.get<DuelSong[]>(`/api/lyric-duel/songs?bandId=${encodeURIComponent(bandId)}`);
+  },
+
   startMatch(data: {
     playerBandId: string;
     rivalBandId?: string;
@@ -96,6 +106,8 @@ export const lyricDuelApi = {
     playerBandName: string;
     rivalBandName: string;
     albumTypes?: string[];
+    forcedPlayerSongId?: string;
+    forcedRivalSongId?: string;
   }): Promise<RoundResult> {
     return api.post<RoundResult>('/api/lyric-duel/round', data);
   },

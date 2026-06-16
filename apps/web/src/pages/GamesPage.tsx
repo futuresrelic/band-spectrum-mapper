@@ -213,6 +213,19 @@ const GAMES = [
     btnColor: 'bg-rose-600 hover:bg-rose-500',
     accentText: 'text-rose-400',
   },
+  {
+    id: 'minesweeper',
+    icon: '💣',
+    title: 'Flop Sweeper',
+    subtitle: 'Flag the flops, uncover the hits',
+    desc: "The classic minesweeper game reinvented for the music world. Mines are Flops — flag them all without detonating one. Three difficulty levels: Warm-Up, Club Show, and the gruelling World Tour.",
+    rules: ['Left click to reveal · Right click to flag a flop', 'Numbers show how many flops lurk next door', 'First click is always safe — then it gets dangerous'],
+    href: '/play/minesweeper',
+    cta: 'Sweep the Stage',
+    color: 'border-orange-500/40 hover:border-orange-400/70',
+    btnColor: 'bg-orange-700 hover:bg-orange-600',
+    accentText: 'text-orange-400',
+  },
 ];
 
 const COMING_SOON: { id: string; icon: string; title: string; desc: string }[] = [];
