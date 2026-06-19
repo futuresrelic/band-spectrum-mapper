@@ -5,35 +5,99 @@ import { requireAdmin } from '../middleware/requireAdmin.js';
 
 export const bandRpgRouter = Router();
 
-// GET /start-session?bandId=xxx — pick random song + extract lyric fragments
+// ── Rarity system ──────────────────────────────────────────────────────────────
+
+const RARITY_WEIGHTS: Record<string, number> = {
+  Common:    10,
+  Uncommon:   6,
+  Rare:       3,
+  Legendary:  1.5,
+  Mythic:     0.7,
+};
+
+const ALREADY_COLLECTED_MULTIPLIER = 0.3;
+
+// Distribution used for batch randomization (sums to 100)
+const RANDOMIZE_DISTRIBUTION: { rarity: string; weight: number }[] = [
+  { rarity: 'Common',    weight: 50 },
+  { rarity: 'Uncommon',  weight: 25 },
+  { rarity: 'Rare',      weight: 15 },
+  { rarity: 'Legendary', weight: 7  },
+  { rarity: 'Mythic',    weight: 3  },
+];
+
+function weightedRandomRarity(): string {
+  const total = RANDOMIZE_DISTRIBUTION.reduce((s, d) => s + d.weight, 0);
+  let r = Math.random() * total;
+  for (const d of RANDOMIZE_DISTRIBUTION) {
+    r -= d.weight;
+    if (r <= 0) return d.rarity;
+  }
+  return 'Common';
+}
+
+// ── GET /start-session?bandId=xxx ─────────────────────────────────────────────
+
 bandRpgRouter.get('/start-session', async (req, res, next): Promise<void> => {
   try {
     const rawBandId = req.query['bandId'];
     const bandId = typeof rawBandId === 'string' ? rawBandId : null;
     if (!bandId) { res.status(400).json({ error: 'bandId is required' }); return; }
 
-    const count = await prisma.song.count({
+    const userId = req.user?.userId ?? null;
+
+    // Fetch all eligible songs (have primary lyrics, not instrumental)
+    const eligible = await prisma.song.findMany({
       where: { bandId, isInstrumental: false, lyrics: { some: { isPrimary: true } } },
+      select: { id: true, title: true, rarity: true },
     });
 
-    if (count === 0) {
-      res.json({ songId: null, songTitle: null, fragments: [] });
+    if (eligible.length === 0) {
+      res.json({ songId: null, songTitle: null, songRarity: null, fragments: [] });
       return;
     }
 
-    const skip = Math.floor(Math.random() * count);
-    const song = await prisma.song.findFirst({
-      where: { bandId, isInstrumental: false, lyrics: { some: { isPrimary: true } } },
-      select: { id: true, title: true, lyrics: { where: { isPrimary: true }, take: 1, select: { text: true } } },
-      skip,
+    // Fetch already-collected song IDs for de-weighting
+    const collectedIds = new Set<string>();
+    if (userId) {
+      const collected = await prisma.bandRpgCollectedSong.findMany({
+        where: { userId, bandId },
+        select: { songId: true },
+      });
+      for (const c of collected) collectedIds.add(c.songId);
+    }
+
+    // Weighted random selection
+    const weighted = eligible.map((s) => ({
+      id: s.id,
+      title: s.title,
+      rarity: s.rarity,
+      weight: (RARITY_WEIGHTS[s.rarity] ?? 10) * (collectedIds.has(s.id) ? ALREADY_COLLECTED_MULTIPLIER : 1),
+    }));
+
+    const totalWeight = weighted.reduce((sum, s) => sum + s.weight, 0);
+    let r = Math.random() * totalWeight;
+    let selected = weighted[0]!;
+    for (const s of weighted) {
+      r -= s.weight;
+      if (r <= 0) { selected = s; break; }
+    }
+
+    // Fetch lyrics for selected song
+    const song = await prisma.song.findUnique({
+      where: { id: selected.id },
+      select: {
+        id: true, title: true, rarity: true,
+        lyrics: { where: { isPrimary: true }, take: 1, select: { text: true } },
+      },
     });
 
-    if (!song) { res.json({ songId: null, songTitle: null, fragments: [] }); return; }
+    if (!song) { res.json({ songId: null, songTitle: null, songRarity: null, fragments: [] }); return; }
 
     const lyricText = song.lyrics[0]?.text ?? '';
     const fragments = extractFragments(lyricText, 3);
 
-    res.json({ songId: song.id, songTitle: song.title, fragments });
+    res.json({ songId: song.id, songTitle: song.title, songRarity: song.rarity, fragments });
   } catch (e) { next(e); }
 });
 
@@ -51,7 +115,8 @@ function extractFragments(text: string, count: number): { id: string; text: stri
   return lines.slice(0, count).map((t, i) => ({ id: `frag_${i}`, text: t }));
 }
 
-// GET /songs?bandId=xxx — song list for guess UI
+// ── GET /songs?bandId=xxx ─────────────────────────────────────────────────────
+
 bandRpgRouter.get('/songs', async (req, res, next): Promise<void> => {
   try {
     const rawBandId = req.query['bandId'];
@@ -69,7 +134,8 @@ bandRpgRouter.get('/songs', async (req, res, next): Promise<void> => {
   } catch (e) { next(e); }
 });
 
-// POST /scores — save run score (auth optional)
+// ── POST /scores ──────────────────────────────────────────────────────────────
+
 bandRpgRouter.post('/scores', async (req, res, next): Promise<void> => {
   try {
     const userId = req.user?.userId ?? null;
@@ -108,7 +174,8 @@ bandRpgRouter.post('/scores', async (req, res, next): Promise<void> => {
   } catch (e) { next(e); }
 });
 
-// GET /scores — public leaderboard (optional ?bandId= filter)
+// ── GET /scores ───────────────────────────────────────────────────────────────
+
 bandRpgRouter.get('/scores', async (req, res, next): Promise<void> => {
   try {
     const rawLimit  = req.query['limit'];
@@ -145,7 +212,8 @@ bandRpgRouter.get('/scores', async (req, res, next): Promise<void> => {
   } catch (e) { next(e); }
 });
 
-// POST /progress — save progress + update lifetime stats (auth required)
+// ── POST /progress ────────────────────────────────────────────────────────────
+
 bandRpgRouter.post('/progress', requireAuth, async (req, res, next): Promise<void> => {
   try {
     const userId = req.user?.userId;
@@ -193,7 +261,8 @@ bandRpgRouter.post('/progress', requireAuth, async (req, res, next): Promise<voi
   } catch (e) { next(e); }
 });
 
-// GET /stats — player lifetime stats (auth required)
+// ── GET /stats ────────────────────────────────────────────────────────────────
+
 bandRpgRouter.get('/stats', requireAuth, async (req, res, next): Promise<void> => {
   try {
     const userId = req.user?.userId;
@@ -234,7 +303,8 @@ bandRpgRouter.get('/stats', requireAuth, async (req, res, next): Promise<void> =
   } catch (e) { next(e); }
 });
 
-// POST /collect — add song to player's collection (auth required)
+// ── POST /collect ─────────────────────────────────────────────────────────────
+
 bandRpgRouter.post('/collect', requireAuth, async (req, res, next): Promise<void> => {
   try {
     const userId = req.user?.userId;
@@ -245,6 +315,7 @@ bandRpgRouter.post('/collect', requireAuth, async (req, res, next): Promise<void
     const songTitle        = typeof body['songTitle']        === 'string'  ? body['songTitle']        : null;
     const bandId           = typeof body['bandId']           === 'string'  ? body['bandId']           : null;
     const bandName         = typeof body['bandName']         === 'string'  ? body['bandName']         : null;
+    const rarity           = typeof body['rarity']           === 'string'  ? body['rarity']           : 'Common';
     const guessedCorrectly = typeof body['guessedCorrectly'] === 'boolean' ? body['guessedCorrectly'] : false;
     const scoreEarned      = typeof body['scoreEarned']      === 'number'  ? Math.max(0, Math.floor(body['scoreEarned'])) : 0;
 
@@ -263,13 +334,12 @@ bandRpgRouter.post('/collect', requireAuth, async (req, res, next): Promise<void
     await prisma.bandRpgCollectedSong.upsert({
       where:  { userId_songId: { userId, songId } },
       update: {
-        ...(scoreEarned > (existing?.scoreEarned ?? 0) ? { scoreEarned } : {}),
+        ...(scoreEarned > (existing?.scoreEarned ?? 0) ? { scoreEarned, rarity } : {}),
         ...(guessedCorrectly && !(existing?.guessedCorrectly ?? false) ? { guessedCorrectly: true } : {}),
       },
-      create: { userId, songId, songTitle, bandId, bandName, guessedCorrectly, scoreEarned },
+      create: { userId, songId, songTitle, bandId, bandName, guessedCorrectly, scoreEarned, rarity },
     });
 
-    // Increment totalSongsRecovered in player progress (tracks all recovery events)
     await prisma.bandRpgPlayerProgress.upsert({
       where:  { userId },
       update: { totalSongsRecovered: { increment: 1 } },
@@ -280,7 +350,8 @@ bandRpgRouter.post('/collect', requireAuth, async (req, res, next): Promise<void
   } catch (e) { next(e); }
 });
 
-// GET /collection — player's recovered song collection, grouped by band (auth required)
+// ── GET /collection ───────────────────────────────────────────────────────────
+
 bandRpgRouter.get('/collection', requireAuth, async (req, res, next): Promise<void> => {
   try {
     const userId = req.user?.userId;
@@ -292,11 +363,10 @@ bandRpgRouter.get('/collection', requireAuth, async (req, res, next): Promise<vo
       select: {
         id: true, songId: true, songTitle: true,
         bandId: true, bandName: true,
-        guessedCorrectly: true, scoreEarned: true, recoveredAt: true,
+        guessedCorrectly: true, scoreEarned: true, rarity: true, recoveredAt: true,
       },
     });
 
-    // Group by band
     const bandMap = new Map<string, {
       bandId: string; bandName: string;
       collected: typeof entries;
@@ -311,7 +381,6 @@ bandRpgRouter.get('/collection', requireAuth, async (req, res, next): Promise<vo
       group.collected.push(entry);
     }
 
-    // Fetch total song counts per band
     const bandIds = Array.from(bandMap.keys());
     const songCounts = await Promise.all(
       bandIds.map((bandId) => prisma.song.count({ where: { bandId } })),
@@ -327,7 +396,6 @@ bandRpgRouter.get('/collection', requireAuth, async (req, res, next): Promise<vo
       };
     });
 
-    // Sort bands by most recently recovered
     groups.sort((a, b) => {
       const aTime = a.collected[0]?.recoveredAt?.getTime() ?? 0;
       const bTime = b.collected[0]?.recoveredAt?.getTime() ?? 0;
@@ -338,7 +406,8 @@ bandRpgRouter.get('/collection', requireAuth, async (req, res, next): Promise<vo
   } catch (e) { next(e); }
 });
 
-// POST /admin/reset-my-data — clear own collection + progress for testing (admin only)
+// ── POST /admin/reset-my-data ────────────────────────────────────────────────
+
 bandRpgRouter.post('/admin/reset-my-data', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
   try {
     const userId = req.user?.userId;
@@ -350,5 +419,36 @@ bandRpgRouter.post('/admin/reset-my-data', requireAuth, requireAdmin, async (req
     ]);
 
     res.json({ ok: true, message: 'Band RPG collection and progress cleared.' });
+  } catch (e) { next(e); }
+});
+
+// ── POST /admin/randomize-rarities ───────────────────────────────────────────
+
+bandRpgRouter.post('/admin/randomize-rarities', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const bandId = typeof body['bandId'] === 'string' ? body['bandId'] : null;
+    if (!bandId) { res.status(400).json({ error: 'bandId is required' }); return; }
+
+    const songs = await prisma.song.findMany({
+      where: { bandId },
+      select: { id: true },
+    });
+
+    if (songs.length === 0) {
+      res.json({ ok: true, updated: 0 });
+      return;
+    }
+
+    await prisma.$transaction(
+      songs.map((s) =>
+        prisma.song.update({
+          where: { id: s.id },
+          data: { rarity: weightedRandomRarity() as 'Common' | 'Uncommon' | 'Rare' | 'Legendary' | 'Mythic' },
+        }),
+      ),
+    );
+
+    res.json({ ok: true, updated: songs.length });
   } catch (e) { next(e); }
 });

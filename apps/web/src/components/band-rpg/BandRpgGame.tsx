@@ -3,6 +3,32 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { bandRpgApi } from '../../api/bandRpg';
 import type { BandRpgSelectedBand, BandRpgSelectedCharacter, BandRpgSession, BandRpgSong } from '../../api/bandRpg';
 
+// ── Rarity system ────────────────────────────────────────────────────────────
+
+const RARITY_SCORE_BONUS: Record<string, number> = {
+  Common:    0,
+  Uncommon:  25,
+  Rare:      75,
+  Legendary: 200,
+  Mythic:    500,
+};
+
+const RARITY_LABEL: Record<string, string> = {
+  Common:    '⚪ Common',
+  Uncommon:  '🟢 Uncommon',
+  Rare:      '🔵 Rare',
+  Legendary: '🟣 Legendary',
+  Mythic:    '🟠 Mythic',
+};
+
+const RARITY_COLOR: Record<string, string> = {
+  Common:    'text-gray-400',
+  Uncommon:  'text-emerald-400',
+  Rare:      'text-blue-400',
+  Legendary: 'text-purple-400',
+  Mythic:    'text-orange-400',
+};
+
 // ── World constants ──────────────────────────────────────────────────────────
 
 const TILE = 44;
@@ -847,29 +873,45 @@ function PauseMenu({ onResume, onQuit }: { onResume: () => void; onQuit: () => v
 }
 
 function CompleteScreen({
-  score, rank, bandName, characterName, songTitle,
-  guessedCorrectly, guessBonus, isNewCollection,
+  score, rank, bandName, characterName, songTitle, songRarity,
+  guessedCorrectly, guessBonus, rarityBonus, isNewCollection,
   onPlayAgain, onChangeBand, onLeaderboard, onViewCollection,
 }: {
-  score: number; rank: number | null; bandName: string; characterName: string; songTitle: string | null;
-  guessedCorrectly: boolean; guessBonus: number; isNewCollection: boolean | null;
+  score: number; rank: number | null; bandName: string; characterName: string;
+  songTitle: string | null; songRarity: string | null;
+  guessedCorrectly: boolean; guessBonus: number; rarityBonus: number;
+  isNewCollection: boolean | null;
   onPlayAgain: () => void; onChangeBand: () => void; onLeaderboard: () => void; onViewCollection: () => void;
 }) {
+  const rarityColor = songRarity ? (RARITY_COLOR[songRarity] ?? 'text-gray-400') : 'text-gray-400';
+  const rarityLabel = songRarity ? (RARITY_LABEL[songRarity] ?? songRarity) : null;
+
   return (
     <div className="absolute inset-0 bg-black/80 flex items-center justify-center pointer-events-auto z-20">
-      <div className="bg-gray-900 border border-emerald-500/40 rounded-2xl p-8 text-center max-w-sm mx-4">
+      <div className="bg-gray-900 border border-emerald-500/40 rounded-2xl p-8 text-center max-w-sm mx-4 overflow-y-auto max-h-full">
         <div className="text-5xl mb-4">🏆</div>
         <h2 className="text-2xl font-bold text-emerald-400 mb-1">Quest Complete!</h2>
         <p className="text-violet-400 text-xs mb-1">{bandName} · {characterName}</p>
-        {songTitle && <p className="text-amber-400 text-xs mb-4">🎵 {songTitle}</p>}
-        <div className="bg-black/40 rounded-xl p-4 mb-4">
-          <div className="text-4xl font-bold text-white mb-1">{score}</div>
-          <div className="text-gray-400 text-sm">points earned</div>
-          {guessedCorrectly && (
-            <div className="text-emerald-400 text-xs mt-1 font-semibold">🎵 Identified correctly  +{guessBonus}</div>
+        {songTitle && (
+          <div className="mb-4">
+            <p className="text-amber-400 text-xs">🎵 {songTitle}</p>
+            {rarityLabel && <p className={`text-xs font-semibold mt-0.5 ${rarityColor}`}>{rarityLabel}</p>}
+          </div>
+        )}
+        <div className="bg-black/40 rounded-xl p-4 mb-4 text-left font-mono text-xs space-y-1">
+          <div className="flex justify-between text-gray-300"><span>Quest Completion</span><span>+100</span></div>
+          <div className="flex justify-between text-gray-400"><span>Fragments (3)</span><span>+75</span></div>
+          <div className="flex justify-between text-gray-400"><span>Vinyl Recovery</span><span>+25</span></div>
+          {guessedCorrectly && <div className="flex justify-between text-emerald-400"><span>Identified Correctly</span><span>+{guessBonus}</span></div>}
+          {rarityBonus > 0 && rarityLabel && (
+            <div className={`flex justify-between font-bold ${rarityColor}`}>
+              <span>{rarityLabel.split(' ').slice(1).join(' ')} Bonus</span>
+              <span>+{rarityBonus}</span>
+            </div>
           )}
+          <div className="border-t border-gray-700 pt-1 flex justify-between text-white font-bold text-sm"><span>Total</span><span>{score}</span></div>
           {rank !== null && (
-            <div className="text-emerald-400 text-sm mt-2 font-semibold">Leaderboard rank: #{rank}</div>
+            <div className="text-center text-emerald-400 text-xs pt-1 font-semibold">Leaderboard rank: #{rank}</div>
           )}
         </div>
         {songTitle && isNewCollection !== null && (
@@ -984,6 +1026,7 @@ export default function BandRpgGame({
   // Guess / identification tracking
   const guessedCorrectlyRef = useRef(false);
   const guessBonusRef       = useRef(0);
+  const rarityBonusRef      = useRef(0);
 
   const dialogueRef = useRef(buildQuestLines(selectedBand.name, session.songTitle));
 
@@ -1134,6 +1177,13 @@ export default function BandRpgGame({
 
   const finishQuest = useCallback(() => {
     scoreRef.current += 100;
+    // Apply rarity bonus on top of quest completion
+    const rarity = sessionRef.current.songRarity ?? 'Common';
+    const rarityBonus = RARITY_SCORE_BONUS[rarity] ?? 0;
+    if (rarityBonus > 0) {
+      scoreRef.current += rarityBonus;
+      rarityBonusRef.current = rarityBonus;
+    }
     const finalScore = scoreRef.current;
     const sess = sessionRef.current;
     effectsRef.current.push({
@@ -1174,6 +1224,7 @@ export default function BandRpgGame({
         bandName: selectedBand.name,
         guessedCorrectly: guessedCorrectlyRef.current,
         scoreEarned: finalScore,
+        rarity: sess.songRarity ?? 'Common',
       });
     }
   }, [submitScore, saveProgress, collectSong, selectedBand, selectedCharacter]);
@@ -1404,6 +1455,7 @@ export default function BandRpgGame({
     collectedCountRef.current   = 0;
     guessedCorrectlyRef.current = false;
     guessBonusRef.current       = 0;
+    rarityBonusRef.current      = 0;
     vinylPosRef.current         = randomVinylPos();
     playerRef.current           = { x: SPAWN_POS.x, y: SPAWN_POS.y, facing: 'up' };
     vinylRef.current            = false;
@@ -1503,8 +1555,10 @@ export default function BandRpgGame({
             bandName={selectedBand.name}
             characterName={selectedCharacter.name}
             songTitle={revealedTitle}
+            songRarity={sessionRef.current.songRarity}
             guessedCorrectly={guessedCorrectlyRef.current}
             guessBonus={guessBonusRef.current}
+            rarityBonus={rarityBonusRef.current}
             isNewCollection={isNewCollection}
             onPlayAgain={handlePlayAgain}
             onChangeBand={onChangeBand}

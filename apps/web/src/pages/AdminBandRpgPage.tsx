@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { bandRpgApi } from '../api/bandRpg';
+import { bandsApi } from '../api/bands';
 
 type Tab =
   | 'overview'
@@ -90,54 +91,66 @@ function OverviewTab() {
 }
 
 function TestingTab() {
-  const [confirmed, setConfirmed] = useState(false);
-  const [result,    setResult]    = useState<string | null>(null);
+  const [resetConfirmed,      setResetConfirmed]      = useState(false);
+  const [resetResult,         setResetResult]         = useState<string | null>(null);
+  const [randomizeBandId,     setRandomizeBandId]     = useState('');
+  const [randomizeConfirmed,  setRandomizeConfirmed]  = useState(false);
+  const [randomizeResult,     setRandomizeResult]     = useState<string | null>(null);
+
+  const { data: bands = [] } = useQuery({
+    queryKey: ['bands'],
+    queryFn: () => bandsApi.list(),
+    staleTime: 5 * 60_000,
+  });
 
   const resetMutation = useMutation({
     mutationFn: () => bandRpgApi.adminResetMyData(),
+    onSuccess: (r) => { setResetResult(r.message); setResetConfirmed(false); },
+    onError:   () => { setResetResult('Reset failed. Check the console for details.'); setResetConfirmed(false); },
+  });
+
+  const randomizeMutation = useMutation({
+    mutationFn: (bandId: string) => bandRpgApi.adminRandomizeRarities(bandId),
     onSuccess: (r) => {
-      setResult(r.message);
-      setConfirmed(false);
+      setRandomizeResult(`Randomized rarities for ${r.updated} songs.`);
+      setRandomizeConfirmed(false);
     },
     onError: () => {
-      setResult('Reset failed. Check the console for details.');
-      setConfirmed(false);
+      setRandomizeResult('Randomization failed. Check the console.');
+      setRandomizeConfirmed(false);
     },
   });
 
-  function handleReset() {
-    setResult(null);
-    resetMutation.mutate();
-  }
+  const selectedBandName = bands.find((b) => b.id === randomizeBandId)?.name ?? '';
 
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-surface-200 bg-white p-6">
         <h2 className="font-semibold text-surface-900 mb-1">Developer Testing</h2>
         <p className="text-sm text-surface-500 mb-6">
-          Tools for testing Band RPG locally. These actions only affect your own account.
+          Tools for testing Band RPG locally. These actions only affect your own account or song data.
         </p>
 
-        <div className="rounded-lg border border-red-200 bg-red-50 p-5">
+        {/* Reset collection */}
+        <div className="rounded-lg border border-red-200 bg-red-50 p-5 mb-5">
           <h3 className="font-semibold text-red-900 mb-1">Reset My Band RPG Collection</h3>
-          <p className="text-sm text-red-700 leading-relaxed mb-4">
-            Clears your recovered song collection and Band RPG player progress. Useful for testing
-            collection and progression flows from scratch.
+          <p className="text-sm text-red-700 leading-relaxed mb-3">
+            Clears your recovered song collection and Band RPG player progress.
           </p>
-          <ul className="text-xs text-red-600 space-y-1 mb-5 list-disc list-inside">
+          <ul className="text-xs text-red-600 space-y-1 mb-4 list-disc list-inside">
             <li>Clears: recovered song collection, player progress &amp; stats</li>
             <li>Does NOT clear: leaderboard scores, band data, song data, other users' data</li>
           </ul>
 
-          {result && (
+          {resetResult && (
             <div className="mb-4 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2.5 text-sm text-emerald-800">
-              ✓ {result}
+              ✓ {resetResult}
             </div>
           )}
 
-          {!confirmed ? (
+          {!resetConfirmed ? (
             <button
-              onClick={() => setConfirmed(true)}
+              onClick={() => setResetConfirmed(true)}
               className="bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
             >
               Reset My Collection
@@ -146,18 +159,69 @@ function TestingTab() {
             <div className="flex items-center gap-3">
               <span className="text-sm text-red-800 font-medium">Are you sure?</span>
               <button
-                onClick={handleReset}
+                onClick={() => { setResetResult(null); resetMutation.mutate(); }}
                 disabled={resetMutation.isPending}
                 className="bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
               >
                 {resetMutation.isPending ? 'Clearing…' : 'Yes, Clear It'}
               </button>
+              <button onClick={() => setResetConfirmed(false)} className="text-sm text-surface-500 hover:text-surface-700 transition-colors">Cancel</button>
+            </div>
+          )}
+        </div>
+
+        {/* Randomize rarities */}
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-5">
+          <h3 className="font-semibold text-amber-900 mb-1">Randomize Band Song Rarities</h3>
+          <p className="text-sm text-amber-800 leading-relaxed mb-3">
+            Assigns random rarities to every song in a band. Useful for testing weighted song
+            discovery without manually editing each song. Distribution: 50% Common, 25% Uncommon,
+            15% Rare, 7% Legendary, 3% Mythic.
+          </p>
+          <ul className="text-xs text-amber-700 space-y-1 mb-4 list-disc list-inside">
+            <li>Overwrites existing rarities for every song in the selected band</li>
+            <li>Does NOT affect other bands</li>
+            <li>Can be re-run to re-randomize</li>
+          </ul>
+
+          <div className="mb-3">
+            <label className="block text-xs font-medium text-amber-900 mb-1">Select band</label>
+            <select
+              value={randomizeBandId}
+              onChange={(e) => { setRandomizeBandId(e.target.value); setRandomizeConfirmed(false); setRandomizeResult(null); }}
+              className="border border-amber-300 bg-white rounded-lg px-3 py-2 text-sm text-surface-800 focus:outline-none focus:border-amber-500 min-w-48"
+            >
+              <option value="">— choose a band —</option>
+              {bands.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {randomizeResult && (
+            <div className="mb-4 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2.5 text-sm text-emerald-800">
+              ✓ {randomizeResult}
+            </div>
+          )}
+
+          {!randomizeBandId ? null : !randomizeConfirmed ? (
+            <button
+              onClick={() => setRandomizeConfirmed(true)}
+              className="bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
+            >
+              Randomize Rarities for {selectedBandName}
+            </button>
+          ) : (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-amber-900 font-medium">This will overwrite existing rarities.</span>
               <button
-                onClick={() => setConfirmed(false)}
-                className="text-sm text-surface-500 hover:text-surface-700 transition-colors"
+                onClick={() => { setRandomizeResult(null); randomizeMutation.mutate(randomizeBandId); }}
+                disabled={randomizeMutation.isPending}
+                className="bg-amber-700 hover:bg-amber-800 disabled:opacity-50 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
               >
-                Cancel
+                {randomizeMutation.isPending ? 'Randomizing…' : 'Yes, Randomize'}
               </button>
+              <button onClick={() => setRandomizeConfirmed(false)} className="text-sm text-surface-500 hover:text-surface-700 transition-colors">Cancel</button>
             </div>
           )}
         </div>

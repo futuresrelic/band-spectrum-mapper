@@ -83,6 +83,9 @@ export type UpdateAlbumInput = z.infer<typeof updateAlbumSchema>;
 // Song schemas
 // ---------------------------------------------------------------------------
 
+export const SONG_RARITIES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'] as const;
+export type SongRarity = typeof SONG_RARITIES[number];
+
 export const createSongSchema = z.object({
   title: z.string().min(1).max(300),
   slug: slugSchema.optional(),
@@ -92,6 +95,7 @@ export const createSongSchema = z.object({
   notes: z.string().max(5000).optional().nullable(),
   isRemix: z.boolean().optional(),
   remixOfSongId: z.string().cuid().nullable().optional(),
+  rarity: z.enum(SONG_RARITIES).optional(),
 });
 
 export const updateSongSchema = createSongSchema.partial();

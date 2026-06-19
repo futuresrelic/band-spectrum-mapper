@@ -440,6 +440,7 @@ export default function SongDetailPage() {
   const [editTitle, setEditTitle] = useState('');
   const [editTrack, setEditTrack] = useState('');
   const [editNotes, setEditNotes] = useState('');
+  const [editRarity, setEditRarity] = useState('Common');
   const [editError, setEditError] = useState('');
   const [wikiFetching, setWikiFetching] = useState(false);
   const [wikiMsg, setWikiMsg] = useState('');
@@ -487,6 +488,7 @@ export default function SongDetailPage() {
       notes: editNotes.trim() || null,
       isRemix: editIsRemix,
       remixOfSongId: editIsRemix ? editRemixOfId : null,
+      rarity: editRarity as import('@band-spectrum-mapper/shared').SongRarity,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['song', songId] });
@@ -556,6 +558,7 @@ export default function SongDetailPage() {
     setEditTitle(song?.title ?? '');
     setEditTrack(song?.trackNumber ? String(song.trackNumber) : '');
     setEditNotes(song?.notes ?? '');
+    setEditRarity(song?.rarity ?? 'Common');
     setEditIsRemix(song?.isRemix ?? false);
     setEditRemixOfId(song?.remixOfSongId ?? null);
     setRemixSearch('');
@@ -707,6 +710,20 @@ export default function SongDetailPage() {
                 </button>
                 {wikiMsg && <span className="text-xs text-surface-400">{wikiMsg}</span>}
               </div>
+            </div>
+            <div>
+              <label className="label">Rarity (Band RPG)</label>
+              <select
+                className="input"
+                value={editRarity}
+                onChange={(e) => setEditRarity(e.target.value)}
+              >
+                <option value="Common">⚪ Common</option>
+                <option value="Uncommon">🟢 Uncommon</option>
+                <option value="Rare">🔵 Rare</option>
+                <option value="Legendary">🟣 Legendary</option>
+                <option value="Mythic">🟠 Mythic</option>
+              </select>
             </div>
             <div className="border-t border-surface-200 pt-3">
               <label className="flex items-center gap-2 cursor-pointer select-none">

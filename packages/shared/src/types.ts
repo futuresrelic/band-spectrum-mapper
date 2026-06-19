@@ -41,6 +41,7 @@ export interface Song {
   notes: string | null;
   isRemix: boolean;
   remixOfSongId: string | null;
+  rarity: string;
   createdAt: string;
   updatedAt: string;
 }

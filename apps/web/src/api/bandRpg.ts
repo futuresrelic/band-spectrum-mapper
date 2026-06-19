@@ -25,6 +25,7 @@ export interface BandRpgLyricFragment {
 export interface BandRpgSession {
   songId: string | null;
   songTitle: string | null;
+  songRarity: string | null;
   fragments: BandRpgLyricFragment[];
 }
 
@@ -74,6 +75,7 @@ export interface BandRpgCollectedSong {
   bandName: string;
   guessedCorrectly: boolean;
   scoreEarned: number;
+  rarity: string;
   recoveredAt: string;
 }
 
@@ -132,10 +134,14 @@ export const bandRpgApi = {
     bandName: string;
     guessedCorrectly: boolean;
     scoreEarned: number;
+    rarity?: string;
   }) => api.post<{ ok: boolean; isNew: boolean }>('/api/band-rpg/collect', data),
 
   getCollection: () => api.get<BandRpgCollectionGroup[]>('/api/band-rpg/collection'),
 
   adminResetMyData: () =>
     api.post<{ ok: boolean; message: string }>('/api/band-rpg/admin/reset-my-data', {}),
+
+  adminRandomizeRarities: (bandId: string) =>
+    api.post<{ ok: boolean; updated: number }>('/api/band-rpg/admin/randomize-rarities', { bandId }),
 };

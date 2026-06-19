@@ -75,6 +75,18 @@ model Album {
   @@map("albums")
 }
 
+// ---------------------------------------------------------------------------
+// Song rarity — drives weighted discovery in Band RPG
+// ---------------------------------------------------------------------------
+
+enum SongRarity {
+  Common
+  Uncommon
+  Rare
+  Legendary
+  Mythic
+}
+
 model Song {
   id              String   @id @default(cuid())
   bandId          String
@@ -89,6 +101,7 @@ model Song {
   remixOfSongId   String?
   sourceSongId    String?
   noLyricsAt      DateTime?
+  rarity          SongRarity @default(Common)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -1682,6 +1695,7 @@ model BandRpgCollectedSong {
   bandName         String
   guessedCorrectly Boolean  @default(false)
   scoreEarned      Int      @default(0)
+  rarity           String   @default("Common")
   recoveredAt      DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
