@@ -17,7 +17,6 @@ const RARITY_WEIGHTS: Record<string, number> = {
 
 const ALREADY_COLLECTED_MULTIPLIER = 0.3;
 
-// Distribution used for batch randomization (sums to 100)
 const RANDOMIZE_DISTRIBUTION: { rarity: string; weight: number }[] = [
   { rarity: 'Common',    weight: 50 },
   { rarity: 'Uncommon',  weight: 25 },
@@ -46,7 +45,6 @@ bandRpgRouter.get('/start-session', async (req, res, next): Promise<void> => {
 
     const userId = req.user?.userId ?? null;
 
-    // Fetch all eligible songs (have primary lyrics, not instrumental)
     const eligible = await prisma.song.findMany({
       where: { bandId, isInstrumental: false, lyrics: { some: { isPrimary: true } } },
       select: { id: true, title: true, rarity: true },
@@ -57,7 +55,6 @@ bandRpgRouter.get('/start-session', async (req, res, next): Promise<void> => {
       return;
     }
 
-    // Fetch already-collected song IDs for de-weighting
     const collectedIds = new Set<string>();
     if (userId) {
       const collected = await prisma.bandRpgCollectedSong.findMany({
@@ -67,7 +64,6 @@ bandRpgRouter.get('/start-session', async (req, res, next): Promise<void> => {
       for (const c of collected) collectedIds.add(c.songId);
     }
 
-    // Weighted random selection
     const weighted = eligible.map((s) => ({
       id: s.id,
       title: s.title,
@@ -83,7 +79,6 @@ bandRpgRouter.get('/start-session', async (req, res, next): Promise<void> => {
       if (r <= 0) { selected = s; break; }
     }
 
-    // Fetch lyrics for selected song
     const song = await prisma.song.findUnique({
       where: { id: selected.id },
       select: {
@@ -268,12 +263,11 @@ bandRpgRouter.get('/stats', requireAuth, async (req, res, next): Promise<void> =
     const userId = req.user?.userId;
     if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
 
-    const [progress, uniqueSongsRecovered, correctGuessCount] = await Promise.all([
+    const [progress, uniqueSongsRecovered, correctGuessCount, albumsCompleted] = await Promise.all([
       prisma.bandRpgPlayerProgress.findUnique({
         where: { userId },
         select: {
-          totalRuns: true, totalScore: true,
-          totalSongsRecovered: true,
+          totalRuns: true, totalScore: true, totalSongsRecovered: true,
           favoriteBandId: true, favoriteBandName: true,
           favoriteCharacterId: true, favoriteCharacterName: true,
           lastPlayedAt: true,
@@ -281,6 +275,7 @@ bandRpgRouter.get('/stats', requireAuth, async (req, res, next): Promise<void> =
       }),
       prisma.bandRpgCollectedSong.count({ where: { userId } }),
       prisma.bandRpgCollectedSong.count({ where: { userId, guessedCorrectly: true } }),
+      prisma.bandRpgCompletedAlbum.count({ where: { userId } }),
     ]);
 
     const investigationAccuracy = uniqueSongsRecovered > 0
@@ -294,6 +289,7 @@ bandRpgRouter.get('/stats', requireAuth, async (req, res, next): Promise<void> =
       uniqueSongsRecovered,
       correctGuessCount,
       investigationAccuracy,
+      albumsCompleted,
       favoriteBandId:         progress?.favoriteBandId         ?? null,
       favoriteBandName:       progress?.favoriteBandName       ?? null,
       favoriteCharacterId:    progress?.favoriteCharacterId    ?? null,
@@ -346,7 +342,57 @@ bandRpgRouter.post('/collect', requireAuth, async (req, res, next): Promise<void
       create: { userId, totalSongsRecovered: 1 },
     });
 
-    res.json({ ok: true, isNew });
+    // ── Album completion check ──────────────────────────────────────────────
+    let albumCompleted = false;
+    let completedAlbumId: string | null = null;
+    let completedAlbumTitle: string | null = null;
+
+    const songRecord = await prisma.song.findUnique({
+      where: { id: songId },
+      select: { albumId: true, album: { select: { id: true, title: true } } },
+    });
+
+    if (songRecord?.albumId && songRecord.album) {
+      const albumId = songRecord.albumId;
+      const albumSongs = await prisma.song.findMany({
+        where: { albumId },
+        select: { id: true },
+      });
+
+      if (albumSongs.length > 0) {
+        const albumSongIds = albumSongs.map((s) => s.id);
+        const recoveredCount = await prisma.bandRpgCollectedSong.count({
+          where: { userId, songId: { in: albumSongIds } },
+        });
+
+        if (recoveredCount === albumSongs.length) {
+          const alreadyCompleted = await prisma.bandRpgCompletedAlbum.findUnique({
+            where: { userId_albumId: { userId, albumId } },
+          });
+
+          if (!alreadyCompleted) {
+            await prisma.bandRpgCompletedAlbum.create({
+              data: {
+                userId, albumId,
+                albumTitle: songRecord.album.title,
+                bandId,
+                bandName,
+                songCount: albumSongs.length,
+              },
+            });
+            albumCompleted = true;
+            completedAlbumId = albumId;
+            completedAlbumTitle = songRecord.album.title;
+          }
+        }
+      }
+    }
+    // ── End album completion check ─────────────────────────────────────────
+
+    res.json({
+      ok: true, isNew, albumCompleted,
+      ...(completedAlbumId ? { completedAlbumId, completedAlbumTitle } : {}),
+    });
   } catch (e) { next(e); }
 });
 
@@ -406,7 +452,164 @@ bandRpgRouter.get('/collection', requireAuth, async (req, res, next): Promise<vo
   } catch (e) { next(e); }
 });
 
-// ── POST /admin/reset-my-data ────────────────────────────────────────────────
+// ── GET /albums — band-grouped album progress ─────────────────────────────────
+
+bandRpgRouter.get('/albums', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const collectedSongs = await prisma.bandRpgCollectedSong.findMany({
+      where: { userId },
+      select: { songId: true, bandId: true, bandName: true },
+    });
+
+    if (collectedSongs.length === 0) { res.json([]); return; }
+
+    const bandIds = [...new Set(collectedSongs.map((s) => s.bandId))];
+    const collectedSongIdSet = new Set(collectedSongs.map((s) => s.songId));
+    const bandNameMap = new Map(collectedSongs.map((s) => [s.bandId, s.bandName]));
+
+    const [albums, completedAlbums] = await Promise.all([
+      prisma.album.findMany({
+        where: { bandId: { in: bandIds } },
+        select: {
+          id: true, title: true, artworkUrl: true, albumType: true, year: true, bandId: true,
+          songs: { select: { id: true } },
+        },
+        orderBy: [{ bandId: 'asc' }, { year: 'asc' }, { title: 'asc' }],
+      }),
+      prisma.bandRpgCompletedAlbum.findMany({
+        where: { userId },
+        select: { albumId: true, completedAt: true },
+      }),
+    ]);
+
+    const completedMap = new Map(completedAlbums.map((a) => [a.albumId, a.completedAt]));
+
+    const bandMap = new Map<string, {
+      bandId: string; bandName: string; albums: unknown[]; completedCount: number;
+    }>();
+
+    for (const album of albums) {
+      if (album.songs.length === 0) continue;
+
+      const songIds = album.songs.map((s) => s.id);
+      const recoveredCount = songIds.filter((id) => collectedSongIdSet.has(id)).length;
+      const completedAt = completedMap.get(album.id) ?? null;
+      const state = completedAt ? 'completed' : recoveredCount > 0 ? 'in_progress' : 'not_started';
+
+      const progress = {
+        albumId:      album.id,
+        albumTitle:   album.title,
+        artworkUrl:   album.artworkUrl   ?? null,
+        albumType:    album.albumType    ?? null,
+        year:         album.year         ?? null,
+        bandId:       album.bandId,
+        bandName:     bandNameMap.get(album.bandId) ?? 'Unknown Band',
+        totalSongs:   songIds.length,
+        recoveredSongs: recoveredCount,
+        completionPct: Math.round((recoveredCount / songIds.length) * 100),
+        state,
+        completedAt:  completedAt?.toISOString() ?? null,
+      };
+
+      let group = bandMap.get(album.bandId);
+      if (!group) {
+        group = { bandId: album.bandId, bandName: bandNameMap.get(album.bandId) ?? 'Unknown', albums: [], completedCount: 0 };
+        bandMap.set(album.bandId, group);
+      }
+      group.albums.push(progress);
+      if (state === 'completed') group.completedCount++;
+    }
+
+    const result = [...bandMap.values()].map((g) => ({
+      bandId: g.bandId,
+      bandName: g.bandName,
+      totalAlbums: g.albums.length,
+      completedAlbums: g.completedCount,
+      albums: g.albums,
+    }));
+
+    res.json(result);
+  } catch (e) { next(e); }
+});
+
+// ── GET /albums/:albumId — album detail with per-song recovery status ─────────
+
+bandRpgRouter.get('/albums/:albumId', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const albumId = req.params['albumId'];
+    if (!albumId) { res.status(400).json({ error: 'albumId is required' }); return; }
+
+    const album = await prisma.album.findUnique({
+      where: { id: albumId },
+      select: {
+        id: true, title: true, artworkUrl: true, albumType: true, year: true,
+        band: { select: { id: true, name: true } },
+        songs: {
+          select: { id: true, title: true, rarity: true, trackNumber: true },
+          orderBy: [{ trackNumber: 'asc' }, { title: 'asc' }],
+        },
+      },
+    });
+
+    if (!album) { res.status(404).json({ error: 'Album not found' }); return; }
+
+    const songIds = album.songs.map((s) => s.id);
+
+    const [collectedForAlbum, completedRecord] = await Promise.all([
+      prisma.bandRpgCollectedSong.findMany({
+        where: { userId, songId: { in: songIds } },
+        select: { songId: true, recoveredAt: true, guessedCorrectly: true },
+      }),
+      prisma.bandRpgCompletedAlbum.findUnique({
+        where: { userId_albumId: { userId, albumId } },
+        select: { completedAt: true },
+      }),
+    ]);
+
+    const collectedMap = new Map(collectedForAlbum.map((c) => [c.songId, c]));
+
+    const songs = album.songs.map((s) => {
+      const c = collectedMap.get(s.id);
+      return {
+        songId:          s.id,
+        title:           s.title,
+        rarity:          s.rarity,
+        trackNumber:     s.trackNumber ?? null,
+        recovered:       !!c,
+        recoveredAt:     c?.recoveredAt.toISOString() ?? null,
+        guessedCorrectly: c?.guessedCorrectly ?? false,
+      };
+    });
+
+    res.json({
+      albumId:       album.id,
+      albumTitle:    album.title,
+      artworkUrl:    album.artworkUrl   ?? null,
+      albumType:     album.albumType    ?? null,
+      year:          album.year         ?? null,
+      bandId:        album.band.id,
+      bandName:      album.band.name,
+      totalSongs:    songIds.length,
+      recoveredSongs: collectedForAlbum.length,
+      completionPct: songIds.length > 0
+        ? Math.round((collectedForAlbum.length / songIds.length) * 100)
+        : 0,
+      state: completedRecord
+        ? 'completed'
+        : collectedForAlbum.length > 0 ? 'in_progress' : 'not_started',
+      completedAt: completedRecord?.completedAt.toISOString() ?? null,
+      songs,
+    });
+  } catch (e) { next(e); }
+});
+
+// ── POST /admin/reset-my-data ─────────────────────────────────────────────────
 
 bandRpgRouter.post('/admin/reset-my-data', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
   try {
@@ -415,10 +618,11 @@ bandRpgRouter.post('/admin/reset-my-data', requireAuth, requireAdmin, async (req
 
     await prisma.$transaction([
       prisma.bandRpgCollectedSong.deleteMany({ where: { userId } }),
+      prisma.bandRpgCompletedAlbum.deleteMany({ where: { userId } }),
       prisma.bandRpgPlayerProgress.deleteMany({ where: { userId } }),
     ]);
 
-    res.json({ ok: true, message: 'Band RPG collection and progress cleared.' });
+    res.json({ ok: true, message: 'Band RPG collection, albums, and progress cleared.' });
   } catch (e) { next(e); }
 });
 
@@ -435,10 +639,7 @@ bandRpgRouter.post('/admin/randomize-rarities', requireAuth, requireAdmin, async
       select: { id: true },
     });
 
-    if (songs.length === 0) {
-      res.json({ ok: true, updated: 0 });
-      return;
-    }
+    if (songs.length === 0) { res.json({ ok: true, updated: 0 }); return; }
 
     await prisma.$transaction(
       songs.map((s) =>

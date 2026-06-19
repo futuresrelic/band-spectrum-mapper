@@ -70,6 +70,7 @@ model Album {
   songs           Song[]
   contextAnalysis AlbumContextAnalysis?
   socialPosts     SocialPost[]
+  bandRpgCompletedAlbums BandRpgCompletedAlbum[]
 
   @@unique([bandId, slug])
   @@map("albums")
@@ -444,6 +445,7 @@ model User {
   bandRpgProgress      BandRpgPlayerProgress?
   bandRpgScores        BandRpgScore[]
   bandRpgCollection    BandRpgCollectedSong[]
+  bandRpgCompletedAlbums BandRpgCompletedAlbum[]
 
   @@map("users")
 }
@@ -1702,5 +1704,23 @@ model BandRpgCollectedSong {
 
   @@unique([userId, songId])
   @@map("band_rpg_collected_songs")
+}
+
+model BandRpgCompletedAlbum {
+  id          String   @id @default(cuid())
+  userId      String
+  albumId     String
+  albumTitle  String
+  bandId      String
+  bandName    String
+  songCount   Int
+
+  completedAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  album Album @relation(fields: [albumId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, albumId])
+  @@map("band_rpg_completed_albums")
 }
 

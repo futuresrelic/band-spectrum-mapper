@@ -58,6 +58,7 @@ export interface BandRpgStats {
   uniqueSongsRecovered: number;
   correctGuessCount: number;
   investigationAccuracy: number;
+  albumsCompleted: number;
   favoriteBandId: string | null;
   favoriteBandName: string | null;
   favoriteCharacterId: string | null;
@@ -84,6 +85,47 @@ export interface BandRpgCollectionGroup {
   bandName: string;
   collected: BandRpgCollectedSong[];
   totalSongsInBand: number;
+}
+
+// ── Album types ───────────────────────────────────────────────────────────────
+
+export type AlbumState = 'not_started' | 'in_progress' | 'completed';
+
+export interface BandRpgAlbumProgress {
+  albumId: string;
+  albumTitle: string;
+  artworkUrl: string | null;
+  albumType: string | null;
+  year: number | null;
+  bandId: string;
+  bandName: string;
+  totalSongs: number;
+  recoveredSongs: number;
+  completionPct: number;
+  state: AlbumState;
+  completedAt: string | null;
+}
+
+export interface BandRpgBandAlbumGroup {
+  bandId: string;
+  bandName: string;
+  totalAlbums: number;
+  completedAlbums: number;
+  albums: BandRpgAlbumProgress[];
+}
+
+export interface BandRpgAlbumSong {
+  songId: string;
+  title: string;
+  rarity: string;
+  trackNumber: number | null;
+  recovered: boolean;
+  recoveredAt: string | null;
+  guessedCorrectly: boolean;
+}
+
+export interface BandRpgAlbumDetail extends BandRpgAlbumProgress {
+  songs: BandRpgAlbumSong[];
 }
 
 // ── API client ────────────────────────────────────────────────────────────────
@@ -135,9 +177,16 @@ export const bandRpgApi = {
     guessedCorrectly: boolean;
     scoreEarned: number;
     rarity?: string;
-  }) => api.post<{ ok: boolean; isNew: boolean }>('/api/band-rpg/collect', data),
+  }) => api.post<{
+    ok: boolean; isNew: boolean; albumCompleted: boolean;
+    completedAlbumId?: string; completedAlbumTitle?: string;
+  }>('/api/band-rpg/collect', data),
 
   getCollection: () => api.get<BandRpgCollectionGroup[]>('/api/band-rpg/collection'),
+
+  getAlbums: () => api.get<BandRpgBandAlbumGroup[]>('/api/band-rpg/albums'),
+
+  getAlbumDetail: (albumId: string) => api.get<BandRpgAlbumDetail>(`/api/band-rpg/albums/${encodeURIComponent(albumId)}`),
 
   adminResetMyData: () =>
     api.post<{ ok: boolean; message: string }>('/api/band-rpg/admin/reset-my-data', {}),

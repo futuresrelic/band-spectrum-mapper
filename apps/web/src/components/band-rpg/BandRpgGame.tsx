@@ -874,13 +874,13 @@ function PauseMenu({ onResume, onQuit }: { onResume: () => void; onQuit: () => v
 
 function CompleteScreen({
   score, rank, bandName, characterName, songTitle, songRarity,
-  guessedCorrectly, guessBonus, rarityBonus, isNewCollection,
+  guessedCorrectly, guessBonus, rarityBonus, isNewCollection, albumRestored,
   onPlayAgain, onChangeBand, onLeaderboard, onViewCollection,
 }: {
   score: number; rank: number | null; bandName: string; characterName: string;
   songTitle: string | null; songRarity: string | null;
   guessedCorrectly: boolean; guessBonus: number; rarityBonus: number;
-  isNewCollection: boolean | null;
+  isNewCollection: boolean | null; albumRestored: { albumTitle: string } | null;
   onPlayAgain: () => void; onChangeBand: () => void; onLeaderboard: () => void; onViewCollection: () => void;
 }) {
   const rarityColor = songRarity ? (RARITY_COLOR[songRarity] ?? 'text-gray-400') : 'text-gray-400';
@@ -915,8 +915,14 @@ function CompleteScreen({
           )}
         </div>
         {songTitle && isNewCollection !== null && (
-          <div className={`text-xs font-semibold mb-4 ${isNewCollection ? 'text-emerald-400' : 'text-gray-500'}`}>
+          <div className={`text-xs font-semibold mb-2 ${isNewCollection ? 'text-emerald-400' : 'text-gray-500'}`}>
             {isNewCollection ? '✓ First Recovery — Added to collection!' : '● Already Catalogued'}
+          </div>
+        )}
+        {albumRestored && (
+          <div className="bg-amber-900/30 border border-amber-600/40 rounded-lg px-4 py-3 mb-4 text-center">
+            <div className="text-amber-400 text-xs font-bold uppercase tracking-wider mb-0.5">🏆 Album Restored</div>
+            <div className="text-white text-sm font-semibold">{albumRestored.albumTitle}</div>
           </div>
         )}
         <div className="flex flex-col gap-3">
@@ -1046,6 +1052,7 @@ export default function BandRpgGame({
   const [guessResult,        setGuessResult]        = useState<'correct' | 'incorrect' | null>(null);
   const [revealedTitle,      setRevealedTitle]      = useState<string | null>(null);
   const [isNewCollection,    setIsNewCollection]    = useState<boolean | null>(null);
+  const [albumRestored,      setAlbumRestored]      = useState<{ albumTitle: string } | null>(null);
 
   // Pre-fetch the band's song list for the guess dropdown
   const { data: bandSongs = [] } = useQuery({
@@ -1091,8 +1098,13 @@ export default function BandRpgGame({
 
   const collectSong = useMutation({
     mutationFn: (data: Parameters<typeof bandRpgApi.collectSong>[0]) => bandRpgApi.collectSong(data),
-    onSuccess: (r) => setIsNewCollection(r.isNew),
-    onError:   () => { /* silent — collection failure should not disrupt game flow */ },
+    onSuccess: (r) => {
+      setIsNewCollection(r.isNew);
+      if (r.albumCompleted && r.completedAlbumTitle) {
+        setAlbumRestored({ albumTitle: r.completedAlbumTitle });
+      }
+    },
+    onError: () => { /* silent — collection failure should not disrupt game flow */ },
   });
 
   const dismissBanner = useCallback(() => setBanner(null), []);
@@ -1479,6 +1491,7 @@ export default function BandRpgGame({
     setGuessResult(null);
     setRevealedTitle(null);
     setIsNewCollection(null);
+    setAlbumRestored(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBand.name]);
 
@@ -1560,6 +1573,7 @@ export default function BandRpgGame({
             guessBonus={guessBonusRef.current}
             rarityBonus={rarityBonusRef.current}
             isNewCollection={isNewCollection}
+            albumRestored={albumRestored}
             onPlayAgain={handlePlayAgain}
             onChangeBand={onChangeBand}
             onLeaderboard={() => { window.location.href = '/leaderboard'; }}
