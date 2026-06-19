@@ -56,6 +56,7 @@ import { lyricMatchRouter } from './routes/lyricMatch.js';
 import { graphHuntRouter } from './routes/graphHunt.js';
 import { lyricDuelRouter } from './routes/lyricDuel.js';
 import { playlistRouter } from './routes/playlist.js';
+import { bandRpgRouter } from './routes/bandRpg.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -214,6 +215,9 @@ export function createApp() {
 
   // Playlist Maker — build, save, and retrieve playlists
   app.use('/api/playlist', playlistRouter);
+
+  // Band RPG — adventure game scores and progress
+  app.use('/api/band-rpg', bandRpgRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.
