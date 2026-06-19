@@ -16,7 +16,6 @@ bandRpgRouter.get('/start-session', async (req, res, next): Promise<void> => {
     });
 
     if (count === 0) {
-      // Fallback: no lyrics found — return placeholder session
       res.json({ songId: null, songTitle: null, fragments: [] });
       return;
     }
@@ -43,30 +42,49 @@ function extractFragments(text: string, count: number): { id: string; text: stri
     .map((l) => l.trim())
     .filter((l) => l.length >= 8 && !l.startsWith('[') && !l.startsWith('(') && l.length <= 80);
 
-  // Shuffle lines
   for (let i = lines.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     const tmp = lines[i]; lines[i] = lines[j]!; lines[j] = tmp!;
   }
 
-  return lines.slice(0, count).map((text, i) => ({ id: `frag_${i}`, text }));
+  return lines.slice(0, count).map((t, i) => ({ id: `frag_${i}`, text: t }));
 }
+
+// GET /songs?bandId=xxx — song list for guess UI
+bandRpgRouter.get('/songs', async (req, res, next): Promise<void> => {
+  try {
+    const rawBandId = req.query['bandId'];
+    const bandId = typeof rawBandId === 'string' ? rawBandId : null;
+    if (!bandId) { res.status(400).json({ error: 'bandId is required' }); return; }
+
+    const songs = await prisma.song.findMany({
+      where: { bandId },
+      select: { id: true, title: true },
+      orderBy: { title: 'asc' },
+      take: 500,
+    });
+
+    res.json(songs);
+  } catch (e) { next(e); }
+});
 
 // POST /scores — save run score (auth optional)
 bandRpgRouter.post('/scores', async (req, res, next): Promise<void> => {
   try {
     const userId = req.user?.userId ?? null;
     const body = req.body as Record<string, unknown>;
-    const score           = typeof body['score']           === 'number' ? Math.max(0, Math.floor(body['score'])) : 0;
-    const questsCompleted = typeof body['questsCompleted'] === 'number' ? Math.floor(body['questsCompleted'])    : 0;
-    const itemsCollected  = typeof body['itemsCollected']  === 'number' ? Math.floor(body['itemsCollected'])     : 0;
-    const levelsCleared   = typeof body['levelsCleared']   === 'number' ? Math.floor(body['levelsCleared'])      : 0;
-    const bandId          = typeof body['bandId']          === 'string' ? body['bandId']          : null;
-    const bandName        = typeof body['bandName']        === 'string' ? body['bandName']        : null;
-    const characterId     = typeof body['characterId']     === 'string' ? body['characterId']     : null;
-    const characterName   = typeof body['characterName']   === 'string' ? body['characterName']   : null;
-    const songId          = typeof body['songId']          === 'string' ? body['songId']          : null;
-    const songTitle       = typeof body['songTitle']       === 'string' ? body['songTitle']       : null;
+    const score            = typeof body['score']            === 'number'  ? Math.max(0, Math.floor(body['score'])) : 0;
+    const questsCompleted  = typeof body['questsCompleted']  === 'number'  ? Math.floor(body['questsCompleted'])    : 0;
+    const itemsCollected   = typeof body['itemsCollected']   === 'number'  ? Math.floor(body['itemsCollected'])     : 0;
+    const levelsCleared    = typeof body['levelsCleared']    === 'number'  ? Math.floor(body['levelsCleared'])      : 0;
+    const bandId           = typeof body['bandId']           === 'string'  ? body['bandId']           : null;
+    const bandName         = typeof body['bandName']         === 'string'  ? body['bandName']         : null;
+    const characterId      = typeof body['characterId']      === 'string'  ? body['characterId']      : null;
+    const characterName    = typeof body['characterName']    === 'string'  ? body['characterName']    : null;
+    const songId           = typeof body['songId']           === 'string'  ? body['songId']           : null;
+    const songTitle        = typeof body['songTitle']        === 'string'  ? body['songTitle']        : null;
+    const guessedCorrectly = typeof body['guessedCorrectly'] === 'boolean' ? body['guessedCorrectly'] : false;
+    const guessBonus       = typeof body['guessBonus']       === 'number'  ? Math.floor(body['guessBonus'])         : 0;
 
     const saved = await prisma.bandRpgScore.create({
       data: {
@@ -79,6 +97,8 @@ bandRpgRouter.post('/scores', async (req, res, next): Promise<void> => {
         ...(characterName ? { characterName } : {}),
         ...(songId        ? { songId }        : {}),
         ...(songTitle     ? { songTitle }     : {}),
+        guessedCorrectly,
+        guessBonus,
       },
     });
 
@@ -101,22 +121,25 @@ bandRpgRouter.get('/scores', async (req, res, next): Promise<void> => {
       take: limit,
       select: {
         score: true, questsCompleted: true, itemsCollected: true,
-        bandName: true, characterName: true, songTitle: true, createdAt: true,
+        bandName: true, characterName: true, songTitle: true,
+        guessedCorrectly: true, guessBonus: true, createdAt: true,
         user: { select: { name: true, username: true, avatarUrl: true } },
       },
     });
 
     res.json(scores.map((s, i) => ({
       rank: i + 1,
-      playerName:      s.user?.username ?? s.user?.name ?? 'Anonymous',
-      avatarUrl:       s.user?.avatarUrl ?? null,
-      score:           s.score,
-      questsCompleted: s.questsCompleted,
-      itemsCollected:  s.itemsCollected,
-      bandName:        s.bandName      ?? null,
-      characterName:   s.characterName ?? null,
-      songTitle:       s.songTitle     ?? null,
-      createdAt:       s.createdAt,
+      playerName:       s.user?.username ?? s.user?.name ?? 'Anonymous',
+      avatarUrl:        s.user?.avatarUrl ?? null,
+      score:            s.score,
+      questsCompleted:  s.questsCompleted,
+      itemsCollected:   s.itemsCollected,
+      bandName:         s.bandName         ?? null,
+      characterName:    s.characterName    ?? null,
+      songTitle:        s.songTitle        ?? null,
+      guessedCorrectly: s.guessedCorrectly,
+      guessBonus:       s.guessBonus,
+      createdAt:        s.createdAt,
     })));
   } catch (e) { next(e); }
 });
@@ -141,10 +164,10 @@ bandRpgRouter.post('/progress', requireAuth, async (req, res, next): Promise<voi
     const newTotalScore = (existing?.totalScore ?? 0) + score;
 
     const bandFields = {
-      ...(bandId        ? { favoriteBandId:       bandId        } : {}),
-      ...(bandName      ? { favoriteBandName:      bandName      } : {}),
-      ...(characterId   ? { favoriteCharacterId:   characterId   } : {}),
-      ...(characterName ? { favoriteCharacterName: characterName } : {}),
+      ...(bandId        ? { favoriteBandId:        bandId        } : {}),
+      ...(bandName      ? { favoriteBandName:       bandName      } : {}),
+      ...(characterId   ? { favoriteCharacterId:    characterId   } : {}),
+      ...(characterName ? { favoriteCharacterName:  characterName } : {}),
     };
 
     await prisma.bandRpgPlayerProgress.upsert({
@@ -152,15 +175,15 @@ bandRpgRouter.post('/progress', requireAuth, async (req, res, next): Promise<voi
       update: {
         score,
         completedQuests: isComplete ? ['archives_main'] : [],
-        totalRuns: newTotalRuns,
-        totalScore: newTotalScore,
+        totalRuns:    newTotalRuns,
+        totalScore:   newTotalScore,
         lastPlayedAt: new Date(),
         ...bandFields,
       },
       create: {
         userId, score,
         completedQuests: isComplete ? ['archives_main'] : [],
-        totalRuns: 1,
+        totalRuns:  1,
         totalScore: score,
         ...bandFields,
       },

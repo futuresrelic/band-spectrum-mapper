@@ -28,6 +28,11 @@ export interface BandRpgSession {
   fragments: BandRpgLyricFragment[];
 }
 
+export interface BandRpgSong {
+  id: string;
+  title: string;
+}
+
 // ── API response types ────────────────────────────────────────────────────────
 
 export interface BandRpgScoreEntry {
@@ -40,6 +45,8 @@ export interface BandRpgScoreEntry {
   bandName: string | null;
   characterName: string | null;
   songTitle: string | null;
+  guessedCorrectly: boolean;
+  guessBonus: number;
   createdAt: string;
 }
 
@@ -59,6 +66,9 @@ export const bandRpgApi = {
   startSession: (bandId: string) =>
     api.get<BandRpgSession>(`/api/band-rpg/start-session?bandId=${encodeURIComponent(bandId)}`),
 
+  getSongs: (bandId: string) =>
+    api.get<BandRpgSong[]>(`/api/band-rpg/songs?bandId=${encodeURIComponent(bandId)}`),
+
   submitScore: (data: {
     score: number;
     questsCompleted: number;
@@ -70,6 +80,8 @@ export const bandRpgApi = {
     characterName?: string;
     songId?: string;
     songTitle?: string;
+    guessedCorrectly?: boolean;
+    guessBonus?: number;
   }) => api.post<{ ok: boolean; score: number; rank: number }>('/api/band-rpg/scores', data),
 
   getLeaderboard: (limit = 10, bandId?: string) => {
