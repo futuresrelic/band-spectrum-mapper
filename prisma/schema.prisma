@@ -1626,6 +1626,12 @@ model BandRpgPlayerProgress {
   unlockedStoryBeats   Json     @default("[]")
   score                Int      @default(0)
   completionPct        Float    @default(0)
+  totalRuns            Int      @default(0)
+  totalScore           Int      @default(0)
+  favoriteBandId       String?
+  favoriteBandName     String?
+  favoriteCharacterId  String?
+  favoriteCharacterName String?
   lastPlayedAt         DateTime @default(now())
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
@@ -1649,6 +1655,10 @@ model BandRpgScore {
   itemsCollected     Int      @default(0)
   levelsCleared      Int      @default(0)
   isAnonymous        Boolean  @default(false)
+  bandId             String?
+  bandName           String?
+  characterId        String?
+  characterName      String?
   createdAt          DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
