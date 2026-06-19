@@ -7,6 +7,10 @@ export const bandRpgRouter = Router();
 
 // ── Rarity system ──────────────────────────────────────────────────────────────
 
+const RARITY_VALUE: Record<string, number> = {
+  Common: 1, Uncommon: 2, Rare: 4, Legendary: 8, Mythic: 15,
+};
+
 const RARITY_WEIGHTS: Record<string, number> = {
   Common:    10,
   Uncommon:   6,
@@ -609,6 +613,194 @@ bandRpgRouter.get('/albums/:albumId', requireAuth, async (req, res, next): Promi
   } catch (e) { next(e); }
 });
 
+// ── GET /setlists ─────────────────────────────────────────────────────────────
+
+bandRpgRouter.get('/setlists', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const setlists = await prisma.bandRpgSetlist.findMany({
+      where: { userId },
+      include: { songs: { select: { rarity: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json(setlists.map((sl) => ({
+      id:          sl.id,
+      bandId:      sl.bandId,
+      bandName:    sl.bandName,
+      name:        sl.name,
+      songCount:   sl.songs.length,
+      rarityValue: sl.songs.reduce((sum, s) => sum + (RARITY_VALUE[s.rarity] ?? 1), 0),
+      createdAt:   sl.createdAt.toISOString(),
+      updatedAt:   sl.updatedAt.toISOString(),
+    })));
+  } catch (e) { next(e); }
+});
+
+// ── POST /setlists ────────────────────────────────────────────────────────────
+
+bandRpgRouter.post('/setlists', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const body     = req.body as Record<string, unknown>;
+    const bandId   = typeof body['bandId']   === 'string' ? body['bandId']         : null;
+    const bandName = typeof body['bandName'] === 'string' ? body['bandName']       : null;
+    const name     = typeof body['name']     === 'string' ? body['name'].trim()    : null;
+
+    if (!bandId || !bandName || !name) {
+      res.status(400).json({ error: 'bandId, bandName, and name are required' }); return;
+    }
+
+    const setlist = await prisma.bandRpgSetlist.create({
+      data: { userId, bandId, bandName, name },
+    });
+
+    res.status(201).json({ ok: true, id: setlist.id });
+  } catch (e) { next(e); }
+});
+
+// ── GET /setlists/:setlistId ──────────────────────────────────────────────────
+
+bandRpgRouter.get('/setlists/:setlistId', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const setlistId = req.params['setlistId'];
+    if (!setlistId) { res.status(400).json({ error: 'setlistId is required' }); return; }
+
+    const setlist = await prisma.bandRpgSetlist.findFirst({
+      where: { id: setlistId, userId },
+      include: { songs: { orderBy: { position: 'asc' } } },
+    });
+    if (!setlist) { res.status(404).json({ error: 'Not found' }); return; }
+
+    const songIds = setlist.songs.map((s) => s.songId);
+    let albumCount = 0;
+    if (songIds.length > 0) {
+      const songsWithAlbums = await prisma.song.findMany({
+        where: { id: { in: songIds }, albumId: { not: null } },
+        select: { albumId: true },
+      });
+      albumCount = new Set(
+        songsWithAlbums.map((s) => s.albumId).filter((id): id is string => id !== null),
+      ).size;
+    }
+
+    res.json({
+      id:          setlist.id,
+      bandId:      setlist.bandId,
+      bandName:    setlist.bandName,
+      name:        setlist.name,
+      songCount:   setlist.songs.length,
+      rarityValue: setlist.songs.reduce((sum, s) => sum + (RARITY_VALUE[s.rarity] ?? 1), 0),
+      albumCount,
+      createdAt:   setlist.createdAt.toISOString(),
+      updatedAt:   setlist.updatedAt.toISOString(),
+      songs: setlist.songs.map((s) => ({
+        id:        s.id,
+        songId:    s.songId,
+        songTitle: s.songTitle,
+        rarity:    s.rarity,
+        position:  s.position,
+        addedAt:   s.addedAt.toISOString(),
+      })),
+    });
+  } catch (e) { next(e); }
+});
+
+// ── PUT /setlists/:setlistId — rename ────────────────────────────────────────
+
+bandRpgRouter.put('/setlists/:setlistId', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const setlistId = req.params['setlistId'];
+    if (!setlistId) { res.status(400).json({ error: 'setlistId is required' }); return; }
+
+    const body = req.body as Record<string, unknown>;
+    const name = typeof body['name'] === 'string' ? body['name'].trim() : null;
+    if (!name) { res.status(400).json({ error: 'name is required' }); return; }
+
+    const setlist = await prisma.bandRpgSetlist.findFirst({ where: { id: setlistId, userId } });
+    if (!setlist) { res.status(404).json({ error: 'Not found' }); return; }
+
+    await prisma.bandRpgSetlist.update({ where: { id: setlistId }, data: { name } });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ── DELETE /setlists/:setlistId ───────────────────────────────────────────────
+
+bandRpgRouter.delete('/setlists/:setlistId', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const setlistId = req.params['setlistId'];
+    if (!setlistId) { res.status(400).json({ error: 'setlistId is required' }); return; }
+
+    const setlist = await prisma.bandRpgSetlist.findFirst({ where: { id: setlistId, userId } });
+    if (!setlist) { res.status(404).json({ error: 'Not found' }); return; }
+
+    await prisma.bandRpgSetlist.delete({ where: { id: setlistId } });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ── PUT /setlists/:setlistId/songs — replace ordered song list ────────────────
+
+bandRpgRouter.put('/setlists/:setlistId/songs', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const setlistId = req.params['setlistId'];
+    if (!setlistId) { res.status(400).json({ error: 'setlistId is required' }); return; }
+
+    const body = req.body as Record<string, unknown>;
+    const rawSongs = Array.isArray(body['songs']) ? body['songs'] as Record<string, unknown>[] : [];
+    const songIds = rawSongs
+      .map((s) => typeof s['songId'] === 'string' ? s['songId'] : null)
+      .filter((id): id is string => id !== null);
+
+    const setlist = await prisma.bandRpgSetlist.findFirst({ where: { id: setlistId, userId } });
+    if (!setlist) { res.status(404).json({ error: 'Not found' }); return; }
+
+    const collected = await prisma.bandRpgCollectedSong.findMany({
+      where: { userId, songId: { in: songIds }, bandId: setlist.bandId },
+      select: { songId: true, songTitle: true, rarity: true },
+    });
+    const collectedMap = new Map(collected.map((s) => [s.songId, s]));
+
+    // Preserve the caller's order; skip uncollected / wrong-band songs
+    const validSongs = songIds
+      .filter((id) => collectedMap.has(id))
+      .map((id, idx) => {
+        const c = collectedMap.get(id)!;
+        return { songId: id, songTitle: c.songTitle, rarity: c.rarity, position: idx };
+      });
+
+    await prisma.$transaction([
+      prisma.bandRpgSetlistSong.deleteMany({ where: { setlistId } }),
+      ...validSongs.map((s) =>
+        prisma.bandRpgSetlistSong.create({
+          data: { setlistId, songId: s.songId, songTitle: s.songTitle, rarity: s.rarity, position: s.position },
+        }),
+      ),
+    ]);
+
+    await prisma.bandRpgSetlist.update({ where: { id: setlistId }, data: { updatedAt: new Date() } });
+
+    res.json({ ok: true, songCount: validSongs.length });
+  } catch (e) { next(e); }
+});
+
 // ── POST /admin/reset-my-data ─────────────────────────────────────────────────
 
 bandRpgRouter.post('/admin/reset-my-data', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
@@ -619,10 +811,11 @@ bandRpgRouter.post('/admin/reset-my-data', requireAuth, requireAdmin, async (req
     await prisma.$transaction([
       prisma.bandRpgCollectedSong.deleteMany({ where: { userId } }),
       prisma.bandRpgCompletedAlbum.deleteMany({ where: { userId } }),
+      prisma.bandRpgSetlist.deleteMany({ where: { userId } }),
       prisma.bandRpgPlayerProgress.deleteMany({ where: { userId } }),
     ]);
 
-    res.json({ ok: true, message: 'Band RPG collection, albums, and progress cleared.' });
+    res.json({ ok: true, message: 'Band RPG collection, albums, setlists, and progress cleared.' });
   } catch (e) { next(e); }
 });
 

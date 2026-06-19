@@ -128,6 +128,33 @@ export interface BandRpgAlbumDetail extends BandRpgAlbumProgress {
   songs: BandRpgAlbumSong[];
 }
 
+// ── Setlist types ─────────────────────────────────────────────────────────────
+
+export interface BandRpgSetlistSummary {
+  id: string;
+  bandId: string;
+  bandName: string;
+  name: string;
+  songCount: number;
+  rarityValue: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BandRpgSetlistSongEntry {
+  id: string;
+  songId: string;
+  songTitle: string;
+  rarity: string;
+  position: number;
+  addedAt: string;
+}
+
+export interface BandRpgSetlistDetail extends BandRpgSetlistSummary {
+  albumCount: number;
+  songs: BandRpgSetlistSongEntry[];
+}
+
 // ── API client ────────────────────────────────────────────────────────────────
 
 export const bandRpgApi = {
@@ -187,6 +214,27 @@ export const bandRpgApi = {
   getAlbums: () => api.get<BandRpgBandAlbumGroup[]>('/api/band-rpg/albums'),
 
   getAlbumDetail: (albumId: string) => api.get<BandRpgAlbumDetail>(`/api/band-rpg/albums/${encodeURIComponent(albumId)}`),
+
+  getSetlists: () =>
+    api.get<BandRpgSetlistSummary[]>('/api/band-rpg/setlists'),
+
+  createSetlist: (data: { bandId: string; bandName: string; name: string }) =>
+    api.post<{ ok: boolean; id: string }>('/api/band-rpg/setlists', data),
+
+  getSetlistDetail: (id: string) =>
+    api.get<BandRpgSetlistDetail>(`/api/band-rpg/setlists/${encodeURIComponent(id)}`),
+
+  renameSetlist: (id: string, name: string) =>
+    api.put<{ ok: boolean }>(`/api/band-rpg/setlists/${encodeURIComponent(id)}`, { name }),
+
+  deleteSetlist: (id: string) =>
+    api.delete<{ ok: boolean }>(`/api/band-rpg/setlists/${encodeURIComponent(id)}`),
+
+  updateSetlistSongs: (id: string, songs: Array<{ songId: string }>) =>
+    api.put<{ ok: boolean; songCount: number }>(
+      `/api/band-rpg/setlists/${encodeURIComponent(id)}/songs`,
+      { songs },
+    ),
 
   adminResetMyData: () =>
     api.post<{ ok: boolean; message: string }>('/api/band-rpg/admin/reset-my-data', {}),
