@@ -4,6 +4,54 @@ import { requireAuth } from '../middleware/requireAuth.js';
 
 export const bandRpgRouter = Router();
 
+// GET /start-session?bandId=xxx — pick random song + extract lyric fragments
+bandRpgRouter.get('/start-session', async (req, res, next): Promise<void> => {
+  try {
+    const rawBandId = req.query['bandId'];
+    const bandId = typeof rawBandId === 'string' ? rawBandId : null;
+    if (!bandId) { res.status(400).json({ error: 'bandId is required' }); return; }
+
+    const count = await prisma.song.count({
+      where: { bandId, isInstrumental: false, lyrics: { some: { isPrimary: true } } },
+    });
+
+    if (count === 0) {
+      // Fallback: no lyrics found — return placeholder session
+      res.json({ songId: null, songTitle: null, fragments: [] });
+      return;
+    }
+
+    const skip = Math.floor(Math.random() * count);
+    const song = await prisma.song.findFirst({
+      where: { bandId, isInstrumental: false, lyrics: { some: { isPrimary: true } } },
+      select: { id: true, title: true, lyrics: { where: { isPrimary: true }, take: 1, select: { text: true } } },
+      skip,
+    });
+
+    if (!song) { res.json({ songId: null, songTitle: null, fragments: [] }); return; }
+
+    const lyricText = song.lyrics[0]?.text ?? '';
+    const fragments = extractFragments(lyricText, 3);
+
+    res.json({ songId: song.id, songTitle: song.title, fragments });
+  } catch (e) { next(e); }
+});
+
+function extractFragments(text: string, count: number): { id: string; text: string }[] {
+  const lines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length >= 8 && !l.startsWith('[') && !l.startsWith('(') && l.length <= 80);
+
+  // Shuffle lines
+  for (let i = lines.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = lines[i]; lines[i] = lines[j]!; lines[j] = tmp!;
+  }
+
+  return lines.slice(0, count).map((text, i) => ({ id: `frag_${i}`, text }));
+}
+
 // POST /scores — save run score (auth optional)
 bandRpgRouter.post('/scores', async (req, res, next): Promise<void> => {
   try {
@@ -17,6 +65,8 @@ bandRpgRouter.post('/scores', async (req, res, next): Promise<void> => {
     const bandName        = typeof body['bandName']        === 'string' ? body['bandName']        : null;
     const characterId     = typeof body['characterId']     === 'string' ? body['characterId']     : null;
     const characterName   = typeof body['characterName']   === 'string' ? body['characterName']   : null;
+    const songId          = typeof body['songId']          === 'string' ? body['songId']          : null;
+    const songTitle       = typeof body['songTitle']       === 'string' ? body['songTitle']       : null;
 
     const saved = await prisma.bandRpgScore.create({
       data: {
@@ -27,6 +77,8 @@ bandRpgRouter.post('/scores', async (req, res, next): Promise<void> => {
         ...(bandName      ? { bandName }      : {}),
         ...(characterId   ? { characterId }   : {}),
         ...(characterName ? { characterName } : {}),
+        ...(songId        ? { songId }        : {}),
+        ...(songTitle     ? { songTitle }     : {}),
       },
     });
 
@@ -49,7 +101,7 @@ bandRpgRouter.get('/scores', async (req, res, next): Promise<void> => {
       take: limit,
       select: {
         score: true, questsCompleted: true, itemsCollected: true,
-        bandName: true, characterName: true, createdAt: true,
+        bandName: true, characterName: true, songTitle: true, createdAt: true,
         user: { select: { name: true, username: true, avatarUrl: true } },
       },
     });
@@ -61,8 +113,9 @@ bandRpgRouter.get('/scores', async (req, res, next): Promise<void> => {
       score:           s.score,
       questsCompleted: s.questsCompleted,
       itemsCollected:  s.itemsCollected,
-      bandName:        s.bandName     ?? null,
+      bandName:        s.bandName      ?? null,
       characterName:   s.characterName ?? null,
+      songTitle:       s.songTitle     ?? null,
       createdAt:       s.createdAt,
     })));
   } catch (e) { next(e); }

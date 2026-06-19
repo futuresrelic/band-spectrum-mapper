@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { bandRpgApi } from '../../api/bandRpg';
-import type { BandRpgSelectedBand, BandRpgSelectedCharacter } from '../../api/bandRpg';
+import type { BandRpgSelectedBand, BandRpgSelectedCharacter, BandRpgSession } from '../../api/bandRpg';
 
 // ── World constants ──────────────────────────────────────────────────────────
 
@@ -14,7 +14,7 @@ const WORLD_H = ROWS * TILE;
 const P_HALF     = 13;
 const P_SPEED    = 2.8;
 const INTERACT_R = 58;
-const COLLECT_R  = 22;
+const COLLECT_R  = 28;
 
 const NPC_POS   = { x: 11 * TILE + TILE / 2, y: 3  * TILE + TILE / 2 };
 const SPAWN_POS = { x: 11 * TILE + TILE / 2, y: 15 * TILE + TILE / 2 };
@@ -83,34 +83,68 @@ function randomVinylPos(): { x: number; y: number } {
   return candidates[Math.floor(Math.random() * candidates.length)] ?? VINYL_FALLBACK;
 }
 
-// ── Dialogue — dynamic per selected band ─────────────────────────────────────
+function getSpreadSpawnPositions(count: number): { x: number; y: number }[] {
+  const candidates = getValidSpawnTiles();
+  // Shuffle candidates
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = candidates[i]; candidates[i] = candidates[j]!; candidates[j] = tmp!;
+  }
+  const MIN_DIST = TILE * 5;
+  const chosen: { x: number; y: number }[] = [];
+  for (const pos of candidates) {
+    if (chosen.length >= count) break;
+    const tooClose = chosen.some((c) => Math.hypot(c.x - pos.x, c.y - pos.y) < MIN_DIST);
+    if (!tooClose) chosen.push(pos);
+  }
+  // Fill remaining from shuffled pool if spread was too strict
+  if (chosen.length < count) {
+    for (const pos of candidates) {
+      if (chosen.length >= count) break;
+      if (!chosen.includes(pos)) chosen.push(pos);
+    }
+  }
+  return chosen.slice(0, count);
+}
 
-interface DlgLine  { speaker: string; text: string }
+// ── Dialogue — dynamic per band + song ───────────────────────────────────────
 
-function buildQuestLines(bandName: string): { intro: DlgLine[]; completion: DlgLine[] } {
+interface DlgLine { speaker: string; text: string }
+
+function buildQuestLines(
+  bandName: string,
+  songTitle: string | null,
+): { intro: DlgLine[]; completion: DlgLine[] } {
+  const songRef = songTitle ? `"${songTitle}"` : 'one of their recordings';
   return {
     intro: [
       { speaker: 'The Curator', text: `Ah — a visitor! I've been waiting for someone brave enough to help.` },
-      { speaker: 'The Curator', text: `One of ${bandName}'s most prized records has gone missing somewhere in The Archives.` },
-      { speaker: 'The Curator', text: `"The Missing Vinyl." Last seen somewhere in the east wing. Can you find it?` },
-      { speaker: 'The Curator', text: `I'll mark it in your log. Be careful — these halls can be disorienting.` },
+      { speaker: 'The Curator', text: `A recording of ${songRef} by ${bandName} has been scattered across The Archives.` },
+      { speaker: 'The Curator', text: `Three lyric fragments are hidden somewhere in these halls. Find them to reconstruct the song.` },
+      { speaker: 'The Curator', text: `Once the song is recovered, the vinyl will materialise. Bring it back to me.` },
     ],
     completion: [
-      { speaker: 'The Curator', text: `You found it! Remarkable. I knew I could count on you.` },
-      { speaker: 'The Curator', text: `This record contains one of the rarest ${bandName} sessions in the entire BSM collection.` },
-      { speaker: 'The Curator', text: `The Archives are in your debt. Your contribution has been logged. +100 points.` },
+      { speaker: 'The Curator', text: `Extraordinary! You recovered ${songRef}. This is a rare ${bandName} document.` },
+      { speaker: 'The Curator', text: `The Archives owe you a great debt. Your contribution has been logged. +100 points.` },
     ],
   };
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type QuestPhase = 'pre_quest' | 'find_vinyl' | 'return_curator' | 'complete';
+type QuestPhase = 'pre_quest' | 'find_fragments' | 'song_revealed' | 'find_vinyl' | 'return_curator' | 'complete';
 type Facing     = 'up' | 'down' | 'left' | 'right';
 
 interface Player   { x: number; y: number; facing: Facing }
 interface Input    { up: boolean; down: boolean; left: boolean; right: boolean }
 interface DlgState { lines: DlgLine[]; idx: number; onDone: () => void }
+
+interface LyricFragment {
+  id:        string;
+  text:      string;
+  pos:       { x: number; y: number };
+  collected: boolean;
+}
 
 interface Effect {
   id:        number;
@@ -155,6 +189,8 @@ function playTone(freq: number, dur: number, type: OscillatorType, vol: number):
 function soundDialogueOpen():    void { playTone(440, 0.1, 'sine', 0.12); setTimeout(() => playTone(554, 0.1, 'sine', 0.1), 80); }
 function soundDialogueAdvance(): void { playTone(330, 0.07, 'sine', 0.08); }
 function soundQuestAccepted():   void { [392, 494, 587].forEach((f, i) => setTimeout(() => playTone(f, 0.12, 'triangle', 0.15), i * 100)); }
+function soundFragmentPickup():  void { [523, 659].forEach((f, i) => setTimeout(() => playTone(f, 0.1, 'sine', 0.14), i * 60)); }
+function soundSongReveal():      void { [392, 494, 587, 784].forEach((f, i) => setTimeout(() => playTone(f, 0.18, 'triangle', 0.18), i * 90)); }
 function soundItemPickup():      void { [659, 784, 1047].forEach((f, i) => setTimeout(() => playTone(f, 0.1, 'sine', 0.16), i * 70)); }
 function soundQuestComplete():   void { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => playTone(f, 0.15, 'triangle', 0.18), i * 120)); }
 
@@ -255,14 +291,81 @@ function drawNPC(ctx: CanvasRenderingContext2D, cx: number, cy: number, questPha
   if (nearPlayer) drawPrompt(ctx, sx, sy - 36, isMobileHint ? 'Tap E' : '[E] Talk');
 }
 
+function drawFragment(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number,
+  frag: LyricFragment,
+  nearPlayer: boolean,
+  index: number,
+) {
+  if (frag.collected) return;
+  const sx = frag.pos.x - cx;
+  const sy = frag.pos.y - cy;
+  const now = performance.now();
+  const bob  = Math.sin(now / 500 + index * 1.3) * 3;
+  const pulse = Math.sin(now / 800 + index * 0.9);
+
+  // Outer glow ring
+  ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.25 + pulse * 0.15;
+  ctx.shadowColor = '#f59e0b'; ctx.shadowBlur = 16;
+  ctx.beginPath(); ctx.arc(sx, sy + bob, 22, 0, Math.PI * 2); ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // Amber orb
+  ctx.shadowColor = '#f59e0b'; ctx.shadowBlur = 16 + pulse * 6;
+  ctx.fillStyle = '#78350f';
+  ctx.beginPath(); ctx.arc(sx, sy + bob, 14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#fbbf24';
+  ctx.beginPath(); ctx.arc(sx, sy + bob, 8, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#fde68a';
+  ctx.beginPath(); ctx.arc(sx - 3, sy + bob - 3, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+
+  // Music note symbol
+  ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#1c1917';
+  ctx.fillText('♪', sx, sy + bob);
+
+  // Label
+  ctx.font = 'bold 8px sans-serif'; ctx.fillStyle = '#fcd34d';
+  ctx.fillText(`FRAGMENT ${index + 1}`, sx, sy + bob - 24);
+
+  // Show lyric text when near
+  if (nearPlayer) {
+    const maxW = 180;
+    const words = frag.text.split(' ');
+    const lineH = 13;
+    const lines: string[] = [];
+    let cur = '';
+    ctx.font = 'italic 10px sans-serif';
+    for (const word of words) {
+      const test = cur ? `${cur} ${word}` : word;
+      if (ctx.measureText(test).width > maxW) { lines.push(cur); cur = word; }
+      else cur = test;
+    }
+    if (cur) lines.push(cur);
+
+    const boxW = maxW + 16;
+    const boxH = lines.length * lineH + 14;
+    const bx = sx - boxW / 2;
+    const by = sy + bob - 44 - boxH;
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 6); ctx.fill();
+    ctx.fillStyle = '#fde68a';
+    lines.forEach((l, li) => ctx.fillText(l, sx, by + 8 + li * lineH));
+
+    drawPrompt(ctx, sx, sy + bob - 34, isMobileHint ? 'Tap E' : '[E] Collect');
+  }
+}
+
 function drawVinyl(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number,
   pos: { x: number; y: number },
-  collected: boolean,
   nearPlayer: boolean,
+  songTitle: string | null,
 ) {
-  if (collected) return;
   const sx = pos.x - cx;
   const sy = pos.y - cy;
   const now = performance.now();
@@ -292,8 +395,9 @@ function drawVinyl(
 
   ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#c4b5fd';
-  ctx.fillText('MISSING VINYL', sx, sy + bob - 26);
-  if (nearPlayer) drawPrompt(ctx, sx, sy + bob - 34, isMobileHint ? 'Tap E' : '[E] Collect');
+  const label = songTitle ? `🎵 ${songTitle}` : 'RECOVERED VINYL';
+  ctx.fillText(label, sx, sy + bob - 26);
+  if (nearPlayer) drawPrompt(ctx, sx, sy + bob - 36, isMobileHint ? 'Tap E' : '[E] Collect');
 }
 
 function drawPrompt(ctx: CanvasRenderingContext2D, sx: number, sy: number, text: string) {
@@ -383,14 +487,40 @@ function DialogueBox({ dlg, onNext }: { dlg: DlgState; onNext: () => void }) {
   );
 }
 
-function QuestHud({ questPhase, bandName }: { questPhase: QuestPhase; bandName: string }) {
+function QuestHud({ questPhase, bandName, fragmentsCollected, songTitle }: {
+  questPhase: QuestPhase;
+  bandName: string;
+  fragmentsCollected: number;
+  songTitle: string | null;
+}) {
   if (questPhase === 'pre_quest' || questPhase === 'complete') return null;
+
   return (
     <div className="absolute top-2 left-2 pointer-events-none">
-      <div className="bg-black/70 border border-amber-500/30 rounded-lg px-3 py-2 text-xs max-w-[210px]">
-        <p className="text-amber-400 font-bold mb-0.5">{bandName}'s Missing Vinyl</p>
-        {questPhase === 'find_vinyl'     && <p className="text-gray-300">Search the archives <span className="text-amber-300 font-mono">0/1</span></p>}
-        {questPhase === 'return_curator' && <p className="text-gray-300">Return to The Curator <span className="text-amber-300">✓</span></p>}
+      <div className="bg-black/70 border border-amber-500/30 rounded-lg px-3 py-2 text-xs max-w-[220px]">
+        <p className="text-amber-400 font-bold mb-0.5 truncate">{bandName} · Song Discovery</p>
+        {questPhase === 'find_fragments' && (
+          <p className="text-gray-300">
+            Find lyric fragments{' '}
+            <span className="text-amber-300 font-mono">{fragmentsCollected}/3</span>
+          </p>
+        )}
+        {questPhase === 'song_revealed' && (
+          <p className="text-emerald-400 font-semibold">🎵 Song Recovered!</p>
+        )}
+        {questPhase === 'find_vinyl' && (
+          <p className="text-gray-300">
+            Recover the vinyl <span className="text-amber-300">0/1</span>
+          </p>
+        )}
+        {questPhase === 'return_curator' && (
+          <p className="text-gray-300">
+            Return to The Curator <span className="text-amber-300">✓</span>
+          </p>
+        )}
+        {songTitle && (questPhase === 'find_vinyl' || questPhase === 'return_curator') && (
+          <p className="text-violet-400 text-xs mt-0.5 truncate">🎵 {songTitle}</p>
+        )}
       </div>
     </div>
   );
@@ -468,6 +598,33 @@ function QuestBanner({ data, onDismiss }: { data: BannerData; onDismiss: () => v
   );
 }
 
+function SongRevealBanner({ songTitle, bandName, onDone }: {
+  songTitle: string | null;
+  bandName: string;
+  onDone: () => void;
+}) {
+  useEffect(() => {
+    const t = window.setTimeout(onDone, 3200);
+    return () => window.clearTimeout(t);
+  }, [onDone]);
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
+      <div className="bg-gray-950/95 border-2 border-emerald-500/60 rounded-2xl px-8 py-6 text-center shadow-2xl max-w-sm mx-4">
+        <div className="text-4xl mb-3">🎵</div>
+        <p className="text-emerald-400 font-bold text-xs uppercase tracking-widest mb-1">Song Recovered</p>
+        {songTitle ? (
+          <p className="text-white font-bold text-lg leading-snug">{songTitle}</p>
+        ) : (
+          <p className="text-white font-bold text-lg">Unknown Recording</p>
+        )}
+        <p className="text-gray-500 text-xs mt-1">{bandName}</p>
+        <p className="text-gray-600 text-xs mt-3">The vinyl is now materialising…</p>
+      </div>
+    </div>
+  );
+}
+
 function PauseMenu({ onResume, onQuit }: { onResume: () => void; onQuit: () => void }) {
   return (
     <div className="absolute inset-0 bg-black/60 flex items-center justify-center pointer-events-auto z-20">
@@ -482,8 +639,8 @@ function PauseMenu({ onResume, onQuit }: { onResume: () => void; onQuit: () => v
   );
 }
 
-function CompleteScreen({ score, rank, bandName, characterName, onPlayAgain, onChangeBand, onLeaderboard }: {
-  score: number; rank: number | null; bandName: string; characterName: string;
+function CompleteScreen({ score, rank, bandName, characterName, songTitle, onPlayAgain, onChangeBand, onLeaderboard }: {
+  score: number; rank: number | null; bandName: string; characterName: string; songTitle: string | null;
   onPlayAgain: () => void; onChangeBand: () => void; onLeaderboard: () => void;
 }) {
   return (
@@ -491,7 +648,10 @@ function CompleteScreen({ score, rank, bandName, characterName, onPlayAgain, onC
       <div className="bg-gray-900 border border-emerald-500/40 rounded-2xl p-8 text-center max-w-sm mx-4">
         <div className="text-5xl mb-4">🏆</div>
         <h2 className="text-2xl font-bold text-emerald-400 mb-1">Quest Complete!</h2>
-        <p className="text-violet-400 text-xs mb-4">{bandName} · {characterName}</p>
+        <p className="text-violet-400 text-xs mb-1">{bandName} · {characterName}</p>
+        {songTitle && (
+          <p className="text-amber-400 text-xs mb-4">🎵 {songTitle}</p>
+        )}
         <div className="bg-black/40 rounded-xl p-4 mb-6">
           <div className="text-4xl font-bold text-white mb-1">{score}</div>
           <div className="text-gray-400 text-sm">points earned</div>
@@ -562,15 +722,25 @@ function InteractBtn({ onInteract }: { onInteract: () => void }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface BandRpgGameProps {
-  onExit:       () => void;
-  onChangeBand: () => void;
-  selectedBand: BandRpgSelectedBand;
+  onExit:         () => void;
+  onChangeBand:   () => void;
+  onNewRun:       (session: BandRpgSession) => void;
+  selectedBand:   BandRpgSelectedBand;
   selectedCharacter: BandRpgSelectedCharacter;
+  session:        BandRpgSession;
+  refetchSession: () => Promise<BandRpgSession>;
 }
 
-export default function BandRpgGame({ onExit, onChangeBand, selectedBand, selectedCharacter }: BandRpgGameProps) {
+export default function BandRpgGame({
+  onExit, onChangeBand, onNewRun,
+  selectedBand, selectedCharacter,
+  session, refetchSession,
+}: BandRpgGameProps) {
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Live session ref — updated on Play Again to hold fresh session
+  const sessionRef = useRef<BandRpgSession>(session);
 
   // Game-loop refs
   const playerRef       = useRef<Player>({ x: SPAWN_POS.x, y: SPAWN_POS.y, facing: 'up' });
@@ -587,19 +757,45 @@ export default function BandRpgGame({ onExit, onChangeBand, selectedBand, select
   const effectsRef      = useRef<Effect[]>([]);
   const effectIdRef     = useRef(0);
 
-  // Dialogue lines built once from the selected band
-  const dialogueRef = useRef(buildQuestLines(selectedBand.name));
+  // Fragment state (3 lyric fragments)
+  const fragmentsRef     = useRef<LyricFragment[]>([]);
+  const collectedCountRef = useRef(0);
+
+  // Build dialogue using current session's song title
+  const dialogueRef = useRef(buildQuestLines(selectedBand.name, session.songTitle));
 
   // React state for UI
-  const [questPhase, setQuestPhase] = useState<QuestPhase>('pre_quest');
-  const [score, setScore]           = useState(0);
-  const [isPaused, setIsPaused]     = useState(false);
-  const [dlg, setDlg]               = useState<DlgState | null>(null);
-  const [isComplete, setIsComplete] = useState(false);
-  const [savedRank, setSavedRank]   = useState<number | null>(null);
-  const [isMobile, setIsMobile]     = useState(false);
-  const [banner, setBanner]         = useState<BannerData | null>(null);
-  const [muted, setMuted]           = useState(false);
+  const [questPhase,        setQuestPhase]        = useState<QuestPhase>('pre_quest');
+  const [score,             setScore]             = useState(0);
+  const [isPaused,          setIsPaused]          = useState(false);
+  const [dlg,               setDlg]               = useState<DlgState | null>(null);
+  const [isComplete,        setIsComplete]        = useState(false);
+  const [savedRank,         setSavedRank]         = useState<number | null>(null);
+  const [isMobile,          setIsMobile]          = useState(false);
+  const [banner,            setBanner]            = useState<BannerData | null>(null);
+  const [muted,             setMuted]             = useState(false);
+  const [fragmentsCollected, setFragmentsCollected] = useState(0);
+  const [showSongReveal,    setShowSongReveal]    = useState(false);
+
+  // Keep sessionRef in sync when prop changes (Play Again path)
+  useEffect(() => { sessionRef.current = session; }, [session]);
+
+  function initFragments(sess: BandRpgSession): LyricFragment[] {
+    const positions = getSpreadSpawnPositions(3);
+    return sess.fragments.map((frag, i) => ({
+      id:        frag.id,
+      text:      frag.text,
+      pos:       positions[i] ?? randomVinylPos(),
+      collected: false,
+    }));
+  }
+
+  // Initialize fragments from session on mount
+  useEffect(() => {
+    fragmentsRef.current = initFragments(session);
+    dialogueRef.current  = buildQuestLines(selectedBand.name, session.songTitle);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   useEffect(() => {
     const mobile = window.innerWidth < 768 || 'ontouchstart' in window;
@@ -643,20 +839,33 @@ export default function BandRpgGame({ onExit, onChangeBand, selectedBand, select
   }, []);
 
   const acceptQuest = useCallback(() => {
-    questPhaseRef.current = 'find_vinyl';
-    setQuestPhase('find_vinyl');
-    setBanner({ title: 'Quest Accepted!', subtitle: `Find ${selectedBand.name}'s Missing Vinyl`, color: 'amber' });
+    questPhaseRef.current = 'find_fragments';
+    setQuestPhase('find_fragments');
+    setBanner({ title: 'Quest Accepted!', subtitle: 'Find 3 lyric fragments in The Archives', color: 'amber' });
     effectsRef.current.push({
       id: ++effectIdRef.current, wx: NPC_POS.x, wy: NPC_POS.y - 20,
       type: 'float_text', text: 'Quest!', color: '#fbbf24',
       startTime: performance.now(), duration: 1200,
     });
     soundQuestAccepted();
-  }, [selectedBand.name]);
+  }, []);
+
+  const spawnVinylAfterReveal = useCallback(() => {
+    vinylPosRef.current   = randomVinylPos();
+    questPhaseRef.current = 'find_vinyl';
+    setQuestPhase('find_vinyl');
+    setShowSongReveal(false);
+    setBanner({ title: 'Vinyl Materialised!', subtitle: 'Find and recover the vinyl record', color: 'violet' });
+  }, []);
+
+  const handleSongRevealDone = useCallback(() => {
+    spawnVinylAfterReveal();
+  }, [spawnVinylAfterReveal]);
 
   const finishQuest = useCallback(() => {
     scoreRef.current += 100;
     const finalScore = scoreRef.current;
+    const sess = sessionRef.current;
     effectsRef.current.push({
       id: ++effectIdRef.current, wx: NPC_POS.x, wy: NPC_POS.y - 24,
       type: 'float_text', text: '+100', color: '#4ade80',
@@ -674,9 +883,11 @@ export default function BandRpgGame({ onExit, onChangeBand, selectedBand, select
     setScore(finalScore);
     soundQuestComplete();
     submitScore.mutate({
-      score: finalScore, questsCompleted: 1, itemsCollected: 1, levelsCleared: 0,
+      score: finalScore, questsCompleted: 1, itemsCollected: 4, levelsCleared: 0,
       bandId: selectedBand.id, bandName: selectedBand.name,
       characterId: selectedCharacter.id, characterName: selectedCharacter.name,
+      ...(sess.songId    ? { songId: sess.songId }       : {}),
+      ...(sess.songTitle ? { songTitle: sess.songTitle } : {}),
     });
     saveProgress.mutate({
       questPhase: 'complete', score: finalScore,
@@ -689,26 +900,63 @@ export default function BandRpgGame({ onExit, onChangeBand, selectedBand, select
     if (isDialogueRef.current || isPausedRef.current || isCompleteRef.current) return;
     const p = playerRef.current;
 
+    // NPC interactions
     if (dist(p.x, p.y, NPC_POS.x, NPC_POS.y) < INTERACT_R) {
-      if (questPhaseRef.current === 'pre_quest')       { openDlg(dialogueRef.current.intro,      acceptQuest); return; }
-      if (questPhaseRef.current === 'return_curator')  { openDlg(dialogueRef.current.completion, finishQuest); return; }
+      if (questPhaseRef.current === 'pre_quest')      { openDlg(dialogueRef.current.intro,      acceptQuest); return; }
+      if (questPhaseRef.current === 'return_curator') { openDlg(dialogueRef.current.completion, finishQuest); return; }
     }
 
+    // Fragment collection (E-key)
+    if (questPhaseRef.current === 'find_fragments') {
+      for (const frag of fragmentsRef.current) {
+        if (!frag.collected && dist(p.x, p.y, frag.pos.x, frag.pos.y) < INTERACT_R) {
+          collectFragment(frag);
+          return;
+        }
+      }
+    }
+
+    // Vinyl collection (E-key)
     if (!vinylRef.current && questPhaseRef.current === 'find_vinyl') {
       const vpos = vinylPosRef.current;
       if (dist(p.x, p.y, vpos.x, vpos.y) < INTERACT_R) {
-        vinylRef.current = true;
-        scoreRef.current += 25;
-        questPhaseRef.current = 'return_curator';
-        setQuestPhase('return_curator');
-        setScore(scoreRef.current);
-        setBanner({ title: 'Vinyl Found!', subtitle: 'Return to The Curator', color: 'violet' });
-        effectsRef.current.push({ id: ++effectIdRef.current, wx: vpos.x, wy: vpos.y - 20, type: 'float_text', text: '+25', color: '#c4b5fd', startTime: performance.now(), duration: 1200 });
-        effectsRef.current.push({ id: ++effectIdRef.current, wx: vpos.x, wy: vpos.y, type: 'burst', color: '#a78bfa', startTime: performance.now(), duration: 600 });
-        soundItemPickup();
+        collectVinyl(vpos);
       }
     }
-  }, [openDlg, acceptQuest, finishQuest]);
+  }, [openDlg, acceptQuest, finishQuest]); // collectFragment + collectVinyl defined below
+
+  const collectFragment = useCallback((frag: LyricFragment) => {
+    frag.collected = true;
+    scoreRef.current += 25;
+    const newCount = ++collectedCountRef.current;
+    setScore(scoreRef.current);
+    setFragmentsCollected(newCount);
+
+    effectsRef.current.push({ id: ++effectIdRef.current, wx: frag.pos.x, wy: frag.pos.y - 20, type: 'float_text', text: '+25 ♪', color: '#fbbf24', startTime: performance.now(), duration: 1200 });
+    effectsRef.current.push({ id: ++effectIdRef.current, wx: frag.pos.x, wy: frag.pos.y, type: 'burst', color: '#f59e0b', startTime: performance.now(), duration: 600 });
+    soundFragmentPickup();
+
+    if (newCount >= 3) {
+      // All 3 fragments collected — trigger song reveal
+      questPhaseRef.current = 'song_revealed';
+      setQuestPhase('song_revealed');
+      setShowSongReveal(true);
+      soundSongReveal();
+      dialogueRef.current = buildQuestLines(selectedBand.name, sessionRef.current.songTitle);
+    }
+  }, [selectedBand.name]);
+
+  const collectVinyl = useCallback((vpos: { x: number; y: number }) => {
+    vinylRef.current = true;
+    scoreRef.current += 25;
+    questPhaseRef.current = 'return_curator';
+    setQuestPhase('return_curator');
+    setScore(scoreRef.current);
+    setBanner({ title: 'Vinyl Recovered!', subtitle: 'Return to The Curator', color: 'violet' });
+    effectsRef.current.push({ id: ++effectIdRef.current, wx: vpos.x, wy: vpos.y - 20, type: 'float_text', text: '+25', color: '#c4b5fd', startTime: performance.now(), duration: 1200 });
+    effectsRef.current.push({ id: ++effectIdRef.current, wx: vpos.x, wy: vpos.y, type: 'burst', color: '#a78bfa', startTime: performance.now(), duration: 600 });
+    soundItemPickup();
+  }, []);
 
   // Keyboard
   useEffect(() => {
@@ -788,19 +1036,21 @@ export default function BandRpgGame({ onExit, onChangeBand, selectedBand, select
               isWalkable(p.x - P_HALF, ny + P_HALF) && isWalkable(p.x + P_HALF, ny + P_HALF)) p.y = ny;
         }
 
+        // Auto-collect fragments
+        if (questPhaseRef.current === 'find_fragments') {
+          for (const frag of fragmentsRef.current) {
+            if (!frag.collected && dist(p.x, p.y, frag.pos.x, frag.pos.y) < COLLECT_R) {
+              collectFragment(frag);
+              break; // collect one per frame
+            }
+          }
+        }
+
         // Auto-collect vinyl
         if (!vinylRef.current && questPhaseRef.current === 'find_vinyl') {
           const vpos = vinylPosRef.current;
           if (dist(p.x, p.y, vpos.x, vpos.y) < COLLECT_R) {
-            vinylRef.current = true;
-            scoreRef.current += 25;
-            questPhaseRef.current = 'return_curator';
-            setQuestPhase('return_curator');
-            setScore(scoreRef.current);
-            setBanner({ title: 'Vinyl Found!', subtitle: 'Return to The Curator', color: 'violet' });
-            effectsRef.current.push({ id: ++effectIdRef.current, wx: vpos.x, wy: vpos.y - 20, type: 'float_text', text: '+25', color: '#c4b5fd', startTime: performance.now(), duration: 1200 });
-            effectsRef.current.push({ id: ++effectIdRef.current, wx: vpos.x, wy: vpos.y, type: 'burst', color: '#a78bfa', startTime: performance.now(), duration: 600 });
-            soundItemPickup();
+            collectVinyl(vpos);
           }
         }
       }
@@ -822,7 +1072,19 @@ export default function BandRpgGame({ onExit, onChangeBand, selectedBand, select
       const nearVinyl = !vinylRef.current && questPhaseRef.current === 'find_vinyl'
                         && dist(p.x, p.y, vpos.x, vpos.y) < INTERACT_R;
 
-      drawVinyl(ctx, cam.x, cam.y, vpos, vinylRef.current, nearVinyl);
+      // Draw fragments
+      if (questPhaseRef.current === 'find_fragments') {
+        fragmentsRef.current.forEach((frag, i) => {
+          const nearFrag = !frag.collected && dist(p.x, p.y, frag.pos.x, frag.pos.y) < INTERACT_R;
+          drawFragment(ctx, cam.x, cam.y, frag, nearFrag, i);
+        });
+      }
+
+      // Draw vinyl only after song reveal
+      if (questPhaseRef.current === 'find_vinyl' || questPhaseRef.current === 'return_curator') {
+        drawVinyl(ctx, cam.x, cam.y, vpos, nearVinyl, sessionRef.current.songTitle);
+      }
+
       drawNPC(ctx, cam.x, cam.y, questPhaseRef.current, nearNPC);
       drawPlayer(ctx, p, cam.x, cam.y);
       drawEffects(ctx, cam.x, cam.y, effectsRef.current, now);
@@ -832,7 +1094,7 @@ export default function BandRpgGame({ onExit, onChangeBand, selectedBand, select
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, []);
+  }, [collectFragment, collectVinyl]);
 
   const handleJoystick = useCallback((dx: number, dy: number) => { joystickRef.current = { dx, dy }; }, []);
 
@@ -841,16 +1103,20 @@ export default function BandRpgGame({ onExit, onChangeBand, selectedBand, select
     setIsPaused((p) => !p);
   }, []);
 
-  const resetGame = useCallback(() => {
-    vinylPosRef.current   = randomVinylPos();
-    playerRef.current     = { x: SPAWN_POS.x, y: SPAWN_POS.y, facing: 'up' };
-    vinylRef.current      = false;
-    questPhaseRef.current = 'pre_quest';
-    isCompleteRef.current = false;
-    isDialogueRef.current = false;
-    isPausedRef.current   = false;
-    scoreRef.current      = 0;
-    effectsRef.current    = [];
+  const resetGame = useCallback((newSession: BandRpgSession) => {
+    sessionRef.current      = newSession;
+    dialogueRef.current     = buildQuestLines(selectedBand.name, newSession.songTitle);
+    fragmentsRef.current    = initFragments(newSession);
+    collectedCountRef.current = 0;
+    vinylPosRef.current     = randomVinylPos();
+    playerRef.current       = { x: SPAWN_POS.x, y: SPAWN_POS.y, facing: 'up' };
+    vinylRef.current        = false;
+    questPhaseRef.current   = 'pre_quest';
+    isCompleteRef.current   = false;
+    isDialogueRef.current   = false;
+    isPausedRef.current     = false;
+    scoreRef.current        = 0;
+    effectsRef.current      = [];
     setQuestPhase('pre_quest');
     setScore(0);
     setIsComplete(false);
@@ -858,9 +1124,28 @@ export default function BandRpgGame({ onExit, onChangeBand, selectedBand, select
     setDlg(null);
     setSavedRank(null);
     setBanner(null);
-  }, []);
+    setFragmentsCollected(0);
+    setShowSongReveal(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBand.name]);
 
-  const overlayActive = isPaused || dlg !== null || isComplete;
+  const handlePlayAgain = useCallback(() => {
+    refetchSession()
+      .then((newSession) => {
+        resetGame(newSession);
+        onNewRun(newSession);
+      })
+      .catch(() => {
+        // Fallback: reuse same session with new positions
+        const fallback: BandRpgSession = { ...sessionRef.current };
+        resetGame(fallback);
+        onNewRun(fallback);
+      });
+  }, [refetchSession, resetGame, onNewRun]);
+
+  const overlayActive = isPaused || dlg !== null || isComplete || showSongReveal;
+
+  const currentSongTitle = sessionRef.current.songTitle;
 
   return (
     <div className="flex flex-col h-full bg-gray-950">
@@ -869,7 +1154,12 @@ export default function BandRpgGame({ onExit, onChangeBand, selectedBand, select
 
         {!isComplete && (
           <>
-            <QuestHud questPhase={questPhase} bandName={selectedBand.name} />
+            <QuestHud
+              questPhase={questPhase}
+              bandName={selectedBand.name}
+              fragmentsCollected={fragmentsCollected}
+              songTitle={currentSongTitle}
+            />
             <ScoreHud score={score} />
             <MuteBtn muted={muted} onToggle={toggleMute} />
             <PauseBtn onClick={togglePause} />
@@ -878,6 +1168,14 @@ export default function BandRpgGame({ onExit, onChangeBand, selectedBand, select
         )}
 
         {banner && <QuestBanner key={banner.title} data={banner} onDismiss={dismissBanner} />}
+
+        {showSongReveal && (
+          <SongRevealBanner
+            songTitle={currentSongTitle}
+            bandName={selectedBand.name}
+            onDone={handleSongRevealDone}
+          />
+        )}
 
         {dlg && (
           <div className="absolute inset-0 pointer-events-none">
@@ -893,7 +1191,8 @@ export default function BandRpgGame({ onExit, onChangeBand, selectedBand, select
             rank={savedRank}
             bandName={selectedBand.name}
             characterName={selectedCharacter.name}
-            onPlayAgain={resetGame}
+            songTitle={currentSongTitle}
+            onPlayAgain={handlePlayAgain}
             onChangeBand={onChangeBand}
             onLeaderboard={() => { window.location.href = '/leaderboard'; }}
           />

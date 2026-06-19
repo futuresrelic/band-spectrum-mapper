@@ -1659,6 +1659,8 @@ model BandRpgScore {
   bandName           String?
   characterId        String?
   characterName      String?
+  songId             String?
+  songTitle          String?
   createdAt          DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
