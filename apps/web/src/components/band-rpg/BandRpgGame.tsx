@@ -7,20 +7,19 @@ import { bandRpgApi } from '../../api/bandRpg';
 const TILE = 44;
 const COLS = 24;
 const ROWS = 18;
-const WORLD_W = COLS * TILE; // 1056
-const WORLD_H = ROWS * TILE; // 792
+const WORLD_W = COLS * TILE;
+const WORLD_H = ROWS * TILE;
 
-const P_HALF    = 13;  // player hitbox half-size (px)
-const P_SPEED   = 2.8; // px per frame at 60fps
-const INTERACT_R = 58; // px — show interaction prompts within this range
-const COLLECT_R  = 22; // px — auto-collect vinyl range
+const P_HALF     = 13;
+const P_SPEED    = 2.8;
+const INTERACT_R = 58;
+const COLLECT_R  = 22;
 
-// World-space centres (tile col/row → world pixel centre)
-const NPC_POS   = { x: 11 * TILE + TILE / 2, y: 3  * TILE + TILE / 2 }; // col 11, row 3
-const VINYL_POS = { x: 20 * TILE + TILE / 2, y: 9  * TILE + TILE / 2 }; // col 20, row 9
-const SPAWN_POS = { x: 11 * TILE + TILE / 2, y: 15 * TILE + TILE / 2 }; // col 11, row 15
+const NPC_POS   = { x: 11 * TILE + TILE / 2, y: 3  * TILE + TILE / 2 };
+const SPAWN_POS = { x: 11 * TILE + TILE / 2, y: 15 * TILE + TILE / 2 };
 
-// Tile map  0=wall  1=floor  2=bookshelf (impassable)
+// ── Tile map  0=wall  1=floor  2=bookshelf (impassable) ─────────────────────
+
 const MAP: number[][] = [
   [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
   [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
@@ -42,15 +41,73 @@ const MAP: number[][] = [
   [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
 ];
 
+// ── Spawn system ─────────────────────────────────────────────────────────────
+
+interface SpawnConstraints {
+  minDistFromPlayerPx: number;
+  minDistFromNpcPx:    number;
+  allowedTiles:        number[];
+}
+
+const DEFAULT_SPAWN_CONSTRAINTS: SpawnConstraints = {
+  minDistFromPlayerPx: TILE * 4,
+  minDistFromNpcPx:    TILE * 3,
+  allowedTiles:        [1],
+};
+
+const VINYL_FALLBACK = { x: 20 * TILE + TILE / 2, y: 9 * TILE + TILE / 2 };
+
+function getValidSpawnTiles(constraints: SpawnConstraints = DEFAULT_SPAWN_CONSTRAINTS): { x: number; y: number }[] {
+  const result: { x: number; y: number }[] = [];
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const tile = MAP[r]?.[c] ?? 0;
+      if (!constraints.allowedTiles.includes(tile)) continue;
+      const wx = c * TILE + TILE / 2;
+      const wy = r * TILE + TILE / 2;
+      if (
+        Math.hypot(wx - SPAWN_POS.x, wy - SPAWN_POS.y) >= constraints.minDistFromPlayerPx &&
+        Math.hypot(wx - NPC_POS.x,   wy - NPC_POS.y)   >= constraints.minDistFromNpcPx
+      ) {
+        result.push({ x: wx, y: wy });
+      }
+    }
+  }
+  return result;
+}
+
+function randomVinylPos(): { x: number; y: number } {
+  const candidates = getValidSpawnTiles();
+  if (candidates.length === 0) return VINYL_FALLBACK;
+  return candidates[Math.floor(Math.random() * candidates.length)] ?? VINYL_FALLBACK;
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type QuestPhase   = 'pre_quest' | 'find_vinyl' | 'return_curator' | 'complete';
-type Facing       = 'up' | 'down' | 'left' | 'right';
+type QuestPhase = 'pre_quest' | 'find_vinyl' | 'return_curator' | 'complete';
+type Facing     = 'up' | 'down' | 'left' | 'right';
 
-interface Player  { x: number; y: number; facing: Facing }
-interface Input   { up: boolean; down: boolean; left: boolean; right: boolean }
-interface DlgLine { speaker: string; text: string }
+interface Player   { x: number; y: number; facing: Facing }
+interface Input    { up: boolean; down: boolean; left: boolean; right: boolean }
+interface DlgLine  { speaker: string; text: string }
 interface DlgState { lines: DlgLine[]; idx: number; onDone: () => void }
+
+interface Effect {
+  id:        number;
+  wx:        number;
+  wy:        number;
+  type:      'float_text' | 'burst';
+  text?:     string;
+  color:     string;
+  startTime: number;
+  duration:  number;
+}
+
+interface BannerData {
+  title:    string;
+  subtitle: string;
+  color:    'amber' | 'violet' | 'emerald';
+}
 
 // ── Dialogue scripts ──────────────────────────────────────────────────────────
 
@@ -67,6 +124,50 @@ const LINES_RETURN: DlgLine[] = [
   { speaker: 'The Curator', text: 'The Archives are in your debt. Your contribution has been logged. +100 points.' },
 ];
 
+// ── Sound system ─────────────────────────────────────────────────────────────
+
+let _audioCtx: AudioContext | null = null;
+let isMuted = false;
+
+function playTone(freq: number, dur: number, type: OscillatorType, vol: number): void {
+  if (isMuted) return;
+  try {
+    if (!_audioCtx) _audioCtx = new AudioContext();
+    const ctx = _audioCtx;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+    gain.connect(ctx.destination);
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    osc.connect(gain);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + dur);
+  } catch { /* AudioContext unavailable */ }
+}
+
+function soundDialogueOpen(): void {
+  playTone(440, 0.1, 'sine', 0.12);
+  setTimeout(() => playTone(554, 0.1, 'sine', 0.1), 80);
+}
+
+function soundDialogueAdvance(): void {
+  playTone(330, 0.07, 'sine', 0.08);
+}
+
+function soundQuestAccepted(): void {
+  [392, 494, 587].forEach((f, i) => setTimeout(() => playTone(f, 0.12, 'triangle', 0.15), i * 100));
+}
+
+function soundItemPickup(): void {
+  [659, 784, 1047].forEach((f, i) => setTimeout(() => playTone(f, 0.1, 'sine', 0.16), i * 70));
+}
+
+function soundQuestComplete(): void {
+  [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => playTone(f, 0.15, 'triangle', 0.18), i * 120));
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function isWalkable(wx: number, wy: number): boolean {
@@ -76,11 +177,14 @@ function isWalkable(wx: number, wy: number): boolean {
   return MAP[row]?.[col] === 1;
 }
 
-function d(ax: number, ay: number, bx: number, by: number): number {
-  return Math.sqrt((ax - bx) ** 2 + (ay - by) ** 2);
+function dist(ax: number, ay: number, bx: number, by: number): number {
+  return Math.hypot(ax - bx, ay - by);
 }
 
 // ── Canvas draw functions ────────────────────────────────────────────────────
+
+// Module-level flag so draw functions know which prompt hint to show
+let isMobileHint = false;
 
 const BOOK_COLORS = ['#7c2d12','#9a3412','#4f46e5','#1e40af','#15803d','#b45309','#7f1d1d','#1d4ed8'];
 
@@ -108,7 +212,6 @@ function drawMap(ctx: CanvasRenderingContext2D, cx: number, cy: number, vw: numb
         ctx.lineWidth = 0.5;
         ctx.strokeRect(sx + 0.5, sy + 0.5, TILE - 1, TILE - 1);
       } else {
-        // bookshelf
         ctx.fillStyle = '#1a0d06';
         ctx.fillRect(sx, sy, TILE, TILE);
         const bookH = 4;
@@ -139,17 +242,31 @@ function drawNPC(
   const sy = NPC_POS.y - cy;
   const now = performance.now();
 
-  // Glow
+  // Pulsing return beacon
+  if (questPhase === 'return_curator') {
+    const pulse = Math.sin(now / 350);
+    const r = 30 + pulse * 8;
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2.5;
+    ctx.globalAlpha = 0.45 + pulse * 0.25;
+    ctx.shadowColor = '#fbbf24';
+    ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  }
+
+  // Body glow
   ctx.shadowColor = '#f59e0b';
   ctx.shadowBlur = nearPlayer ? 20 : 6;
 
-  // Body
   ctx.fillStyle = '#f59e0b';
   ctx.beginPath();
   ctx.arc(sx, sy, 16, 0, Math.PI * 2);
   ctx.fill();
 
-  // Head
   ctx.fillStyle = '#fcd34d';
   ctx.beginPath();
   ctx.arc(sx, sy - 9, 8, 0, Math.PI * 2);
@@ -158,52 +275,76 @@ function drawNPC(
   ctx.shadowBlur = 0;
   ctx.shadowColor = 'transparent';
 
-  // Name
   ctx.font = 'bold 10px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#fde68a';
   ctx.fillText('The Curator', sx, sy - 28);
 
-  // Exclamation when quest is available or return needed
+  // Bobbing exclamation
   if (questPhase === 'pre_quest' || questPhase === 'return_curator') {
     const bob = Math.sin(now / 380) * 3;
     ctx.font = 'bold 20px sans-serif';
     ctx.fillStyle = '#fbbf24';
+    ctx.shadowColor = '#fbbf24';
+    ctx.shadowBlur = questPhase === 'return_curator' ? 14 : 4;
     ctx.fillText('!', sx, sy - 46 + bob);
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
   }
 
-  // Interaction prompt
-  if (nearPlayer && !ctx.isPointInPath) {
+  // Return-here label
+  if (questPhase === 'return_curator') {
+    const bob = Math.sin(now / 380) * 3;
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fbbf24';
+    ctx.shadowColor = '#fbbf24';
+    ctx.shadowBlur = 8;
+    ctx.fillText('↓ RETURN HERE ↓', sx, sy - 62 + bob);
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+  }
+
+  if (nearPlayer) {
     drawPrompt(ctx, sx, sy - 36, isMobileHint ? 'Tap E' : '[E] Talk');
   }
 }
 
-// small hack to pass isMobile into draw without global — use a module-level ref
-let isMobileHint = false;
-
 function drawVinyl(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number,
+  pos: { x: number; y: number },
   collected: boolean,
   nearPlayer: boolean,
 ) {
   if (collected) return;
-  const sx = VINYL_POS.x - cx;
-  const sy = VINYL_POS.y - cy;
+  const sx = pos.x - cx;
+  const sy = pos.y - cy;
   const now = performance.now();
   const bob = Math.sin(now / 480) * 2.5;
+  const pulse = Math.sin(now / 700);
+
+  // Outer glow ring
+  ctx.strokeStyle = '#a78bfa';
+  ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.28 + pulse * 0.18;
+  ctx.shadowColor = '#a78bfa';
+  ctx.shadowBlur = 16;
+  ctx.beginPath();
+  ctx.arc(sx, sy + bob, 24, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
 
   ctx.shadowColor = '#a78bfa';
-  ctx.shadowBlur = 14 + Math.sin(now / 700) * 5;
+  ctx.shadowBlur = 18 + pulse * 7;
 
-  // Disc
   ctx.fillStyle = '#0d0515';
   ctx.beginPath();
   ctx.arc(sx, sy + bob, 16, 0, Math.PI * 2);
   ctx.fill();
 
-  // Grooves
   for (let gr = 14; gr > 8; gr -= 2) {
     ctx.strokeStyle = '#1a0a2c';
     ctx.lineWidth = 0.5;
@@ -212,13 +353,11 @@ function drawVinyl(
     ctx.stroke();
   }
 
-  // Label
   ctx.fillStyle = '#7c3aed';
   ctx.beginPath();
   ctx.arc(sx, sy + bob, 6, 0, Math.PI * 2);
   ctx.fill();
 
-  // Spindle
   ctx.fillStyle = '#030307';
   ctx.beginPath();
   ctx.arc(sx, sy + bob, 1.5, 0, Math.PI * 2);
@@ -227,7 +366,6 @@ function drawVinyl(
   ctx.shadowBlur = 0;
   ctx.shadowColor = 'transparent';
 
-  // Label text
   ctx.font = 'bold 8px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -248,8 +386,7 @@ function drawPrompt(ctx: CanvasRenderingContext2D, sx: number, sy: number, text:
   const ph = 18;
   ctx.fillStyle = 'rgba(0,0,0,0.65)';
   ctx.beginPath();
-  const rx = sx - pw / 2, ry = sy - ph / 2;
-  ctx.roundRect(rx, ry, pw, ph, 4);
+  ctx.roundRect(sx - pw / 2, sy - ph / 2, pw, ph, 4);
   ctx.fill();
   ctx.fillStyle = '#ffffff';
   ctx.fillText(text, sx, sy);
@@ -261,7 +398,6 @@ function drawPlayer(ctx: CanvasRenderingContext2D, player: Player, cx: number, c
 
   ctx.shadowColor = '#4ade80';
   ctx.shadowBlur = 10;
-
   ctx.fillStyle = '#4ade80';
   ctx.beginPath();
   ctx.arc(sx, sy, 13, 0, Math.PI * 2);
@@ -275,7 +411,6 @@ function drawPlayer(ctx: CanvasRenderingContext2D, player: Player, cx: number, c
   ctx.shadowBlur = 0;
   ctx.shadowColor = 'transparent';
 
-  // Direction dot
   const FACING: Record<Facing, [number, number]> = {
     up: [0, -9], down: [0, 9], left: [-9, 0], right: [9, 0],
   };
@@ -284,6 +419,60 @@ function drawPlayer(ctx: CanvasRenderingContext2D, player: Player, cx: number, c
   ctx.beginPath();
   ctx.arc(sx + fdx, sy + fdy, 3, 0, Math.PI * 2);
   ctx.fill();
+}
+
+function drawEffects(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number,
+  effects: Effect[],
+  now: number,
+): void {
+  let i = effects.length;
+  while (i--) {
+    const e = effects[i];
+    if (!e) continue;
+    const t = (now - e.startTime) / e.duration;
+    if (t >= 1) { effects.splice(i, 1); continue; }
+    const sx = e.wx - cx;
+    const sy = e.wy - cy;
+
+    if (e.type === 'float_text') {
+      const alpha = t < 0.2 ? t / 0.2 : 1 - (t - 0.2) / 0.8;
+      const rise = t * 38;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, alpha);
+      ctx.font = 'bold 15px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = e.color;
+      ctx.shadowColor = e.color;
+      ctx.shadowBlur = 10;
+      ctx.fillText(e.text ?? '', sx, sy - rise);
+      ctx.restore();
+    } else {
+      const alpha = 1 - t;
+      const radius = t * 38;
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.75;
+      ctx.strokeStyle = e.color;
+      ctx.lineWidth = 2;
+      ctx.shadowColor = e.color;
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      const N = 6;
+      for (let j = 0; j < N; j++) {
+        const angle = (j / N) * Math.PI * 2 + t * Math.PI;
+        const dr = radius * 0.75;
+        ctx.fillStyle = e.color;
+        ctx.beginPath();
+        ctx.arc(sx + Math.cos(angle) * dr, sy + Math.sin(angle) * dr, 2.5 * (1 - t), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -321,7 +510,7 @@ function QuestHud({ questPhase }: { questPhase: QuestPhase }) {
     <div className="absolute top-2 left-2 pointer-events-none">
       <div className="bg-black/70 border border-amber-500/30 rounded-lg px-3 py-2 text-xs max-w-[200px]">
         <p className="text-amber-400 font-bold mb-0.5">Find the Missing Vinyl</p>
-        {questPhase === 'find_vinyl'    && <p className="text-gray-300">Search the east wing <span className="text-amber-300 font-mono">0/1</span></p>}
+        {questPhase === 'find_vinyl'     && <p className="text-gray-300">Search the archives <span className="text-amber-300 font-mono">0/1</span></p>}
         {questPhase === 'return_curator' && <p className="text-gray-300">Return to The Curator <span className="text-amber-300">✓</span></p>}
       </div>
     </div>
@@ -330,7 +519,7 @@ function QuestHud({ questPhase }: { questPhase: QuestPhase }) {
 
 function ScoreHud({ score }: { score: number }) {
   return (
-    <div className="absolute top-2 right-12 pointer-events-none">
+    <div className="absolute top-2 right-24 pointer-events-none">
       <div className="bg-black/70 border border-emerald-500/30 rounded-lg px-3 py-1.5 text-xs font-mono">
         <span className="text-emerald-400 font-bold">{score}</span>
         <span className="text-gray-500 ml-1">pts</span>
@@ -339,11 +528,47 @@ function ScoreHud({ score }: { score: number }) {
   );
 }
 
+function MuteBtn({ muted, onToggle }: { muted: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      title={muted ? 'Unmute' : 'Mute'}
+      className="absolute top-2 right-12 w-8 h-8 bg-black/70 border border-gray-700 rounded-lg text-sm flex items-center justify-center hover:bg-black/90 transition-colors z-10"
+    >
+      {muted ? '🔇' : '🔊'}
+    </button>
+  );
+}
+
 function PauseBtn({ onClick }: { onClick: () => void }) {
   return (
-    <button onClick={onClick}
+    <button
+      onClick={onClick}
       className="absolute top-2 right-2 w-8 h-8 bg-black/70 border border-gray-700 rounded-lg text-white text-sm flex items-center justify-center hover:bg-black/90 transition-colors z-10"
     >⏸</button>
+  );
+}
+
+function QuestBanner({ data, onDismiss }: { data: BannerData; onDismiss: () => void }) {
+  useEffect(() => {
+    const t = window.setTimeout(onDismiss, 2800);
+    return () => window.clearTimeout(t);
+  }, [onDismiss]);
+
+  const borderCls = data.color === 'amber'   ? 'border-amber-500/60'
+                  : data.color === 'violet'  ? 'border-violet-500/60'
+                  :                             'border-emerald-500/60';
+  const titleCls  = data.color === 'amber'   ? 'text-amber-400'
+                  : data.color === 'violet'  ? 'text-violet-400'
+                  :                             'text-emerald-400';
+
+  return (
+    <div className="absolute inset-x-0 top-14 flex justify-center pointer-events-none z-30">
+      <div className={`bg-gray-900/95 border ${borderCls} rounded-xl px-6 py-3 text-center shadow-2xl`}>
+        <p className={`font-bold text-sm ${titleCls}`}>{data.title}</p>
+        <p className="text-gray-300 text-xs mt-0.5">{data.subtitle}</p>
+      </div>
+    </div>
   );
 }
 
@@ -380,8 +605,8 @@ function CompleteScreen({ score, rank, onPlayAgain, onLeaderboard }: {
           )}
         </div>
         <div className="flex flex-col gap-3">
-          <button onClick={onPlayAgain}    className="bg-emerald-700 hover:bg-emerald-600 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors">Play Again</button>
-          <button onClick={onLeaderboard}  className="bg-white/10 hover:bg-white/20 text-gray-300 font-semibold px-6 py-2.5 rounded-lg transition-colors">View Leaderboard</button>
+          <button onClick={onPlayAgain}   className="bg-emerald-700 hover:bg-emerald-600 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors">Play Again</button>
+          <button onClick={onLeaderboard} className="bg-white/10 hover:bg-white/20 text-gray-300 font-semibold px-6 py-2.5 rounded-lg transition-colors">View Leaderboard</button>
         </div>
       </div>
     </div>
@@ -391,15 +616,15 @@ function CompleteScreen({ score, rank, onPlayAgain, onLeaderboard }: {
 function VirtualJoystick({ onMove }: { onMove: (dx: number, dy: number) => void }) {
   const MAX_R = 38;
   const [knob, setKnob] = useState({ x: 0, y: 0 });
-  const center = useRef({ x: 0, y: 0 });
+  const center   = useRef({ x: 0, y: 0 });
   const activeId = useRef<number | null>(null);
   const baseRef  = useRef<HTMLDivElement>(null);
 
   function updateFromClient(cx: number, cy: number) {
     let dx = cx - center.current.x;
     let dy = cy - center.current.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist > MAX_R) { dx = (dx / dist) * MAX_R; dy = (dy / dist) * MAX_R; }
+    const d = Math.hypot(dx, dy);
+    if (d > MAX_R) { dx = (dx / d) * MAX_R; dy = (dy / d) * MAX_R; }
     setKnob({ x: dx, y: dy });
     onMove(dx / MAX_R, dy / MAX_R);
   }
@@ -412,12 +637,10 @@ function VirtualJoystick({ onMove }: { onMove: (dx: number, dy: number) => void 
     if (r) center.current = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     updateFromClient(e.clientX, e.clientY);
   }
-
   function handleMove(e: React.PointerEvent) {
     if (e.pointerId !== activeId.current) return;
     updateFromClient(e.clientX, e.clientY);
   }
-
   function handleUp(e: React.PointerEvent) {
     if (e.pointerId !== activeId.current) return;
     activeId.current = null;
@@ -453,26 +676,31 @@ export default function BandRpgGame({ onExit }: { onExit: () => void }) {
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Refs for game loop (no re-renders)
-  const playerRef        = useRef<Player>({ x: SPAWN_POS.x, y: SPAWN_POS.y, facing: 'up' });
-  const cameraRef        = useRef({ x: 0, y: 0 });
-  const inputRef         = useRef<Input>({ up: false, down: false, left: false, right: false });
-  const joystickRef      = useRef({ dx: 0, dy: 0 });
-  const vinylRef         = useRef(false);
-  const questPhaseRef    = useRef<QuestPhase>('pre_quest');
-  const isPausedRef      = useRef(false);
-  const isDialogueRef    = useRef(false);
-  const isCompleteRef    = useRef(false);
-  const scoreRef         = useRef(0);
+  // Game-loop refs (no re-renders)
+  const playerRef      = useRef<Player>({ x: SPAWN_POS.x, y: SPAWN_POS.y, facing: 'up' });
+  const cameraRef      = useRef({ x: 0, y: 0 });
+  const inputRef       = useRef<Input>({ up: false, down: false, left: false, right: false });
+  const joystickRef    = useRef({ dx: 0, dy: 0 });
+  const vinylRef       = useRef(false);
+  const vinylPosRef    = useRef<{ x: number; y: number }>(randomVinylPos());
+  const questPhaseRef  = useRef<QuestPhase>('pre_quest');
+  const isPausedRef    = useRef(false);
+  const isDialogueRef  = useRef(false);
+  const isCompleteRef  = useRef(false);
+  const scoreRef       = useRef(0);
+  const effectsRef     = useRef<Effect[]>([]);
+  const effectIdRef    = useRef(0);
 
-  // React state (for UI overlays)
+  // React state (UI overlays)
   const [questPhase, setQuestPhase] = useState<QuestPhase>('pre_quest');
   const [score, setScore]           = useState(0);
-  const [isPaused, setIsPaused]           = useState(false);
-  const [dlg, setDlg]                     = useState<DlgState | null>(null);
-  const [isComplete, setIsComplete]       = useState(false);
-  const [savedRank, setSavedRank]         = useState<number | null>(null);
-  const [isMobile, setIsMobile]           = useState(false);
+  const [isPaused, setIsPaused]     = useState(false);
+  const [dlg, setDlg]               = useState<DlgState | null>(null);
+  const [isComplete, setIsComplete] = useState(false);
+  const [savedRank, setSavedRank]   = useState<number | null>(null);
+  const [isMobile, setIsMobile]     = useState(false);
+  const [banner, setBanner]         = useState<BannerData | null>(null);
+  const [muted, setMuted]           = useState(false);
 
   useEffect(() => {
     const mobile = window.innerWidth < 768 || 'ontouchstart' in window;
@@ -480,7 +708,6 @@ export default function BandRpgGame({ onExit }: { onExit: () => void }) {
     isMobileHint = mobile;
   }, []);
 
-  // Score submission
   const submitScore = useMutation({
     mutationFn: (data: { score: number; questsCompleted: number; itemsCollected: number; levelsCleared: number }) =>
       bandRpgApi.submitScore(data),
@@ -488,8 +715,15 @@ export default function BandRpgGame({ onExit }: { onExit: () => void }) {
     onError:   () => setSavedRank(null),
   });
 
-  // Dialogue advance
+  const dismissBanner = useCallback(() => setBanner(null), []);
+
+  const toggleMute = useCallback(() => {
+    isMuted = !isMuted;
+    setMuted(isMuted);
+  }, []);
+
   const advanceDlg = useCallback(() => {
+    soundDialogueAdvance();
     setDlg((prev) => {
       if (!prev) return null;
       if (prev.idx + 1 < prev.lines.length) return { ...prev, idx: prev.idx + 1 };
@@ -499,54 +733,67 @@ export default function BandRpgGame({ onExit }: { onExit: () => void }) {
     });
   }, []);
 
-  // Open dialogue
   const openDlg = useCallback((lines: DlgLine[], onDone: () => void) => {
     isDialogueRef.current = true;
+    soundDialogueOpen();
     setDlg({ lines, idx: 0, onDone });
   }, []);
 
-  // Quest state changers (stable refs via useCallback)
   const acceptQuest = useCallback(() => {
     questPhaseRef.current = 'find_vinyl';
     setQuestPhase('find_vinyl');
+    setBanner({ title: 'Quest Accepted!', subtitle: 'Find the Missing Vinyl in The Archives', color: 'amber' });
+    effectsRef.current.push({
+      id: ++effectIdRef.current, wx: NPC_POS.x, wy: NPC_POS.y - 20,
+      type: 'float_text', text: 'Quest!', color: '#fbbf24',
+      startTime: performance.now(), duration: 1200,
+    });
+    soundQuestAccepted();
   }, []);
 
   const finishQuest = useCallback(() => {
+    scoreRef.current += 100;
     const finalScore = scoreRef.current;
+    effectsRef.current.push({
+      id: ++effectIdRef.current, wx: NPC_POS.x, wy: NPC_POS.y - 24,
+      type: 'float_text', text: '+100', color: '#4ade80',
+      startTime: performance.now(), duration: 1400,
+    });
+    effectsRef.current.push({
+      id: ++effectIdRef.current, wx: NPC_POS.x, wy: NPC_POS.y,
+      type: 'burst', color: '#4ade80',
+      startTime: performance.now(), duration: 800,
+    });
     questPhaseRef.current = 'complete';
     isCompleteRef.current = true;
     setQuestPhase('complete');
     setIsComplete(true);
     setScore(finalScore);
+    soundQuestComplete();
     submitScore.mutate({ score: finalScore, questsCompleted: 1, itemsCollected: 1, levelsCleared: 0 });
   }, [submitScore]);
 
-  // Interact (E key or mobile button)
   const handleInteract = useCallback(() => {
     if (isDialogueRef.current || isPausedRef.current || isCompleteRef.current) return;
     const p = playerRef.current;
 
-    // NPC interaction
-    if (d(p.x, p.y, NPC_POS.x, NPC_POS.y) < INTERACT_R) {
-      if (questPhaseRef.current === 'pre_quest') {
-        openDlg(LINES_FIRST, acceptQuest);
-        return;
-      }
-      if (questPhaseRef.current === 'return_curator') {
-        openDlg(LINES_RETURN, finishQuest);
-        return;
-      }
+    if (dist(p.x, p.y, NPC_POS.x, NPC_POS.y) < INTERACT_R) {
+      if (questPhaseRef.current === 'pre_quest') { openDlg(LINES_FIRST, acceptQuest); return; }
+      if (questPhaseRef.current === 'return_curator') { openDlg(LINES_RETURN, finishQuest); return; }
     }
 
-    // Vinyl pick up (via E key when close)
     if (!vinylRef.current && questPhaseRef.current === 'find_vinyl') {
-      if (d(p.x, p.y, VINYL_POS.x, VINYL_POS.y) < INTERACT_R) {
+      const vpos = vinylPosRef.current;
+      if (dist(p.x, p.y, vpos.x, vpos.y) < INTERACT_R) {
         vinylRef.current = true;
         scoreRef.current += 25;
         questPhaseRef.current = 'return_curator';
-        // vinyl collected — state tracked via questPhaseRef
         setQuestPhase('return_curator');
         setScore(scoreRef.current);
+        setBanner({ title: 'Vinyl Found!', subtitle: 'Return to The Curator', color: 'violet' });
+        effectsRef.current.push({ id: ++effectIdRef.current, wx: vpos.x, wy: vpos.y - 20, type: 'float_text', text: '+25', color: '#c4b5fd', startTime: performance.now(), duration: 1200 });
+        effectsRef.current.push({ id: ++effectIdRef.current, wx: vpos.x, wy: vpos.y, type: 'burst', color: '#a78bfa', startTime: performance.now(), duration: 600 });
+        soundItemPickup();
       }
     }
   }, [openDlg, acceptQuest, finishQuest]);
@@ -601,23 +848,18 @@ export default function BandRpgGame({ onExit }: { onExit: () => void }) {
       const ctx = canvas.getContext('2d');
       const vw = canvas.clientWidth  || canvas.offsetWidth;
       const vh = canvas.clientHeight || canvas.offsetHeight;
-
       if (!ctx || vw === 0 || vh === 0) { rafId = requestAnimationFrame(tick); return; }
 
-      // ── Update ──────────────────────────────────────────────────────
       if (!isPausedRef.current && !isDialogueRef.current && !isCompleteRef.current) {
         const p   = playerRef.current;
         const inp = inputRef.current;
         const joy = joystickRef.current;
-
         let vx = 0, vy = 0;
         const jx = joy.dx, jy = joy.dy;
-
         if (inp.left  || jx < -0.2) vx = -P_SPEED * (Math.abs(jx) > 0.2 ? Math.min(1, Math.abs(jx)) : 1);
         if (inp.right || jx >  0.2) vx =  P_SPEED * (Math.abs(jx) > 0.2 ? Math.min(1, Math.abs(jx)) : 1);
         if (inp.up    || jy < -0.2) vy = -P_SPEED * (Math.abs(jy) > 0.2 ? Math.min(1, Math.abs(jy)) : 1);
         if (inp.down  || jy >  0.2) vy =  P_SPEED * (Math.abs(jy) > 0.2 ? Math.min(1, Math.abs(jy)) : 1);
-
         if (vx !== 0 && vy !== 0) { vx *= 0.707; vy *= 0.707; }
 
         if      (Math.abs(vx) > Math.abs(vy) && vx > 0) p.facing = 'right';
@@ -640,37 +882,44 @@ export default function BandRpgGame({ onExit }: { onExit: () => void }) {
 
         // Auto-collect vinyl by walking into it
         if (!vinylRef.current && questPhaseRef.current === 'find_vinyl') {
-          if (d(p.x, p.y, VINYL_POS.x, VINYL_POS.y) < COLLECT_R) {
+          const vpos = vinylPosRef.current;
+          if (dist(p.x, p.y, vpos.x, vpos.y) < COLLECT_R) {
             vinylRef.current = true;
             scoreRef.current += 25;
             questPhaseRef.current = 'return_curator';
-            // vinyl collected — state tracked via questPhaseRef
             setQuestPhase('return_curator');
             setScore(scoreRef.current);
+            setBanner({ title: 'Vinyl Found!', subtitle: 'Return to The Curator', color: 'violet' });
+            effectsRef.current.push({ id: ++effectIdRef.current, wx: vpos.x, wy: vpos.y - 20, type: 'float_text', text: '+25', color: '#c4b5fd', startTime: performance.now(), duration: 1200 });
+            effectsRef.current.push({ id: ++effectIdRef.current, wx: vpos.x, wy: vpos.y, type: 'burst', color: '#a78bfa', startTime: performance.now(), duration: 600 });
+            soundItemPickup();
           }
         }
       }
 
-      // ── Camera ──────────────────────────────────────────────────────
+      // Camera
       const p = playerRef.current;
       const cam = cameraRef.current;
       cam.x = Math.max(0, Math.min(p.x - vw / 2, WORLD_W - vw));
       cam.y = Math.max(0, Math.min(p.y - vh / 2, WORLD_H - vh));
 
-      // ── Render ──────────────────────────────────────────────────────
+      // Render
+      const now = performance.now();
       ctx.clearRect(0, 0, vw, vh);
       ctx.fillStyle = '#090b14';
       ctx.fillRect(0, 0, vw, vh);
 
       drawMap(ctx, cam.x, cam.y, vw, vh);
 
-      const nearNPC   = d(p.x, p.y, NPC_POS.x, NPC_POS.y) < INTERACT_R;
+      const nearNPC   = dist(p.x, p.y, NPC_POS.x, NPC_POS.y) < INTERACT_R;
+      const vpos      = vinylPosRef.current;
       const nearVinyl = !vinylRef.current && questPhaseRef.current === 'find_vinyl'
-                        && d(p.x, p.y, VINYL_POS.x, VINYL_POS.y) < INTERACT_R;
+                        && dist(p.x, p.y, vpos.x, vpos.y) < INTERACT_R;
 
-      drawVinyl(ctx, cam.x, cam.y, vinylRef.current, nearVinyl);
+      drawVinyl(ctx, cam.x, cam.y, vpos, vinylRef.current, nearVinyl);
       drawNPC(ctx, cam.x, cam.y, questPhaseRef.current, nearNPC);
       drawPlayer(ctx, p, cam.x, cam.y);
+      drawEffects(ctx, cam.x, cam.y, effectsRef.current, now);
 
       rafId = requestAnimationFrame(tick);
     };
@@ -679,19 +928,17 @@ export default function BandRpgGame({ onExit }: { onExit: () => void }) {
     return () => cancelAnimationFrame(rafId);
   }, []);
 
-  // Joystick handler
   const handleJoystick = useCallback((dx: number, dy: number) => {
     joystickRef.current = { dx, dy };
   }, []);
 
-  // Pause toggle
   const togglePause = useCallback(() => {
     isPausedRef.current = !isPausedRef.current;
     setIsPaused((p) => !p);
   }, []);
 
-  // Reset everything
   const resetGame = useCallback(() => {
+    vinylPosRef.current   = randomVinylPos();
     playerRef.current     = { x: SPAWN_POS.x, y: SPAWN_POS.y, facing: 'up' };
     vinylRef.current      = false;
     questPhaseRef.current = 'pre_quest';
@@ -699,42 +946,42 @@ export default function BandRpgGame({ onExit }: { onExit: () => void }) {
     isDialogueRef.current = false;
     isPausedRef.current   = false;
     scoreRef.current      = 0;
+    effectsRef.current    = [];
     setQuestPhase('pre_quest');
     setScore(0);
     setIsComplete(false);
     setIsPaused(false);
     setDlg(null);
     setSavedRank(null);
+    setBanner(null);
   }, []);
 
   const overlayActive = isPaused || dlg !== null || isComplete;
 
   return (
     <div className="flex flex-col h-full bg-gray-950">
-      {/* Canvas area */}
       <div ref={containerRef} className="relative flex-1 overflow-hidden min-h-0">
         <canvas ref={canvasRef} className="block" style={{ touchAction: 'none' }} />
 
-        {/* HUD */}
         {!isComplete && (
           <>
             <QuestHud questPhase={questPhase} />
             <ScoreHud score={score} />
+            <MuteBtn muted={muted} onToggle={toggleMute} />
             <PauseBtn onClick={togglePause} />
           </>
         )}
 
-        {/* Dialogue overlay */}
+        {banner && <QuestBanner key={banner.title} data={banner} onDismiss={dismissBanner} />}
+
         {dlg && (
           <div className="absolute inset-0 pointer-events-none">
             <DialogueBox dlg={dlg} onNext={advanceDlg} />
           </div>
         )}
 
-        {/* Pause menu */}
         {isPaused && !isComplete && <PauseMenu onResume={togglePause} onQuit={onExit} />}
 
-        {/* Complete screen */}
         {isComplete && (
           <CompleteScreen
             score={score}
@@ -745,7 +992,6 @@ export default function BandRpgGame({ onExit }: { onExit: () => void }) {
         )}
       </div>
 
-      {/* Mobile controls */}
       {isMobile && !overlayActive && (
         <div className="flex items-center justify-between px-6 py-3 bg-black/50 shrink-0 select-none" style={{ touchAction: 'none' }}>
           <VirtualJoystick onMove={handleJoystick} />
