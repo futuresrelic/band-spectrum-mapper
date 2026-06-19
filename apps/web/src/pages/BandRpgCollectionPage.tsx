@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import SiteHeader from '../components/layout/SiteHeader';
@@ -7,7 +7,7 @@ import { bandRpgApi } from '../api/bandRpg';
 import type {
   BandRpgCollectedSong, BandRpgAlbumProgress,
   BandRpgAlbumSong, AlbumState,
-  BandRpgCollectionGroup, BandRpgSetlistSummary,
+  BandRpgCollectionGroup, BandRpgSetlistSummary, BandRpgSetlistDetail,
 } from '../api/bandRpg';
 
 // ── Rarity display ─────────────────────────────────────────────────────────────
@@ -37,6 +37,16 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+// ── Setlist grade ──────────────────────────────────────────────────────────────
+
+const GRADE_STYLE: Record<string, { color: string; bg: string; canvasColor: string }> = {
+  S: { color: 'text-amber-400',   bg: 'bg-amber-900/30 border-amber-600/40',    canvasColor: '#f59e0b' },
+  A: { color: 'text-emerald-400', bg: 'bg-emerald-900/30 border-emerald-600/40', canvasColor: '#10b981' },
+  B: { color: 'text-blue-400',    bg: 'bg-blue-900/30 border-blue-600/40',      canvasColor: '#60a5fa' },
+  C: { color: 'text-yellow-400',  bg: 'bg-yellow-900/30 border-yellow-600/40',  canvasColor: '#eab308' },
+  D: { color: 'text-gray-400',    bg: 'bg-gray-800/60 border-gray-700',         canvasColor: '#6b7280' },
+};
+
 // ── Setlist rarity values ─────────────────────────────────────────────────────
 
 const SETLIST_RARITY_VALUE: Record<string, number> = {
@@ -44,6 +54,287 @@ const SETLIST_RARITY_VALUE: Record<string, number> = {
 };
 
 type SetlistSong = { songId: string; songTitle: string; rarity: string };
+
+const RARITY_BARS = [
+  { key: 'Common',    barClass: 'bg-gray-500',    textClass: 'text-gray-400'    },
+  { key: 'Uncommon',  barClass: 'bg-emerald-500', textClass: 'text-emerald-400' },
+  { key: 'Rare',      barClass: 'bg-blue-500',    textClass: 'text-blue-400'    },
+  { key: 'Legendary', barClass: 'bg-purple-500',  textClass: 'text-purple-400'  },
+  { key: 'Mythic',    barClass: 'bg-orange-500',  textClass: 'text-orange-400'  },
+] as const;
+
+// ── Canvas card export ─────────────────────────────────────────────────────────
+
+function rrect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+
+function truncateForCanvas(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
+  if (ctx.measureText(text).width <= maxW) return text;
+  let t = text;
+  while (t.length > 0 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+  return t + '…';
+}
+
+const CARD_RARITY_DOT: Record<string, string> = {
+  Common: '#9ca3af', Uncommon: '#34d399', Rare: '#60a5fa',
+  Legendary: '#a78bfa', Mythic: '#fb923c',
+};
+
+function drawSetlistCard(canvas: HTMLCanvasElement, data: BandRpgSetlistDetail): void {
+  const W = 800, H = 1020;
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  // Background
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#09090f');
+  bg.addColorStop(0.5, '#0e0c1a');
+  bg.addColorStop(1, '#12101e');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Top accent bar (amber gradient)
+  const topBar = ctx.createLinearGradient(0, 0, W, 0);
+  topBar.addColorStop(0, '#f59e0b');
+  topBar.addColorStop(1, '#d97706');
+  ctx.fillStyle = topBar;
+  ctx.fillRect(0, 0, W, 6);
+
+  const PAD = 52;
+  let y = 62;
+
+  // "THE ARCHIVE" label
+  ctx.fillStyle = '#374151';
+  ctx.font = '600 11px system-ui,sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('THE ARCHIVE', PAD, y);
+
+  y += 38;
+
+  // Grade circle (top-right)
+  const gradeCfg = GRADE_STYLE[data.grade] ?? GRADE_STYLE['D']!;
+  const gX = W - PAD - 44, gY = y + 22;
+  ctx.beginPath();
+  ctx.arc(gX, gY, 44, 0, Math.PI * 2);
+  ctx.fillStyle = gradeCfg.canvasColor + '1a';
+  ctx.fill();
+  ctx.strokeStyle = gradeCfg.canvasColor;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = gradeCfg.canvasColor;
+  ctx.font = 'bold 42px system-ui,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(data.grade, gX, gY + 15);
+  ctx.textAlign = 'left';
+
+  // Band name
+  ctx.fillStyle = '#9ca3af';
+  ctx.font = '500 16px system-ui,sans-serif';
+  ctx.fillText(data.bandName, PAD, y);
+
+  y += 38;
+
+  // Setlist name
+  const nameSize = data.name.length > 28 ? 26 : data.name.length > 18 ? 30 : 36;
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${nameSize}px system-ui,sans-serif`;
+  ctx.fillText(truncateForCanvas(ctx, data.name, W - PAD * 2 - 120), PAD, y);
+
+  y += 28;
+
+  // Total score
+  const total = data.rarityValue + data.diversityBonus;
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = 'bold 14px system-ui,sans-serif';
+  ctx.fillText(`⚡ ${total} pts`, PAD, y);
+  if (data.diversityBonus > 0) {
+    ctx.fillStyle = '#4b5563';
+    ctx.font = '400 12px system-ui,sans-serif';
+    ctx.fillText(`(${data.rarityValue} rarity + ${data.diversityBonus} diversity bonus)`, PAD + 88, y);
+  }
+
+  y += 22;
+
+  // Stats
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '400 14px system-ui,sans-serif';
+  ctx.fillText(`🎵 ${data.songCount} songs   💿 ${data.albumCount} albums`, PAD, y);
+
+  y += 30;
+
+  // Divider
+  ctx.strokeStyle = '#1f2937';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PAD, y);
+  ctx.lineTo(W - PAD, y);
+  ctx.stroke();
+
+  y += 24;
+
+  // Song list (max 14)
+  const displaySongs = data.songs.slice(0, 14);
+  for (const [i, song] of displaySongs.entries()) {
+    const sy = y + i * 35;
+    ctx.fillStyle = '#374151';
+    ctx.font = '400 11px system-ui,sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(i + 1).padStart(2, '0'), PAD + 26, sy);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#d1d5db';
+    ctx.font = '400 15px system-ui,sans-serif';
+    ctx.fillText(truncateForCanvas(ctx, song.songTitle, W - PAD * 2 - 56), PAD + 38, sy);
+    const dotColor = CARD_RARITY_DOT[song.rarity] ?? '#9ca3af';
+    ctx.beginPath();
+    ctx.arc(W - PAD - 8, sy - 5, 5, 0, Math.PI * 2);
+    ctx.fillStyle = dotColor;
+    ctx.fill();
+  }
+
+  y += displaySongs.length * 35;
+
+  if (data.songs.length > 14) {
+    ctx.fillStyle = '#4b5563';
+    ctx.font = 'italic 13px system-ui,sans-serif';
+    ctx.fillText(`+ ${data.songs.length - 14} more songs`, PAD, y + 14);
+    y += 34;
+  } else {
+    y += 10;
+  }
+
+  // Divider
+  ctx.strokeStyle = '#1f2937';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PAD, y);
+  ctx.lineTo(W - PAD, y);
+  ctx.stroke();
+
+  y += 24;
+
+  // Rarity breakdown bars
+  const maxCount = Math.max(1, ...RARITY_BARS.map((r) => data.rarityBreakdown[r.key] ?? 0));
+  const barMaxW = W - PAD * 2 - 106;
+  const RARITY_BAR_CANVAS = [
+    { key: 'Common',    color: '#9ca3af' },
+    { key: 'Uncommon',  color: '#34d399' },
+    { key: 'Rare',      color: '#60a5fa' },
+    { key: 'Legendary', color: '#a78bfa' },
+    { key: 'Mythic',    color: '#fb923c' },
+  ] as const;
+
+  for (const [i, r] of RARITY_BAR_CANVAS.entries()) {
+    const count = data.rarityBreakdown[r.key] ?? 0;
+    const ry = y + i * 26;
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '400 12px system-ui,sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(r.key, PAD, ry);
+    const bx = PAD + 86, by = ry - 11;
+    ctx.fillStyle = '#1f2937';
+    rrect(ctx, bx, by, barMaxW, 9, 4);
+    ctx.fill();
+    if (count > 0) {
+      ctx.fillStyle = r.color;
+      rrect(ctx, bx, by, Math.max(9, (count / maxCount) * barMaxW), 9, 4);
+      ctx.fill();
+    }
+    ctx.fillStyle = count > 0 ? '#d1d5db' : '#374151';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(count), W - PAD, ry);
+  }
+
+  ctx.textAlign = 'left';
+
+  // Footer
+  ctx.strokeStyle = '#1f2937';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PAD, H - 44);
+  ctx.lineTo(W - PAD, H - 44);
+  ctx.stroke();
+  ctx.fillStyle = '#374151';
+  ctx.font = '400 12px system-ui,sans-serif';
+  ctx.fillText('Band Spectrum Mapper · The Archive', PAD, H - 22);
+  ctx.textAlign = 'right';
+  ctx.fillText(new Date().getFullYear().toString(), W - PAD, H - 22);
+}
+
+// ── Setlist export modal ───────────────────────────────────────────────────────
+
+function SetlistExportModal({ detail, onClose }: { detail: BandRpgSetlistDetail; onClose: () => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (canvasRef.current) drawSetlistCard(canvasRef.current, detail);
+  }, [detail]);
+
+  function handleExport() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${detail.bandName} - ${detail.name}.png`.replace(/[^a-z0-9.\-_ ]/gi, '_');
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/85 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 shrink-0">
+          <h3 className="text-white font-semibold">Share Setlist</h3>
+          <button onClick={onClose} className="text-gray-600 hover:text-gray-400 text-xl leading-none">✕</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="rounded-xl overflow-hidden bg-gray-950 border border-gray-800">
+            <canvas ref={canvasRef} width={800} height={1020} className="w-full h-auto block" />
+          </div>
+          <p className="text-center text-xs text-gray-600 mt-3">
+            Tap Export to save as PNG · Share anywhere
+          </p>
+        </div>
+
+        <div className="flex gap-3 px-5 py-4 border-t border-gray-800 shrink-0">
+          <button
+            onClick={onClose}
+            className="flex-1 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+          >
+            Close
+          </button>
+          <button
+            onClick={handleExport}
+            className="flex-1 bg-amber-700 hover:bg-amber-600 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+          >
+            Export PNG
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Album state display ────────────────────────────────────────────────────────
 
@@ -86,7 +377,7 @@ function EmptyState({ icon, title, desc }: { icon: string; title: string; desc: 
 
 // ── Songs tab ──────────────────────────────────────────────────────────────────
 
-type SortMode = 'date_desc' | 'title_asc' | 'rarity_asc' | 'rarity_desc';
+type SortMode    = 'date_desc' | 'title_asc' | 'rarity_asc' | 'rarity_desc';
 type RarityFilter = 'all' | 'Common' | 'Uncommon' | 'Rare' | 'Legendary' | 'Mythic';
 
 function SongRow({ song }: { song: BandRpgCollectedSong }) {
@@ -404,25 +695,71 @@ function AlbumsTab() {
 
 // ── Setlists tab ───────────────────────────────────────────────────────────────
 
+function GradeBadge({ grade, size = 'sm' }: { grade: string; size?: 'sm' | 'lg' }) {
+  const cfg = GRADE_STYLE[grade] ?? GRADE_STYLE['D']!;
+  const cls = size === 'lg'
+    ? `w-14 h-14 rounded-full border-2 flex items-center justify-center font-bold text-2xl ${cfg.bg} ${cfg.color}`
+    : `w-9 h-9 rounded-full border flex items-center justify-center font-bold text-sm ${cfg.bg} ${cfg.color}`;
+  return <div className={cls}>{grade}</div>;
+}
+
 function SetlistCard({ setlist, onClick }: { setlist: BandRpgSetlistSummary; onClick: () => void }) {
+  const totalScore = setlist.rarityValue + setlist.diversityBonus;
   return (
     <button
       onClick={onClick}
       className="w-full text-left bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 hover:bg-gray-800/60 transition-colors"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
           <p className="text-xs text-gray-500 mb-0.5">{setlist.bandName}</p>
           <p className="text-white font-semibold truncate">{setlist.name}</p>
         </div>
-        <span className="text-gray-600 text-xs shrink-0 pt-1">›</span>
+        <GradeBadge grade={setlist.grade} />
       </div>
       <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
         <span>🎵 {setlist.songCount} {setlist.songCount === 1 ? 'song' : 'songs'}</span>
-        <span>⚡ {setlist.rarityValue} pts</span>
+        <span className="text-amber-500/80">⚡ {totalScore} pts</span>
         <span className="text-gray-700">{formatDate(setlist.createdAt)}</span>
       </div>
     </button>
+  );
+}
+
+function SetlistHallOfFame({ setlists }: { setlists: BandRpgSetlistSummary[] }) {
+  if (setlists.length === 0) return null;
+
+  const best = (fn: (a: BandRpgSetlistSummary, b: BandRpgSetlistSummary) => boolean) =>
+    setlists.reduce((acc, sl) => (fn(sl, acc) ? sl : acc));
+
+  const highestValue  = best((a, b) => (a.rarityValue + a.diversityBonus) > (b.rarityValue + b.diversityBonus));
+  const mostDiverse   = best((a, b) => a.albumCount > b.albumCount);
+  const largest       = best((a, b) => a.songCount > b.songCount);
+
+  const items = [
+    { label: 'Highest Value',  icon: '⚡', setlist: highestValue, value: `${highestValue.rarityValue + highestValue.diversityBonus} pts` },
+    { label: 'Most Diverse',   icon: '💿', setlist: mostDiverse,  value: `${mostDiverse.albumCount} album${mostDiverse.albumCount !== 1 ? 's' : ''}`  },
+    { label: 'Largest',        icon: '🎵', setlist: largest,      value: `${largest.songCount} song${largest.songCount !== 1 ? 's' : ''}`       },
+  ];
+
+  return (
+    <div className="rounded-xl border border-gray-800 bg-gray-900/40 overflow-hidden">
+      <div className="px-4 py-2 bg-gray-900 border-b border-gray-800">
+        <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Personal Records</p>
+      </div>
+      <div className="divide-y divide-gray-800/60">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-center gap-3 px-4 py-2.5">
+            <span className="text-base shrink-0">{item.icon}</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-600">{item.label}</p>
+              <p className="text-sm text-white font-medium truncate">{item.setlist.name}</p>
+            </div>
+            <span className="text-xs text-amber-400/80 font-mono shrink-0">{item.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -458,13 +795,8 @@ function CreateSetlistModal({
     setSelectedSongs([]);
   }
 
-  function addSong(s: SetlistSong) {
-    setSelectedSongs((prev) => [...prev, s]);
-  }
-
-  function removeSong(songId: string) {
-    setSelectedSongs((prev) => prev.filter((s) => s.songId !== songId));
-  }
+  function addSong(s: SetlistSong) { setSelectedSongs((prev) => [...prev, s]); }
+  function removeSong(songId: string) { setSelectedSongs((prev) => prev.filter((s) => s.songId !== songId)); }
 
   function moveUp(idx: number) {
     if (idx === 0) return;
@@ -497,51 +829,35 @@ function CreateSetlistModal({
         className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
           <h2 className="text-white font-semibold">New Setlist</h2>
           <button onClick={onClose} className="text-gray-600 hover:text-gray-400 text-xl leading-none">✕</button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {/* Band */}
           <div>
             <label className="block text-xs text-gray-400 mb-1.5 font-semibold uppercase tracking-wide">Band</label>
-            <select
-              value={bandId}
-              onChange={(e) => handleBandChange(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500/60"
-            >
+            <select value={bandId} onChange={(e) => handleBandChange(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500/60">
               <option value="">Choose a band…</option>
               {collectionGroups.map((g) => (
-                <option key={g.bandId} value={g.bandId}>
-                  {g.bandName} ({g.collected.length} recovered)
-                </option>
+                <option key={g.bandId} value={g.bandId}>{g.bandName} ({g.collected.length} recovered)</option>
               ))}
             </select>
           </div>
 
-          {/* Name */}
           <div>
             <label className="block text-xs text-gray-400 mb-1.5 font-semibold uppercase tracking-wide">Setlist Name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Dream Concert Set"
-              maxLength={80}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/60"
-            />
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Dream Concert Set" maxLength={80}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/60" />
           </div>
 
-          {/* Selected songs */}
           {selectedSongs.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">
-                  Setlist ({selectedSongs.length})
-                </p>
-                <span className="text-xs text-gray-600">⚡ {rarityValue} pts</span>
+                <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Setlist ({selectedSongs.length})</p>
+                <span className="text-xs text-amber-500/80">⚡ {rarityValue} pts</span>
               </div>
               <div className="rounded-lg border border-gray-700 divide-y divide-gray-800">
                 {selectedSongs.map((s, idx) => (
@@ -550,20 +866,12 @@ function CreateSetlistModal({
                     <p className="flex-1 text-sm text-white truncate">{s.songTitle}</p>
                     <RarityBadge rarity={s.rarity} />
                     <div className="flex items-center shrink-0">
-                      <button
-                        onClick={() => moveUp(idx)}
-                        disabled={idx === 0}
-                        className="text-gray-600 hover:text-gray-300 disabled:opacity-30 px-1 py-0.5 text-sm"
-                      >↑</button>
-                      <button
-                        onClick={() => moveDown(idx)}
-                        disabled={idx === selectedSongs.length - 1}
-                        className="text-gray-600 hover:text-gray-300 disabled:opacity-30 px-1 py-0.5 text-sm"
-                      >↓</button>
-                      <button
-                        onClick={() => removeSong(s.songId)}
-                        className="text-red-700 hover:text-red-500 px-1 py-0.5 text-sm"
-                      >✕</button>
+                      <button onClick={() => moveUp(idx)} disabled={idx === 0}
+                        className="text-gray-600 hover:text-gray-300 disabled:opacity-30 px-1 py-0.5 text-sm">↑</button>
+                      <button onClick={() => moveDown(idx)} disabled={idx === selectedSongs.length - 1}
+                        className="text-gray-600 hover:text-gray-300 disabled:opacity-30 px-1 py-0.5 text-sm">↓</button>
+                      <button onClick={() => removeSong(s.songId)}
+                        className="text-red-700 hover:text-red-500 px-1 py-0.5 text-sm">✕</button>
                     </div>
                   </div>
                 ))}
@@ -571,17 +879,14 @@ function CreateSetlistModal({
             </div>
           )}
 
-          {/* Available songs to add */}
           {bandId && availableSongs.length > 0 && (
             <div>
               <p className="text-xs text-gray-400 mb-1.5 font-semibold uppercase tracking-wide">Add Songs</p>
               <div className="rounded-lg border border-gray-700 divide-y divide-gray-800 max-h-52 overflow-y-auto">
                 {availableSongs.map((s) => (
-                  <button
-                    key={s.songId}
+                  <button key={s.songId}
                     onClick={() => addSong({ songId: s.songId, songTitle: s.songTitle, rarity: s.rarity })}
-                    className="flex items-center gap-2 px-3 py-2.5 w-full text-left hover:bg-gray-800/60 transition-colors"
-                  >
+                    className="flex items-center gap-2 px-3 py-2.5 w-full text-left hover:bg-gray-800/60 transition-colors">
                     <span className="text-emerald-500 text-sm shrink-0 font-bold">+</span>
                     <p className="flex-1 text-sm text-gray-300 truncate">{s.songTitle}</p>
                     <RarityBadge rarity={s.rarity} />
@@ -594,25 +899,18 @@ function CreateSetlistModal({
           {bandId && availableSongs.length === 0 && selectedSongs.length === 0 && (
             <p className="text-center text-gray-600 text-sm py-4">No recovered songs for this band.</p>
           )}
-
           {bandId && availableSongs.length === 0 && selectedSongs.length > 0 && (
             <p className="text-center text-gray-600 text-xs py-2">All recovered songs are in the setlist.</p>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center gap-3 px-5 py-4 border-t border-gray-800">
-          <button
-            onClick={onClose}
-            className="flex-1 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-          >
+        <div className="flex gap-3 px-5 py-4 border-t border-gray-800">
+          <button onClick={onClose}
+            className="flex-1 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
             Cancel
           </button>
-          <button
-            onClick={() => void createMutation.mutate()}
-            disabled={!canCreate}
-            className="flex-1 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-          >
+          <button onClick={() => void createMutation.mutate()} disabled={!canCreate}
+            className="flex-1 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
             {createMutation.isPending ? 'Creating…' : 'Create Setlist'}
           </button>
         </div>
@@ -634,9 +932,10 @@ function SetlistDetailModal({
   onDeleted: () => void;
   onSaved: () => void;
 }) {
-  const [editName,  setEditName]  = useState('');
-  const [editSongs, setEditSongs] = useState<SetlistSong[]>([]);
-  const [isDirty,   setIsDirty]   = useState(false);
+  const [editName,    setEditName]    = useState('');
+  const [editSongs,   setEditSongs]   = useState<SetlistSong[]>([]);
+  const [isDirty,     setIsDirty]     = useState(false);
+  const [showExport,  setShowExport]  = useState(false);
 
   const { data: detail, isLoading, isError } = useQuery({
     queryKey: ['band-rpg-setlist-detail', setlistId],
@@ -661,10 +960,7 @@ function SetlistDetailModal({
       saves.push(bandRpgApi.updateSetlistSongs(setlistId, editSongs.map((s) => ({ songId: s.songId }))));
       await Promise.all(saves);
     },
-    onSuccess: () => {
-      setIsDirty(false);
-      onSaved();
-    },
+    onSuccess: () => { setIsDirty(false); onSaved(); },
   });
 
   const deleteMutation = useMutation({
@@ -672,15 +968,8 @@ function SetlistDetailModal({
     onSuccess:  onDeleted,
   });
 
-  function addSong(s: SetlistSong) {
-    setEditSongs((prev) => [...prev, s]);
-    setIsDirty(true);
-  }
-
-  function removeSong(songId: string) {
-    setEditSongs((prev) => prev.filter((s) => s.songId !== songId));
-    setIsDirty(true);
-  }
+  function addSong(s: SetlistSong) { setEditSongs((prev) => [...prev, s]); setIsDirty(true); }
+  function removeSong(songId: string) { setEditSongs((prev) => prev.filter((s) => s.songId !== songId)); setIsDirty(true); }
 
   function moveUp(idx: number) {
     if (idx === 0) return;
@@ -711,128 +1000,163 @@ function SetlistDetailModal({
         ?? [])
     : [];
 
-  const rarityValue = editSongs.reduce((sum, s) => sum + (SETLIST_RARITY_VALUE[s.rarity] ?? 1), 0);
+  const liveRarityValue = editSongs.reduce((sum, s) => sum + (SETLIST_RARITY_VALUE[s.rarity] ?? 1), 0);
+
+  // Build a live rarity breakdown for the analysis panel
+  const liveBreakdown: Record<string, number> = { Common: 0, Uncommon: 0, Rare: 0, Legendary: 0, Mythic: 0 };
+  for (const s of editSongs) { liveBreakdown[s.rarity] = (liveBreakdown[s.rarity] ?? 0) + 1; }
+  const maxRarityCount = Math.max(1, ...RARITY_BARS.map((r) => liveBreakdown[r.key] ?? 0));
+
+  const gradeCfg = detail ? (GRADE_STYLE[detail.grade] ?? GRADE_STYLE['D']!) : GRADE_STYLE['D']!;
 
   return (
-    <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
-      <div
-        className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {isLoading ? (
-          <div className="flex items-center justify-center h-48">
-            <div className="w-8 h-8 rounded-full border-2 border-amber-500/60 border-t-amber-400 animate-spin" />
-          </div>
-        ) : isError || !detail ? (
-          <div className="p-8 text-center text-red-400 text-sm">Failed to load setlist.</div>
-        ) : (
-          <>
-            {/* Header */}
-            <div className="px-5 py-4 border-b border-gray-800">
-              <div className="flex items-center gap-3">
-                <input
-                  type="text"
-                  value={editName}
-                  onChange={(e) => { setEditName(e.target.value); setIsDirty(true); }}
-                  maxLength={80}
-                  className="flex-1 bg-transparent text-white font-semibold text-lg focus:outline-none border-b border-transparent focus:border-amber-500/60 pb-0.5 transition-colors min-w-0"
-                />
-                <button onClick={onClose} className="text-gray-600 hover:text-gray-400 text-xl leading-none shrink-0">✕</button>
-              </div>
-              <p className="text-gray-500 text-sm mt-0.5">{detail.bandName}</p>
-              <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
-                <span>🎵 {editSongs.length} {editSongs.length === 1 ? 'song' : 'songs'}</span>
-                <span>⚡ {rarityValue} pts</span>
-                <span>💿 {detail.albumCount} {detail.albumCount === 1 ? 'album' : 'albums'}</span>
-              </div>
+    <>
+      <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
+        <div
+          className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {isLoading ? (
+            <div className="flex items-center justify-center h-48">
+              <div className="w-8 h-8 rounded-full border-2 border-amber-500/60 border-t-amber-400 animate-spin" />
             </div>
-
-            <div className="flex-1 overflow-y-auto">
-              {/* Setlist songs */}
-              {editSongs.length > 0 ? (
-                <>
-                  <div className="px-4 py-2 bg-gray-800/40 text-xs text-gray-400 font-semibold uppercase tracking-wide">
-                    Setlist
-                  </div>
-                  {editSongs.map((s, idx) => (
-                    <div key={s.songId} className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-800/50 last:border-0">
-                      <span className="text-gray-600 text-xs w-5 text-right shrink-0">{idx + 1}</span>
-                      <p className="flex-1 text-sm text-white truncate">{s.songTitle}</p>
-                      <RarityBadge rarity={s.rarity} />
-                      <div className="flex items-center shrink-0">
-                        <button
-                          onClick={() => moveUp(idx)}
-                          disabled={idx === 0}
-                          className="text-gray-600 hover:text-gray-300 disabled:opacity-30 p-1 text-sm"
-                        >↑</button>
-                        <button
-                          onClick={() => moveDown(idx)}
-                          disabled={idx === editSongs.length - 1}
-                          className="text-gray-600 hover:text-gray-300 disabled:opacity-30 p-1 text-sm"
-                        >↓</button>
-                        <button
-                          onClick={() => removeSong(s.songId)}
-                          className="text-red-700 hover:text-red-500 p-1 text-sm"
-                        >✕</button>
-                      </div>
-                    </div>
-                  ))}
-                </>
-              ) : (
-                <div className="px-4 py-8 text-center text-gray-600 text-sm">
-                  No songs yet. Add songs from the list below.
+          ) : isError || !detail ? (
+            <div className="p-8 text-center text-red-400 text-sm">Failed to load setlist.</div>
+          ) : (
+            <>
+              {/* Editable header */}
+              <div className="px-5 py-4 border-b border-gray-800 shrink-0">
+                <div className="flex items-center gap-3">
+                  <input type="text" value={editName}
+                    onChange={(e) => { setEditName(e.target.value); setIsDirty(true); }}
+                    maxLength={80}
+                    className="flex-1 bg-transparent text-white font-semibold text-lg focus:outline-none border-b border-transparent focus:border-amber-500/60 pb-0.5 transition-colors min-w-0" />
+                  <button onClick={onClose} className="text-gray-600 hover:text-gray-400 text-xl leading-none shrink-0">✕</button>
                 </div>
-              )}
+                <p className="text-gray-500 text-sm mt-0.5">{detail.bandName}</p>
+              </div>
 
-              {/* Available songs */}
-              {availableSongs.length > 0 && (
-                <>
-                  <div className="px-4 py-2 bg-gray-800/40 text-xs text-gray-500 font-semibold uppercase tracking-wide border-t border-gray-800/50">
-                    Add Songs
+              {/* Analysis panel */}
+              <div className="px-4 py-3 border-b border-gray-800 bg-gray-900/50 shrink-0">
+                <div className="flex items-center gap-3 mb-3">
+                  <GradeBadge grade={detail.grade} size="lg" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-500 mb-0.5">Setlist Score</p>
+                    <p className={`text-xl font-bold ${gradeCfg.color}`}>
+                      {detail.rarityValue + detail.diversityBonus} pts
+                    </p>
+                    <div className="flex flex-wrap gap-2 mt-0.5 text-xs text-gray-600">
+                      <span>⚡ {detail.rarityValue} rarity</span>
+                      {detail.diversityBonus > 0 && (
+                        <span className="text-emerald-600">+ {detail.diversityBonus} diversity</span>
+                      )}
+                      <span>💿 {detail.albumCount} {detail.albumCount === 1 ? 'album' : 'albums'}</span>
+                    </div>
                   </div>
-                  {availableSongs.map((s) => (
-                    <button
-                      key={s.songId}
-                      onClick={() => addSong(s)}
-                      className="flex items-center gap-2 px-4 py-2.5 w-full text-left border-b border-gray-800/50 last:border-0 hover:bg-gray-800/30 transition-colors"
-                    >
-                      <span className="text-emerald-500 text-sm shrink-0 font-bold">+</span>
-                      <p className="flex-1 text-sm text-gray-300 truncate">{s.songTitle}</p>
-                      <RarityBadge rarity={s.rarity} />
-                    </button>
-                  ))}
-                </>
-              )}
-            </div>
+                  <button
+                    onClick={() => setShowExport(true)}
+                    className="shrink-0 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white px-3 py-2 rounded-lg text-xs font-semibold transition-colors"
+                  >
+                    Share
+                  </button>
+                </div>
 
-            {/* Footer */}
-            <div className="flex items-center gap-3 px-5 py-4 border-t border-gray-800">
-              <button
-                onClick={() => { if (window.confirm('Delete this setlist?')) void deleteMutation.mutate(); }}
-                disabled={deleteMutation.isPending}
-                className="text-red-700 hover:text-red-500 disabled:opacity-50 text-sm font-semibold transition-colors px-1"
-              >
-                {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
-              </button>
-              <div className="flex-1" />
-              <button
-                onClick={onClose}
-                className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-              >
-                Close
-              </button>
-              <button
-                onClick={() => void saveMutation.mutate()}
-                disabled={!isDirty || saveMutation.isPending}
-                className="bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-              >
-                {saveMutation.isPending ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-          </>
-        )}
+                {/* Rarity breakdown bars */}
+                <div className="space-y-1.5">
+                  {RARITY_BARS.map((r) => {
+                    const count = liveBreakdown[r.key] ?? 0;
+                    return (
+                      <div key={r.key} className="flex items-center gap-2">
+                        <span className="text-xs text-gray-600 w-16 shrink-0">{r.key}</span>
+                        <div className="flex-1 h-1.5 rounded-full bg-gray-800 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${r.barClass} transition-all`}
+                            style={{ width: `${count > 0 ? Math.max(5, (count / maxRarityCount) * 100) : 0}%` }}
+                          />
+                        </div>
+                        <span className={`text-xs w-4 text-right shrink-0 ${count > 0 ? r.textClass : 'text-gray-800'}`}>
+                          {count || ''}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Song list + add section */}
+              <div className="flex-1 overflow-y-auto">
+                {editSongs.length > 0 ? (
+                  <>
+                    <div className="px-4 py-2 bg-gray-800/40 text-xs text-gray-400 font-semibold uppercase tracking-wide">
+                      Setlist · {editSongs.length} {editSongs.length === 1 ? 'song' : 'songs'} · ⚡ {liveRarityValue} pts
+                    </div>
+                    {editSongs.map((s, idx) => (
+                      <div key={s.songId} className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-800/50 last:border-0">
+                        <span className="text-gray-600 text-xs w-5 text-right shrink-0">{idx + 1}</span>
+                        <p className="flex-1 text-sm text-white truncate">{s.songTitle}</p>
+                        <RarityBadge rarity={s.rarity} />
+                        <div className="flex items-center shrink-0">
+                          <button onClick={() => moveUp(idx)} disabled={idx === 0}
+                            className="text-gray-600 hover:text-gray-300 disabled:opacity-30 p-1 text-sm">↑</button>
+                          <button onClick={() => moveDown(idx)} disabled={idx === editSongs.length - 1}
+                            className="text-gray-600 hover:text-gray-300 disabled:opacity-30 p-1 text-sm">↓</button>
+                          <button onClick={() => removeSong(s.songId)}
+                            className="text-red-700 hover:text-red-500 p-1 text-sm">✕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <div className="px-4 py-8 text-center text-gray-600 text-sm">
+                    No songs yet. Add songs from below.
+                  </div>
+                )}
+
+                {availableSongs.length > 0 && (
+                  <>
+                    <div className="px-4 py-2 bg-gray-800/40 text-xs text-gray-500 font-semibold uppercase tracking-wide border-t border-gray-800/50">
+                      Add Songs
+                    </div>
+                    {availableSongs.map((s) => (
+                      <button key={s.songId} onClick={() => addSong(s)}
+                        className="flex items-center gap-2 px-4 py-2.5 w-full text-left border-b border-gray-800/50 last:border-0 hover:bg-gray-800/30 transition-colors">
+                        <span className="text-emerald-500 text-sm shrink-0 font-bold">+</span>
+                        <p className="flex-1 text-sm text-gray-300 truncate">{s.songTitle}</p>
+                        <RarityBadge rarity={s.rarity} />
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center gap-3 px-5 py-4 border-t border-gray-800 shrink-0">
+                <button
+                  onClick={() => { if (window.confirm('Delete this setlist?')) void deleteMutation.mutate(); }}
+                  disabled={deleteMutation.isPending}
+                  className="text-red-700 hover:text-red-500 disabled:opacity-50 text-sm font-semibold transition-colors px-1"
+                >
+                  {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+                </button>
+                <div className="flex-1" />
+                <button onClick={onClose}
+                  className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+                  Close
+                </button>
+                <button onClick={() => void saveMutation.mutate()} disabled={!isDirty || saveMutation.isPending}
+                  className="bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+                  {saveMutation.isPending ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
-    </div>
+
+      {showExport && detail && (
+        <SetlistExportModal detail={detail} onClose={() => setShowExport(false)} />
+      )}
+    </>
   );
 }
 
@@ -853,7 +1177,7 @@ function SetlistsTab() {
     staleTime: 60_000,
   });
 
-  const refreshSetlists = () => void queryClient.invalidateQueries({ queryKey: ['band-rpg-setlists'] });
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: ['band-rpg-setlists'] });
 
   if (isLoading) return <LoadingSpinner />;
   if (isError)   return <ErrorMsg msg="Failed to load setlists." />;
@@ -868,32 +1192,30 @@ function SetlistsTab() {
               : 'No setlists yet'}
           </p>
           {collectionGroups.length > 0 && (
-            <button
-              onClick={() => setShowCreate(true)}
-              className="bg-amber-700 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-            >
+            <button onClick={() => setShowCreate(true)}
+              className="bg-amber-700 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
               + New Setlist
             </button>
           )}
         </div>
 
         {setlists.length === 0 && collectionGroups.length === 0 ? (
-          <EmptyState
-            icon="🎸"
-            title="No setlists yet"
-            desc="Recover songs first, then build your dream setlist from your collection."
-          />
+          <EmptyState icon="🎸" title="No setlists yet"
+            desc="Recover songs first, then build your dream setlist from your collection." />
         ) : setlists.length === 0 ? (
           <div className="rounded-xl border border-gray-800 bg-gray-900/60 px-6 py-10 text-center">
             <p className="text-gray-300 font-semibold mb-1">Build your first setlist</p>
             <p className="text-gray-600 text-sm">Arrange your recovered songs into the perfect concert order.</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {setlists.map((sl) => (
-              <SetlistCard key={sl.id} setlist={sl} onClick={() => setSelectedId(sl.id)} />
-            ))}
-          </div>
+          <>
+            <SetlistHallOfFame setlists={setlists} />
+            <div className="space-y-2">
+              {setlists.map((sl) => (
+                <SetlistCard key={sl.id} setlist={sl} onClick={() => setSelectedId(sl.id)} />
+              ))}
+            </div>
+          </>
         )}
       </div>
 
@@ -901,7 +1223,7 @@ function SetlistsTab() {
         <CreateSetlistModal
           collectionGroups={collectionGroups}
           onClose={() => setShowCreate(false)}
-          onCreated={() => { setShowCreate(false); refreshSetlists(); }}
+          onCreated={() => { setShowCreate(false); refresh(); }}
         />
       )}
 
@@ -910,11 +1232,31 @@ function SetlistsTab() {
           setlistId={selectedId}
           collectionGroups={collectionGroups}
           onClose={() => setSelectedId(null)}
-          onDeleted={() => { setSelectedId(null); refreshSetlists(); }}
-          onSaved={refreshSetlists}
+          onDeleted={() => { setSelectedId(null); refresh(); }}
+          onSaved={refresh}
         />
       )}
     </>
+  );
+}
+
+// ── Lifetime archive points ────────────────────────────────────────────────────
+
+function LifetimePoints() {
+  const { data: stats } = useQuery({
+    queryKey: ['band-rpg-stats'],
+    queryFn:  () => bandRpgApi.getStats(),
+    staleTime: 120_000,
+  });
+  if (!stats || stats.totalScore === 0) return null;
+  return (
+    <div className="flex items-center gap-1.5 ml-auto">
+      <span className="text-gray-600 text-xs">⚡</span>
+      <span className="text-amber-400/80 font-mono text-xs font-semibold">
+        {stats.totalScore.toLocaleString()}
+      </span>
+      <span className="text-gray-600 text-xs hidden sm:inline">lifetime pts</span>
+    </div>
   );
 }
 
@@ -959,14 +1301,17 @@ export default function BandRpgCollectionPage() {
     <div className="min-h-screen flex flex-col bg-gray-950">
       <SiteHeader theme="dark" active="games" />
 
+      {/* Header with lifetime points */}
       <div className="flex items-center gap-3 px-4 py-3 bg-black/40 border-b border-gray-800 shrink-0">
         <Link to="/play/band-rpg" className="text-gray-500 hover:text-gray-300 text-sm transition-colors">
           ← Band RPG
         </Link>
         <span className="text-gray-700">·</span>
         <span className="text-white text-sm font-semibold">The Archive</span>
+        <LifetimePoints />
       </div>
 
+      {/* Tab bar */}
       <div className="flex items-center gap-1 px-4 py-2.5 bg-black/20 border-b border-gray-800 shrink-0">
         {TABS.map((t) => (
           <button

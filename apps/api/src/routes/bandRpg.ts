@@ -11,6 +11,20 @@ const RARITY_VALUE: Record<string, number> = {
   Common: 1, Uncommon: 2, Rare: 4, Legendary: 8, Mythic: 15,
 };
 
+// diversityBonus = 0 when all songs from same album; scales up to 40% of rarityValue at full diversity
+function computeDiversityBonus(uniqueAlbums: number, songCount: number, rarityValue: number): number {
+  if (songCount === 0 || uniqueAlbums === 0) return 0;
+  return Math.floor((uniqueAlbums / songCount) * rarityValue * 0.4);
+}
+
+function computeGrade(total: number): string {
+  if (total >= 80) return 'S';
+  if (total >= 50) return 'A';
+  if (total >= 25) return 'B';
+  if (total >= 10) return 'C';
+  return 'D';
+}
+
 const RARITY_WEIGHTS: Record<string, number> = {
   Common:    10,
   Uncommon:   6,
@@ -622,20 +636,41 @@ bandRpgRouter.get('/setlists', requireAuth, async (req, res, next): Promise<void
 
     const setlists = await prisma.bandRpgSetlist.findMany({
       where: { userId },
-      include: { songs: { select: { rarity: true } } },
+      include: { songs: { select: { songId: true, rarity: true } } },
       orderBy: { createdAt: 'desc' },
     });
 
-    res.json(setlists.map((sl) => ({
-      id:          sl.id,
-      bandId:      sl.bandId,
-      bandName:    sl.bandName,
-      name:        sl.name,
-      songCount:   sl.songs.length,
-      rarityValue: sl.songs.reduce((sum, s) => sum + (RARITY_VALUE[s.rarity] ?? 1), 0),
-      createdAt:   sl.createdAt.toISOString(),
-      updatedAt:   sl.updatedAt.toISOString(),
-    })));
+    // Batch album lookup for all songs across all setlists
+    const allSongIds = setlists.flatMap((sl) => sl.songs.map((s) => s.songId));
+    const songAlbumRows = allSongIds.length > 0
+      ? await prisma.song.findMany({
+          where: { id: { in: allSongIds }, albumId: { not: null } },
+          select: { id: true, albumId: true },
+        })
+      : [];
+    const songAlbumMap = new Map(songAlbumRows.map((s) => [s.id, s.albumId as string]));
+
+    res.json(setlists.map((sl) => {
+      const rarityValue    = sl.songs.reduce((sum, s) => sum + (RARITY_VALUE[s.rarity] ?? 1), 0);
+      const albumCount     = new Set(
+        sl.songs.map((s) => songAlbumMap.get(s.songId)).filter((id): id is string => !!id),
+      ).size;
+      const diversityBonus = computeDiversityBonus(albumCount, sl.songs.length, rarityValue);
+      const grade          = computeGrade(rarityValue + diversityBonus);
+      return {
+        id:            sl.id,
+        bandId:        sl.bandId,
+        bandName:      sl.bandName,
+        name:          sl.name,
+        songCount:     sl.songs.length,
+        rarityValue,
+        albumCount,
+        diversityBonus,
+        grade,
+        createdAt:     sl.createdAt.toISOString(),
+        updatedAt:     sl.updatedAt.toISOString(),
+      };
+    }));
   } catch (e) { next(e); }
 });
 
@@ -691,16 +726,30 @@ bandRpgRouter.get('/setlists/:setlistId', requireAuth, async (req, res, next): P
       ).size;
     }
 
+    const rarityValue    = setlist.songs.reduce((sum, s) => sum + (RARITY_VALUE[s.rarity] ?? 1), 0);
+    const diversityBonus = computeDiversityBonus(albumCount, setlist.songs.length, rarityValue);
+    const grade          = computeGrade(rarityValue + diversityBonus);
+
+    const rarityBreakdown: Record<string, number> = {
+      Common: 0, Uncommon: 0, Rare: 0, Legendary: 0, Mythic: 0,
+    };
+    for (const s of setlist.songs) {
+      rarityBreakdown[s.rarity] = (rarityBreakdown[s.rarity] ?? 0) + 1;
+    }
+
     res.json({
-      id:          setlist.id,
-      bandId:      setlist.bandId,
-      bandName:    setlist.bandName,
-      name:        setlist.name,
-      songCount:   setlist.songs.length,
-      rarityValue: setlist.songs.reduce((sum, s) => sum + (RARITY_VALUE[s.rarity] ?? 1), 0),
+      id:            setlist.id,
+      bandId:        setlist.bandId,
+      bandName:      setlist.bandName,
+      name:          setlist.name,
+      songCount:     setlist.songs.length,
+      rarityValue,
       albumCount,
-      createdAt:   setlist.createdAt.toISOString(),
-      updatedAt:   setlist.updatedAt.toISOString(),
+      diversityBonus,
+      grade,
+      rarityBreakdown,
+      createdAt:     setlist.createdAt.toISOString(),
+      updatedAt:     setlist.updatedAt.toISOString(),
       songs: setlist.songs.map((s) => ({
         id:        s.id,
         songId:    s.songId,

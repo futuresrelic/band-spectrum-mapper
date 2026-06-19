@@ -137,6 +137,9 @@ export interface BandRpgSetlistSummary {
   name: string;
   songCount: number;
   rarityValue: number;
+  albumCount: number;
+  diversityBonus: number;
+  grade: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -151,7 +154,7 @@ export interface BandRpgSetlistSongEntry {
 }
 
 export interface BandRpgSetlistDetail extends BandRpgSetlistSummary {
-  albumCount: number;
+  rarityBreakdown: Record<string, number>;
   songs: BandRpgSetlistSongEntry[];
 }
 
