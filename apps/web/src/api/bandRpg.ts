@@ -53,11 +53,35 @@ export interface BandRpgScoreEntry {
 export interface BandRpgStats {
   totalRuns: number;
   totalScore: number;
+  totalSongsRecovered: number;
+  uniqueSongsRecovered: number;
+  correctGuessCount: number;
+  investigationAccuracy: number;
   favoriteBandId: string | null;
   favoriteBandName: string | null;
   favoriteCharacterId: string | null;
   favoriteCharacterName: string | null;
   lastPlayedAt: string | null;
+}
+
+// ── Collection types ──────────────────────────────────────────────────────────
+
+export interface BandRpgCollectedSong {
+  id: string;
+  songId: string;
+  songTitle: string;
+  bandId: string;
+  bandName: string;
+  guessedCorrectly: boolean;
+  scoreEarned: number;
+  recoveredAt: string;
+}
+
+export interface BandRpgCollectionGroup {
+  bandId: string;
+  bandName: string;
+  collected: BandRpgCollectedSong[];
+  totalSongsInBand: number;
 }
 
 // ── API client ────────────────────────────────────────────────────────────────
@@ -100,4 +124,18 @@ export const bandRpgApi = {
   }) => api.post<{ ok: boolean }>('/api/band-rpg/progress', data),
 
   getStats: () => api.get<BandRpgStats>('/api/band-rpg/stats'),
+
+  collectSong: (data: {
+    songId: string;
+    songTitle: string;
+    bandId: string;
+    bandName: string;
+    guessedCorrectly: boolean;
+    scoreEarned: number;
+  }) => api.post<{ ok: boolean; isNew: boolean }>('/api/band-rpg/collect', data),
+
+  getCollection: () => api.get<BandRpgCollectionGroup[]>('/api/band-rpg/collection'),
+
+  adminResetMyData: () =>
+    api.post<{ ok: boolean; message: string }>('/api/band-rpg/admin/reset-my-data', {}),
 };

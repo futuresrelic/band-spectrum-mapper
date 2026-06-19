@@ -86,6 +86,7 @@ import AdminBandLogosPage from './pages/AdminBandLogosPage';
 import MinesweeperPage from './pages/MinesweeperPage';
 import DiscoverPage from './pages/DiscoverPage';
 import BandRpgPage from './pages/BandRpgPage';
+import BandRpgCollectionPage from './pages/BandRpgCollectionPage';
 import AdminBandRpgPage from './pages/AdminBandRpgPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
@@ -169,6 +170,7 @@ export default function App() {
         <Route path="/play/platformer" element={<PlatformerPage />} />
         <Route path="/play/minesweeper" element={<MinesweeperPage />} />
         <Route path="/play/band-rpg" element={<BandRpgPage />} />
+        <Route path="/play/band-rpg/collection" element={<BandRpgCollectionPage />} />
 
         {/* ── ADMIN: full app, isAdmin required ── */}
         <Route

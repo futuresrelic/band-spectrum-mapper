@@ -430,6 +430,7 @@ model User {
   tagVotes             TagVote[]
   bandRpgProgress      BandRpgPlayerProgress?
   bandRpgScores        BandRpgScore[]
+  bandRpgCollection    BandRpgCollectedSong[]
 
   @@map("users")
 }
@@ -1628,6 +1629,8 @@ model BandRpgPlayerProgress {
   completionPct        Float    @default(0)
   totalRuns            Int      @default(0)
   totalScore           Int      @default(0)
+  totalSongsRecovered  Int      @default(0)
+  correctGuessCount    Int      @default(0)
   favoriteBandId       String?
   favoriteBandName     String?
   favoriteCharacterId  String?
@@ -1668,5 +1671,22 @@ model BandRpgScore {
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@map("band_rpg_scores")
+}
+
+model BandRpgCollectedSong {
+  id               String   @id @default(cuid())
+  userId           String
+  songId           String
+  songTitle        String
+  bandId           String
+  bandName         String
+  guessedCorrectly Boolean  @default(false)
+  scoreEarned      Int      @default(0)
+  recoveredAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, songId])
+  @@map("band_rpg_collected_songs")
 }
 

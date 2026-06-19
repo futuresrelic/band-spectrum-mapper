@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { bandRpgApi } from '../api/bandRpg';
 
 type Tab =
   | 'overview'
@@ -11,7 +13,8 @@ type Tab =
   | 'items'
   | 'graphics'
   | 'settings'
-  | 'leaderboard';
+  | 'leaderboard'
+  | 'testing';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'overview',    label: 'Overview',    icon: '🗺️'  },
@@ -25,6 +28,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'graphics',    label: 'Graphics',    icon: '🎨'  },
   { id: 'settings',    label: 'Settings',    icon: '⚙️'  },
   { id: 'leaderboard', label: 'Leaderboard', icon: '🏆'  },
+  { id: 'testing',     label: 'Testing',     icon: '🧪'  },
 ];
 
 function ComingSoonPlaceholder({ title, desc }: { title: string; desc: string }) {
@@ -85,6 +89,83 @@ function OverviewTab() {
   );
 }
 
+function TestingTab() {
+  const [confirmed, setConfirmed] = useState(false);
+  const [result,    setResult]    = useState<string | null>(null);
+
+  const resetMutation = useMutation({
+    mutationFn: () => bandRpgApi.adminResetMyData(),
+    onSuccess: (r) => {
+      setResult(r.message);
+      setConfirmed(false);
+    },
+    onError: () => {
+      setResult('Reset failed. Check the console for details.');
+      setConfirmed(false);
+    },
+  });
+
+  function handleReset() {
+    setResult(null);
+    resetMutation.mutate();
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-surface-200 bg-white p-6">
+        <h2 className="font-semibold text-surface-900 mb-1">Developer Testing</h2>
+        <p className="text-sm text-surface-500 mb-6">
+          Tools for testing Band RPG locally. These actions only affect your own account.
+        </p>
+
+        <div className="rounded-lg border border-red-200 bg-red-50 p-5">
+          <h3 className="font-semibold text-red-900 mb-1">Reset My Band RPG Collection</h3>
+          <p className="text-sm text-red-700 leading-relaxed mb-4">
+            Clears your recovered song collection and Band RPG player progress. Useful for testing
+            collection and progression flows from scratch.
+          </p>
+          <ul className="text-xs text-red-600 space-y-1 mb-5 list-disc list-inside">
+            <li>Clears: recovered song collection, player progress &amp; stats</li>
+            <li>Does NOT clear: leaderboard scores, band data, song data, other users' data</li>
+          </ul>
+
+          {result && (
+            <div className="mb-4 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2.5 text-sm text-emerald-800">
+              ✓ {result}
+            </div>
+          )}
+
+          {!confirmed ? (
+            <button
+              onClick={() => setConfirmed(true)}
+              className="bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
+            >
+              Reset My Collection
+            </button>
+          ) : (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-red-800 font-medium">Are you sure?</span>
+              <button
+                onClick={handleReset}
+                disabled={resetMutation.isPending}
+                className="bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
+              >
+                {resetMutation.isPending ? 'Clearing…' : 'Yes, Clear It'}
+              </button>
+              <button
+                onClick={() => setConfirmed(false)}
+                className="text-sm text-surface-500 hover:text-surface-700 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminBandRpgPage() {
   const [tab, setTab] = useState<Tab>('overview');
 
@@ -132,7 +213,8 @@ export default function AdminBandRpgPage() {
 
       {/* Tab content */}
       {tab === 'overview' && <OverviewTab />}
-      {tab !== 'overview' && PLACEHOLDER_CONTENT[tab] && (
+      {tab === 'testing'  && <TestingTab />}
+      {tab !== 'overview' && tab !== 'testing' && PLACEHOLDER_CONTENT[tab] && (
         <ComingSoonPlaceholder
           title={PLACEHOLDER_CONTENT[tab]!.title}
           desc={PLACEHOLDER_CONTENT[tab]!.desc}

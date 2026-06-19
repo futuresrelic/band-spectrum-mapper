@@ -848,12 +848,12 @@ function PauseMenu({ onResume, onQuit }: { onResume: () => void; onQuit: () => v
 
 function CompleteScreen({
   score, rank, bandName, characterName, songTitle,
-  guessedCorrectly, guessBonus,
-  onPlayAgain, onChangeBand, onLeaderboard,
+  guessedCorrectly, guessBonus, isNewCollection,
+  onPlayAgain, onChangeBand, onLeaderboard, onViewCollection,
 }: {
   score: number; rank: number | null; bandName: string; characterName: string; songTitle: string | null;
-  guessedCorrectly: boolean; guessBonus: number;
-  onPlayAgain: () => void; onChangeBand: () => void; onLeaderboard: () => void;
+  guessedCorrectly: boolean; guessBonus: number; isNewCollection: boolean | null;
+  onPlayAgain: () => void; onChangeBand: () => void; onLeaderboard: () => void; onViewCollection: () => void;
 }) {
   return (
     <div className="absolute inset-0 bg-black/80 flex items-center justify-center pointer-events-auto z-20">
@@ -862,7 +862,7 @@ function CompleteScreen({
         <h2 className="text-2xl font-bold text-emerald-400 mb-1">Quest Complete!</h2>
         <p className="text-violet-400 text-xs mb-1">{bandName} · {characterName}</p>
         {songTitle && <p className="text-amber-400 text-xs mb-4">🎵 {songTitle}</p>}
-        <div className="bg-black/40 rounded-xl p-4 mb-6">
+        <div className="bg-black/40 rounded-xl p-4 mb-4">
           <div className="text-4xl font-bold text-white mb-1">{score}</div>
           <div className="text-gray-400 text-sm">points earned</div>
           {guessedCorrectly && (
@@ -872,10 +872,16 @@ function CompleteScreen({
             <div className="text-emerald-400 text-sm mt-2 font-semibold">Leaderboard rank: #{rank}</div>
           )}
         </div>
+        {songTitle && isNewCollection !== null && (
+          <div className={`text-xs font-semibold mb-4 ${isNewCollection ? 'text-emerald-400' : 'text-gray-500'}`}>
+            {isNewCollection ? '✓ First Recovery — Added to collection!' : '● Already Catalogued'}
+          </div>
+        )}
         <div className="flex flex-col gap-3">
-          <button onClick={onPlayAgain}   className="bg-emerald-700 hover:bg-emerald-600 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors">Play Again</button>
-          <button onClick={onChangeBand}  className="bg-violet-700/60 hover:bg-violet-700 text-violet-200 font-semibold px-6 py-2.5 rounded-lg transition-colors">Change Band</button>
-          <button onClick={onLeaderboard} className="bg-white/10 hover:bg-white/20 text-gray-300 font-semibold px-6 py-2.5 rounded-lg transition-colors">View Leaderboard</button>
+          <button onClick={onPlayAgain}      className="bg-emerald-700 hover:bg-emerald-600 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors">Play Again</button>
+          <button onClick={onViewCollection} className="bg-amber-700/60 hover:bg-amber-700 text-amber-200 font-semibold px-6 py-2.5 rounded-lg transition-colors">View Collection</button>
+          <button onClick={onChangeBand}     className="bg-violet-700/60 hover:bg-violet-700 text-violet-200 font-semibold px-6 py-2.5 rounded-lg transition-colors">Change Band</button>
+          <button onClick={onLeaderboard}    className="bg-white/10 hover:bg-white/20 text-gray-300 font-semibold px-6 py-2.5 rounded-lg transition-colors">View Leaderboard</button>
         </div>
       </div>
     </div>
@@ -996,6 +1002,7 @@ export default function BandRpgGame({
   const [showJournal,        setShowJournal]        = useState(false);
   const [guessResult,        setGuessResult]        = useState<'correct' | 'incorrect' | null>(null);
   const [revealedTitle,      setRevealedTitle]      = useState<string | null>(null);
+  const [isNewCollection,    setIsNewCollection]    = useState<boolean | null>(null);
 
   // Pre-fetch the band's song list for the guess dropdown
   const { data: bandSongs = [] } = useQuery({
@@ -1037,6 +1044,12 @@ export default function BandRpgGame({
   const saveProgress = useMutation({
     mutationFn: (data: Parameters<typeof bandRpgApi.saveProgress>[0]) => bandRpgApi.saveProgress(data),
     onError: () => { /* silent */ },
+  });
+
+  const collectSong = useMutation({
+    mutationFn: (data: Parameters<typeof bandRpgApi.collectSong>[0]) => bandRpgApi.collectSong(data),
+    onSuccess: (r) => setIsNewCollection(r.isNew),
+    onError:   () => { /* silent — collection failure should not disrupt game flow */ },
   });
 
   const dismissBanner = useCallback(() => setBanner(null), []);
@@ -1153,7 +1166,17 @@ export default function BandRpgGame({
       bandId: selectedBand.id, bandName: selectedBand.name,
       characterId: selectedCharacter.id, characterName: selectedCharacter.name,
     });
-  }, [submitScore, saveProgress, selectedBand, selectedCharacter]);
+    if (sess.songId && sess.songTitle) {
+      collectSong.mutate({
+        songId: sess.songId,
+        songTitle: sess.songTitle,
+        bandId: selectedBand.id,
+        bandName: selectedBand.name,
+        guessedCorrectly: guessedCorrectlyRef.current,
+        scoreEarned: finalScore,
+      });
+    }
+  }, [submitScore, saveProgress, collectSong, selectedBand, selectedCharacter]);
 
   const collectFragment = useCallback((frag: LyricFragment) => {
     frag.collected = true;
@@ -1403,6 +1426,7 @@ export default function BandRpgGame({
     setShowJournal(false);
     setGuessResult(null);
     setRevealedTitle(null);
+    setIsNewCollection(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBand.name]);
 
@@ -1481,9 +1505,11 @@ export default function BandRpgGame({
             songTitle={revealedTitle}
             guessedCorrectly={guessedCorrectlyRef.current}
             guessBonus={guessBonusRef.current}
+            isNewCollection={isNewCollection}
             onPlayAgain={handlePlayAgain}
             onChangeBand={onChangeBand}
             onLeaderboard={() => { window.location.href = '/leaderboard'; }}
+            onViewCollection={() => { window.location.href = '/play/band-rpg/collection'; }}
           />
         )}
       </div>
