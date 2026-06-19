@@ -428,6 +428,8 @@ model User {
   cinemaData           UserCinemaData?
   tagProposals         TagProposal[]
   tagVotes             TagVote[]
+  bandRpgProgress      BandRpgPlayerProgress?
+  bandRpgScores        BandRpgScore[]
 
   @@map("users")
 }
@@ -1385,5 +1387,272 @@ model LyricDuelScore {
   user         User?    @relation(fields: [userId], references: [id])
 
   @@map("lyric_duel_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Band RPG — music-powered adventure game
+// Phase A: data models only; gameplay implemented in Phase B+
+// ---------------------------------------------------------------------------
+
+model BandRpgConfig {
+  id               String   @id @default(cuid())
+  // Visual theme
+  palette          Json     @default("{}")  // { primary, secondary, accent, bg, ui, dialogueBg }
+  spriteScale      Float    @default(1.0)
+  tileSize         Int      @default(32)
+  // Gameplay
+  livesEnabled     Boolean  @default(true)
+  livesCount       Int      @default(3)
+  healthEnabled    Boolean  @default(false)
+  timerEnabled     Boolean  @default(false)
+  playerSpeed      Float    @default(3.0)
+  mobileControls   Boolean  @default(true)
+  questLogEnabled  Boolean  @default(true)
+  minimapEnabled   Boolean  @default(false)
+  inventoryEnabled Boolean  @default(true)
+  dialogueSpeed    String   @default("normal") // "slow" | "normal" | "fast"
+  difficulty       String   @default("normal") // "easy" | "normal" | "hard"
+  saveProgress     Boolean  @default(true)
+  updatedAt        DateTime @updatedAt
+
+  @@map("band_rpg_config")
+}
+
+model BandRpgLevel {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?
+  order       Int      @default(0)
+  bandId      String?  // Optional band association
+  albumId     String?  // Optional album association
+  songId      String?  // Optional song association
+  // Map data stored as JSON (tile layers, collision, NPCs, items, triggers)
+  mapData     Json     @default("{}")
+  background  String?  // Asset key or URL
+  spawnX      Int      @default(0)
+  spawnY      Int      @default(0)
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  objectives BandRpgObjective[]
+  npcs       BandRpgNpc[]
+  items      BandRpgItem[]      @relation("LevelItems")
+  beats      BandRpgStoryBeat[]
+  playerProgress BandRpgPlayerProgress[]
+
+  @@map("band_rpg_levels")
+}
+
+enum BandRpgObjectiveType {
+  find_item
+  talk_to_npc
+  reach_location
+  collect_objects
+  inspect_object
+  trigger_music_node
+  complete_sequence
+  survive_timer
+  solve_clue
+  play_minigame
+  score_threshold
+
+  @@map("band_rpg_objective_type")
+}
+
+model BandRpgObjective {
+  id            String               @id @default(cuid())
+  levelId       String
+  name          String
+  description   String?
+  type          BandRpgObjectiveType
+  target        String?              // item ID, NPC ID, location key, etc.
+  condition     Json                 @default("{}") // flexible completion criteria
+  reward        Json                 @default("{}") // { xp, items, unlocks }
+  dialogueText  String?
+  prerequisiteId String?             // Must complete this objective first
+  isOptional    Boolean              @default(false)
+  order         Int                  @default(0)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  level        BandRpgLevel      @relation(fields: [levelId], references: [id], onDelete: Cascade)
+  prerequisite BandRpgObjective? @relation("ObjPrereq", fields: [prerequisiteId], references: [id], onDelete: SetNull)
+  dependents   BandRpgObjective[] @relation("ObjPrereq")
+
+  @@map("band_rpg_objectives")
+}
+
+model BandRpgQuest {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  name         String
+  description  String?
+  giverId      String?  // BandRpgNpc.id
+  objectiveIds Json     @default("[]")  // ordered list of objective IDs
+  branchPaths  Json     @default("[]")  // optional branching logic
+  reward       Json     @default("{}")
+  unlocksQuestId String?
+  unlocksLevelId String?
+  storyBeatId    String?
+  isOptional     Boolean  @default(false)
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("band_rpg_quests")
+}
+
+model BandRpgStoryArc {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  description String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  beats BandRpgStoryBeat[]
+
+  @@map("band_rpg_story_arcs")
+}
+
+enum BandRpgBeatType {
+  dialogue
+  narration
+  cutscene
+  choice
+  unlock
+  trigger
+
+  @@map("band_rpg_beat_type")
+}
+
+model BandRpgStoryBeat {
+  id          String          @id @default(cuid())
+  arcId       String?
+  levelId     String?
+  type        BandRpgBeatType
+  content     Json            @default("{}") // text, choices, branch targets, speaker
+  unlockCondition Json        @default("{}")
+  order       Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  arc   BandRpgStoryArc? @relation(fields: [arcId],   references: [id], onDelete: SetNull)
+  level BandRpgLevel?    @relation(fields: [levelId], references: [id], onDelete: SetNull)
+
+  @@map("band_rpg_story_beats")
+}
+
+model BandRpgTimelineEvent {
+  id          String   @id @default(cuid())
+  title       String
+  type        String   // "level" | "quest" | "story" | "boss" | "unlock"
+  refId       String?  // level/quest/beat ID
+  order       Int      @default(0)
+  isRequired  Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("band_rpg_timeline_events")
+}
+
+model BandRpgNpc {
+  id             String   @id @default(cuid())
+  levelId        String
+  name           String
+  role           String?  // "quest_giver" | "merchant" | "band_member" | "ambient"
+  faction        String?
+  portraitUrl    String?
+  characterSkinId String? // Reference to PlatformerCharacterSkin
+  defaultDialogue Json   @default("[]") // [{text, speakerName, portraitUrl}]
+  positionX      Int      @default(0)
+  positionY      Int      @default(0)
+  bandMemberId   String?  // Optional BandMember reference
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  level BandRpgLevel @relation(fields: [levelId], references: [id], onDelete: Cascade)
+
+  @@map("band_rpg_npcs")
+}
+
+enum BandRpgItemType {
+  collectible
+  key_item
+  quest_item
+  power_up
+  lore_item
+  album_artifact
+  song_artifact
+  cosmetic
+
+  @@map("band_rpg_item_type")
+}
+
+model BandRpgItem {
+  id          String          @id @default(cuid())
+  slug        String          @unique
+  name        String
+  description String?
+  type        BandRpgItemType
+  iconUrl     String?
+  spriteUrl   String?
+  rarity      String          @default("common") // "common" | "rare" | "epic" | "legendary"
+  scoreValue  Int             @default(0)
+  bandId      String?
+  albumId     String?
+  songId      String?
+  isVisible   Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  levels BandRpgLevel[] @relation("LevelItems")
+
+  @@map("band_rpg_items")
+}
+
+model BandRpgPlayerProgress {
+  id                   String   @id @default(cuid())
+  userId               String
+  currentLevelId       String?
+  currentQuestId       String?
+  completedObjectives  Json     @default("[]")  // [objectiveId, ...]
+  completedQuests      Json     @default("[]")
+  completedLevels      Json     @default("[]")
+  inventory            Json     @default("[]")  // [{ itemId, quantity }]
+  unlockedStoryBeats   Json     @default("[]")
+  score                Int      @default(0)
+  completionPct        Float    @default(0)
+  lastPlayedAt         DateTime @default(now())
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentLevel BandRpgLevel? @relation(fields: [currentLevelId], references: [id], onDelete: SetNull)
+
+  @@unique([userId])
+  @@map("band_rpg_player_progress")
+}
+
+model BandRpgScore {
+  id                 String   @id @default(cuid())
+  userId             String?
+  userName           String?
+  userAvatarUrl      String?
+  score              Int
+  completionPct      Float    @default(0)
+  fastestCompletionMs Int?
+  questsCompleted    Int      @default(0)
+  itemsCollected     Int      @default(0)
+  levelsCleared      Int      @default(0)
+  isAnonymous        Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("band_rpg_scores")
 }
 

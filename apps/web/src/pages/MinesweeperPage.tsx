@@ -360,14 +360,22 @@ export default function MinesweeperPage() {
           <div className="max-w-2xl mx-auto mb-4 rounded-xl bg-emerald-950 border border-emerald-500/50 px-6 py-4 text-center">
             <p className="text-2xl font-black text-emerald-400">🎸 Sold Out! No Flops!</p>
             <p className="text-emerald-300 text-sm mt-1">You headlined the tour in {formatTime(elapsed)}.</p>
-            <button onClick={resetGame} className="mt-3 px-5 py-2 bg-emerald-700 hover:bg-emerald-600 rounded-lg text-sm font-bold transition-colors">Play Again</button>
+            <div className="flex flex-wrap gap-3 justify-center mt-3">
+              <button onClick={resetGame} className="px-5 py-2 bg-emerald-700 hover:bg-emerald-600 rounded-lg text-sm font-bold transition-colors">Play Again</button>
+              <a href="/games" className="px-5 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-bold transition-colors text-white">More Games →</a>
+              <a href="/leaderboard" className="px-5 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-sm font-medium transition-colors text-emerald-300">Leaderboard</a>
+            </div>
           </div>
         )}
         {phase === 'lost' && (
           <div className="max-w-2xl mx-auto mb-4 rounded-xl bg-rose-950 border border-rose-500/50 px-6 py-4 text-center">
             <p className="text-2xl font-black text-rose-400">💀 Flopped! The crowd walked out.</p>
             <p className="text-rose-300 text-sm mt-1">The band played {formatTime(elapsed)} before hitting a flop.</p>
-            <button onClick={resetGame} className="mt-3 px-5 py-2 bg-rose-700 hover:bg-rose-600 rounded-lg text-sm font-bold transition-colors">Try Again</button>
+            <div className="flex flex-wrap gap-3 justify-center mt-3">
+              <button onClick={resetGame} className="px-5 py-2 bg-rose-700 hover:bg-rose-600 rounded-lg text-sm font-bold transition-colors">Try Again</button>
+              <a href="/games" className="px-5 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-bold transition-colors text-white">More Games →</a>
+              <a href="/leaderboard" className="px-5 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-sm font-medium transition-colors text-rose-300">Leaderboard</a>
+            </div>
           </div>
         )}
 

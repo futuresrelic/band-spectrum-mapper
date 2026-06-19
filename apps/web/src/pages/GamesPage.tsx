@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
 import SiteHeader from '../components/layout/SiteHeader';
 import { settingsApi } from '../api/settings';
+import AxisExplainer from '../components/AxisExplainer';
 
 const GAMES = [
   {
@@ -226,12 +228,26 @@ const GAMES = [
     btnColor: 'bg-orange-700 hover:bg-orange-600',
     accentText: 'text-orange-400',
   },
+  {
+    id: 'band-rpg',
+    icon: '🗺️',
+    title: 'Band RPG',
+    subtitle: 'Music-powered adventure',
+    desc: "An RPG adventure where the entire BSM library becomes the world. Explore levels, complete quests, collect items, and progress through a storyline built around real bands, albums, and songs.",
+    rules: ['Explore levels built around real music data', 'Complete quests tied to bands, albums, and songs', 'Collect items, unlock story beats, and earn your place on the leaderboard'],
+    href: '/play/band-rpg',
+    cta: 'Enter the World',
+    color: 'border-emerald-500/40 hover:border-emerald-400/70',
+    btnColor: 'bg-emerald-700 hover:bg-emerald-600',
+    accentText: 'text-emerald-400',
+  },
 ];
 
 const COMING_SOON: { id: string; icon: string; title: string; desc: string }[] = [];
 
 export default function GamesPage() {
   const { user } = useAuth();
+  const [showAxes, setShowAxes] = useState(false);
 
   const { data: visibilityData } = useQuery({
     queryKey: ['game-visibility'],
@@ -309,6 +325,31 @@ export default function GamesPage() {
             </div>
           </div>
         )}
+
+        {/* Spectrum axes explainer */}
+        <div className="rounded-2xl bg-gray-900 border border-gray-800 p-6 mb-6">
+          <div className="flex items-center justify-between gap-4 mb-2">
+            <div>
+              <h3 className="font-semibold text-white flex items-center gap-2">
+                <span>📡</span> The 6 Spectrum Axes
+              </h3>
+              <p className="text-sm text-gray-400 mt-0.5">
+                Games like Spectrum Guesser and Lyric Duel use these 6 dimensions to score songs.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowAxes((p) => !p)}
+              className="shrink-0 text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              {showAxes ? 'Hide' : 'Learn more'}
+            </button>
+          </div>
+          {showAxes && (
+            <div className="mt-4">
+              <AxisExplainer theme="dark" />
+            </div>
+          )}
+        </div>
 
         {/* Leaderboard CTA */}
         <div className="rounded-2xl bg-gray-900 border border-gray-800 p-6 flex items-center justify-between gap-4 flex-wrap">

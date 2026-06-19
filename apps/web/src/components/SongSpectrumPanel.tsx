@@ -281,20 +281,38 @@ export default function SongSpectrumPanel({ songId, coreScore }: Props) {
   const viewOptions: ViewType[] = dataType === 'themes' ? ['bars', 'pillars'] : ['radar', 'bars', 'pillars'];
   const VIEW_LABELS: Record<ViewType, string> = { radar: '⬡ Radar', bars: '▬ Bars', pillars: '▐ Pillars' };
 
+  const CORE_SRC_DESC: Record<CoreSrc, string> = {
+    core:      'Human-curated baseline score',
+    community: 'Average of all fan ratings',
+    ai:        'AI reading of the lyrics',
+    mine:      'Your personal score',
+    audio:     'Audio signal analysis',
+  };
+
   function renderCoreSources() {
     const srcs: { id: CoreSrc; label: string }[] = [
-      ...(coreScore ? [{ id: 'core' as CoreSrc, label: 'Core' }] : []),
-      { id: 'community', label: `Community${communityCount > 0 ? ` (${communityCount})` : ''}` },
-      { id: 'ai', label: 'Lyric Score' },
-      ...(user ? [{ id: 'mine' as CoreSrc, label: 'Mine' }] : []),
-      ...(audioSpectrum ? [{ id: 'audio' as CoreSrc, label: 'Music Score' }] : []),
+      ...(coreScore ? [{ id: 'core' as CoreSrc, label: 'Curator Score' }] : []),
+      { id: 'community', label: `Fan Score${communityCount > 0 ? ` (${communityCount})` : ''}` },
+      { id: 'ai', label: 'AI Lyric Score' },
+      ...(user ? [{ id: 'mine' as CoreSrc, label: 'My Rating' }] : []),
+      ...(audioSpectrum ? [{ id: 'audio' as CoreSrc, label: 'Audio Score' }] : []),
     ];
-    return srcs.map(({ id, label }) => (
-      <button key={id} onClick={() => setCoreSrc(id)}
-        className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-          coreSrc === id ? 'bg-surface-900 text-white' : 'text-surface-600 hover:text-surface-900'
-        }`}>{label}</button>
-    ));
+    return (
+      <>
+        {srcs.map(({ id, label }) => (
+          <button key={id} onClick={() => setCoreSrc(id)}
+            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+              coreSrc === id ? 'bg-surface-900 text-white' : 'text-surface-600 hover:text-surface-900'
+            }`}>{label}</button>
+        ))}
+      </>
+    );
+  }
+
+  function renderCoreSrcDesc() {
+    return (
+      <p className="text-xs text-surface-400 mt-1 px-0.5">{CORE_SRC_DESC[coreSrc]}</p>
+    );
   }
 
   function renderGenreSources() {
@@ -419,8 +437,11 @@ export default function SongSpectrumPanel({ songId, coreScore }: Props) {
 
         {/* Data source (only for core + genre) */}
         {dataType !== 'themes' && (
-          <div className="flex gap-0.5 rounded border border-surface-200 p-0.5">
-            {dataType === 'core' ? renderCoreSources() : renderGenreSources()}
+          <div>
+            <div className="flex gap-0.5 rounded border border-surface-200 p-0.5">
+              {dataType === 'core' ? renderCoreSources() : renderGenreSources()}
+            </div>
+            {dataType === 'core' && renderCoreSrcDesc()}
           </div>
         )}
         {dataType === 'themes' && (

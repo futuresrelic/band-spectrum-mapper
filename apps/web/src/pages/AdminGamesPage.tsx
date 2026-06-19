@@ -20,6 +20,7 @@ const ALL_GAMES = [
   { id: 'platformer',       icon: '🕹️', title: 'Vinyl Runner',        href: '/play/platformer' },
   { id: 'lyric-duel',      icon: '⚔️', title: 'Lyric Duel',          href: '/play/lyric-duel' },
   { id: 'minesweeper',     icon: '💣', title: 'Flop Sweeper',         href: '/play/minesweeper' },
+  { id: 'band-rpg',        icon: '🗺️', title: 'Band RPG',             href: '/play/band-rpg' },
 ];
 
 export default function AdminGamesPage() {

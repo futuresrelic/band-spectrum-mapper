@@ -139,6 +139,7 @@ export default function LandingPage() {
             Band Spectrum Mapper
           </span>
           <nav className="flex items-center gap-3 text-sm flex-wrap justify-end">
+            <Link to="/discover"    className="text-surface-600 hover:text-surface-900 transition-colors">Discover</Link>
             <Link to="/view"        className="text-surface-600 hover:text-surface-900 transition-colors">Library</Link>
             <Link to="/explore"     className="text-surface-600 hover:text-surface-900 transition-colors">Explore</Link>
             <Link to="/cinema"      className="text-surface-600 hover:text-surface-900 transition-colors">Cinema</Link>
@@ -177,8 +178,8 @@ export default function LandingPage() {
             Band Spectrum<br />Mapper
           </h1>
           <p className="text-slate-400 text-lg sm:text-xl max-w-2xl mx-auto mb-12 leading-relaxed">
-            The obsessive fan's tool for deep music analysis. Spectrum scoring,
-            AI-powered research, lyrical interpretation, and community discussion.
+            BSM turns songs into psychological maps, games, and visual journeys —
+            helping fans explore music by emotion, complexity, atmosphere, and meaning.
           </p>
           <div className="flex flex-wrap gap-4 justify-center">
             <Link
@@ -218,6 +219,31 @@ export default function LandingPage() {
           <p className="text-slate-600 text-sm mt-8">
             No account needed to browse, explore, or watch Cinema Mode. Sign in to rate, comment, and contribute.
           </p>
+        </div>
+      </section>
+
+      {/* What is BSM? */}
+      <section className="py-14 bg-slate-900 border-b border-slate-800">
+        <div className="max-w-4xl mx-auto px-6">
+          <h2 className="text-xl font-bold text-white text-center mb-8">What is BSM?</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            {[
+              { icon: '📊', text: 'Map songs across 6 psychological axes — aggression, complexity, atmosphere, emotion, psychedelic, and concept' },
+              { icon: '⚖️', text: 'Compare songs, bands, albums, and fan perception side by side on shared radar charts' },
+              { icon: '🎮', text: 'Explore music through games, graphs, and cinematic visuals that bring the data to life' },
+              { icon: '🔍', text: 'Discover music through patterns, lyrics, themes, and emotional fingerprints' },
+            ].map(({ icon, text }) => (
+              <div key={text} className="flex items-start gap-4 rounded-xl bg-slate-800/50 border border-slate-700/50 p-5">
+                <span className="text-2xl mt-0.5 shrink-0">{icon}</span>
+                <span className="text-slate-300 text-sm leading-relaxed">{text}</span>
+              </div>
+            ))}
+          </div>
+          <div className="text-center mt-8">
+            <Link to="/discover" className="inline-block bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors text-sm">
+              Learn more on the Discover page →
+            </Link>
+          </div>
         </div>
       </section>
 

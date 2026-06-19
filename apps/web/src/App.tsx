@@ -84,6 +84,9 @@ import PlaylistMakerPage from './pages/PlaylistMakerPage';
 import LyricLabPage from './pages/LyricLabPage';
 import AdminBandLogosPage from './pages/AdminBandLogosPage';
 import MinesweeperPage from './pages/MinesweeperPage';
+import DiscoverPage from './pages/DiscoverPage';
+import BandRpgPage from './pages/BandRpgPage';
+import AdminBandRpgPage from './pages/AdminBandRpgPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -122,6 +125,7 @@ export default function App() {
       <Routes>
         {/* ── PUBLIC: landing, viewer, share, legal, help — no login needed ── */}
         <Route path="/landing" element={<LandingPage />} />
+        <Route path="/discover" element={<DiscoverPage />} />
         <Route path="/legal" element={<LegalPage />} />
         <Route path="/help" element={<HelpPage />} />
         <Route path="/rate" element={<RateRedirect />} />
@@ -164,6 +168,7 @@ export default function App() {
         <Route path="/play/record-catcher" element={<RecordCatcherPage />} />
         <Route path="/play/platformer" element={<PlatformerPage />} />
         <Route path="/play/minesweeper" element={<MinesweeperPage />} />
+        <Route path="/play/band-rpg" element={<BandRpgPage />} />
 
         {/* ── ADMIN: full app, isAdmin required ── */}
         <Route
@@ -218,6 +223,7 @@ export default function App() {
           <Route path="admin/platformer" element={<AdminPlatformerPage />} />
           <Route path="admin/platformer-levels" element={<AdminPlatformerLevelsPage />} />
           <Route path="admin/band-logos" element={<AdminBandLogosPage />} />
+          <Route path="admin/band-rpg" element={<AdminBandRpgPage />} />
           <Route path="pattern-lab" element={<PatternLabPage />} />
         </Route>
       </Routes>
