@@ -245,6 +245,23 @@ export interface BandRpgConcertDetail extends BandRpgConcertSummary {
 
 // ── Festival types ────────────────────────────────────────────────────────────
 
+export interface AudienceArchetype {
+  key: string;
+  name: string;
+  icon: string;
+  score: number;
+  explanation: string;
+}
+
+export interface FestivalAudienceProfile {
+  archetypes: AudienceArchetype[];
+  primaryArchetype: AudienceArchetype;
+  secondaryArchetype: AudienceArchetype | null;
+  audienceDiversityScore: number;
+  audienceDiversityLabel: string;
+  audienceReport: string;
+}
+
 export interface LineupAnalysis {
   flowRating: number;
   lineupReport: string;
@@ -309,6 +326,7 @@ export interface BandRpgFestivalSummary {
   festivalStory: string;
   chemistry: FestivalChemistry;
   lineupAnalysis: LineupAnalysis;
+  audience: FestivalAudienceProfile;
   createdAt: string;
   updatedAt: string;
 }

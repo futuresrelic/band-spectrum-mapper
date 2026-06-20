@@ -1973,6 +1973,249 @@ function computeLineupAnalysis(orderedConcerts: LineupConcertInput[]): {
   };
 }
 
+// ── Phase T: Audience Archetypes ──────────────────────────────────────────────
+// Rule-based, no AI. 10 archetypes scored 0-100 from band profiles + festival data.
+
+export interface AudienceArchetype {
+  key: string;
+  name: string;
+  icon: string;
+  score: number;
+  explanation: string;
+}
+
+export interface FestivalAudienceResult {
+  archetypes: AudienceArchetype[];
+  primaryArchetype: AudienceArchetype;
+  secondaryArchetype: AudienceArchetype | null;
+  audienceDiversityScore: number;
+  audienceDiversityLabel: string;
+  audienceReport: string;
+}
+
+function clamp(v: number): number {
+  return Math.max(0, Math.min(100, Math.round(v)));
+}
+
+function persBonus(festivalPersonality: string, liked: string[]): number {
+  return liked.includes(festivalPersonality) ? 12 : 0;
+}
+
+function avgBandProfile(profiles: BandAudienceProfileData[]): BandAudienceProfileData {
+  if (profiles.length === 0) {
+    return { progressive: 0, heavy: 0, technical: 0, atmospheric: 0,
+             experimental: 0, accessible: 0, psychedelic: 0, emotional: 0,
+             aggressive: 0, improvisational: 0 };
+  }
+  const sums: Record<string, number> = {};
+  for (const d of AUD_DIMS) sums[d] = 0;
+  for (const p of profiles) for (const d of AUD_DIMS) sums[d]! += p[d as AudDim];
+  const result: Record<string, number> = {};
+  for (const d of AUD_DIMS) result[d] = sums[d]! / profiles.length;
+  return result as unknown as BandAudienceProfileData;
+}
+
+// Weighted score helper: each entry [value 0-100, weight].
+function ws(components: Array<[number, number]>): number {
+  const totalW = components.reduce((s, [, w]) => s + w, 0);
+  const sum    = components.reduce((s, [v, w]) => s + v * w, 0);
+  return totalW > 0 ? sum / totalW : 0;
+}
+
+function computeAudienceArchetypes(
+  bandProfiles: BandAudienceProfileData[],
+  avgFanService: number,
+  avgDeepCuts: number,
+  festivalPersonality: string,
+  chemistry: FestivalChemistryResult,
+): FestivalAudienceResult {
+  const a = avgBandProfile(bandProfiles);
+  const overlap = chemistry.audienceOverlap ?? 50;
+  const hasData = bandProfiles.length > 0;
+
+  // ── 10 archetypes ────────────────────────────────────────────────────────────
+
+  const rawScores: Array<Omit<AudienceArchetype, 'explanation'>> = [
+    {
+      key: 'progressive_pilgrims', name: 'Progressive Pilgrims', icon: '🎭',
+      score: clamp(ws([
+        [a.progressive, 30], [a.technical, 25], [a.experimental, 20],
+        [100 - a.accessible, 10], [chemistry.festivalFlow, 15],
+      ]) + persBonus(festivalPersonality, ['Progressive Gathering', 'Conceptual Assembly', 'Spectrum Showcase'])),
+    },
+    {
+      key: 'deep_cut_hunters', name: 'Deep Cut Hunters', icon: '🔍',
+      score: clamp(ws([
+        [avgDeepCuts, 40], [100 - avgFanService, 25], [a.experimental, 20], [100 - a.accessible, 15],
+      ]) + persBonus(festivalPersonality, ['Deep Cut Convention', 'Discovery Festival', 'Archive Gathering'])),
+    },
+    {
+      key: 'atmosphere_seekers', name: 'Atmosphere Seekers', icon: '🌌',
+      score: clamp(ws([
+        [a.atmospheric, 40], [a.psychedelic, 20], [a.emotional, 25], [a.improvisational, 15],
+      ]) + persBonus(festivalPersonality, ['Atmospheric Summit', 'Psychedelic Communion', 'Emotional Journey Festival'])),
+    },
+    {
+      key: 'heavy_devotees', name: 'Heavy Devotees', icon: '🔥',
+      score: clamp(ws([
+        [a.heavy, 45], [a.aggressive, 30], [a.technical, 10], [100 - a.accessible, 15],
+      ]) + persBonus(festivalPersonality, ['Heavy Music Celebration'])),
+    },
+    {
+      key: 'technical_musicians', name: 'Technical Musicians', icon: '🎸',
+      score: clamp(ws([
+        [a.technical, 40], [a.progressive, 25], [a.improvisational, 20], [a.experimental, 15],
+      ])),
+    },
+    {
+      key: 'psychedelic_travelers', name: 'Psychedelic Travelers', icon: '🌀',
+      score: clamp(ws([
+        [a.psychedelic, 45], [a.atmospheric, 25], [a.experimental, 15], [a.emotional, 15],
+      ]) + persBonus(festivalPersonality, ['Psychedelic Communion', 'Atmospheric Summit'])),
+    },
+    {
+      key: 'concept_explorers', name: 'Concept Explorers', icon: '💡',
+      score: clamp(ws([
+        [a.experimental, 30], [a.progressive, 30], [a.emotional, 15], [a.technical, 15], [a.atmospheric, 10],
+      ]) + persBonus(festivalPersonality, ['Conceptual Assembly', 'Progressive Gathering', 'Spectrum Showcase'])),
+    },
+    {
+      key: 'festival_casuals', name: 'Festival Casuals', icon: '🎪',
+      score: clamp(ws([
+        [a.accessible, 35], [avgFanService, 35], [100 - avgDeepCuts, 20], [overlap, 10],
+      ]) + persBonus(festivalPersonality, ['Legendary Archive Festival', 'Heavy Music Celebration'])),
+    },
+    {
+      key: 'album_purists', name: 'Album Purists', icon: '🎵',
+      score: clamp(ws([
+        [a.emotional, 30], [avgFanService, 30], [a.atmospheric, 20], [a.accessible, 20],
+      ]) + persBonus(festivalPersonality, ['Legendary Archive Festival', 'Emotional Journey Festival'])),
+    },
+    {
+      key: 'collector_class', name: 'Collector Class', icon: '📦',
+      score: clamp(ws([
+        [avgDeepCuts, 40], [100 - a.accessible, 25], [a.experimental, 20], [100 - avgFanService, 15],
+      ]) + persBonus(festivalPersonality, ['Deep Cut Convention', 'Archive Gathering', 'Discovery Festival'])),
+    },
+  ];
+
+  // ── Explanations ──────────────────────────────────────────────────────────────
+
+  function explain(key: string, score: number): string {
+    const prog = Math.round(a.progressive), tech = Math.round(a.technical);
+    const atmo = Math.round(a.atmospheric), psyc = Math.round(a.psychedelic);
+    const hevy = Math.round(a.heavy),       aggr = Math.round(a.aggressive);
+    const dc   = Math.round(avgDeepCuts),   fs   = Math.round(avgFanService);
+    const exp  = Math.round(a.experimental);
+
+    switch (key) {
+      case 'progressive_pilgrims':
+        if (score >= 70) return `Progressive (${prog}) and technical (${tech}) dimensions attract fans who demand compositional depth and structural ambition.`;
+        if (score >= 45) return `Moderate progressive weight (${prog}) offers something for prog fans, though accessible elements broaden the draw.`;
+        return `Low progressive and technical scores — this festival prioritises feel over structure, limiting appeal to dedicated prog listeners.`;
+      case 'deep_cut_hunters':
+        if (score >= 70) return `High deep cut average (${dc}) and measured fan service (${fs}) signal a setlist-first festival built for devoted collectors.`;
+        if (score >= 45) return `Moderate deep cut presence (${dc}) rewards collectors, though familiar material keeps a wider audience comfortable.`;
+        return `Fan-service-heavy setlists (${fs} avg) mean casual fans are the priority — not the collectors hunting rarities.`;
+      case 'atmosphere_seekers':
+        if (score >= 70) return `Atmospheric (${atmo}) and emotional (${Math.round(a.emotional)}) dimensions create a festival of sustained immersion that rewards patient listeners.`;
+        if (score >= 45) return `Some atmospheric depth (${atmo}) draws seekers of texture, but heavier or more aggressive elements compete for attention.`;
+        return `Low atmospheric and psychedelic scores mean this festival leads with impact over immersion.`;
+      case 'heavy_devotees':
+        if (score >= 70) return `Heavy (${hevy}) and aggressive (${aggr}) profiles define this festival — fans who measure success by physical impact will be satisfied.`;
+        if (score >= 45) return `A significant heavy presence (${hevy}) draws devotees, balanced against more cerebral or atmospheric material.`;
+        return `Low heavy and aggressive scores mean this festival rewards the mind more than the body.`;
+      case 'technical_musicians':
+        if (score >= 70) return `Technical (${tech}) and progressive (${prog}) scores are high — fellow musicians and gear enthusiasts will find much to admire.`;
+        if (score >= 45) return `Technical merit (${tech}) is present but not dominant — music students and craftspeople will find highlights.`;
+        return `Technical scores are modest (${tech}) — this festival prioritises emotional or atmospheric qualities over instrumental complexity.`;
+      case 'psychedelic_travelers':
+        if (score >= 70) return `High psychedelic (${psyc}) and atmospheric (${atmo}) scores make this a natural pilgrimage for fans of mind-expanding sonic experiences.`;
+        if (score >= 45) return `Psychedelic elements (${psyc}) are present but not dominant — moments of transcendence exist alongside more grounded material.`;
+        return `Low psychedelic scores mean this festival stays on solid ground — less likely to attract fans seeking altered-state music.`;
+      case 'concept_explorers':
+        if (score >= 70) return `Experimental (${exp}) and progressive (${prog}) dimensions, combined with festival personality "${festivalPersonality}", attract fans who follow ideas as much as sounds.`;
+        if (score >= 45) return `Conceptual and experimental threads (${exp}) run through this lineup, though not every act takes this approach.`;
+        return `Low experimental and concept scores — this festival communicates through feeling rather than themes and ideas.`;
+      case 'festival_casuals':
+        if (score >= 70) return `High accessibility (${Math.round(a.accessible)}) and fan service (${fs}) make this festival immediately welcoming to newcomers and casual attendees.`;
+        if (score >= 45) return `A balance of familiar hits (${fs} fan service) and deeper cuts (${dc}) keeps casual fans engaged without alienating collectors.`;
+        return `The deep cut focus (${dc} avg) and lower accessibility mean this festival rewards homework — not the casual drop-in.`;
+      case 'album_purists':
+        if (score >= 70) return `Emotional depth (${Math.round(a.emotional)}) and high fan service (${fs}) create a festival that feels like a curated celebration of the catalogue.`;
+        if (score >= 45) return `Fan service (${fs}) and emotional dimensions give purists plenty to love, even as the setlist extends into less familiar territory.`;
+        return `Lower fan service scores (${fs}) mean the setlist is exploratory rather than celebratory — album purists may feel underserved.`;
+      case 'collector_class':
+        if (score >= 70) return `Deep cuts (${dc}), low accessibility, and an experimental edge (${exp}) make this a festival designed for the obsessive completionist.`;
+        if (score >= 45) return `The collector class will find valuable material (${dc} deep cuts) among more familiar selections.`;
+        return `Fan service (${fs}) and accessibility mean casual fans are the intended audience — the collector will need to look harder.`;
+      default:
+        return score >= 70 ? 'Strong affinity with this festival.' : score >= 45 ? 'Moderate affinity.' : 'Low affinity.';
+    }
+  }
+
+  const archetypes: AudienceArchetype[] = rawScores
+    .map((a) => ({ ...a, explanation: explain(a.key, a.score) }))
+    .sort((a, b) => b.score - a.score);
+
+  // When no audience profile data exists, all dim-based scores will be 0 — flag gracefully
+  const effectiveArchetypes = hasData ? archetypes : archetypes;
+
+  const primaryArchetype   = effectiveArchetypes[0]!;
+  const secondaryArchetype = effectiveArchetypes[1] && effectiveArchetypes[1].score >= 40
+    ? effectiveArchetypes[1] : null;
+
+  // ── Diversity score ────────────────────────────────────────────────────────
+  const above50 = archetypes.filter((a) => a.score >= 50).length;
+  const audienceDiversityScore = Math.round((above50 / archetypes.length) * 100);
+  const audienceDiversityLabel =
+    audienceDiversityScore >= 80 ? 'Universal Appeal' :
+    audienceDiversityScore >= 60 ? 'Broad Audience'   :
+    audienceDiversityScore >= 40 ? 'Balanced'          :
+    audienceDiversityScore >= 20 ? 'Focused'           :
+                                   'Niche';
+
+  // ── Audience report ────────────────────────────────────────────────────────
+  const PRIMARY_REPORTS: Record<string, string> = {
+    'Progressive Pilgrims': 'This festival is designed for fans of progressive and conceptual music — listeners who reward complexity, patience, and architectural ambition. Expect an audience that has done their homework.',
+    'Deep Cut Hunters':     'A festival for the devoted collector. The setlists lean toward rare and deep material — fans who want the B-sides, the vault recordings, and the songs most crowds have never heard.',
+    'Atmosphere Seekers':   'Immersion is the draw. Fans of texture, mood, and the space between notes will find this festival a natural home. This audience does not just listen — it disappears into the sound.',
+    'Heavy Devotees':       'Built for physical impact. The heavy and aggressive profile of this lineup attracts fans who measure a festival by how hard it hits from first note to last.',
+    'Technical Musicians':  'Fellow craftspeople will find much to admire. This festival is for listeners who notice the details — the time signatures, the transitions, the technique behind every moment.',
+    'Psychedelic Travelers':'A festival that invites surrender. Fans of mind-expanding, consciousness-shifting music will feel at home in a lineup built for transcendence over spectacle.',
+    'Concept Explorers':    'This festival is built for fans who follow ideas as much as sounds — listeners who want a musical argument, a theme, a point of view embedded in every performance.',
+    'Festival Casuals':     'Accessible and fan-service-forward, this festival welcomes newcomers and casual listeners alongside devoted fans. The hits are here — this event does not require homework.',
+    'Album Purists':        'A celebration of the catalogue. This festival rewards fans who know the records deeply — high fan service and emotional resonance suggest a lineup built for the devoted, not the casual.',
+    'Collector Class':      'This event is built for the obsessive completionist — fans who track rarities, show frequencies, and catalogue depth. The deep cuts are the main draw.',
+  };
+
+  const SECONDARY_ADDENDA: Record<string, string> = {
+    'Progressive Pilgrims': 'Progressive listeners add a cerebral layer to the crowd.',
+    'Deep Cut Hunters':     'Alongside them, collectors hunting rarities will be well rewarded.',
+    'Atmosphere Seekers':   'Atmosphere seekers will find immersive moments woven throughout.',
+    'Heavy Devotees':       'A contingent of heavy music devotees rounds out the audience with raw energy.',
+    'Technical Musicians':  'Musicians and technically-minded listeners add a discerning ear to the crowd.',
+    'Psychedelic Travelers':'A psychedelic-leaning secondary audience brings openness and curiosity.',
+    'Concept Explorers':    'Fans who follow themes and ideas add conceptual depth to the audience.',
+    'Festival Casuals':     'A casual secondary audience ensures the festival remains broadly welcoming.',
+    'Album Purists':        'Album purists in the secondary crowd will appreciate the catalogue-first approach.',
+    'Collector Class':      'Collectors in the mix will be hunting the deep cuts throughout the night.',
+  };
+
+  const primaryReport = PRIMARY_REPORTS[primaryArchetype.name] ?? `A festival with ${primaryArchetype.name} as its primary audience.`;
+  const secondaryAddendum = secondaryArchetype ? ` ${SECONDARY_ADDENDA[secondaryArchetype.name] ?? ''}` : '';
+  const audienceReport = primaryReport + secondaryAddendum;
+
+  return {
+    archetypes: effectiveArchetypes,
+    primaryArchetype,
+    secondaryArchetype,
+    audienceDiversityScore,
+    audienceDiversityLabel,
+    audienceReport,
+  };
+}
+
 // Shared data-fetching preamble used by festival list + detail to load concert data in bulk.
 async function loadConcertDataForFestivals(concertIds: string[]) {
   if (concertIds.length === 0) return {
@@ -2107,6 +2350,11 @@ bandRpgRouter.get('/festivals', requireAuth, async (req, res, next): Promise<voi
       }).filter((x): x is NonNullable<typeof x> => x !== null);
       const { lineupAnalysis } = computeLineupAnalysis(lineupInput);
 
+      const uniqueBandProfiles = [...new Set(sortedConcerts.map((c) => c.bandId))]
+        .map((id) => bandProfileMap.get(id))
+        .filter((p): p is BandAudienceProfileData => p !== undefined);
+      const audience = computeAudienceArchetypes(uniqueBandProfiles, avgFanService, avgDeepCuts, personality, chemistry);
+
       return {
         id:                 festival.id,
         name:               festival.name,
@@ -2121,6 +2369,7 @@ bandRpgRouter.get('/festivals', requireAuth, async (req, res, next): Promise<voi
         festivalStory:       generateFestivalStory(personality, bandCount, totalSongs, concertCount),
         chemistry,
         lineupAnalysis,
+        audience,
         createdAt:           festival.createdAt.toISOString(),
         updatedAt:           festival.updatedAt.toISOString(),
       };
@@ -2256,6 +2505,11 @@ bandRpgRouter.get('/festivals/:festivalId', requireAuth, async (req, res, next):
     }));
     const chemistry = computeFestivalChemistry(sortedConcerts, bandProfileMap, personality, avgFanService, avgDeepCuts);
 
+    const uniqueBandProfilesDetail = [...new Set(sortedConcerts.map((c) => c.bandId))]
+      .map((id) => bandProfileMap.get(id))
+      .filter((p): p is BandAudienceProfileData => p !== undefined);
+    const audience = computeAudienceArchetypes(uniqueBandProfilesDetail, avgFanService, avgDeepCuts, personality, chemistry);
+
     res.json({
       id:                  festival.id,
       name:                festival.name,
@@ -2270,6 +2524,7 @@ bandRpgRouter.get('/festivals/:festivalId', requireAuth, async (req, res, next):
       festivalStory:       generateFestivalStory(personality, bandCount, totalSongs, concertCount),
       chemistry,
       lineupAnalysis,
+      audience,
       concerts:            computed,
       createdAt:           festival.createdAt.toISOString(),
       updatedAt:           festival.updatedAt.toISOString(),

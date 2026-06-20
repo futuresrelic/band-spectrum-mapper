@@ -2283,6 +2283,21 @@ function drawFestivalCard(canvas: HTMLCanvasElement, data: BandRpgFestivalDetail
   y += bars.length * 26 + 6;
   ctx.textAlign = 'left';
 
+  // Audience archetypes line
+  const primary   = data.audience.primaryArchetype;
+  const secondary = data.audience.secondaryArchetype;
+  ctx.fillStyle = '#4338ca';
+  ctx.font = '400 12px system-ui,sans-serif';
+  ctx.fillText(
+    `${primary.icon} ${truncateForCanvas(ctx, primary.name, W - PAD * 2 - 160)}${secondary ? `  ·  ${secondary.icon} ${secondary.name}` : ''}`,
+    PAD, y,
+  );
+  y += 16;
+  ctx.fillStyle = '#374151';
+  ctx.font = '400 11px system-ui,sans-serif';
+  ctx.fillText(`${data.audience.audienceDiversityLabel} · ${data.audience.audienceDiversityScore}% diverse`, PAD, y);
+  y += 20;
+
   // Divider
   ctx.strokeStyle = '#1f2937';
   ctx.lineWidth = 1;
@@ -2415,6 +2430,18 @@ function FestivalCard({ festival, onClick }: { festival: BandRpgFestivalSummary;
       {festival.lineupAnalysis.headlinerName && (
         <p className="text-xs text-amber-400/50 mt-1 truncate">★ {festival.lineupAnalysis.headlinerName}</p>
       )}
+      {/* Audience archetypes */}
+      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-900/40 border border-indigo-800/30 text-indigo-300/80 font-medium">
+          {festival.audience.primaryArchetype.icon} {festival.audience.primaryArchetype.name}
+        </span>
+        {festival.audience.secondaryArchetype && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800/60 border border-gray-700/30 text-gray-400">
+            {festival.audience.secondaryArchetype.icon} {festival.audience.secondaryArchetype.name}
+          </span>
+        )}
+        <span className="text-[10px] text-gray-600 ml-auto">{festival.audience.audienceDiversityLabel}</span>
+      </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-gray-500">
         <span>🎤 {festival.bandCount} band{festival.bandCount !== 1 ? 's' : ''}</span>
         <span>🎵 {festival.totalSongs} songs</span>
@@ -2444,6 +2471,31 @@ function FestivalRecords({ festivals }: { festivals: BandRpgFestivalSummary[] })
   const bestOp     = best((a, b) => a.lineupAnalysis.openerScore    > b.lineupAnalysis.openerScore);
   const bestFlowR  = best((a, b) => a.lineupAnalysis.flowRating      > b.lineupAnalysis.flowRating);
 
+  // Audience archetype records
+  const mostDiverse   = best((a, b) => a.audience.audienceDiversityScore > b.audience.audienceDiversityScore);
+  const mostProg      = best((a, b) => {
+    const sa = a.audience.archetypes.find((x) => x.key === 'progressive_pilgrims')?.score ?? 0;
+    const sb = b.audience.archetypes.find((x) => x.key === 'progressive_pilgrims')?.score ?? 0;
+    return sa > sb;
+  });
+  const mostUndergrd  = best((a, b) => {
+    const sa = (a.audience.archetypes.find((x) => x.key === 'deep_cut_hunters')?.score ?? 0) +
+               (a.audience.archetypes.find((x) => x.key === 'collector_class')?.score ?? 0);
+    const sb = (b.audience.archetypes.find((x) => x.key === 'deep_cut_hunters')?.score ?? 0) +
+               (b.audience.archetypes.find((x) => x.key === 'collector_class')?.score ?? 0);
+    return sa > sb;
+  });
+  const mostAccessible = best((a, b) => {
+    const sa = a.audience.archetypes.find((x) => x.key === 'festival_casuals')?.score ?? 0;
+    const sb = b.audience.archetypes.find((x) => x.key === 'festival_casuals')?.score ?? 0;
+    return sa > sb;
+  });
+  const mostPsych = best((a, b) => {
+    const sa = a.audience.archetypes.find((x) => x.key === 'psychedelic_travelers')?.score ?? 0;
+    const sb = b.audience.archetypes.find((x) => x.key === 'psychedelic_travelers')?.score ?? 0;
+    return sa > sb;
+  });
+
   const items = [
     { label: 'Best Headliner', icon: '★',  festival: bestHL,    value: `${bestHL.lineupAnalysis.headlinerScore} · ${bestHL.lineupAnalysis.headlinerName}`.slice(0, 30)  },
     { label: 'Best Opener',    icon: '🔥', festival: bestOp,    value: `${bestOp.lineupAnalysis.openerScore} · ${bestOp.lineupAnalysis.openerName}`.slice(0, 30)         },
@@ -2456,6 +2508,12 @@ function FestivalRecords({ festivals }: { festivals: BandRpgFestivalSummary[] })
     { label: 'Deepest Cuts',        icon: '🎭', festival: deepest,   value: `Deep Cuts ${deepest.avgDeepCuts}`                                         },
     { label: 'Fan Favourite',       icon: '⭐', festival: fanFav,    value: `Fan Service ${fanFav.avgFanService}`                                       },
     ...(bestVenue ? [{ label: 'Best Venue Fit', icon: '📍', festival: bestVenue, value: `${bestVenue.avgVenueFit ?? 0}/100` }] : []),
+    // Audience archetype records
+    { label: 'Most Diverse Audience',   icon: '🎨', festival: mostDiverse,    value: `${mostDiverse.audience.audienceDiversityScore}% · ${mostDiverse.audience.audienceDiversityLabel}` },
+    { label: 'Most Progressive',        icon: '🎭', festival: mostProg,       value: mostProg.audience.primaryArchetype.name },
+    { label: 'Most Underground',        icon: '🔍', festival: mostUndergrd,   value: mostUndergrd.audience.primaryArchetype.name },
+    { label: 'Most Accessible',         icon: '🎪', festival: mostAccessible, value: mostAccessible.audience.primaryArchetype.name },
+    { label: 'Most Psychedelic',        icon: '🌀', festival: mostPsych,      value: mostPsych.audience.primaryArchetype.name },
   ];
 
   return (
@@ -2767,6 +2825,43 @@ function FestivalDetailModal({
                           <div className={`h-full ${bar.color} rounded-full transition-all`} style={{ width: `${bar.value}%` }} />
                         </div>
                         <p className="text-[10px] text-gray-500 w-6 text-right font-mono">{bar.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Audience Archetypes */}
+                <div className="bg-gray-800/60 rounded-lg px-3 py-2.5 border border-gray-700/50 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold">Audience</p>
+                    <span className="text-[10px] text-gray-600 italic">{detail.audience.audienceDiversityLabel} · {detail.audience.audienceDiversityScore}% diverse</span>
+                  </div>
+                  {/* Primary + secondary badges */}
+                  <div className="flex gap-2">
+                    <div className="flex-1 bg-indigo-900/30 border border-indigo-800/40 rounded-lg px-2.5 py-2">
+                      <p className="text-[10px] text-indigo-400/60 uppercase tracking-wide font-semibold mb-0.5">Primary</p>
+                      <p className="text-xs text-white font-semibold">{detail.audience.primaryArchetype.icon} {detail.audience.primaryArchetype.name}</p>
+                      <p className="text-[10px] text-indigo-300/50 mt-0.5 font-mono">{detail.audience.primaryArchetype.score}/100</p>
+                    </div>
+                    {detail.audience.secondaryArchetype && (
+                      <div className="flex-1 bg-gray-800/60 border border-gray-700/40 rounded-lg px-2.5 py-2">
+                        <p className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold mb-0.5">Secondary</p>
+                        <p className="text-xs text-gray-300 font-semibold">{detail.audience.secondaryArchetype.icon} {detail.audience.secondaryArchetype.name}</p>
+                        <p className="text-[10px] text-gray-500 mt-0.5 font-mono">{detail.audience.secondaryArchetype.score}/100</p>
+                      </div>
+                    )}
+                  </div>
+                  {/* Audience report */}
+                  <p className="text-xs text-gray-400/80 leading-relaxed italic">{detail.audience.audienceReport}</p>
+                  {/* Archetype score bars — top 5 */}
+                  <div className="space-y-1 pt-1 border-t border-gray-700/30">
+                    {detail.audience.archetypes.slice(0, 5).map((arch) => (
+                      <div key={arch.key} className="flex items-center gap-2" title={arch.explanation}>
+                        <p className="text-[10px] text-gray-600 w-28 shrink-0 truncate">{arch.icon} {arch.name}</p>
+                        <div className="flex-1 h-1 bg-gray-700 rounded-full overflow-hidden">
+                          <div className="h-full bg-indigo-500/60 rounded-full transition-all" style={{ width: `${arch.score}%` }} />
+                        </div>
+                        <p className="text-[10px] text-gray-500 w-6 text-right font-mono">{arch.score}</p>
                       </div>
                     ))}
                   </div>

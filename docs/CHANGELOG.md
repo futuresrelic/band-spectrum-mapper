@@ -4,6 +4,36 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase T — Audience Archetypes (2026-06-20)
+
+### Added
+
+- **10 Audience Archetypes** — every festival now knows who attends and why. Archetypes scored 0-100 from band audience profiles + festival data:
+  - 🎭 Progressive Pilgrims (high progressive + technical)
+  - 🔍 Deep Cut Hunters (high deep cuts, low fan service)
+  - 🌌 Atmosphere Seekers (high atmospheric + emotional)
+  - 🔥 Heavy Devotees (high heavy + aggressive)
+  - 🎸 Technical Musicians (high technical + improvisational)
+  - 🌀 Psychedelic Travelers (high psychedelic + atmospheric)
+  - 💡 Concept Explorers (high experimental + progressive)
+  - 🎪 Festival Casuals (high accessible + fan service)
+  - 🎵 Album Purists (high emotional + fan service)
+  - 📦 Collector Class (high deep cuts, low accessible)
+- **Primary & Secondary Audience** — every festival identifies its strongest and second-strongest archetype. Displayed on both `FestivalCard` and `FestivalDetailModal`.
+- **Audience Diversity Score** — 0-100 measure of how many archetypes score ≥ 50. Labels: Niche → Focused → Balanced → Broad Audience → Universal Appeal.
+- **Audience Report** — readable template-based paragraph explaining who attends and why, with secondary addendum when applicable.
+- **Archetype Score Bars** — top 5 archetypes shown as scored bars in the festival detail, each with a tooltip explanation (e.g. "High progressive (72) and technical (68) scores pull in fans who seek compositional depth").
+- **5 New Personal Records** — Most Diverse Audience, Most Progressive, Most Underground, Most Accessible, Most Psychedelic.
+- **Festival Card** — now displays primary archetype badge + secondary badge + diversity label.
+- **drawFestivalCard** canvas — audience archetype line added above the lineup section.
+
+### Technical notes
+
+- `computeAudienceArchetypes()` — pure function, no DB queries, no AI. Uses band audience profiles + festival-level scores already present in the festival pipeline.
+- `AudienceArchetype` / `FestivalAudienceProfile` interfaces added to both API route and frontend API types.
+- Festival personality bonus applies to compatible archetypes (+12 points) for explainability.
+- All archetype scores are fully deterministic and explainable — each has a hand-written explanation template that references the actual metric values.
+
 ## Phase S — Avatar Prompt Editor (2026-06-20)
 
 ### Added
