@@ -6,6 +6,7 @@ import { analysisApi } from '../api/analysis';
 import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
 import EmptyState from '../components/layout/EmptyState';
+import { BandAudienceProfilePanel } from '../components/AudienceProfilePanel';
 import type { CreateAlbumInput } from '@band-spectrum-mapper/shared';
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -397,6 +398,8 @@ export default function BandDetailPage() {
           </p>
         )}
       </div>
+
+      {bandId && <BandAudienceProfilePanel bandId={bandId} />}
     </div>
   );
 }

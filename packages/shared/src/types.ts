@@ -258,6 +258,46 @@ export interface SongMusicScore {
   updatedAt: string;
 }
 
+/** Audience Profile — 10-dimension identity profile (Phase O). Scale: 0–100. */
+export interface AudienceDimensions {
+  progressive: number;
+  heavy: number;
+  technical: number;
+  atmospheric: number;
+  experimental: number;
+  accessible: number;
+  psychedelic: number;
+  emotional: number;
+  aggressive: number;
+  improvisational: number;
+}
+
+export interface SongAudienceProfile extends AudienceDimensions {
+  id: string;
+  songId: string;
+  model: string;
+  rationales: Record<string, string>;
+  contextJson: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AlbumAudienceProfile extends AudienceDimensions {
+  id: string;
+  albumId: string;
+  songCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BandAudienceProfile extends AudienceDimensions {
+  id: string;
+  bandId: string;
+  songCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface GenreScoreMap {
   metal: number;
   rock: number;

@@ -28,6 +28,7 @@ model Band {
   songs           Song[]
   scores          SongAxisScore[]
   contextAnalysis BandContextAnalysis?
+  audienceProfile BandAudienceProfile?
   socialPosts     SocialPost[]
   contentSeries   ContentSeries[]
   members         BandMember[]
@@ -69,6 +70,7 @@ model Album {
   band            Band   @relation(fields: [bandId], references: [id], onDelete: Cascade)
   songs           Song[]
   contextAnalysis AlbumContextAnalysis?
+  audienceProfile AlbumAudienceProfile?
   socialPosts     SocialPost[]
   bandRpgCompletedAlbums BandRpgCompletedAlbum[]
 
@@ -127,6 +129,7 @@ model Song {
   analysisRatings SongAnalysisRating[]
   aiGenreSpectrum SongAiGenreSpectrum?
   musicScore      SongMusicScore?
+  audienceProfile SongAudienceProfile?
   themeScores        SongThemeScore[]
   spectrumAnalyses   SongSpectrumAnalysis[]
   socialPosts        SocialPost[]
@@ -1830,6 +1833,80 @@ model BandRpgFestivalConcert {
 
   @@unique([festivalId, concertId])
   @@map("band_rpg_festival_concerts")
+}
+
+// ---------------------------------------------------------------------------
+// Audience Profile — Music Identity Framework (Phase O)
+// AI-scored 10-dimension profile describing who a song/album/band appeals to.
+// Scale: 0-100. Separate from the lyric spectrum (0-10) and music spectrum (0-10).
+// ---------------------------------------------------------------------------
+
+model SongAudienceProfile {
+  id              String   @id @default(cuid())
+  songId          String   @unique
+  model           String
+  progressive     Float    @default(0)   // avant-garde, non-linear, complex structures
+  heavy           Float    @default(0)   // physical weight, power, sonic mass
+  technical       Float    @default(0)   // instrumental skill and compositional complexity
+  atmospheric     Float    @default(0)   // mood, texture, immersion, ambience
+  experimental    Float    @default(0)   // boundary-pushing, unconventional, unexpected
+  accessible      Float    @default(0)   // easy on first listen, familiar structures
+  psychedelic     Float    @default(0)   // mind-altering, surreal, consciousness-expanding
+  emotional       Float    @default(0)   // emotional depth and impact
+  aggressive      Float    @default(0)   // anger, intensity, confrontational energy
+  improvisational Float    @default(0)   // spontaneity, live-feel, jazz-like freedom
+  rationales      Json     @default("{}") // Record<dimensionKey, string> — one rationale per dimension
+  contextJson     String   @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@map("song_audience_profiles")
+}
+
+model AlbumAudienceProfile {
+  id              String   @id @default(cuid())
+  albumId         String   @unique
+  progressive     Float    @default(0)
+  heavy           Float    @default(0)
+  technical       Float    @default(0)
+  atmospheric     Float    @default(0)
+  experimental    Float    @default(0)
+  accessible      Float    @default(0)
+  psychedelic     Float    @default(0)
+  emotional       Float    @default(0)
+  aggressive      Float    @default(0)
+  improvisational Float    @default(0)
+  songCount       Int      @default(0)   // number of song profiles included in the average
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  album Album @relation(fields: [albumId], references: [id], onDelete: Cascade)
+
+  @@map("album_audience_profiles")
+}
+
+model BandAudienceProfile {
+  id              String   @id @default(cuid())
+  bandId          String   @unique
+  progressive     Float    @default(0)
+  heavy           Float    @default(0)
+  technical       Float    @default(0)
+  atmospheric     Float    @default(0)
+  experimental    Float    @default(0)
+  accessible      Float    @default(0)
+  psychedelic     Float    @default(0)
+  emotional       Float    @default(0)
+  aggressive      Float    @default(0)
+  improvisational Float    @default(0)
+  songCount       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  band Band @relation(fields: [bandId], references: [id], onDelete: Cascade)
+
+  @@map("band_audience_profiles")
 }
 
 // Architectural placeholder for future Setlist.fm / real-world song data integration.

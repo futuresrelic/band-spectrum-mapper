@@ -577,7 +577,7 @@ adminRouter.get('/ai-batch/scan', async (req, res, next) => {
     const spectrumZeroWhere  = bandIds.length > 0 ? { ...axisWhere, song: { bandId: { in: bandIds } } } : axisWhere;
     const coreScoreZeroWhere = bandIds.length > 0 ? { ...axisWhere, bandId: { in: bandIds } } : axisWhere;
 
-    const [total, hasAnalysis, hasSpectrum, hasSpectrumAllZero, hasCoreScore, hasCoreScoreAllZero, hasResearch, hasGenre, hasTags, hasMeta] = await Promise.all([
+    const [total, hasAnalysis, hasSpectrum, hasSpectrumAllZero, hasCoreScore, hasCoreScoreAllZero, hasResearch, hasGenre, hasTags, hasMeta, hasAudienceProfile] = await Promise.all([
       prisma.song.count({ where }),
       prisma.song.count({ where: { ...where, aiAnalysis:      { isNot: null } } }),
       prisma.song.count({ where: { ...where, aiSpectrum:      { isNot: null } } }),
@@ -589,6 +589,7 @@ adminRouter.get('/ai-batch/scan', async (req, res, next) => {
       prisma.song.count({ where: { ...where, aiGenreSpectrum: { isNot: null } } }),
       prisma.song.count({ where: { ...where, songTags:        { some: {}    } } }),
       prisma.song.count({ where: { ...where, durationSeconds: { not: null   } } }),
+      prisma.song.count({ where: { ...where, audienceProfile: { isNot: null } } }),
     ]);
 
     const hasSpectrumReal  = hasSpectrum  - hasSpectrumAllZero;
@@ -596,8 +597,8 @@ adminRouter.get('/ai-batch/scan', async (req, res, next) => {
 
     res.json({
       total,
-      has:     { analysis: hasAnalysis, spectrum: hasSpectrumReal, coreScore: hasCoreScoreReal, research: hasResearch, genre: hasGenre, tags: hasTags, metadata: hasMeta },
-      missing: { analysis: total - hasAnalysis, spectrum: total - hasSpectrumReal, coreScore: total - hasCoreScoreReal, research: total - hasResearch, genre: total - hasGenre, tags: total - hasTags, metadata: total - hasMeta },
+      has:     { analysis: hasAnalysis, spectrum: hasSpectrumReal, coreScore: hasCoreScoreReal, research: hasResearch, genre: hasGenre, tags: hasTags, metadata: hasMeta, audienceProfile: hasAudienceProfile },
+      missing: { analysis: total - hasAnalysis, spectrum: total - hasSpectrumReal, coreScore: total - hasCoreScoreReal, research: total - hasResearch, genre: total - hasGenre, tags: total - hasTags, metadata: total - hasMeta, audienceProfile: total - hasAudienceProfile },
       extra:   { spectrumZero: hasSpectrumAllZero, coreScoreZero: hasCoreScoreAllZero },
     });
   } catch (e) { next(e); }
@@ -699,6 +700,21 @@ adminRouter.post('/ai-batch/compound/:songId', async (req, res, next): Promise<v
     const { compoundAiService } = await import('../services/compoundAiService.js');
     const force = req.body?.force === true;
     const result = await compoundAiService.run(req.params['songId']!, force);
+    res.json(result);
+  } catch (e) { next(e); }
+});
+
+// POST /api/admin/ai-batch/audience-profile/:songId
+// Runs audience profile scoring for a single song (1 OpenAI call).
+// Body: { force?: boolean }
+adminRouter.post('/ai-batch/audience-profile/:songId', async (req, res, next): Promise<void> => {
+  try {
+    const { audienceProfileService } = await import('../services/audienceProfileService.js');
+    const force = req.body?.force === true;
+    const songId = req.params['songId']!;
+    const result = force
+      ? await audienceProfileService.regenerate(songId)
+      : await audienceProfileService.getOrCreate(songId);
     res.json(result);
   } catch (e) { next(e); }
 });

@@ -13,6 +13,9 @@ import type {
   BandContextAnalysis,
   SongThemeScore,
   ThemeSimilarSong,
+  SongAudienceProfile,
+  AlbumAudienceProfile,
+  BandAudienceProfile,
 } from '@band-spectrum-mapper/shared';
 
 type AxisAverage = { axis: string; average: number; count: number };
@@ -122,4 +125,20 @@ export const analysisApi = {
   // Compound mode: 2 OpenAI calls cover all 7 AI job types
   runCompoundAnalysis: (songId: string, force: boolean) =>
     api.post<{ phase1Ran: boolean; phase2Ran: boolean }>(`/api/admin/ai-batch/compound/${songId}`, { force }),
+
+  // Audience Profile — Music Identity Framework (Phase O)
+  getAudienceProfile: (songId: string) =>
+    api.get<SongAudienceProfile>(`/api/analysis/ai/${songId}/audience-profile`),
+  regenerateAudienceProfile: (songId: string) =>
+    api.post<SongAudienceProfile>(`/api/analysis/ai/${songId}/audience-profile/regenerate`, {}),
+
+  getAlbumAudienceProfile: (albumId: string) =>
+    api.get<AlbumAudienceProfile>(`/api/analysis/albums/${albumId}/audience-profile`),
+  regenerateAlbumAudienceProfile: (albumId: string) =>
+    api.post<AlbumAudienceProfile>(`/api/analysis/albums/${albumId}/audience-profile/regenerate`, {}),
+
+  getBandAudienceProfile: (bandId: string) =>
+    api.get<BandAudienceProfile>(`/api/analysis/bands/${bandId}/audience-profile`),
+  regenerateBandAudienceProfile: (bandId: string) =>
+    api.post<BandAudienceProfile>(`/api/analysis/bands/${bandId}/audience-profile/regenerate`, {}),
 };

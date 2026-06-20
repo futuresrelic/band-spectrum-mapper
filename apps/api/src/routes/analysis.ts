@@ -11,6 +11,7 @@ import { themeAnalysisService } from '../services/themeAnalysisService.js';
 import { aiTagService } from '../services/aiTagService.js';
 import { scoreService } from '../services/scoreService.js';
 import { songMusicScoreService } from '../services/songMusicScoreService.js';
+import { audienceProfileService } from '../services/audienceProfileService.js';
 import { analysisQuerySchema, compareQuerySchema } from '@band-spectrum-mapper/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
@@ -202,6 +203,47 @@ analysisRouter.get('/ai/:songId/music-score', async (req, res, next) => {
 analysisRouter.post('/ai/:songId/music-score/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     res.json(await songMusicScoreService.regenerate(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// Audience Profile — Music Identity Framework (Phase O)
+// Song-level: AI scores 10 dimensions 0-100 describing who the song appeals to.
+// Album/Band: pure aggregates (no additional AI calls).
+// ---------------------------------------------------------------------------
+analysisRouter.get('/ai/:songId/audience-profile', async (req, res, next) => {
+  try {
+    res.json(await audienceProfileService.getOrCreate(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+analysisRouter.post('/ai/:songId/audience-profile/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await audienceProfileService.regenerate(req.params['songId']!));
+  } catch (e) { next(e); }
+});
+
+analysisRouter.get('/albums/:albumId/audience-profile', async (req, res, next) => {
+  try {
+    res.json(await audienceProfileService.getOrCreateAlbum(req.params['albumId']!));
+  } catch (e) { next(e); }
+});
+
+analysisRouter.post('/albums/:albumId/audience-profile/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await audienceProfileService.regenerateAlbum(req.params['albumId']!));
+  } catch (e) { next(e); }
+});
+
+analysisRouter.get('/bands/:bandId/audience-profile', async (req, res, next) => {
+  try {
+    res.json(await audienceProfileService.getOrCreateBand(req.params['bandId']!));
+  } catch (e) { next(e); }
+});
+
+analysisRouter.post('/bands/:bandId/audience-profile/regenerate', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await audienceProfileService.regenerateBand(req.params['bandId']!));
   } catch (e) { next(e); }
 });
 

@@ -7,6 +7,7 @@ import { analysisApi } from '../api/analysis';
 import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
 import EmptyState from '../components/layout/EmptyState';
+import { AlbumAudienceProfilePanel } from '../components/AudienceProfilePanel';
 import type { CreateSongInput } from '@band-spectrum-mapper/shared';
 import { ALBUM_TYPES, ALBUM_TYPE_LABELS } from '@band-spectrum-mapper/shared';
 
@@ -514,6 +515,8 @@ export default function AlbumDetailPage() {
           </p>
         )}
       </div>
+
+      {albumId && <AlbumAudienceProfilePanel albumId={albumId} />}
     </div>
   );
 }

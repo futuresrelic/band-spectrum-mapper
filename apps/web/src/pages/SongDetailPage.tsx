@@ -11,6 +11,7 @@ import ErrorMessage from '../components/layout/ErrorMessage';
 import EmptyState from '../components/layout/EmptyState';
 import CommentSection from '../components/CommentSection';
 import SongThemeWidget from '../components/SongThemeWidget';
+import { SongAudienceProfilePanel } from '../components/AudienceProfilePanel';
 import type { Lyric, LyricRevision } from '@band-spectrum-mapper/shared';
 
 function LyricEditor({
@@ -992,6 +993,8 @@ export default function SongDetailPage() {
           showRegenerate
         />
       </div>
+
+      <SongAudienceProfilePanel songId={song.id} />
 
       <CommentSection songId={song.id} card />
     </div>
