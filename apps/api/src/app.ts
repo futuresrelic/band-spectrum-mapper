@@ -57,6 +57,7 @@ import { graphHuntRouter } from './routes/graphHunt.js';
 import { lyricDuelRouter } from './routes/lyricDuel.js';
 import { playlistRouter } from './routes/playlist.js';
 import { bandRpgRouter } from './routes/bandRpg.js';
+import { tourRouter } from './routes/tourRoutes.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -218,6 +219,9 @@ export function createApp() {
 
   // Band RPG — adventure game scores and progress
   app.use('/api/band-rpg', bandRpgRouter);
+
+  // Tour Builder — Phase W
+  app.use('/api/band-rpg/tours', tourRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.

@@ -454,6 +454,7 @@ model User {
   bandRpgSetlists      BandRpgSetlist[]
   bandRpgConcerts      BandRpgConcert[]
   bandRpgFestivals     BandRpgFestival[]
+  bandRpgTours         BandRpgTour[]
 
   @@map("users")
 }
@@ -1782,7 +1783,8 @@ model BandRpgVenue {
   rarityBonus         Int
   createdAt           DateTime @default(now())
 
-  concerts BandRpgConcert[]
+  concerts   BandRpgConcert[]
+  tourStops  BandRpgTourStop[]
 
   @@map("band_rpg_venues")
 }
@@ -1804,6 +1806,7 @@ model BandRpgConcert {
   setlist        BandRpgSetlist            @relation(fields: [setlistId], references: [id], onDelete: Cascade)
   venue          BandRpgVenue?             @relation(fields: [venueId], references: [id], onDelete: SetNull)
   festivalEntries BandRpgFestivalConcert[]
+  tourStops       BandRpgTourStop[]
 
   @@map("band_rpg_concerts")
 }
@@ -1957,5 +1960,42 @@ model BandLiveDataCache {
   band Band @relation(fields: [bandId], references: [id], onDelete: Cascade)
 
   @@map("band_live_data_caches")
+}
+
+// ---------------------------------------------------------------------------
+// Tour Builder — Phase W
+// A Tour is an ordered sequence of Concerts representing a tour story.
+// ---------------------------------------------------------------------------
+
+model BandRpgTour {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stops BandRpgTourStop[]
+
+  @@index([userId])
+  @@map("band_rpg_tours")
+}
+
+model BandRpgTourStop {
+  id          String  @id @default(cuid())
+  tourId      String
+  position    Int
+  concertId   String
+  venueId     String?
+  cityName    String?
+  countryName String?
+
+  tour    BandRpgTour    @relation(fields: [tourId], references: [id], onDelete: Cascade)
+  concert BandRpgConcert @relation(fields: [concertId], references: [id], onDelete: Cascade)
+  venue   BandRpgVenue?  @relation(fields: [venueId], references: [id], onDelete: SetNull)
+
+  @@unique([tourId, position])
+  @@map("band_rpg_tour_stops")
 }
 

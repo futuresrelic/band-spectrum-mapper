@@ -383,6 +383,58 @@ export interface BandRpgFestivalDetail extends BandRpgFestivalSummary {
   concerts: BandRpgFestivalConcertEntry[];
 }
 
+// ── Tour types (Phase W) ──────────────────────────────────────────────────────
+
+export interface TourAchievement {
+  key:         string;
+  name:        string;
+  icon:        string;
+  description: string;
+  unlocked:    boolean;
+}
+
+export interface TourStop {
+  id:           string;
+  position:     number;
+  cityName:     string | null;
+  countryName:  string | null;
+  concertId:    string;
+  concertName:  string;
+  bandId:       string;
+  bandName:     string;
+  songCount:    number;
+  concertPower: number;
+  fanService:   number;
+  deepCut:      number;
+  venueName:    string | null;
+  realismScore: number | null;
+  realismLabel: string | null;
+}
+
+export interface BandRpgTourSummary {
+  id:              string;
+  name:            string;
+  description:     string | null;
+  stopCount:       number;
+  bands:           string[];
+  firstCity:       string | null;
+  lastCity:        string | null;
+  momentum:        number;
+  variety:         number;
+  historicalScore: number | null;
+  historicalLabel: string | null;
+  personality:     string;
+  personalityIcon: string;
+  achievements:    TourAchievement[];
+  stops:           TourStop[];
+  createdAt:       string;
+  updatedAt:       string;
+}
+
+export interface BandRpgTourDetail extends BandRpgTourSummary {
+  story: string;
+}
+
 // ── API client ────────────────────────────────────────────────────────────────
 
 export const bandRpgApi = {
@@ -542,5 +594,30 @@ export const bandRpgApi = {
     api.post<{ ok: boolean; songsUpdated: number; totalShows: number; fetchedShows: number; message?: string }>(
       '/api/band-rpg/admin/fetch-live-data',
       { bandId },
+    ),
+
+  // Phase W — Tours
+  getTours: () =>
+    api.get<BandRpgTourSummary[]>('/api/band-rpg/tours'),
+
+  createTour: (data: { name: string; description?: string }) =>
+    api.post<{ ok: boolean; id: string }>('/api/band-rpg/tours', data),
+
+  getTourDetail: (id: string) =>
+    api.get<BandRpgTourDetail>(`/api/band-rpg/tours/${encodeURIComponent(id)}`),
+
+  updateTour: (id: string, data: { name?: string; description?: string }) =>
+    api.put<{ ok: boolean }>(`/api/band-rpg/tours/${encodeURIComponent(id)}`, data),
+
+  deleteTour: (id: string) =>
+    api.delete<{ ok: boolean }>(`/api/band-rpg/tours/${encodeURIComponent(id)}`),
+
+  updateTourStops: (
+    id: string,
+    stops: Array<{ concertId: string; cityName?: string; countryName?: string; venueId?: string }>,
+  ) =>
+    api.put<{ ok: boolean; stopCount: number }>(
+      `/api/band-rpg/tours/${encodeURIComponent(id)}/stops`,
+      { stops },
     ),
 };

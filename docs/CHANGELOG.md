@@ -4,6 +4,36 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase W — Tour Builder (2026-06-20)
+
+### Added
+
+- **`BandRpgTour` model** — tour entity owned by a user: id, userId, name, description.
+- **`BandRpgTourStop` model** — ordered stop within a tour: position, concertId, venueId (optional override), cityName, countryName.
+- **6 Tour API endpoints** — `GET /tours`, `POST /tours`, `GET /tours/:id`, `PUT /tours/:id`, `DELETE /tours/:id`, `PUT /tours/:id/stops`. All require auth, stops endpoint validates concert ownership and replaces atomically.
+- **Tour Momentum Score (0-100)** — compares first-half vs second-half concert powers (rarity value of setlist songs). Peak-concert position bonus: last third = +20, first third = -15.
+- **Tour Variety Score (0-100)** — ratio of unique songs to total song slots (×70), with penalties for overplayed songs and bonuses for one-night specials and rare song appearances.
+- **Historical Tour Score (0-100)** — average concert realism across stops. Null when <30% of stops have live data. Label: True to Life / Realistic / Plausible / Ambitious / Fan Fiction / Dream Only.
+- **12 Tour Personalities** — derived automatically from stop count, fan service ratio, deep cut ratio, average setlist power, and variety: The Deep Archive Tour / The Fan Celebration Tour / The Stadium Tour / The Epic Journey / The Comeback Tour / The Variety Show / The Intimate Affair / The Progressive Odyssey / The Atmosphere Journey / The Psychedelic Caravan / The Concept Pilgrimage / The Heavy Assault.
+- **Tour Story** — template-driven 5-sentence narrative: opening city, momentum arc, setlist variety description, size description, closing city.
+- **8 Tour Achievements** — 🎸 First Tour / 🗺️ Five Stops / 🌍 World Tour / ⚡ Perfect Momentum / 🔍 Deep Cut Tour / 🎪 Closing Night (best concert saved for last) / 🌟 Legendary Tour / 🔥 Mythic Tour.
+- **🗺️ Tours tab** in Band RPG → The Archive collection page. Create tours, add/reorder concerts, enter city & country per stop, view momentum/variety/historical score bars, tour story, achievement grid, and export card.
+- **Tour Export Card** — teal-themed 900×1200 canvas: tour name, personality, score bars, stop list (up to 8 shown), achievements row, footer.
+- **Tour detail modal** — inline name editing, stop reorder (up/down), city/country input per stop, add from concert dropdown, save/delete.
+
+### Schema
+- Added `BandRpgTour` and `BandRpgTourStop` models — migration: `20260620040000_add_tours`
+- Back-relations added to `User`, `BandRpgConcert`, `BandRpgVenue`
+
+### Technical notes
+- Tour router (`tourRoutes.ts`) is a dedicated file mounted at `/api/band-rpg/tours`, separate from the large `bandRpg.ts`.
+- `analyseStops()` helper fetches live profiles in one batch query and computes all metrics in a single pass over stops.
+- `STOP_INCLUDE` defined with `satisfies Prisma.BandRpgTourStopInclude` for full type inference.
+- Personality list scores 12 candidates and picks the winner — same architecture as audience archetypes.
+- All computation is pure functions: no AI, no extra DB queries beyond the initial load.
+
+---
+
 ## Phase V — Real World Intelligence (2026-06-20)
 
 ### Added

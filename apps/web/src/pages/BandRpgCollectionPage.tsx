@@ -11,6 +11,7 @@ import type {
   BandRpgConcertSummary, BandRpgConcertDetail, BandRpgSetlistSongEntry,
   BandRpgFestivalSummary, BandRpgFestivalDetail,
   FestivalAchievement, FestivalPrestige,
+  BandRpgTourSummary, BandRpgTourDetail, TourAchievement,
 } from '../api/bandRpg';
 
 // ── Rarity display ─────────────────────────────────────────────────────────────
@@ -3627,9 +3628,695 @@ function LifetimePoints() {
   );
 }
 
+// ── Tours (Phase W) ────────────────────────────────────────────────────────────
+
+const TOUR_SCORE_COLOR = (score: number) =>
+  score >= 80 ? 'text-emerald-400' : score >= 60 ? 'text-sky-400' : score >= 40 ? 'text-amber-400' : 'text-red-400';
+
+function TourScoreBar({ label, value, color }: { label: string; value: number | null; color: string }) {
+  if (value === null) return (
+    <div className="flex items-center gap-2">
+      <p className="text-[10px] text-gray-600 w-20 shrink-0">{label}</p>
+      <p className="text-[10px] text-gray-700 italic">No data</p>
+    </div>
+  );
+  return (
+    <div className="flex items-center gap-2">
+      <p className="text-[10px] text-gray-600 w-20 shrink-0">{label}</p>
+      <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${value}%` }} />
+      </div>
+      <p className={`text-[10px] font-semibold w-8 text-right font-mono ${TOUR_SCORE_COLOR(value)}`}>{value}</p>
+    </div>
+  );
+}
+
+function TourAchievementGrid({ achievements }: { achievements: TourAchievement[] }) {
+  return (
+    <div className="grid grid-cols-4 gap-1.5">
+      {achievements.map((a) => (
+        <div key={a.key} title={`${a.name} — ${a.description}`}
+          className={`flex flex-col items-center gap-0.5 p-1.5 rounded-lg border text-center ${
+            a.unlocked
+              ? 'border-sky-800/60 bg-sky-900/30'
+              : 'border-gray-800/40 bg-gray-900/20 opacity-40'
+          }`}>
+          <span className="text-base leading-none">{a.icon}</span>
+          <span className="text-[9px] text-gray-400 leading-tight line-clamp-1">{a.name}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Tour export canvas ─────────────────────────────────────────────────────────
+
+function drawTourCard(ctx: CanvasRenderingContext2D, tour: BandRpgTourDetail): void {
+  const W = 900; const H = 1200; const PAD = 48;
+
+  // Background
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#050d1a');
+  bg.addColorStop(1, '#071220');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Teal border
+  ctx.strokeStyle = '#0d9488';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(12, 12, W - 24, H - 24);
+
+  // Header label
+  ctx.fillStyle = '#0d9488';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.letterSpacing = '3px';
+  ctx.fillText('BAND RPG  ·  TOUR', PAD, 50);
+  ctx.letterSpacing = '0px';
+
+  // Tour name
+  ctx.fillStyle = '#f0fdfa';
+  ctx.font = 'bold 38px sans-serif';
+  let y = 90;
+  ctx.fillText(truncateForCanvas(ctx, tour.name, W - PAD * 2), PAD, y);
+  y += 48;
+
+  // Personality
+  ctx.fillStyle = '#5eead4';
+  ctx.font = 'bold 20px sans-serif';
+  ctx.fillText(`${tour.personalityIcon}  ${tour.personality}`, PAD, y + 8); y += 48;
+
+  // Bands
+  if (tour.bands.length > 0) {
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '13px sans-serif';
+    ctx.fillText(tour.bands.slice(0, 3).join(' · '), PAD, y); y += 28;
+  }
+
+  // Route summary
+  if (tour.firstCity || tour.lastCity) {
+    ctx.fillStyle = '#64748b';
+    ctx.font = '12px sans-serif';
+    const routeStr = [tour.firstCity, tour.lastCity].filter(Boolean).join(' → ');
+    ctx.fillText(routeStr, PAD, y); y += 24;
+  }
+
+  y += 20;
+
+  // Separator
+  ctx.strokeStyle = '#0f3d38';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+  y += 28;
+
+  // Score bars
+  const bars: Array<{ label: string; value: number | null; color: string }> = [
+    { label: 'Momentum',   value: tour.momentum,        color: '#0d9488' },
+    { label: 'Variety',    value: tour.variety,          color: '#7c3aed' },
+    { label: 'Historical', value: tour.historicalScore,  color: '#0369a1' },
+  ];
+  ctx.font = '11px sans-serif';
+  for (const bar of bars) {
+    ctx.fillStyle = '#475569';
+    ctx.fillText(bar.label, PAD, y + 4);
+    if (bar.value !== null) {
+      const bx = PAD + 100; const bw = W - PAD * 2 - 140;
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(bx, y - 10, bw, 14);
+      ctx.fillStyle = bar.color;
+      ctx.fillRect(bx, y - 10, Math.round(bw * bar.value / 100), 14);
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText(`${bar.value}`, W - PAD - 32, y + 4);
+    } else {
+      ctx.fillStyle = '#334155';
+      ctx.fillText('No data', PAD + 100, y + 4);
+    }
+    y += 28;
+  }
+
+  y += 16;
+  ctx.strokeStyle = '#0f3d38';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+  y += 24;
+
+  // Stop list
+  ctx.fillStyle = '#0d9488';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.letterSpacing = '2px';
+  ctx.fillText(`TOUR STOPS  ·  ${tour.stopCount}`, PAD, y);
+  ctx.letterSpacing = '0px';
+  y += 20;
+  ctx.font = '12px sans-serif';
+  const visibleStops = tour.stops.slice(0, 8);
+  for (const [i, stop] of visibleStops.entries()) {
+    ctx.fillStyle = '#475569';
+    ctx.fillText(`${i + 1}.`, PAD, y + 4);
+    ctx.fillStyle = '#cbd5e1';
+    const stopLabel = [stop.concertName, stop.cityName, stop.countryName].filter(Boolean).join(' · ');
+    ctx.fillText(truncateForCanvas(ctx, stopLabel, W - PAD * 2 - 40), PAD + 28, y + 4);
+    y += 22;
+  }
+  if (tour.stops.length > 8) {
+    ctx.fillStyle = '#334155';
+    ctx.font = '11px sans-serif';
+    ctx.fillText(`+ ${tour.stops.length - 8} more stops`, PAD + 28, y + 4);
+    y += 20;
+  }
+
+  y += 16;
+  ctx.strokeStyle = '#0f3d38';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+  y += 24;
+
+  // Achievements
+  const unlocked = tour.achievements.filter((a) => a.unlocked);
+  ctx.fillStyle = '#0d9488';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.letterSpacing = '2px';
+  ctx.fillText(`ACHIEVEMENTS  ·  ${unlocked.length} / ${tour.achievements.length}`, PAD, y);
+  ctx.letterSpacing = '0px';
+  y += 16;
+  ctx.font = '18px sans-serif';
+  let ax = PAD;
+  for (const a of unlocked) {
+    ctx.fillText(a.icon, ax, y + 16);
+    ax += 30;
+    if (ax > W - PAD - 30) { ax = PAD; y += 28; }
+  }
+
+  // Footer
+  ctx.fillStyle = '#0f3d38';
+  ctx.fillRect(0, H - 48, W, 48);
+  ctx.fillStyle = '#0d9488';
+  ctx.font = '11px sans-serif';
+  ctx.fillText(`Band RPG · ${tour.stopCount} stops`, PAD, H - 20);
+  ctx.fillStyle = '#334155';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('band-spectrum-mapper.com', W - PAD, H - 20);
+  ctx.textAlign = 'left';
+}
+
+function TourExportModal({ tour, onClose }: { tour: BandRpgTourDetail; onClose: () => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    drawTourCard(ctx, tour);
+  }, [tour]);
+
+  const handleDownload = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = `${tour.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-tour-card.png`;
+    a.click();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl max-w-sm w-full p-5 flex flex-col gap-4"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-white font-semibold text-sm">Tour Card Export</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-lg leading-none">✕</button>
+        </div>
+        <div className="overflow-auto max-h-64 rounded-lg border border-gray-800">
+          <canvas ref={canvasRef} width={900} height={1200} className="w-full h-auto" />
+        </div>
+        <button onClick={handleDownload}
+          className="bg-teal-700 hover:bg-teal-600 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors">
+          Download PNG
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Tour detail modal ──────────────────────────────────────────────────────────
+
+type EditTourStop = {
+  concertId:    string;
+  concertName:  string;
+  bandName:     string;
+  cityName:     string;
+  countryName:  string;
+  songCount:    number;
+  concertPower: number;
+  realismScore: number | null;
+};
+
+function TourDetailModal({
+  tourId,
+  onClose,
+  onDeleted,
+  onSaved,
+}: {
+  tourId:    string;
+  onClose:   () => void;
+  onDeleted: () => void;
+  onSaved:   () => void;
+}) {
+  const queryClient = useQueryClient();
+
+  const { data: detail, isLoading, isError } = useQuery({
+    queryKey: ['band-rpg-tour-detail', tourId],
+    queryFn:  () => bandRpgApi.getTourDetail(tourId),
+    staleTime: 30_000,
+  });
+
+  const { data: allConcerts = [] } = useQuery({
+    queryKey: ['band-rpg-concerts'],
+    queryFn:  () => bandRpgApi.getConcerts(),
+    staleTime: 60_000,
+  });
+
+  const [editName,     setEditName]     = useState('');
+  const [editStops,    setEditStops]    = useState<EditTourStop[]>([]);
+  const [addConcertId, setAddConcertId] = useState('');
+  const [isDirty,      setIsDirty]      = useState(false);
+  const [showExport,   setShowExport]   = useState(false);
+
+  useEffect(() => {
+    if (!detail) return;
+    setEditName(detail.name);
+    setEditStops(
+      detail.stops.map((s) => ({
+        concertId:    s.concertId,
+        concertName:  s.concertName,
+        bandName:     s.bandName,
+        cityName:     s.cityName ?? '',
+        countryName:  s.countryName ?? '',
+        songCount:    s.songCount,
+        concertPower: s.concertPower,
+        realismScore: s.realismScore,
+      })),
+    );
+    setIsDirty(false);
+  }, [detail]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      await bandRpgApi.updateTour(tourId, { name: editName });
+      await bandRpgApi.updateTourStops(
+        tourId,
+        editStops.map((s) => ({
+          concertId:   s.concertId,
+          ...(s.cityName.trim()    ? { cityName:    s.cityName.trim()    } : {}),
+          ...(s.countryName.trim() ? { countryName: s.countryName.trim() } : {}),
+        })),
+      );
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['band-rpg-tour-detail', tourId] });
+      void queryClient.invalidateQueries({ queryKey: ['band-rpg-tours'] });
+      setIsDirty(false);
+      onSaved();
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => bandRpgApi.deleteTour(tourId),
+    onSuccess:  onDeleted,
+  });
+
+  function moveStop(idx: number, dir: -1 | 1) {
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= editStops.length) return;
+    const copy = [...editStops];
+    const a = copy[idx]!; const b = copy[newIdx]!;
+    copy[idx] = b; copy[newIdx] = a;
+    setEditStops(copy);
+    setIsDirty(true);
+  }
+
+  function removeStop(idx: number) {
+    setEditStops(editStops.filter((_, i) => i !== idx));
+    setIsDirty(true);
+  }
+
+  function addStop() {
+    const concert = allConcerts.find((c) => c.id === addConcertId);
+    if (!concert) return;
+    setEditStops([...editStops, {
+      concertId:    concert.id,
+      concertName:  concert.concertName,
+      bandName:     concert.bandName,
+      cityName:     '',
+      countryName:  '',
+      songCount:    concert.songCount,
+      concertPower: 0,
+      realismScore: null,
+    }]);
+    setAddConcertId('');
+    setIsDirty(true);
+  }
+
+  function updateStopField(idx: number, field: 'cityName' | 'countryName', value: string) {
+    const copy = [...editStops];
+    const stop = copy[idx];
+    if (!stop) return;
+    copy[idx] = { ...stop, [field]: value };
+    setEditStops(copy);
+    setIsDirty(true);
+  }
+
+  // Concerts already in the tour (exclude from add dropdown)
+  const usedIds = new Set(editStops.map((s) => s.concertId));
+  const availableConcerts = allConcerts.filter((c) => !usedIds.has(c.id));
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
+        <div className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90dvh] flex flex-col overflow-hidden"
+          onClick={(e) => e.stopPropagation()}>
+
+          {isLoading ? (
+            <div className="flex items-center justify-center h-48">
+              <div className="w-8 h-8 rounded-full border-2 border-teal-500/60 border-t-teal-400 animate-spin" />
+            </div>
+          ) : isError || !detail ? (
+            <div className="p-8 text-center text-red-400 text-sm">Failed to load tour.</div>
+          ) : (
+            <>
+              {/* Header */}
+              <div className="px-5 py-4 border-b border-gray-800 shrink-0">
+                <div className="flex items-center gap-3">
+                  <input type="text" value={editName}
+                    onChange={(e) => { setEditName(e.target.value); setIsDirty(true); }}
+                    maxLength={80}
+                    className="flex-1 bg-transparent text-white font-semibold text-lg focus:outline-none border-b border-transparent focus:border-teal-500/60 pb-0.5 transition-colors min-w-0" />
+                  <button onClick={onClose} className="text-gray-600 hover:text-gray-400 text-xl leading-none shrink-0">✕</button>
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-sm">{detail.personalityIcon}</span>
+                  <p className="text-teal-400 text-sm font-medium">{detail.personality}</p>
+                  <span className="text-gray-700 text-xs">·</span>
+                  <p className="text-gray-500 text-xs">{detail.stopCount} stops</p>
+                </div>
+              </div>
+
+              {/* Scrollable body */}
+              <div className="flex-1 overflow-y-auto overscroll-contain">
+
+                {/* Analysis panel */}
+                <div className="px-4 py-4 border-b border-gray-800 bg-gray-900/50 space-y-3">
+                  {/* Score bars */}
+                  <TourScoreBar label="Momentum"   value={detail.momentum}       color="bg-teal-600/70" />
+                  <TourScoreBar label="Variety"     value={detail.variety}        color="bg-violet-600/70" />
+                  <TourScoreBar label="Historical"  value={detail.historicalScore} color="bg-sky-600/70" />
+                  {detail.historicalLabel && (
+                    <p className="text-[10px] text-sky-400 font-medium pl-22">
+                      {detail.historicalLabel}
+                    </p>
+                  )}
+
+                  {/* Story */}
+                  {detail.story && (
+                    <div className="rounded-lg bg-gray-800/40 px-3 py-2.5">
+                      <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wide mb-1">Tour Story</p>
+                      <p className="text-xs text-gray-400 leading-relaxed">{detail.story}</p>
+                    </div>
+                  )}
+
+                  {/* Achievements */}
+                  <div>
+                    <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wide mb-1.5">
+                      Achievements · {detail.achievements.filter((a) => a.unlocked).length} / {detail.achievements.length}
+                    </p>
+                    <TourAchievementGrid achievements={detail.achievements} />
+                  </div>
+                </div>
+
+                {/* Stop list */}
+                <div>
+                  <div className="px-4 py-2.5 border-b border-gray-800/50 bg-gray-900/30">
+                    <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wide">Tour Stops</p>
+                  </div>
+
+                  {editStops.length === 0 ? (
+                    <p className="px-4 py-6 text-center text-gray-600 text-sm">No stops yet. Add a concert below.</p>
+                  ) : (
+                    <div className="divide-y divide-gray-800/50">
+                      {editStops.map((stop, idx) => (
+                        <div key={`${stop.concertId}-${idx}`} className="px-4 py-3">
+                          <div className="flex items-start gap-2 mb-1.5">
+                            <span className="text-gray-600 text-xs w-5 text-right shrink-0 mt-0.5">{idx + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-white truncate">{stop.concertName}</p>
+                              <p className="text-xs text-gray-500 truncate">{stop.bandName}</p>
+                            </div>
+                            <div className="flex gap-1 shrink-0">
+                              <button onClick={() => moveStop(idx, -1)} disabled={idx === 0}
+                                className="text-gray-600 hover:text-teal-400 disabled:opacity-20 text-sm px-1 py-0.5 rounded transition-colors">▲</button>
+                              <button onClick={() => moveStop(idx, 1)} disabled={idx === editStops.length - 1}
+                                className="text-gray-600 hover:text-teal-400 disabled:opacity-20 text-sm px-1 py-0.5 rounded transition-colors">▼</button>
+                              <button onClick={() => removeStop(idx)}
+                                className="text-gray-700 hover:text-red-500 text-sm px-1 py-0.5 rounded transition-colors ml-1">✕</button>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 pl-7">
+                            <input
+                              type="text"
+                              placeholder="City"
+                              value={stop.cityName}
+                              onChange={(e) => updateStopField(idx, 'cityName', e.target.value)}
+                              className="flex-1 bg-gray-800/60 border border-gray-700/60 rounded px-2 py-1 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-teal-600/60"
+                            />
+                            <input
+                              type="text"
+                              placeholder="Country"
+                              value={stop.countryName}
+                              onChange={(e) => updateStopField(idx, 'countryName', e.target.value)}
+                              className="w-28 bg-gray-800/60 border border-gray-700/60 rounded px-2 py-1 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-teal-600/60"
+                            />
+                          </div>
+                          {stop.realismScore !== null && (
+                            <div className="pl-7 mt-1">
+                              <span className="text-[10px] text-sky-400">Realism: {stop.realismScore}</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add stop */}
+                  {availableConcerts.length > 0 && (
+                    <div className="flex gap-2 px-4 py-3 border-t border-gray-800/50">
+                      <select value={addConcertId} onChange={(e) => setAddConcertId(e.target.value)}
+                        className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-300 focus:outline-none focus:border-teal-600/60 min-w-0">
+                        <option value="">+ Add a concert…</option>
+                        {availableConcerts.map((c) => (
+                          <option key={c.id} value={c.id}>{c.concertName} — {c.bandName}</option>
+                        ))}
+                      </select>
+                      <button onClick={addStop} disabled={!addConcertId}
+                        className="bg-teal-700 hover:bg-teal-600 disabled:opacity-40 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">
+                        Add
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center gap-3 px-5 py-4 border-t border-gray-800 shrink-0">
+                <button onClick={() => { if (window.confirm('Delete this tour?')) void deleteMutation.mutate(); }}
+                  disabled={deleteMutation.isPending}
+                  className="text-red-700 hover:text-red-500 disabled:opacity-50 text-sm font-semibold transition-colors px-1">
+                  {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+                </button>
+                <div className="flex-1" />
+                <button onClick={() => setShowExport(true)}
+                  className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white px-3 py-2 rounded-lg text-xs font-semibold transition-colors">
+                  Share
+                </button>
+                <button onClick={onClose}
+                  className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+                  Close
+                </button>
+                <button onClick={() => void saveMutation.mutate()} disabled={!isDirty || saveMutation.isPending}
+                  className="bg-teal-700 hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+                  {saveMutation.isPending ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {showExport && detail && (
+        <TourExportModal tour={detail} onClose={() => setShowExport(false)} />
+      )}
+    </>
+  );
+}
+
+// ── Tour card (list item) ──────────────────────────────────────────────────────
+
+function TourCard({ tour, onClick }: { tour: BandRpgTourSummary; onClick: () => void }) {
+  const unlockedCount = tour.achievements.filter((a) => a.unlocked).length;
+  return (
+    <button onClick={onClick}
+      className="w-full text-left rounded-xl border border-gray-800/60 bg-gray-900/60 hover:bg-gray-800/40 hover:border-teal-900/60 transition-colors p-4">
+      <div className="flex items-start gap-3">
+        <span className="text-xl shrink-0 mt-0.5">{tour.personalityIcon}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <p className="text-sm font-semibold text-white truncate">{tour.name}</p>
+          </div>
+          <p className="text-xs text-teal-400/80 font-medium mb-2">{tour.personality}</p>
+
+          {/* Bands + route */}
+          {tour.bands.length > 0 && (
+            <p className="text-xs text-gray-500 truncate mb-1">{tour.bands.slice(0, 2).join(' · ')}</p>
+          )}
+          {(tour.firstCity || tour.lastCity) && (
+            <p className="text-xs text-gray-600 truncate mb-2">
+              {[tour.firstCity, tour.lastCity].filter(Boolean).join(' → ')}
+            </p>
+          )}
+
+          {/* Score pills */}
+          <div className="flex flex-wrap gap-2 text-[10px] mb-2">
+            <span className={`font-mono font-semibold ${TOUR_SCORE_COLOR(tour.momentum)}`}>
+              ⚡{tour.momentum} momentum
+            </span>
+            <span className={`font-mono font-semibold ${TOUR_SCORE_COLOR(tour.variety)}`}>
+              🎲 {tour.variety} variety
+            </span>
+            {tour.historicalScore !== null && (
+              <span className={`font-mono font-semibold ${TOUR_SCORE_COLOR(tour.historicalScore)}`}>
+                📜 {tour.historicalScore} historical
+              </span>
+            )}
+          </div>
+
+          {/* Achievements */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-gray-600">{tour.stopCount} stops</span>
+            <span className="text-gray-700">·</span>
+            <span className="text-[10px] text-gray-600">{unlockedCount} / {tour.achievements.length} achievements</span>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+// ── Tours tab ──────────────────────────────────────────────────────────────────
+
+function ToursTab() {
+  const queryClient       = useQueryClient();
+  const [selectedId,      setSelectedId]      = useState<string | null>(null);
+  const [createName,      setCreateName]      = useState('');
+  const [showCreate,      setShowCreate]      = useState(false);
+  const [createError,     setCreateError]     = useState<string | null>(null);
+
+  const { data: tours = [], isLoading, isError } = useQuery({
+    queryKey: ['band-rpg-tours'],
+    queryFn:  () => bandRpgApi.getTours(),
+    staleTime: 30_000,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (name: string) => bandRpgApi.createTour({ name }),
+    onSuccess: (r) => {
+      void queryClient.invalidateQueries({ queryKey: ['band-rpg-tours'] });
+      setCreateName('');
+      setShowCreate(false);
+      setCreateError(null);
+      setSelectedId(r.id);
+    },
+    onError: () => setCreateError('Failed to create tour.'),
+  });
+
+  function handleCreate() {
+    const name = createName.trim();
+    if (!name) { setCreateError('Tour name is required.'); return; }
+    createMutation.mutate(name);
+  }
+
+  return (
+    <div className="p-4 space-y-4">
+      {/* Create form */}
+      {showCreate ? (
+        <div className="rounded-xl border border-teal-800/40 bg-teal-950/20 p-4">
+          <p className="text-xs text-teal-400/80 font-semibold uppercase tracking-wide mb-3">New Tour</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={createName}
+              onChange={(e) => { setCreateName(e.target.value); setCreateError(null); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
+              placeholder="Tour name…"
+              autoFocus
+              maxLength={80}
+              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-teal-600/60"
+            />
+            <button onClick={handleCreate} disabled={createMutation.isPending}
+              className="bg-teal-700 hover:bg-teal-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+              {createMutation.isPending ? '…' : 'Create'}
+            </button>
+            <button onClick={() => { setShowCreate(false); setCreateError(null); setCreateName(''); }}
+              className="text-gray-500 hover:text-gray-300 text-sm px-2 transition-colors">Cancel</button>
+          </div>
+          {createError && <p className="text-xs text-red-400 mt-2">{createError}</p>}
+        </div>
+      ) : (
+        <button onClick={() => setShowCreate(true)}
+          className="w-full rounded-xl border border-dashed border-gray-700 hover:border-teal-700 text-gray-500 hover:text-teal-400 text-sm py-3 transition-colors">
+          + New Tour
+        </button>
+      )}
+
+      {/* Tour list */}
+      {isLoading && (
+        <div className="flex justify-center py-10">
+          <div className="w-7 h-7 rounded-full border-2 border-teal-500/60 border-t-teal-400 animate-spin" />
+        </div>
+      )}
+      {isError && (
+        <div className="text-center py-8 text-red-400 text-sm">Failed to load tours.</div>
+      )}
+      {!isLoading && !isError && tours.length === 0 && (
+        <div className="text-center py-10">
+          <p className="text-gray-600 text-sm">No tours yet.</p>
+          <p className="text-gray-700 text-xs mt-1">Create a tour and add concerts to begin a musical journey.</p>
+        </div>
+      )}
+      {!isLoading && !isError && tours.length > 0 && (
+        <div className="space-y-3">
+          {tours.map((tour) => (
+            <TourCard key={tour.id} tour={tour} onClick={() => setSelectedId(tour.id)} />
+          ))}
+        </div>
+      )}
+
+      {selectedId && (
+        <TourDetailModal
+          tourId={selectedId}
+          onClose={() => setSelectedId(null)}
+          onDeleted={() => {
+            void queryClient.invalidateQueries({ queryKey: ['band-rpg-tours'] });
+            setSelectedId(null);
+          }}
+          onSaved={() => void queryClient.invalidateQueries({ queryKey: ['band-rpg-tours'] })}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
-type CollectionTab = 'songs' | 'albums' | 'setlists' | 'concerts' | 'festivals';
+type CollectionTab = 'songs' | 'albums' | 'setlists' | 'concerts' | 'festivals' | 'tours';
 
 const TABS: { id: CollectionTab; label: string }[] = [
   { id: 'songs',     label: '🎵 Songs'     },
@@ -3637,6 +4324,7 @@ const TABS: { id: CollectionTab; label: string }[] = [
   { id: 'setlists',  label: '🎸 Setlists'  },
   { id: 'concerts',  label: '🎤 Concerts'  },
   { id: 'festivals', label: '🎪 Festivals' },
+  { id: 'tours',     label: '🗺️ Tours'    },
 ];
 
 export default function BandRpgCollectionPage() {
@@ -3705,6 +4393,7 @@ export default function BandRpgCollectionPage() {
         {activeTab === 'setlists'  && <SetlistsTab />}
         {activeTab === 'concerts'  && <ConcertsTab />}
         {activeTab === 'festivals' && <FestivalsTab />}
+        {activeTab === 'tours'     && <ToursTab />}
       </div>
     </div>
   );
