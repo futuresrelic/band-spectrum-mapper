@@ -1,6 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { bandRpgApi } from '../api/bandRpg';
+import { useAuth } from '../contexts/AuthContext';
 import SiteHeader from '../components/layout/SiteHeader';
 
 function Stat({ value, label }: { value: number | string; label: string }) {
@@ -14,12 +15,38 @@ function Stat({ value, label }: { value: number | string; label: string }) {
 
 export default function BandRpgPublicFestivalPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const { data: festival, isLoading, error } = useQuery({
     queryKey: ['publicFestival', id],
     queryFn:  () => bandRpgApi.getPublicFestival(id!),
     enabled:  !!id,
     retry:    false,
+  });
+
+  const { data: appStatus } = useQuery({
+    queryKey: ['appreciationStatus', 'festival', id],
+    queryFn:  () => bandRpgApi.getAppreciationStatus('festival', [id!]),
+    enabled:  !!id && !!user,
+  });
+
+  const myStatus = id && appStatus ? (appStatus[id] ?? null) : null;
+
+  const favMutation = useMutation({
+    mutationFn: () => bandRpgApi.toggleFavorite('favorite', 'festival', id!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['appreciationStatus', 'festival', id] });
+      void queryClient.invalidateQueries({ queryKey: ['publicFestival', id] });
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: () => bandRpgApi.toggleFavorite('saved', 'festival', id!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['appreciationStatus', 'festival', id] });
+      void queryClient.invalidateQueries({ queryKey: ['publicFestival', id] });
+    },
   });
 
   if (isLoading) {
@@ -53,6 +80,8 @@ export default function BandRpgPublicFestivalPage() {
     festival.avgFanService >= 65 ? 'Fan Favourite' :
     festival.avgFanService >= 40 ? 'Balanced'      : 'Collector\'s Pick';
 
+  const distinctions = festival.distinctions ?? [];
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-950">
       <SiteHeader theme="dark" active="games" />
@@ -71,6 +100,59 @@ export default function BandRpgPublicFestivalPage() {
             <p className="text-amber-400 text-sm font-semibold">{festival.personality}</p>
             {festival.description && (
               <p className="text-gray-400 text-sm max-w-md">{festival.description}</p>
+            )}
+
+            {/* Distinction badges */}
+            {distinctions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 justify-center">
+                {distinctions.map((d) => (
+                  <span key={d} className="bg-yellow-900/40 text-yellow-300 text-[10px] font-semibold px-2.5 py-1 rounded-full border border-yellow-700/40 uppercase tracking-wide">
+                    {d}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Community counts */}
+            <div className="flex items-center gap-4 text-sm">
+              {(festival.favoriteCount ?? 0) > 0 && (
+                <span className="text-gray-400">♥ <span className="text-white font-semibold">{festival.favoriteCount}</span> favorites</span>
+              )}
+              {(festival.savedCount ?? 0) > 0 && (
+                <span className="text-gray-400">🔖 <span className="text-white font-semibold">{festival.savedCount}</span> saved</span>
+              )}
+            </div>
+
+            {/* Action buttons */}
+            {user ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => void favMutation.mutate()}
+                  disabled={favMutation.isPending}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold border transition-colors disabled:opacity-50 ${
+                    myStatus?.favorited
+                      ? 'bg-pink-900/50 text-pink-300 border-pink-700/50 hover:bg-pink-900/30'
+                      : 'bg-gray-800 text-gray-300 border-gray-700 hover:border-gray-600'
+                  }`}
+                >
+                  <span>{myStatus?.favorited ? '♥' : '♡'}</span>
+                  <span>{myStatus?.favorited ? 'Favorited' : 'Favorite'}</span>
+                </button>
+                <button
+                  onClick={() => void saveMutation.mutate()}
+                  disabled={saveMutation.isPending}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold border transition-colors disabled:opacity-50 ${
+                    myStatus?.saved
+                      ? 'bg-blue-900/50 text-blue-300 border-blue-700/50 hover:bg-blue-900/30'
+                      : 'bg-gray-800 text-gray-300 border-gray-700 hover:border-gray-600'
+                  }`}
+                >
+                  <span>{myStatus?.saved ? '🔖' : '🔖'}</span>
+                  <span>{myStatus?.saved ? 'Saved' : 'Save'}</span>
+                </button>
+              </div>
+            ) : (
+              <p className="text-gray-600 text-xs">Log in to favorite or save this festival</p>
             )}
           </div>
 

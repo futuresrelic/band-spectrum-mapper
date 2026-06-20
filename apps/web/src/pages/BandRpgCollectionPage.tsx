@@ -15,6 +15,7 @@ import type {
   BandRpgChallenge, BandRpgChallengeStats, BandRpgChallengeHistoryEntry,
   ChallengeAttemptResult,
   BandRpgCuratorProfile, CuratorBadge,
+  MySavedItem,
 } from '../api/bandRpg';
 
 // ── Rarity display ─────────────────────────────────────────────────────────────
@@ -5683,9 +5684,103 @@ function ChallengesTab() {
   );
 }
 
+// ── Saved tab ──────────────────────────────────────────────────────────────────
+
+function SavedTab() {
+  const queryClient = useQueryClient();
+  const { data: savedItems = [], isLoading, isError } = useQuery({
+    queryKey: ['band-rpg-my-saved'],
+    queryFn:  () => bandRpgApi.getMySaved(),
+    staleTime: 60_000,
+  });
+
+  const unsaveMutation = useMutation({
+    mutationFn: (item: MySavedItem) =>
+      bandRpgApi.toggleFavorite('saved', item.entityType, item.entityId),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['band-rpg-my-saved'] }),
+  });
+
+  if (isLoading) return <LoadingSpinner />;
+  if (isError)   return <ErrorMsg msg="Failed to load saved items." />;
+
+  const festivals = savedItems.filter((s) => s.entityType === 'festival');
+  const tours     = savedItems.filter((s) => s.entityType === 'tour');
+  const curators  = savedItems.filter((s) => s.entityType === 'curator');
+
+  if (savedItems.length === 0) {
+    return (
+      <EmptyState
+        icon="🔖"
+        title="No saved items yet"
+        desc="Visit public festivals, tours, and curators and click Save to bookmark them here."
+        action={<Link to="/band-rpg/community" className="bg-indigo-700 hover:bg-indigo-600 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-colors">Browse Community</Link>}
+      />
+    );
+  }
+
+  function SavedSection({ title, icon, items }: { title: string; icon: string; items: MySavedItem[] }) {
+    if (items.length === 0) return null;
+    return (
+      <div>
+        <h2 className="text-gray-400 text-xs uppercase tracking-widest mb-2">{icon} {title} ({items.length})</h2>
+        <div className="rounded-xl border border-gray-800 bg-gray-900/60 overflow-hidden">
+          {items.map((item) => {
+            const href = item.entityType === 'festival'
+              ? `/band-rpg/festival/${item.entityId}`
+              : item.entityType === 'tour'
+              ? `/band-rpg/tour/${item.entityId}`
+              : `/band-rpg/curator/${item.entityId}`;
+            return (
+              <div key={item.savedId} className="flex items-center gap-3 px-4 py-3 border-b border-gray-800/60 last:border-0">
+                <div className="flex-1 min-w-0">
+                  <Link to={href} className="text-white text-sm font-medium hover:text-indigo-300 transition-colors truncate block">
+                    {item.name}
+                  </Link>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                      item.visibility === 'public' ? 'text-emerald-400 bg-emerald-900/30' : 'text-gray-500 bg-gray-800'
+                    }`}>
+                      {item.visibility}
+                    </span>
+                    {item.entityType === 'festival' && item.concertCount !== undefined && (
+                      <span className="text-gray-600 text-xs">{item.concertCount} concerts</span>
+                    )}
+                    {item.entityType === 'tour' && item.stopCount !== undefined && (
+                      <span className="text-gray-600 text-xs">{item.stopCount} stops</span>
+                    )}
+                    {item.entityType === 'curator' && item.title && (
+                      <span className="text-indigo-400 text-xs">{item.title}</span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => void unsaveMutation.mutate(item)}
+                  disabled={unsaveMutation.isPending}
+                  className="text-gray-600 hover:text-red-400 text-xs px-2 py-1 rounded transition-colors disabled:opacity-40 shrink-0"
+                  title="Remove from saved"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+      <SavedSection title="Saved Festivals" icon="🎪" items={festivals} />
+      <SavedSection title="Saved Tours"     icon="🗺️" items={tours}     />
+      <SavedSection title="Saved Curators"  icon="🎵" items={curators}  />
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
-type CollectionTab = 'songs' | 'albums' | 'setlists' | 'concerts' | 'festivals' | 'tours' | 'challenges' | 'curator';
+type CollectionTab = 'songs' | 'albums' | 'setlists' | 'concerts' | 'festivals' | 'tours' | 'challenges' | 'curator' | 'saved';
 
 const TABS: { id: CollectionTab; label: string }[] = [
   { id: 'songs',      label: '🎵 Songs'      },
@@ -5696,6 +5791,7 @@ const TABS: { id: CollectionTab; label: string }[] = [
   { id: 'tours',      label: '🗺️ Tours'     },
   { id: 'challenges', label: '⚔ Challenges' },
   { id: 'curator',    label: '👤 Curator'    },
+  { id: 'saved',      label: '🔖 Saved'      },
 ];
 
 export default function BandRpgCollectionPage() {
@@ -5767,6 +5863,7 @@ export default function BandRpgCollectionPage() {
         {activeTab === 'tours'      && <ToursTab />}
         {activeTab === 'challenges' && <ChallengesTab />}
         {activeTab === 'curator'    && <CuratorTab />}
+        {activeTab === 'saved'      && <SavedTab />}
       </div>
     </div>
   );

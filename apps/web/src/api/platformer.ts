@@ -68,6 +68,8 @@ export interface AvatarPromptData {
   characterDescription: string;
   originalDescription: string | null;
   lastNegativePrompt: string | null;
+  referenceImageDataUrl: string | null;
+  visualNotes: string | null;
   memberName: string;
   memberRole: string | null;
   bandName: string;
@@ -243,6 +245,7 @@ export const platformerApi = {
     memberId: string;
     characterDescription: string;
     negativePrompt?: string | null;
+    visualNotes?: string | null;
     count?: number;
   }): Promise<{ ok: boolean; skin?: CharacterSkin; variations?: string[] }> {
     return api.post<{ ok: boolean; skin?: CharacterSkin; variations?: string[] }>(
@@ -252,6 +255,14 @@ export const platformerApi = {
 
   saveVariation(data: { memberId: string; dataUrl: string }): Promise<{ ok: boolean; skin: CharacterSkin }> {
     return api.post<{ ok: boolean; skin: CharacterSkin }>('/api/platformer/skins/save-variation', data);
+  },
+
+  uploadMemberReference(memberId: string, dataUrl: string): Promise<{ ok: boolean }> {
+    return api.put<{ ok: boolean }>(`/api/platformer/skins/member/${encodeURIComponent(memberId)}/reference`, { dataUrl });
+  },
+
+  clearMemberReference(memberId: string): Promise<{ ok: boolean }> {
+    return api.delete<{ ok: boolean }>(`/api/platformer/skins/member/${encodeURIComponent(memberId)}/reference`);
   },
 
   // ---------------------------------------------------------------------------

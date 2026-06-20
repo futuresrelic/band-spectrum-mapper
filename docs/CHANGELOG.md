@@ -4,6 +4,48 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Y.3 — Community Appreciation + Avatar System 2.0 (2026-06-20)
+
+### Added
+
+**Community Appreciation system:**
+- **2 new DB tables**: `band_rpg_favorites` (favorites/saves on curators/festivals/tours) and `band_rpg_curator_follows` (follower/following relationships between curators). Migration: `20260620090000_phase_y3_appreciation_avatar`.
+- **5 Appreciation API endpoints** (`/api/band-rpg/appreciation/*`, all require auth):
+  - `POST /toggle` — toggle favorite or saved on any entity (curator/festival/tour); returns `{ active, count }`
+  - `POST /follow/:followeeId` — toggle follow on a curator; returns `{ following, followerCount }`
+  - `GET /status?entityType=&entityId=` — batch-fetch appreciation status (favorited/saved/following) for one or more entities for the logged-in user
+  - `GET /my-saved` — enriched list of all saved items with entity-specific metadata (concert/stop counts, visibility, isDream)
+  - `GET /following` — list of followed curator profiles
+- **Community distinction badges** — algorithmic labels computed and returned on public pages: "Community Favorite" (≥3 favorites), "Most Saved" (≥3 saves on festivals/tours), "Most Followed" (≥5 followers on curators), "Festival Collector" (curator has ≥5 favorited festivals), "Tour Explorer" (curator has ≥5 favorited tours), "Archive Legend" (≥20 followers AND level ≥25)
+- **Favorite / Save / Follow buttons** on all 3 public pages (curator, festival, tour). Buttons are hidden when viewing own profile. Require login — a hint is shown to logged-out visitors.
+- **Community counts** displayed publicly on all 3 pages: favorites, saved, and followers where applicable
+- **Showcase section** on curator public page: links to most popular festival and tour (by community favorites)
+- **3 new leaderboard types** in `/api/band-rpg/community/leaderboard`: `most-followed` (by follower count), `most-saved-festivals` (by saved festival count), `most-saved-tours` (by saved tour count). Corresponding tabs added to the Leaderboards UI.
+- **"Saved" tab** in The Archive collection page (`/my/band-rpg/collection`) — browse and unsave bookmarked festivals, tours, and curators in one place, grouped by type
+
+**Avatar System 2.0:**
+- **2 new BandMember fields**: `referenceImageDataUrl` (base64 photo data URL, stored in DB) and `visualNotes` (freeform appearance notes appended to the prompt)
+- **Reference image upload**: `PUT /api/platformer/skins/member/:memberId/reference` — stores a photo; resets cached avatar prompt so next generation re-extracts appearance from the new reference via GPT-4o-mini vision
+- **Reference image clear**: `DELETE /api/platformer/skins/member/:memberId/reference` — clears reference and resets prompt
+- **GPT-4o-mini vision extraction**: when a member has a `referenceImageDataUrl` and no cached prompt, the `generate-prompt` endpoint passes the image to GPT-4o-mini with a vision message to extract appearance description instead of guessing from band context
+- **Visual Notes field** in Avatar Prompt Editor: freeform text appended to the prompt (e.g. "Bald, Goatee")
+- **Reference Image panel** in Avatar Prompt Editor: thumbnail of uploaded reference, Replace and Clear buttons, dashed upload zone when empty, "Regen prompt?" offer after upload
+- **Prompt Inspector** in Avatar Prompt Editor: collapsible panel showing the full assembled prompt (prefix + description + visual notes + suffix + negative) — exactly what gets sent to OpenAI
+- **4-variation layout update**: when a reference image is set, the picking step shows the reference on the left and the 2×2 variation grid on the right for direct visual comparison
+
+### Technical notes
+- `BandRpgFavorite` uses a composite unique index `[userId, kind, entityType, entityId]` — the same row is toggled on/off, no duplicates
+- `BandRpgCuratorFollow` uses `[followerId, followeeId]` unique index
+- Both tables use `@@map` to clean table names (`band_rpg_favorites`, `band_rpg_curator_follows`)
+- Appreciation status query batches multiple entity IDs in a single `findMany` call — no N+1
+- Saved items enrichment runs concurrent `findUnique` per item (acceptable for typical collection sizes)
+- `appreciationRouter` mounted at `/api/band-rpg/appreciation` with `requireAuth` on all endpoints
+- Public endpoints (curator/festival/tour) run counts in parallel with existing queries via `Promise.all`
+- `visualNotes` is passed through `buildAvatarImagePrompt(desc, negative, visualNotes)` — appended to description before the BSM style suffix
+- Reference images validated at upload: must be a data URL, max 5MB (backend) / 4MB (frontend file-size check)
+
+---
+
 ## Phase Y.2 — Community Discovery (2026-06-20)
 
 ### Added

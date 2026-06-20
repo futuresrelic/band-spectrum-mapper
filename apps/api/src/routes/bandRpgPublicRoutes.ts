@@ -24,7 +24,52 @@ bandRpgPublicRouter.get('/curator/:userId', async (req, res, next): Promise<void
       res.status(403).json({ error: 'This curator profile is private' }); return;
     }
 
-    const full = await buildCuratorProfile(userId);
+    const [full, favoriteCount, followerCount, festivalFavCount, tourFavCount, popularFestRaw, popularTourRaw] = await Promise.all([
+      buildCuratorProfile(userId),
+      prisma.bandRpgFavorite.count({ where: { entityType: 'curator', entityId: userId, kind: 'favorite' } }),
+      prisma.bandRpgCuratorFollow.count({ where: { followeeId: userId } }),
+      prisma.bandRpgFavorite.count({ where: { userId, entityType: 'festival' } }),
+      prisma.bandRpgFavorite.count({ where: { userId, entityType: 'tour' } }),
+      // Most popular festival (most favorites)
+      prisma.bandRpgFavorite.groupBy({
+        by: ['entityId'],
+        where: { entityType: 'festival' },
+        _count: { _all: true },
+        orderBy: { _count: { entityId: 'desc' } },
+        take: 1,
+      }),
+      // Most popular tour (most favorites)
+      prisma.bandRpgFavorite.groupBy({
+        by: ['entityId'],
+        where: { entityType: 'tour' },
+        _count: { _all: true },
+        orderBy: { _count: { entityId: 'desc' } },
+        take: 1,
+      }),
+    ]);
+
+    // Compute distinctions
+    const distinctions: string[] = [];
+    if (favoriteCount >= 3)  distinctions.push('Community Favorite');
+    if (followerCount >= 5)  distinctions.push('Most Followed');
+    if (followerCount >= 20 && full.level >= 25) distinctions.push('Archive Legend');
+    if (festivalFavCount >= 5) distinctions.push('Festival Collector');
+    if (tourFavCount >= 5)   distinctions.push('Tour Explorer');
+
+    // Showcase: mostPopularFestival
+    let mostPopularFestival: { id: string; name: string } | null = null;
+    const topFestId = popularFestRaw[0]?.entityId;
+    if (topFestId) {
+      const f = await prisma.bandRpgFestival.findUnique({ where: { id: topFestId }, select: { id: true, name: true } });
+      if (f) mostPopularFestival = { id: f.id, name: f.name };
+    }
+
+    let mostPopularTour: { id: string; name: string } | null = null;
+    const topTourId = popularTourRaw[0]?.entityId;
+    if (topTourId) {
+      const t = await prisma.bandRpgTour.findUnique({ where: { id: topTourId }, select: { id: true, name: true } });
+      if (t) mostPopularTour = { id: t.id, name: t.name };
+    }
 
     res.json({
       userId,
@@ -39,6 +84,11 @@ bandRpgPublicRouter.get('/curator/:userId', async (req, res, next): Promise<void
       recentActivity:     full.recentActivity,
       firstRecoveryDate:  full.firstRecoveryDate,
       visibility:         row.visibility,
+      favoriteCount,
+      followerCount,
+      distinctions,
+      mostPopularFestival,
+      mostPopularTour,
     }); return;
   } catch (err) { next(err); }
 });
@@ -112,6 +162,15 @@ bandRpgPublicRouter.get('/festival/:id', async (req, res, next): Promise<void> =
       res.status(403).json({ error: 'This festival is private' }); return;
     }
 
+    const [favoriteCount, savedCount] = await Promise.all([
+      prisma.bandRpgFavorite.count({ where: { entityType: 'festival', entityId: id, kind: 'favorite' } }),
+      prisma.bandRpgFavorite.count({ where: { entityType: 'festival', entityId: id, kind: 'saved' } }),
+    ]);
+
+    const distinctions: string[] = [];
+    if (favoriteCount >= 3) distinctions.push('Community Favorite');
+    if (savedCount >= 3)    distinctions.push('Most Saved');
+
     const bandNames = [...new Map(
       festival.concerts.map((fc) => [fc.concert.bandId, fc.concert.bandName]),
     ).values()];
@@ -158,6 +217,9 @@ bandRpgPublicRouter.get('/festival/:id', async (req, res, next): Promise<void> =
       story,
       bands:        bandNames,
       createdAt:    festival.createdAt.toISOString(),
+      favoriteCount,
+      savedCount,
+      distinctions,
     }); return;
   } catch (err) { next(err); }
 });
@@ -185,7 +247,15 @@ bandRpgPublicRouter.get('/tour/:id', async (req, res, next): Promise<void> => {
       res.status(403).json({ error: 'This tour is private' }); return;
     }
 
-    const { stops: enrichedStops, analysis } = await analyseStops(tour.stops as StopWithData[]);
+    const [favoriteCount, savedCount, { stops: enrichedStops, analysis }] = await Promise.all([
+      prisma.bandRpgFavorite.count({ where: { entityType: 'tour', entityId: id, kind: 'favorite' } }),
+      prisma.bandRpgFavorite.count({ where: { entityType: 'tour', entityId: id, kind: 'saved' } }),
+      analyseStops(tour.stops as StopWithData[]),
+    ]);
+
+    const distinctions: string[] = [];
+    if (favoriteCount >= 3) distinctions.push('Community Favorite');
+    if (savedCount >= 3)    distinctions.push('Most Saved');
 
     const bands: string[] = [];
     const seenBands = new Set<string>();
@@ -219,6 +289,9 @@ bandRpgPublicRouter.get('/tour/:id', async (req, res, next): Promise<void> => {
         songCount:   s.songCount,
       })),
       createdAt:       tour.createdAt.toISOString(),
+      favoriteCount,
+      savedCount,
+      distinctions,
     }); return;
   } catch (err) { next(err); }
 });

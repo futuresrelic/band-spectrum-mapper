@@ -388,6 +388,48 @@ communityRouter.get('/leaderboard', async (req, res, next): Promise<void> => {
         if (!d) return null;
         return { rank: i + 1, userId: g.userId, displayName: d.displayName, title: d.title, level: d.level, score: g._count._all, scoreLabel: 'Tours', label: autoLevelLabel(d.level, d.badgeCount) };
       }).filter((e): e is Entry => e !== null);
+
+    } else if (type === 'most-followed') {
+      const followGroups = await prisma.bandRpgCuratorFollow.groupBy({
+        by:      ['followeeId'],
+        where:   { followeeId: { in: [...publicIds] } },
+        _count:  { _all: true },
+        orderBy: { _count: { followeeId: 'desc' } },
+        take:    20,
+      });
+      ranked = followGroups.map((g, i) => {
+        const d = displayMap.get(g.followeeId);
+        if (!d) return null;
+        return { rank: i + 1, userId: g.followeeId, displayName: d.displayName, title: d.title, level: d.level, score: g._count._all, scoreLabel: 'Followers', label: autoLevelLabel(d.level, d.badgeCount) };
+      }).filter((e): e is Entry => e !== null);
+
+    } else if (type === 'most-saved-festivals') {
+      const festGroups = await prisma.bandRpgFavorite.groupBy({
+        by:      ['userId'],
+        where:   { userId: { in: [...publicIds] }, entityType: 'festival' },
+        _count:  { _all: true },
+        orderBy: { _count: { userId: 'desc' } },
+        take:    20,
+      });
+      ranked = festGroups.map((g, i) => {
+        const d = displayMap.get(g.userId);
+        if (!d) return null;
+        return { rank: i + 1, userId: g.userId, displayName: d.displayName, title: d.title, level: d.level, score: g._count._all, scoreLabel: 'Saved Festivals', label: autoLevelLabel(d.level, d.badgeCount) };
+      }).filter((e): e is Entry => e !== null);
+
+    } else if (type === 'most-saved-tours') {
+      const tourSaveGroups = await prisma.bandRpgFavorite.groupBy({
+        by:      ['userId'],
+        where:   { userId: { in: [...publicIds] }, entityType: 'tour' },
+        _count:  { _all: true },
+        orderBy: { _count: { userId: 'desc' } },
+        take:    20,
+      });
+      ranked = tourSaveGroups.map((g, i) => {
+        const d = displayMap.get(g.userId);
+        if (!d) return null;
+        return { rank: i + 1, userId: g.userId, displayName: d.displayName, title: d.title, level: d.level, score: g._count._all, scoreLabel: 'Saved Tours', label: autoLevelLabel(d.level, d.badgeCount) };
+      }).filter((e): e is Entry => e !== null);
     }
 
     res.json({ type, period, entries: ranked }); return;

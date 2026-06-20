@@ -215,12 +215,15 @@ function OverviewTab({ hub, onSurprise, isSurprising }: {
 // ── Leaderboard tab ───────────────────────────────────────────────────────────
 
 const LB_TYPES = [
-  { key: 'curators',   label: 'Curators'   },
-  { key: 'collectors', label: 'Collectors' },
-  { key: 'festivals',  label: 'Festivals'  },
-  { key: 'tours',      label: 'Tours'      },
-  { key: 'challenges', label: 'Champions'  },
-  { key: 'archivists', label: 'Archivists' },
+  { key: 'curators',          label: 'Curators'       },
+  { key: 'collectors',        label: 'Collectors'     },
+  { key: 'festivals',         label: 'Festivals'      },
+  { key: 'tours',             label: 'Tours'          },
+  { key: 'challenges',        label: 'Champions'      },
+  { key: 'archivists',        label: 'Archivists'     },
+  { key: 'most-followed',     label: 'Most Followed'  },
+  { key: 'most-saved-festivals', label: 'Saved Festivals' },
+  { key: 'most-saved-tours',  label: 'Saved Tours'   },
 ];
 
 const LB_PERIODS = [

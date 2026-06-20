@@ -458,6 +458,9 @@ model User {
   bandRpgChallenges        BandRpgChallenge[]
   bandRpgChallengeAttempts BandRpgChallengeAttempt[]
   bandRpgCuratorProfile    BandRpgCuratorProfile?
+  bandRpgFavorites     BandRpgFavorite[]
+  bandRpgFollowing     BandRpgCuratorFollow[] @relation("BandRpgFollower")
+  bandRpgFollowers     BandRpgCuratorFollow[] @relation("BandRpgFollowee")
 
   @@map("users")
 }
@@ -1288,6 +1291,8 @@ model BandMember {
   originalAvatarPrompt     String? @db.Text // auto-generated once, never overwritten
   lastAvatarPrompt         String? @db.Text // user-edited version saved on each generation
   lastAvatarNegativePrompt String?           // negative prompt saved on each generation
+  referenceImageDataUrl String? @db.Text
+  visualNotes           String?
 
   band  Band                      @relation(fields: [bandId], references: [id], onDelete: Cascade)
   skins PlatformerCharacterSkin[]
@@ -2089,4 +2094,37 @@ model BandRpgCuratorProfile {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("band_rpg_curator_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// Phase Y.3: Community Appreciation
+// ---------------------------------------------------------------------------
+
+model BandRpgFavorite {
+  id         String   @id @default(cuid())
+  userId     String
+  kind       String   // 'favorite' | 'saved'
+  entityType String   // 'curator' | 'festival' | 'tour'
+  entityId   String
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind, entityType, entityId])
+  @@index([entityType, entityId])
+  @@map("band_rpg_favorites")
+}
+
+model BandRpgCuratorFollow {
+  id         String   @id @default(cuid())
+  followerId String
+  followeeId String
+  createdAt  DateTime @default(now())
+
+  follower User @relation("BandRpgFollower", fields: [followerId], references: [id], onDelete: Cascade)
+  followee User @relation("BandRpgFollowee", fields: [followeeId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followeeId])
+  @@index([followeeId])
+  @@map("band_rpg_curator_follows")
 }

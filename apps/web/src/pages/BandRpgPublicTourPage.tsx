@@ -1,6 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { bandRpgApi } from '../api/bandRpg';
+import { useAuth } from '../contexts/AuthContext';
 import SiteHeader from '../components/layout/SiteHeader';
 
 function ScoreBar({ value, label, colour }: { value: number; label: string; colour: string }) {
@@ -19,12 +20,38 @@ function ScoreBar({ value, label, colour }: { value: number; label: string; colo
 
 export default function BandRpgPublicTourPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const { data: tour, isLoading, error } = useQuery({
     queryKey: ['publicTour', id],
     queryFn:  () => bandRpgApi.getPublicTour(id!),
     enabled:  !!id,
     retry:    false,
+  });
+
+  const { data: appStatus } = useQuery({
+    queryKey: ['appreciationStatus', 'tour', id],
+    queryFn:  () => bandRpgApi.getAppreciationStatus('tour', [id!]),
+    enabled:  !!id && !!user,
+  });
+
+  const myStatus = id && appStatus ? (appStatus[id] ?? null) : null;
+
+  const favMutation = useMutation({
+    mutationFn: () => bandRpgApi.toggleFavorite('favorite', 'tour', id!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['appreciationStatus', 'tour', id] });
+      void queryClient.invalidateQueries({ queryKey: ['publicTour', id] });
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: () => bandRpgApi.toggleFavorite('saved', 'tour', id!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['appreciationStatus', 'tour', id] });
+      void queryClient.invalidateQueries({ queryKey: ['publicTour', id] });
+    },
   });
 
   if (isLoading) {
@@ -51,6 +78,7 @@ export default function BandRpgPublicTourPage() {
   }
 
   const unlockedAchievements = tour.achievements.filter((a) => a.unlocked);
+  const distinctions = tour.distinctions ?? [];
 
   const routeStr = [tour.firstCity, tour.lastCity]
     .filter(Boolean)
@@ -73,6 +101,59 @@ export default function BandRpgPublicTourPage() {
             )}
             {tour.description && (
               <p className="text-gray-400 text-sm max-w-md">{tour.description}</p>
+            )}
+
+            {/* Distinction badges */}
+            {distinctions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 justify-center">
+                {distinctions.map((d) => (
+                  <span key={d} className="bg-yellow-900/40 text-yellow-300 text-[10px] font-semibold px-2.5 py-1 rounded-full border border-yellow-700/40 uppercase tracking-wide">
+                    {d}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Community counts */}
+            <div className="flex items-center gap-4 text-sm">
+              {(tour.favoriteCount ?? 0) > 0 && (
+                <span className="text-gray-400">♥ <span className="text-white font-semibold">{tour.favoriteCount}</span> favorites</span>
+              )}
+              {(tour.savedCount ?? 0) > 0 && (
+                <span className="text-gray-400">🔖 <span className="text-white font-semibold">{tour.savedCount}</span> saved</span>
+              )}
+            </div>
+
+            {/* Action buttons */}
+            {user ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => void favMutation.mutate()}
+                  disabled={favMutation.isPending}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold border transition-colors disabled:opacity-50 ${
+                    myStatus?.favorited
+                      ? 'bg-pink-900/50 text-pink-300 border-pink-700/50 hover:bg-pink-900/30'
+                      : 'bg-gray-800 text-gray-300 border-gray-700 hover:border-gray-600'
+                  }`}
+                >
+                  <span>{myStatus?.favorited ? '♥' : '♡'}</span>
+                  <span>{myStatus?.favorited ? 'Favorited' : 'Favorite'}</span>
+                </button>
+                <button
+                  onClick={() => void saveMutation.mutate()}
+                  disabled={saveMutation.isPending}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold border transition-colors disabled:opacity-50 ${
+                    myStatus?.saved
+                      ? 'bg-blue-900/50 text-blue-300 border-blue-700/50 hover:bg-blue-900/30'
+                      : 'bg-gray-800 text-gray-300 border-gray-700 hover:border-gray-600'
+                  }`}
+                >
+                  <span>🔖</span>
+                  <span>{myStatus?.saved ? 'Saved' : 'Save'}</span>
+                </button>
+              </div>
+            ) : (
+              <p className="text-gray-600 text-xs">Log in to favorite or save this tour</p>
             )}
           </div>
 

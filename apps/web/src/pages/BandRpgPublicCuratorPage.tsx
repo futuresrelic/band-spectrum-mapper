@@ -1,6 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { bandRpgApi } from '../api/bandRpg';
+import { useAuth } from '../contexts/AuthContext';
 import SiteHeader from '../components/layout/SiteHeader';
 
 function ScoreBadge({ value, label }: { value: number | string; label: string }) {
@@ -14,12 +15,38 @@ function ScoreBadge({ value, label }: { value: number | string; label: string })
 
 export default function BandRpgPublicCuratorPage() {
   const { userId } = useParams<{ userId: string }>();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const { data: profile, isLoading, error } = useQuery({
     queryKey: ['publicCurator', userId],
     queryFn:  () => bandRpgApi.getPublicCuratorProfile(userId!),
     enabled:  !!userId,
     retry:    false,
+  });
+
+  const { data: appStatus } = useQuery({
+    queryKey: ['appreciationStatus', 'curator', userId],
+    queryFn:  () => bandRpgApi.getAppreciationStatus('curator', [userId!]),
+    enabled:  !!userId && !!user,
+  });
+
+  const myStatus = userId && appStatus ? (appStatus[userId] ?? null) : null;
+
+  const favMutation = useMutation({
+    mutationFn: () => bandRpgApi.toggleFavorite('favorite', 'curator', userId!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['appreciationStatus', 'curator', userId] });
+      void queryClient.invalidateQueries({ queryKey: ['publicCurator', userId] });
+    },
+  });
+
+  const followMutation = useMutation({
+    mutationFn: () => bandRpgApi.toggleFollow(userId!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['appreciationStatus', 'curator', userId] });
+      void queryClient.invalidateQueries({ queryKey: ['publicCurator', userId] });
+    },
   });
 
   if (isLoading) {
@@ -47,6 +74,8 @@ export default function BandRpgPublicCuratorPage() {
 
   const displayName  = profile.selectedCharacterName ?? 'Curator';
   const badgesCount  = profile.badgeCount;
+  const distinctions = profile.distinctions ?? [];
+  const isOwnProfile = user?.userId === userId;
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-950">
@@ -76,6 +105,63 @@ export default function BandRpgPublicCuratorPage() {
                 </span>
               )}
             </div>
+
+            {/* Distinction badges */}
+            {distinctions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 justify-center">
+                {distinctions.map((d) => (
+                  <span key={d} className="bg-yellow-900/40 text-yellow-300 text-[10px] font-semibold px-2.5 py-1 rounded-full border border-yellow-700/40 uppercase tracking-wide">
+                    {d}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Community counts */}
+            <div className="flex items-center gap-4 text-sm">
+              {(profile.favoriteCount ?? 0) > 0 && (
+                <span className="text-gray-400">
+                  ♥ <span className="text-white font-semibold">{profile.favoriteCount}</span> favorites
+                </span>
+              )}
+              {(profile.followerCount ?? 0) > 0 && (
+                <span className="text-gray-400">
+                  👥 <span className="text-white font-semibold">{profile.followerCount}</span> followers
+                </span>
+              )}
+            </div>
+
+            {/* Action buttons */}
+            {user && !isOwnProfile && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => void favMutation.mutate()}
+                  disabled={favMutation.isPending}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold border transition-colors disabled:opacity-50 ${
+                    myStatus?.favorited
+                      ? 'bg-pink-900/50 text-pink-300 border-pink-700/50 hover:bg-pink-900/30'
+                      : 'bg-gray-800 text-gray-300 border-gray-700 hover:border-gray-600'
+                  }`}
+                >
+                  <span>{myStatus?.favorited ? '♥' : '♡'}</span>
+                  <span>{myStatus?.favorited ? 'Favorited' : 'Favorite'}</span>
+                </button>
+                <button
+                  onClick={() => void followMutation.mutate()}
+                  disabled={followMutation.isPending}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold border transition-colors disabled:opacity-50 ${
+                    myStatus?.following
+                      ? 'bg-indigo-900/50 text-indigo-300 border-indigo-700/50 hover:bg-indigo-900/30'
+                      : 'bg-gray-800 text-gray-300 border-gray-700 hover:border-gray-600'
+                  }`}
+                >
+                  <span>{myStatus?.following ? '✓ Following' : '+ Follow'}</span>
+                </button>
+              </div>
+            )}
+            {!user && (
+              <p className="text-gray-600 text-xs">Log in to favorite or follow this curator</p>
+            )}
           </div>
 
           {/* XP bar */}
@@ -106,6 +192,41 @@ export default function BandRpgPublicCuratorPage() {
               <ScoreBadge value={`${profile.stats.correctGuessPct}%`} label="Guess %" />
             </div>
           </div>
+
+          {/* Showcase */}
+          {(profile.mostPopularFestival || profile.mostPopularTour) && (
+            <div>
+              <h2 className="text-gray-400 text-xs uppercase tracking-widest mb-3">Showcase</h2>
+              <div className="flex flex-col gap-2">
+                {profile.mostPopularFestival && (
+                  <Link
+                    to={`/band-rpg/festival/${profile.mostPopularFestival.id}`}
+                    className="flex items-center gap-3 bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 hover:border-amber-700/40 transition-colors"
+                  >
+                    <span className="text-xl shrink-0">🎪</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-gray-500 mb-0.5">Most Popular Festival</p>
+                      <p className="text-white text-sm font-medium truncate">{profile.mostPopularFestival.name}</p>
+                    </div>
+                    <span className="text-gray-600 text-xs shrink-0">→</span>
+                  </Link>
+                )}
+                {profile.mostPopularTour && (
+                  <Link
+                    to={`/band-rpg/tour/${profile.mostPopularTour.id}`}
+                    className="flex items-center gap-3 bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 hover:border-teal-700/40 transition-colors"
+                  >
+                    <span className="text-xl shrink-0">🗺️</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-gray-500 mb-0.5">Most Popular Tour</p>
+                      <p className="text-white text-sm font-medium truncate">{profile.mostPopularTour.name}</p>
+                    </div>
+                    <span className="text-gray-600 text-xs shrink-0">→</span>
+                  </Link>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Badges */}
           {profile.badges.length > 0 && (

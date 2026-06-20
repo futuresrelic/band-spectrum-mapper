@@ -576,6 +576,11 @@ export interface PublicCuratorProfile {
   recentActivity:       CuratorActivityItem[];
   firstRecoveryDate:    string | null;
   visibility:           string;
+  favoriteCount?:      number;
+  followerCount?:      number;
+  distinctions?:       string[];
+  mostPopularFestival?: { id: string; name: string } | null;
+  mostPopularTour?:    { id: string; name: string } | null;
 }
 
 export interface PublicFestivalStop {
@@ -603,6 +608,9 @@ export interface PublicFestival {
   story:        string;
   bands:        string[];
   createdAt:    string;
+  favoriteCount?: number;
+  savedCount?:    number;
+  distinctions?:  string[];
 }
 
 export interface PublicTourStop {
@@ -633,6 +641,9 @@ export interface PublicTour {
   achievements:    Array<{ key: string; name: string; icon: string; description: string; unlocked: boolean }>;
   stops:           PublicTourStop[];
   createdAt:       string;
+  favoriteCount?: number;
+  savedCount?:    number;
+  distinctions?:  string[];
 }
 
 // ── Phase Y.2 — Community Discovery types ────────────────────────────────────
@@ -746,6 +757,35 @@ export interface SurpriseResponse {
   id:   string | null;
   name: string | null;
   url:  string | null;
+}
+
+// ── Phase Y.3 — Community Appreciation types ──────────────────────────────────
+
+export interface AppreciationStatus {
+  favorited: boolean;
+  saved:     boolean;
+  following?: boolean;
+}
+
+export interface MySavedItem {
+  savedId:     string;
+  entityType:  string;
+  entityId:    string;
+  savedAt:     string;
+  name:        string;
+  visibility:  string;
+  isDream?:    boolean;
+  concertCount?: number;
+  stopCount?:  number;
+  title?:      string;
+}
+
+export interface FollowingEntry {
+  followeeId:  string;
+  followedAt:  string;
+  displayName: string;
+  title:       string;
+  visibility:  string;
 }
 
 // ── API client ────────────────────────────────────────────────────────────────
@@ -1020,4 +1060,25 @@ export const bandRpgApi = {
 
   communitySurprise: () =>
     api.get<SurpriseResponse>('/api/band-rpg/community/surprise'),
+
+  // Phase Y.3 — Community Appreciation
+  toggleFavorite: (kind: string, entityType: string, entityId: string) =>
+    api.post<{ active: boolean; count: number }>('/api/band-rpg/appreciation/toggle', { kind, entityType, entityId }),
+
+  toggleFollow: (followeeId: string) =>
+    api.post<{ following: boolean; followerCount: number }>(`/api/band-rpg/appreciation/follow/${encodeURIComponent(followeeId)}`, {}),
+
+  getAppreciationStatus: (entityType: string, entityIds: string[]) => {
+    const qs = new URLSearchParams({ entityType });
+    entityIds.forEach((id) => qs.append('entityId', id));
+    return api.get<Record<string, AppreciationStatus>>(`/api/band-rpg/appreciation/status?${qs.toString()}`);
+  },
+
+  getMySaved: (type?: string) => {
+    const qs = type ? `?type=${encodeURIComponent(type)}` : '';
+    return api.get<MySavedItem[]>(`/api/band-rpg/appreciation/my-saved${qs}`);
+  },
+
+  getMyFollowing: () =>
+    api.get<FollowingEntry[]>('/api/band-rpg/appreciation/following'),
 };

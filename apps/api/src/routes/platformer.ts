@@ -743,8 +743,10 @@ const BSM_STYLE_SUFFIX =
   'Expressive pixelated face, bold pixel art style, transparent background, ' +
   'centered in a square canvas, no text, no border, clean crisp pixel art.';
 
-function buildAvatarImagePrompt(characterDescription: string, negativePrompt: string | null): string {
-  let prompt = BSM_STYLE_PREFIX + characterDescription.trim() + ' ' + BSM_STYLE_SUFFIX;
+function buildAvatarImagePrompt(characterDescription: string, negativePrompt: string | null, visualNotes: string | null): string {
+  let desc = characterDescription.trim();
+  if (visualNotes && visualNotes.trim()) desc += `. ${visualNotes.trim()}`;
+  let prompt = BSM_STYLE_PREFIX + desc + ' ' + BSM_STYLE_SUFFIX;
   if (negativePrompt && negativePrompt.trim()) {
     prompt += ` Avoid: ${negativePrompt.trim()}.`;
   }
@@ -783,6 +785,7 @@ platformerRouter.post('/skins/generate-prompt', requireAuth, requireAdmin, async
       select: {
         id: true, name: true, role: true,
         originalAvatarPrompt: true, lastAvatarPrompt: true, lastAvatarNegativePrompt: true,
+        referenceImageDataUrl: true, visualNotes: true,
         band: { select: { id: true, name: true, description: true, contextAnalysis: { select: { overallNarrative: true } } } },
       },
     });
@@ -794,11 +797,14 @@ platformerRouter.post('/skins/generate-prompt', requireAuth, requireAdmin, async
     const roleDesc = role ? `${role} player` : 'musician';
 
     // Return saved prompt if available — no API call needed
+    // Exception: if member has a referenceImageDataUrl and NO saved prompt, fall through to extract from image
     if (member.lastAvatarPrompt) {
       res.json({
         characterDescription: member.lastAvatarPrompt,
         originalDescription: member.originalAvatarPrompt ?? member.lastAvatarPrompt,
         lastNegativePrompt: member.lastAvatarNegativePrompt ?? null,
+        referenceImageDataUrl: member.referenceImageDataUrl ?? null,
+        visualNotes: member.visualNotes ?? null,
         memberName: nameStr,
         memberRole: role,
         bandName: bandStr,
@@ -824,21 +830,47 @@ platformerRouter.post('/skins/generate-prompt', requireAuth, requireAdmin, async
       }
       const bandContextLine = parts.length > 0 ? `Band context: ${parts.join(' ')} ` : '';
 
-      const descRes = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [{
-          role: 'user',
-          content:
-            `Describe the distinctive facial and hair appearance of ${nameStr}, the ${roleDesc} from the band ${bandStr}, ` +
-            `in one short sentence for a pixel art face portrait. ` +
-            `${bandContextLine}` +
-            `Focus on hair color, hair length/style (including if it is long), skin tone, notable facial features, and any facial hair or signature accessories. ` +
-            `Output the description only — no name, no explanation.`,
-        }],
-        max_tokens: 80,
-      });
-      const hint = descRes.choices[0]?.message?.content?.trim();
-      if (hint) appearanceHint = hint;
+      if (member.referenceImageDataUrl) {
+        // Use vision to extract appearance from reference photo
+        const visionRes = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [{
+            role: 'user',
+            content: [
+              {
+                type: 'image_url',
+                image_url: { url: member.referenceImageDataUrl, detail: 'low' },
+              },
+              {
+                type: 'text',
+                text: `This is a reference photo of ${nameStr}, the ${roleDesc} from the band ${bandStr}. ` +
+                  `Describe their distinctive facial and hair appearance in one short sentence for a pixel art face portrait. ` +
+                  `Focus on hair color, hair length/style (including if it is long), skin tone, notable facial features, and any facial hair or signature accessories. ` +
+                  `Output the description only — no name, no explanation.`,
+              },
+            ],
+          }],
+          max_tokens: 80,
+        });
+        const hint = visionRes.choices[0]?.message?.content?.trim();
+        if (hint) appearanceHint = hint;
+      } else {
+        const descRes = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [{
+            role: 'user',
+            content:
+              `Describe the distinctive facial and hair appearance of ${nameStr}, the ${roleDesc} from the band ${bandStr}, ` +
+              `in one short sentence for a pixel art face portrait. ` +
+              `${bandContextLine}` +
+              `Focus on hair color, hair length/style (including if it is long), skin tone, notable facial features, and any facial hair or signature accessories. ` +
+              `Output the description only — no name, no explanation.`,
+          }],
+          max_tokens: 80,
+        });
+        const hint = descRes.choices[0]?.message?.content?.trim();
+        if (hint) appearanceHint = hint;
+      }
     } catch {
       // Non-fatal: fall back to generic description
     }
@@ -855,6 +887,8 @@ platformerRouter.post('/skins/generate-prompt', requireAuth, requireAdmin, async
       characterDescription,
       originalDescription: characterDescription,
       lastNegativePrompt: null,
+      referenceImageDataUrl: member.referenceImageDataUrl ?? null,
+      visualNotes: member.visualNotes ?? null,
       memberName: nameStr,
       memberRole: role,
       bandName: bandStr,
@@ -875,13 +909,15 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
   try {
     const body = req.body as {
       memberId?: unknown; characterDescription?: unknown;
-      negativePrompt?: unknown; count?: unknown;
+      negativePrompt?: unknown; count?: unknown; visualNotes?: unknown;
     };
     const memberId = typeof body.memberId === 'string' && body.memberId ? body.memberId : null;
     const characterDescription = typeof body.characterDescription === 'string' && body.characterDescription
       ? body.characterDescription.trim() : null;
     const negativePrompt = typeof body.negativePrompt === 'string' && body.negativePrompt
       ? body.negativePrompt.trim() : null;
+    const visualNotes = typeof body.visualNotes === 'string' && body.visualNotes
+      ? body.visualNotes.trim() : null;
     const count = typeof body.count === 'number' ? Math.min(4, Math.max(1, Math.round(body.count))) : 1;
 
     if (!characterDescription) {
@@ -891,7 +927,7 @@ platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (re
     const openAiKey = process.env['OPENAI_API_KEY'];
     if (!openAiKey) { res.status(503).json({ error: 'OPENAI_API_KEY is not configured.' }); return; }
 
-    const imagePrompt = buildAvatarImagePrompt(characterDescription, negativePrompt);
+    const imagePrompt = buildAvatarImagePrompt(characterDescription, negativePrompt, visualNotes);
 
     // Resolve member + band data if memberId provided
     let memberRow: { id: string; name: string; bandId: string } | null = null;
@@ -994,6 +1030,68 @@ platformerRouter.post('/skins/save-variation', requireAuth, requireAdmin, async 
     const skin = await prisma.platformerCharacterSkin.create({ data: skinData });
     res.status(201).json({ ok: true, skin });
   } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// PUT /skins/member/:memberId/reference — upload/replace reference image for a member
+// Body: { dataUrl: string }
+// ---------------------------------------------------------------------------
+
+platformerRouter.put('/skins/member/:memberId/reference', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const { memberId } = req.params;
+    if (!memberId) { res.status(400).json({ error: 'memberId is required' }); return; }
+
+    const { dataUrl } = req.body as { dataUrl?: unknown };
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
+      res.status(400).json({ error: 'dataUrl must be a valid data URL' }); return;
+    }
+
+    // Max 5MB check (base64 is ~1.37x the binary size)
+    const MAX_BYTES = 5 * 1024 * 1024;
+    const base64Part = dataUrl.split(',')[1] ?? '';
+    const approxBytes = Math.ceil(base64Part.length * 0.75);
+    if (approxBytes > MAX_BYTES) {
+      res.status(413).json({ error: 'Reference image exceeds 5MB limit' }); return;
+    }
+
+    const member = await prisma.bandMember.findUnique({ where: { id: memberId }, select: { id: true } });
+    if (!member) { res.status(404).json({ error: 'Member not found' }); return; }
+
+    await prisma.bandMember.update({
+      where: { id: memberId },
+      data: {
+        referenceImageDataUrl: dataUrl,
+        lastAvatarPrompt: null,  // reset so next generate-prompt re-extracts from new reference
+      },
+    });
+
+    res.json({ ok: true }); return;
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /skins/member/:memberId/reference — clear reference image for a member
+// ---------------------------------------------------------------------------
+
+platformerRouter.delete('/skins/member/:memberId/reference', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const { memberId } = req.params;
+    if (!memberId) { res.status(400).json({ error: 'memberId is required' }); return; }
+
+    const member = await prisma.bandMember.findUnique({ where: { id: memberId }, select: { id: true } });
+    if (!member) { res.status(404).json({ error: 'Member not found' }); return; }
+
+    await prisma.bandMember.update({
+      where: { id: memberId },
+      data: {
+        referenceImageDataUrl: null,
+        lastAvatarPrompt: null,
+      },
+    });
+
+    res.json({ ok: true }); return;
+  } catch (err) { next(err); }
 });
 
 // ---------------------------------------------------------------------------
