@@ -4,6 +4,42 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Y.1 — Sharing & Showcase (2026-06-20)
+
+### Added
+
+- **`visibility` field** on `BandRpgCuratorProfile` (default: `'public'`), `BandRpgFestival` (default: `'private'`), and `BandRpgTour` (default: `'private'`). Values: `public | unlisted | private`. Migration: `20260620080000_add_visibility_fields`.
+- **3 Privacy update endpoints** (authenticated):
+  - `PUT /api/band-rpg/curator/visibility`
+  - `PUT /api/band-rpg/festivals/:id/visibility`
+  - `PUT /api/band-rpg/tours/:id/visibility`
+- **3 Public API endpoints** (no auth — `GET /api/band-rpg/public/*`):
+  - `/curator/:userId` — curated profile: level, XP bar, stats, unlocked badges, recent activity. Respects visibility.
+  - `/festival/:id` — festival name, isDream, personality, story, concert/band/song counts, rare track count, band lineup. Respects visibility.
+  - `/tour/:id` — full tour analysis: momentum, variety, historical score, personality, story, achievements, stops list. Respects visibility.
+- **3 Public pages** (no auth required — any visitor can access these URLs):
+  - `/band-rpg/curator/:userId` — Curator profile page. Level badge, XP progress bar, legacy stats grid, unlocked badges with tooltips, recent activity feed. Deep indigo theme.
+  - `/band-rpg/festival/:id` — Festival showcase. Dream festival crown, personality label, stats (concerts/bands/songs/rare tracks), character indicators (deep cut %, fan service %), festival story, band lineup, copy link button. Dark theme.
+  - `/band-rpg/tour/:id` — Tour showcase. Personality icon, momentum/variety score bars, historical score, tour story, unlocked achievements, full stops list with cities and song counts. Teal theme.
+- **Share controls** in The Archive (authenticated pages):
+  - Curator tab: visibility selector (Public/Unlisted/Private) + Copy Link + View Public Page buttons, only shown when not private.
+  - Festivals tab: ShareRow below each festival card — visibility selector + Copy Link + View buttons.
+  - Tours tab: ShareRow below each tour card — visibility selector + Copy Link + View buttons.
+- **Community Spotlight architecture**: `visibility = 'public'` enables future rankings/leaderboard queries without additional schema changes. No tables needed — just filter by visibility.
+- **Mobile-first design**: all three public pages are max-width 2xl containers with fluid stat grids and responsive layouts.
+
+### Schema
+- Added `visibility` (String, NOT NULL) to `band_rpg_curator_profiles`, `band_rpg_festivals`, `band_rpg_tours`
+
+### Technical notes
+- Public endpoints mounted at `/api/band-rpg/public/*` with no `requireAuth` middleware — truly public.
+- `analyseStops` exported from `tourRoutes.ts` (was private) — public tour endpoint reuses exact same computation as private tour detail. Tour public page shows the same real momentum/variety/personality scores.
+- Festival public endpoint uses a simplified personality heuristic (fan service % + deep cut % from song rarities) — sufficient for the public showcase. Full chemistry/prestige analysis remains on the private Archive page.
+- `buildCuratorProfile` from `curatorService.ts` reused in public curator endpoint — public page shows a curated subset (no internal IDs, no title lists, no character IDs).
+- `visibility` field returned in all private festival and tour list/detail responses so the frontend can show/edit it without extra requests.
+
+---
+
 ## Phase X.5 — Curator Progression (2026-06-20)
 
 ### Added

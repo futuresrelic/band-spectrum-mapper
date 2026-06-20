@@ -50,6 +50,23 @@ curatorRouter.put('/title', requireAuth, async (req, res, next): Promise<void> =
   } catch (err) { next(err); }
 });
 
+// PUT /curator/visibility — set profile visibility
+curatorRouter.put('/visibility', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const { visibility } = req.body as { visibility?: string };
+    if (!visibility || !['public', 'unlisted', 'private'].includes(visibility)) {
+      res.status(400).json({ error: 'visibility must be public, unlisted, or private' }); return;
+    }
+    await prisma.bandRpgCuratorProfile.upsert({
+      where:  { userId },
+      create: { userId, visibility },
+      update: { visibility },
+    });
+    res.json({ ok: true, visibility }); return;
+  } catch (err) { next(err); }
+});
+
 // PUT /curator/character — set selected character (avatar)
 curatorRouter.put('/character', requireAuth, async (req, res, next): Promise<void> => {
   try {

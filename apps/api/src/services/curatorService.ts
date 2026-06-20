@@ -394,6 +394,7 @@ export async function buildCuratorProfile(userId: string): Promise<{
   lastActiveDate:      string | null;
   selectedCharacterId:   string | null;
   selectedCharacterName: string | null;
+  visibility:            string;
   stats:    CuratorStats;
   badges:   Array<{
     key: string; icon: string; name: string; description: string;
@@ -457,6 +458,7 @@ export async function buildCuratorProfile(userId: string): Promise<{
     lastActiveDate:      profile?.lastActiveDate?.toISOString() ?? null,
     selectedCharacterId:   profile?.selectedCharacterId ?? null,
     selectedCharacterName: profile?.selectedCharacterName ?? null,
+    visibility:            profile?.visibility ?? 'public',
     stats,
     badges:              badgesForResponse,
     recentActivity:      activity.map(a => ({ ...a, date: a.date.toISOString() })),

@@ -1825,6 +1825,7 @@ model BandRpgFestival {
   name        String
   description String?
   isDream     Boolean  @default(false) // at most one per user (enforced at API level)
+  visibility  String   @default("private") // public | unlisted | private
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -1975,6 +1976,7 @@ model BandRpgTour {
   userId      String
   name        String
   description String?
+  visibility  String   @default("private") // public | unlisted | private
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -2078,6 +2080,7 @@ model BandRpgCuratorProfile {
   badgesUnlocked        String[]  @default([])  // badge keys
   selectedCharacterId   String?
   selectedCharacterName String?
+  visibility            String    @default("public") // public | unlisted | private
   firstRecoveryDate     DateTime?
   lastActiveDate        DateTime?
   createdAt             DateTime  @default(now())

@@ -9,7 +9,7 @@ export const tourRouter = Router();
 
 // ── Shared include shape ───────────────────────────────────────────────────────
 
-const STOP_INCLUDE = {
+export const STOP_INCLUDE = {
   concert: {
     include: {
       setlist: { include: { songs: true } },
@@ -19,7 +19,7 @@ const STOP_INCLUDE = {
   venue: { select: { id: true, name: true, capacity: true } },
 } satisfies Prisma.BandRpgTourStopInclude;
 
-type StopWithData = Prisma.BandRpgTourStopGetPayload<{ include: typeof STOP_INCLUDE }>;
+export type StopWithData = Prisma.BandRpgTourStopGetPayload<{ include: typeof STOP_INCLUDE }>;
 
 // ── Interfaces ─────────────────────────────────────────────────────────────────
 
@@ -204,7 +204,7 @@ function buildAchievements(p: {
 
 // ── Core analysis ──────────────────────────────────────────────────────────────
 
-async function analyseStops(stops: StopWithData[]): Promise<{
+export async function analyseStops(stops: StopWithData[]): Promise<{
   stops: Array<{
     id:           string;
     position:     number;
@@ -405,6 +405,7 @@ tourRouter.get('/', requireAuth, async (req, res, next): Promise<void> => {
           id:              tour.id,
           name:            tour.name,
           description:     tour.description,
+          visibility:      tour.visibility,
           stopCount:       tour.stops.length,
           bands:           meta.bands,
           firstCity:       meta.firstCity,
@@ -475,6 +476,7 @@ tourRouter.get('/:tourId', requireAuth, async (req, res, next): Promise<void> =>
       id:              tour.id,
       name:            tour.name,
       ...(tour.description != null ? { description: tour.description } : {}),
+      visibility:      tour.visibility,
       stopCount:       tour.stops.length,
       bands:           meta.bands,
       firstCity:       meta.firstCity,
@@ -579,5 +581,25 @@ tourRouter.put('/:tourId/stops', requireAuth, async (req, res, next): Promise<vo
     ]);
 
     res.json({ ok: true, stopCount: stops.length }); return;
+  } catch (err) { next(err); }
+});
+
+// ── PUT /:tourId/visibility ───────────────────────────────────────────────────
+
+tourRouter.put('/:tourId/visibility', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId  = req.user!.userId;
+    const tourId  = req.params['tourId']!;
+    const { visibility } = req.body as { visibility?: string };
+
+    if (!visibility || !['public', 'unlisted', 'private'].includes(visibility)) {
+      res.status(400).json({ error: 'visibility must be public, unlisted, or private' }); return;
+    }
+
+    const tour = await prisma.bandRpgTour.findFirst({ where: { id: tourId, userId } });
+    if (!tour) { res.status(404).json({ error: 'Tour not found' }); return; }
+
+    await prisma.bandRpgTour.update({ where: { id: tourId }, data: { visibility } });
+    res.json({ ok: true, visibility }); return;
   } catch (err) { next(err); }
 });

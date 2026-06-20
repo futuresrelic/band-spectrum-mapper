@@ -3507,6 +3507,63 @@ function FestivalHallOfFame({ festivals, onSelect }: { festivals: BandRpgFestiva
   );
 }
 
+function ShareRow({
+  id,
+  type,
+  visibility,
+  onSetVisibility,
+}: {
+  id: string;
+  type: 'festival' | 'tour';
+  visibility: string;
+  onSetVisibility: (v: string) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const publicPath = `/${type === 'festival' ? 'band-rpg/festival' : 'band-rpg/tour'}/${id}`;
+  const publicUrl  = `${window.location.origin}${publicPath}`;
+
+  function copyLink() {
+    void navigator.clipboard.writeText(publicUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <div className="flex items-center gap-2 px-1 py-1">
+      <select
+        value={visibility}
+        onChange={(e) => onSetVisibility(e.target.value)}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-gray-800 text-gray-400 text-[11px] rounded-lg border border-gray-700 px-2 py-1 cursor-pointer"
+      >
+        <option value="public">Public</option>
+        <option value="unlisted">Unlisted</option>
+        <option value="private">Private</option>
+      </select>
+      {visibility !== 'private' && (
+        <>
+          <button
+            onClick={(e) => { e.stopPropagation(); copyLink(); }}
+            className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors px-2 py-1 rounded-lg hover:bg-gray-800"
+          >
+            {copied ? '✓ Copied' : '🔗 Copy'}
+          </button>
+          <Link
+            to={publicPath}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors px-2 py-1 rounded-lg hover:bg-gray-800"
+          >
+            ↗ View
+          </Link>
+        </>
+      )}
+    </div>
+  );
+}
+
 function FestivalsTab() {
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
@@ -3525,6 +3582,12 @@ function FestivalsTab() {
   });
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['band-rpg-festivals'] });
+
+  const setFestivalVisibility = useMutation({
+    mutationFn: ({ id, visibility }: { id: string; visibility: string }) =>
+      bandRpgApi.setFestivalVisibility(id, visibility),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['band-rpg-festivals'] }),
+  });
 
   if (isLoading) return <LoadingSpinner />;
   if (isError)   return <ErrorMsg msg="Failed to load festivals." />;
@@ -3571,6 +3634,12 @@ function FestivalsTab() {
                     <div>
                       <p className="text-[10px] text-amber-600/70 font-semibold uppercase tracking-wide mb-1.5 px-1">★ Dream Festival</p>
                       <FestivalCard festival={dream} onClick={() => setSelectedId(dream.id)} />
+                      <ShareRow
+                        id={dream.id}
+                        type="festival"
+                        visibility={dream.visibility ?? 'private'}
+                        onSetVisibility={(v) => setFestivalVisibility.mutate({ id: dream.id, visibility: v })}
+                      />
                     </div>
                   )}
                   {rest.length > 0 && (
@@ -3579,7 +3648,15 @@ function FestivalsTab() {
                         <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wide px-1 pt-1">All Festivals</p>
                       )}
                       {rest.map((f) => (
-                        <FestivalCard key={f.id} festival={f} onClick={() => setSelectedId(f.id)} />
+                        <div key={f.id}>
+                          <FestivalCard festival={f} onClick={() => setSelectedId(f.id)} />
+                          <ShareRow
+                            id={f.id}
+                            type="festival"
+                            visibility={f.visibility ?? 'private'}
+                            onSetVisibility={(v) => setFestivalVisibility.mutate({ id: f.id, visibility: v })}
+                          />
+                        </div>
                       ))}
                     </div>
                   )}
@@ -4240,6 +4317,12 @@ function ToursTab() {
     onError: () => setCreateError('Failed to create tour.'),
   });
 
+  const setTourVisibility = useMutation({
+    mutationFn: ({ id, visibility }: { id: string; visibility: string }) =>
+      bandRpgApi.setTourVisibility(id, visibility),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['band-rpg-tours'] }),
+  });
+
   function handleCreate() {
     const name = createName.trim();
     if (!name) { setCreateError('Tour name is required.'); return; }
@@ -4297,7 +4380,15 @@ function ToursTab() {
       {!isLoading && !isError && tours.length > 0 && (
         <div className="space-y-3">
           {tours.map((tour) => (
-            <TourCard key={tour.id} tour={tour} onClick={() => setSelectedId(tour.id)} />
+            <div key={tour.id}>
+              <TourCard tour={tour} onClick={() => setSelectedId(tour.id)} />
+              <ShareRow
+                id={tour.id}
+                type="tour"
+                visibility={tour.visibility ?? 'private'}
+                onSetVisibility={(v) => setTourVisibility.mutate({ id: tour.id, visibility: v })}
+              />
+            </div>
           ))}
         </div>
       )}
@@ -4589,8 +4680,10 @@ function BadgeGrid({ badges }: { badges: CuratorBadge[] }) {
 
 function CuratorTab() {
   const queryClient = useQueryClient();
-  const [showExport, setShowExport]       = useState(false);
-  const [showTitles, setShowTitles]       = useState(false);
+  const { user }    = useAuth();
+  const [showExport,      setShowExport]      = useState(false);
+  const [showTitles,      setShowTitles]      = useState(false);
+  const [linkCopied,      setLinkCopied]      = useState(false);
 
   const { data: profile, isLoading } = useQuery({
     queryKey: ['band-rpg-curator'],
@@ -4601,6 +4694,21 @@ function CuratorTab() {
     mutationFn: (title: string) => bandRpgApi.setCuratorTitle(title),
     onSuccess:  () => void queryClient.invalidateQueries({ queryKey: ['band-rpg-curator'] }),
   });
+
+  const setVisibility = useMutation({
+    mutationFn: (v: string) => bandRpgApi.setCuratorVisibility(v),
+    onSuccess:  () => void queryClient.invalidateQueries({ queryKey: ['band-rpg-curator'] }),
+  });
+
+  const publicUrl = user ? `${window.location.origin}/band-rpg/curator/${user.userId}` : '';
+
+  function copyLink() {
+    if (!publicUrl) return;
+    void navigator.clipboard.writeText(publicUrl).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    });
+  }
 
   if (isLoading) {
     return (
@@ -4754,6 +4862,42 @@ function CuratorTab() {
           </div>
         </div>
       )}
+
+      {/* Share & Visibility */}
+      <div className="bg-gray-900/50 border border-gray-800/60 rounded-2xl p-4 flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-gray-400 text-xs font-semibold uppercase tracking-wider">Share Profile</h3>
+          <select
+            value={profile.visibility ?? 'public'}
+            onChange={(e) => setVisibility.mutate(e.target.value)}
+            className="bg-gray-800 text-gray-300 text-xs rounded-lg border border-gray-700 px-2 py-1 cursor-pointer"
+          >
+            <option value="public">Public</option>
+            <option value="unlisted">Unlisted</option>
+            <option value="private">Private</option>
+          </select>
+        </div>
+        {profile.visibility !== 'private' ? (
+          <div className="flex gap-2">
+            <button
+              onClick={copyLink}
+              className="flex-1 flex items-center justify-center gap-2 bg-indigo-900/40 hover:bg-indigo-900/60 text-indigo-300 text-xs font-semibold py-2 rounded-xl border border-indigo-800/50 transition-colors"
+            >
+              {linkCopied ? '✓ Copied!' : '🔗 Copy Link'}
+            </button>
+            <Link
+              to={`/band-rpg/curator/${user?.userId ?? ''}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold py-2 rounded-xl border border-gray-700 transition-colors"
+            >
+              ↗ View Public Page
+            </Link>
+          </div>
+        ) : (
+          <p className="text-gray-600 text-xs">Set to Public or Unlisted to share your profile.</p>
+        )}
+      </div>
 
       {/* Empty state */}
       {profile.stats.songsRecovered === 0 && (

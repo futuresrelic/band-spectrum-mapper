@@ -360,6 +360,7 @@ export interface BandRpgFestivalSummary {
   name: string;
   description: string | null;
   isDream: boolean;
+  visibility: string;
   concertCount: number;
   bandCount: number;
   totalSongs: number;
@@ -415,6 +416,7 @@ export interface BandRpgTourSummary {
   id:              string;
   name:            string;
   description:     string | null;
+  visibility:      string;
   stopCount:       number;
   bands:           string[];
   firstCity:       string | null;
@@ -553,9 +555,84 @@ export interface BandRpgCuratorProfile {
   lastActiveDate:      string | null;
   selectedCharacterId:   string | null;
   selectedCharacterName: string | null;
+  visibility:          string;
   stats:          CuratorStatsSummary;
   badges:         CuratorBadge[];
   recentActivity: CuratorActivityItem[];
+}
+
+// ── Phase Y.1 — Public page types ────────────────────────────────────────────
+
+export interface PublicCuratorProfile {
+  userId:               string;
+  level:                number;
+  xpProgressPct:        number;
+  levelTitle:           string;
+  currentTitle:         string | null;
+  selectedCharacterName: string | null;
+  stats:                CuratorStatsSummary;
+  badges:               CuratorBadge[];
+  badgeCount:           number;
+  recentActivity:       CuratorActivityItem[];
+  firstRecoveryDate:    string | null;
+  visibility:           string;
+}
+
+export interface PublicFestivalStop {
+  position:    number;
+  cityName:    string | null;
+  countryName: string | null;
+  concertName: string;
+  bandName:    string;
+  songCount:   number;
+}
+
+export interface PublicFestival {
+  id:           string;
+  name:         string;
+  description:  string | null;
+  isDream:      boolean;
+  visibility:   string;
+  concertCount: number;
+  bandCount:    number;
+  totalSongs:   number;
+  rareSongs:    number;
+  avgFanService: number;
+  avgDeepCut:   number;
+  personality:  string;
+  story:        string;
+  bands:        string[];
+  createdAt:    string;
+}
+
+export interface PublicTourStop {
+  position:    number;
+  cityName:    string | null;
+  countryName: string | null;
+  concertName: string;
+  bandName:    string;
+  songCount:   number;
+}
+
+export interface PublicTour {
+  id:              string;
+  name:            string;
+  description:     string | null;
+  visibility:      string;
+  stopCount:       number;
+  bands:           string[];
+  firstCity:       string | null;
+  lastCity:        string | null;
+  momentum:        number;
+  variety:         number;
+  historicalScore: number | null;
+  historicalLabel: string | null;
+  personality:     string;
+  personalityIcon: string;
+  story:           string;
+  achievements:    Array<{ key: string; name: string; icon: string; description: string; unlocked: boolean }>;
+  stops:           PublicTourStop[];
+  createdAt:       string;
 }
 
 // ── API client ────────────────────────────────────────────────────────────────
@@ -787,4 +864,29 @@ export const bandRpgApi = {
 
   setCuratorCharacter: (characterId: string, characterName: string) =>
     api.put<{ ok: boolean }>('/api/band-rpg/curator/character', { characterId, characterName }),
+
+  setCuratorVisibility: (visibility: string) =>
+    api.put<{ ok: boolean; visibility: string }>('/api/band-rpg/curator/visibility', { visibility }),
+
+  setFestivalVisibility: (festivalId: string, visibility: string) =>
+    api.put<{ ok: boolean; visibility: string }>(
+      `/api/band-rpg/festivals/${encodeURIComponent(festivalId)}/visibility`,
+      { visibility },
+    ),
+
+  setTourVisibility: (tourId: string, visibility: string) =>
+    api.put<{ ok: boolean; visibility: string }>(
+      `/api/band-rpg/tours/${encodeURIComponent(tourId)}/visibility`,
+      { visibility },
+    ),
+
+  // Phase Y.1 — Public pages
+  getPublicCuratorProfile: (userId: string) =>
+    api.get<PublicCuratorProfile>(`/api/band-rpg/public/curator/${encodeURIComponent(userId)}`),
+
+  getPublicFestival: (id: string) =>
+    api.get<PublicFestival>(`/api/band-rpg/public/festival/${encodeURIComponent(id)}`),
+
+  getPublicTour: (id: string) =>
+    api.get<PublicTour>(`/api/band-rpg/public/tour/${encodeURIComponent(id)}`),
 };

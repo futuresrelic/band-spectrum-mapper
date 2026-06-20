@@ -87,6 +87,9 @@ import MinesweeperPage from './pages/MinesweeperPage';
 import DiscoverPage from './pages/DiscoverPage';
 import BandRpgPage from './pages/BandRpgPage';
 import BandRpgCollectionPage from './pages/BandRpgCollectionPage';
+import BandRpgPublicCuratorPage from './pages/BandRpgPublicCuratorPage';
+import BandRpgPublicFestivalPage from './pages/BandRpgPublicFestivalPage';
+import BandRpgPublicTourPage from './pages/BandRpgPublicTourPage';
 import AdminBandRpgPage from './pages/AdminBandRpgPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
@@ -145,6 +148,10 @@ export default function App() {
         <Route path="/spectrum-studio" element={<SpectrumStudioPage />} />
         <Route path="/playlist" element={<PlaylistMakerPage />} />
         <Route path="/playlist/:id" element={<PlaylistMakerPage />} />
+        {/* ── Band RPG public pages — Phase Y.1 ── */}
+        <Route path="/band-rpg/curator/:userId"  element={<BandRpgPublicCuratorPage />} />
+        <Route path="/band-rpg/festival/:id"     element={<BandRpgPublicFestivalPage />} />
+        <Route path="/band-rpg/tour/:id"         element={<BandRpgPublicTourPage />} />
 
         {/* ── USER: rating surface + game, any logged-in Google user ── */}
         <Route path="/my" element={<UserLayout />}>

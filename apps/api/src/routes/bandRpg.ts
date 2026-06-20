@@ -2657,6 +2657,7 @@ bandRpgRouter.get('/festivals', requireAuth, async (req, res, next): Promise<voi
         name:               festival.name,
         description:        festival.description ?? null,
         isDream:            festival.isDream,
+        visibility:         festival.visibility,
         concertCount,
         bandCount,
         totalSongs,
@@ -2849,6 +2850,7 @@ bandRpgRouter.get('/festivals/:festivalId', requireAuth, async (req, res, next):
       name:                festival.name,
       description:         festival.description ?? null,
       isDream:             festival.isDream,
+      visibility:          festival.visibility,
       concertCount,
       bandCount,
       totalSongs,
@@ -2952,6 +2954,25 @@ bandRpgRouter.delete('/festivals/:festivalId', requireAuth, async (req, res, nex
 
     await prisma.bandRpgFestival.delete({ where: { id: festivalId } });
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ── PUT /festivals/:festivalId/visibility ─────────────────────────────────────
+
+bandRpgRouter.put('/festivals/:festivalId/visibility', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId     = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const festivalId = req.params['festivalId'];
+    if (!festivalId) { res.status(400).json({ error: 'festivalId is required' }); return; }
+    const { visibility } = req.body as { visibility?: string };
+    if (!visibility || !['public', 'unlisted', 'private'].includes(visibility)) {
+      res.status(400).json({ error: 'visibility must be public, unlisted, or private' }); return;
+    }
+    const festival = await prisma.bandRpgFestival.findFirst({ where: { id: festivalId, userId } });
+    if (!festival) { res.status(404).json({ error: 'Not found' }); return; }
+    await prisma.bandRpgFestival.update({ where: { id: festivalId }, data: { visibility } });
+    res.json({ ok: true, visibility }); return;
   } catch (e) { next(e); }
 });
 
