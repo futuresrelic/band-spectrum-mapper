@@ -1768,6 +1768,208 @@ function deriveConcertMetrics(
     fanServiceScore:    computeFanServiceScore(songs),
     deepCutScore:       computeDeepCutScore(songs),
     concertPersonality: computeConcertPersonality(avgs),
+    openerScore:        opScore,
+    closerScore:        clScore,
+  };
+}
+
+// ── Phase R: Lineup Roles & Headliner Analysis ──────────────────────────────
+
+type LineupRole = 'Opening Act' | 'Support Act' | 'Featured Act' | 'Co-Headliner' | 'Headliner';
+
+const GRADE_SCORE: Record<string, number> = { S: 97, A: 82, B: 67, C: 52, D: 37, F: 15 };
+
+function assignLineupRole(position: number, total: number): LineupRole {
+  if (total <= 1) return 'Headliner';
+  if (position === 0) return 'Opening Act';
+  if (position === total - 1) return 'Headliner';
+  if (total >= 4 && position === total - 2) return 'Co-Headliner';
+  if (position === 1) return 'Support Act';
+  return 'Featured Act';
+}
+
+const HEADLINER_PERS_BONUS = new Set(['The Assault', 'The Catharsis', 'The Manifesto', 'The Labyrinth', 'The Convergence']);
+const OPENER_PERS_BONUS    = new Set(['The Dreamscape', 'The Expedition', 'The Assault', 'The Ritual', 'The Convergence']);
+
+function computeHeadlinerStrength(m: {
+  grade: string; venueFit: number | null;
+  fanServiceScore: number; deepCutScore: number; concertPersonality: string;
+}): number {
+  const g = GRADE_SCORE[m.grade] ?? 37;
+  const v = m.venueFit ?? 55;
+  const p = HEADLINER_PERS_BONUS.has(m.concertPersonality) ? 8 : 0;
+  return Math.min(100, Math.max(0, Math.round(g * 0.40 + v * 0.20 + m.fanServiceScore * 0.25 + m.deepCutScore * 0.15) + p));
+}
+
+function computeOpenerStrength(m: {
+  grade: string; fanServiceScore: number; flowScore: number; concertPersonality: string;
+}): number {
+  const g = GRADE_SCORE[m.grade] ?? 37;
+  const f = Math.min(100, (m.flowScore / 20) * 100);
+  const p = OPENER_PERS_BONUS.has(m.concertPersonality) ? 10 : 0;
+  return Math.min(100, Math.max(0, Math.round(g * 0.30 + m.fanServiceScore * 0.45 + f * 0.25) + p));
+}
+
+const LINEUP_INTENSITY: Record<string, number> = {
+  'The Expedition': 30, 'The Dreamscape': 40, 'The Ritual': 50, 'The Unknown': 50,
+  'The Catharsis': 65, 'The Labyrinth': 70, 'The Convergence': 75,
+  'The Manifesto': 85, 'The Assault': 95,
+};
+
+function computeFlowRating(concerts: Array<{
+  concertTotal: number; concertPersonality: string; headlinerStrength: number;
+}>): number {
+  const n = concerts.length;
+  if (n === 0) return 0;
+  if (n === 1) return 70;
+
+  const half      = Math.floor(n / 2);
+  const fhAvg     = concerts.slice(0, half).reduce((s, c) => s + c.concertTotal, 0) / half;
+  const shAvg     = concerts.slice(half).reduce((s, c) => s + c.concertTotal, 0) / (n - half);
+  const buildScore = shAvg >= fhAvg ? 100 : Math.max(0, 100 - (fhAvg - shAvg) * 0.8);
+
+  const lastHS  = concerts[n - 1]!.headlinerStrength;
+  const maxHS   = Math.max(...concerts.map((c) => c.headlinerStrength));
+  const hlScore = maxHS > 0 ? Math.round((lastHS / maxHS) * 100) : 50;
+
+  let escalations = 0;
+  for (let i = 1; i < n; i++) {
+    const prev = LINEUP_INTENSITY[concerts[i - 1]!.concertPersonality] ?? 50;
+    const curr = LINEUP_INTENSITY[concerts[i]!.concertPersonality] ?? 50;
+    if (curr >= prev) escalations++;
+  }
+  const escalScore = Math.round((escalations / (n - 1)) * 100);
+
+  let noDropScore = 80;
+  if (n >= 3) {
+    const pen   = concerts[n - 2]!.concertTotal;
+    const fin   = concerts[n - 1]!.concertTotal;
+    const ratio = fin > 0 ? pen / fin : 1;
+    noDropScore = ratio >= 0.70 ? 100 : Math.max(20, Math.round(ratio * 100 + 30));
+  }
+
+  return Math.min(100, Math.round(buildScore * 0.40 + hlScore * 0.30 + escalScore * 0.20 + noDropScore * 0.10));
+}
+
+const OPENER_LABELS: Record<string, string> = {
+  'The Dreamscape': 'Dream Weaver',    'The Expedition': 'Ignition Point',
+  'The Assault':    'Crowd Igniter',   'The Ritual':     'Ceremony Opener',
+  'The Catharsis':  'Emotional Spark', 'The Labyrinth':  'Early Favourite',
+  'The Convergence':'Crowd Warmer',    'The Manifesto':  'Statement Starter',
+  'The Unknown':    'Wild Card',
+};
+const HEADLINER_LABELS: Record<string, string> = {
+  'The Assault':    'Final Assault',   'The Catharsis':  'Grand Catharsis',
+  'The Manifesto':  'Final Manifesto', 'The Labyrinth':  'Closing Labyrinth',
+  'The Convergence':'The Convergence', 'The Dreamscape': 'Closing Dream',
+  'The Ritual':     'Closing Ritual',  'The Expedition': 'Final Expedition',
+  'The Unknown':    'The Unknown Finale',
+};
+const SUPPORT_LABELS: Record<string, string> = {
+  'The Dreamscape': 'Atmosphere Builder', 'The Expedition': 'Momentum Keeper',
+  'The Assault':    'Energy Surge',       'The Ritual':     'Deep Cut Hero',
+  'The Catharsis':  'Bridge Builder',     'The Labyrinth':  'Complexity Carrier',
+  'The Convergence':'Crowd Connector',    'The Manifesto':  'Statement Maker',
+  'The Unknown':    'Wild Card',
+};
+const COHEAD_LABELS: Record<string, string> = {
+  'The Assault':    'Second Storm',      'The Catharsis':  'Emotional Peak',
+  'The Manifesto':  'Rising Manifesto',  'The Labyrinth':  'Second Mind',
+  'The Convergence':'Pre-Finale Surge',  'The Dreamscape': 'Pre-Finale Dream',
+  'The Ritual':     'Pre-Finale Ritual', 'The Expedition': 'Pre-Finale Push',
+  'The Unknown':    'The Other Unknown',
+};
+
+function assignRoleLabel(role: LineupRole, personality: string): string {
+  if (role === 'Opening Act')  return OPENER_LABELS[personality]   ?? 'Crowd Warmer';
+  if (role === 'Headliner')    return HEADLINER_LABELS[personality] ?? 'Main Event';
+  if (role === 'Co-Headliner') return COHEAD_LABELS[personality]   ?? 'Co-Headliner';
+  return SUPPORT_LABELS[personality] ?? 'Momentum Keeper';
+}
+
+function generateLineupQualityReport(p: {
+  flowRating: number; headlinerScore: number; openerScore: number;
+  headlinerName: string; headlinerIsStrongest: boolean; concertCount: number;
+}): string {
+  const { flowRating, headlinerScore, openerScore, headlinerName, headlinerIsStrongest, concertCount } = p;
+  if (concertCount === 1) return `Solo headliner festival — ${headlinerName} carries everything.`;
+  if (!headlinerIsStrongest) return `The strongest act appears before the finale — ${headlinerName} doesn't feel like the natural closer. Reorder the lineup.`;
+  if (flowRating >= 85 && headlinerScore >= 80) return `Perfect escalation toward a dominant finale. ${headlinerName} earns every second of the closing slot.`;
+  if (headlinerScore >= 80 && flowRating >= 70) return `${headlinerName} is a commanding headliner. The lineup builds naturally toward a powerful close.`;
+  if (headlinerScore < 45) return `Weak headliner drags down the festival. The finale needs a stronger act to land with impact.`;
+  if (flowRating < 45) return `Festival energy lacks direction. The lineup doesn't build momentum toward the finale.`;
+  if (openerScore >= 80 && headlinerScore >= 65) return `Strong opener ignites the crowd and a worthy headliner delivers the finale. Solid night.`;
+  if (openerScore >= 80) return `Explosive opener — the headliner needs to match that opening energy to stick the landing.`;
+  if (flowRating >= 75 && headlinerScore >= 60) return `Excellent escalation toward a solid finale. Momentum builds throughout the night.`;
+  return `A functional lineup. Reordering concerts could unlock better flow and a stronger finale.`;
+}
+
+interface LineupConcertInput {
+  concertName: string; bandName: string;
+  concertTotal: number; grade: string; venueFit: number | null;
+  fanServiceScore: number; deepCutScore: number;
+  concertPersonality: string; flowScore: number;
+}
+
+interface LineupAnalysisResult {
+  flowRating: number;
+  lineupReport: string;
+  headlinerScore: number;
+  openerScore: number;
+  headlinerName: string;
+  openerName: string;
+  headlinerBandName: string;
+  openerBandName: string;
+  headlinerIsStrongest: boolean;
+}
+
+function computeLineupAnalysis(orderedConcerts: LineupConcertInput[]): {
+  lineupAnalysis: LineupAnalysisResult;
+  perConcert: Array<{ role: LineupRole; roleLabel: string; headlinerStrength: number; openerStrength: number }>;
+} {
+  const n = orderedConcerts.length;
+
+  const perConcert = orderedConcerts.map((c, idx) => {
+    const role              = assignLineupRole(idx, n);
+    const headlinerStrength = computeHeadlinerStrength(c);
+    const openerStrength    = computeOpenerStrength(c);
+    const roleLabel         = assignRoleLabel(role, c.concertPersonality);
+    return { role, roleLabel, headlinerStrength, openerStrength };
+  });
+
+  const maxHS              = n > 0 ? Math.max(...perConcert.map((c) => c.headlinerStrength)) : 0;
+  const headliner          = perConcert[n - 1];
+  const opener             = perConcert[0];
+  const headlinerIsStrongest = headliner ? headliner.headlinerStrength >= maxHS * 0.95 : false;
+
+  const flowRating = computeFlowRating(orderedConcerts.map((c, idx) => ({
+    concertTotal:       c.concertTotal,
+    concertPersonality: c.concertPersonality,
+    headlinerStrength:  perConcert[idx]?.headlinerStrength ?? 0,
+  })));
+
+  const lineupReport = generateLineupQualityReport({
+    flowRating,
+    headlinerScore:      headliner?.headlinerStrength ?? 0,
+    openerScore:         opener?.openerStrength       ?? 0,
+    headlinerName:       orderedConcerts[n - 1]?.concertName ?? '',
+    headlinerIsStrongest,
+    concertCount:        n,
+  });
+
+  return {
+    lineupAnalysis: {
+      flowRating,
+      lineupReport,
+      headlinerScore:    headliner?.headlinerStrength ?? 0,
+      openerScore:       opener?.openerStrength       ?? 0,
+      headlinerName:     orderedConcerts[n - 1]?.concertName  ?? '',
+      openerName:        orderedConcerts[0]?.concertName       ?? '',
+      headlinerBandName: orderedConcerts[n - 1]?.bandName      ?? '',
+      openerBandName:    orderedConcerts[0]?.bandName           ?? '',
+      headlinerIsStrongest,
+    },
+    perConcert,
   };
 }
 
@@ -1887,6 +2089,24 @@ bandRpgRouter.get('/festivals', requireAuth, async (req, res, next): Promise<voi
 
       const chemistry = computeFestivalChemistry(sortedConcerts, bandProfileMap, personality, avgFanService, avgDeepCuts);
 
+      const lineupInput: LineupConcertInput[] = festival.concerts.map((fc) => {
+        const m = metricsCache.get(fc.concertId);
+        const c = concertMap.get(fc.concertId);
+        if (!m || !c) return null;
+        return {
+          concertName:        c.concertName,
+          bandName:           c.bandName,
+          concertTotal:       m.concertTotal,
+          grade:              m.grade,
+          venueFit:           m.venueFit,
+          fanServiceScore:    m.fanServiceScore,
+          deepCutScore:       m.deepCutScore,
+          concertPersonality: m.concertPersonality,
+          flowScore:          m.flowScore,
+        };
+      }).filter((x): x is NonNullable<typeof x> => x !== null);
+      const { lineupAnalysis } = computeLineupAnalysis(lineupInput);
+
       return {
         id:                 festival.id,
         name:               festival.name,
@@ -1900,6 +2120,7 @@ bandRpgRouter.get('/festivals', requireAuth, async (req, res, next): Promise<voi
         festivalPersonality: personality,
         festivalStory:       generateFestivalStory(personality, bandCount, totalSongs, concertCount),
         chemistry,
+        lineupAnalysis,
         createdAt:           festival.createdAt.toISOString(),
         updatedAt:           festival.updatedAt.toISOString(),
       };
@@ -1969,7 +2190,7 @@ bandRpgRouter.get('/festivals/:festivalId', requireAuth, async (req, res, next):
     const { concertRows, axisMap, songAlbumMap, bandProfileMap } = await loadConcertDataForFestivals(concertIds);
     const concertMap = new Map(concertRows.map((c) => [c.id, c]));
 
-    const computed = festival.concerts.map((fc) => {
+    const computedRaw = festival.concerts.map((fc) => {
       const concert = concertMap.get(fc.concertId);
       if (!concert) return null;
       const metrics = deriveConcertMetrics(concert, axisMap, songAlbumMap);
@@ -1980,9 +2201,39 @@ bandRpgRouter.get('/festivals/:festivalId', requireAuth, async (req, res, next):
         concertName:       concert.concertName,
         bandId:            concert.bandId,
         bandName:          concert.bandName,
-        ...metrics,
+        metrics,
       };
     }).filter((x): x is NonNullable<typeof x> => x !== null);
+
+    const lineupInput: LineupConcertInput[] = computedRaw.map((c) => ({
+      concertName:        c.concertName,
+      bandName:           c.bandName,
+      concertTotal:       c.metrics.concertTotal,
+      grade:              c.metrics.grade,
+      venueFit:           c.metrics.venueFit,
+      fanServiceScore:    c.metrics.fanServiceScore,
+      deepCutScore:       c.metrics.deepCutScore,
+      concertPersonality: c.metrics.concertPersonality,
+      flowScore:          c.metrics.flowScore,
+    }));
+    const { lineupAnalysis, perConcert } = computeLineupAnalysis(lineupInput);
+
+    const computed = computedRaw.map((c, idx) => {
+      const pc = perConcert[idx];
+      return {
+        festivalConcertId:  c.festivalConcertId,
+        position:           c.position,
+        concertId:          c.concertId,
+        concertName:        c.concertName,
+        bandId:             c.bandId,
+        bandName:           c.bandName,
+        ...c.metrics,
+        role:              pc?.role              ?? ('Support Act' as LineupRole),
+        roleLabel:         pc?.roleLabel         ?? 'Momentum Keeper',
+        headlinerStrength: pc?.headlinerStrength ?? 0,
+        openerStrength:    pc?.openerStrength    ?? 0,
+      };
+    });
 
     const concertCount  = festival.concerts.length;
     const bandCount     = new Set(computed.map((m) => m.bandId)).size;
@@ -2018,6 +2269,7 @@ bandRpgRouter.get('/festivals/:festivalId', requireAuth, async (req, res, next):
       festivalPersonality: personality,
       festivalStory:       generateFestivalStory(personality, bandCount, totalSongs, concertCount),
       chemistry,
+      lineupAnalysis,
       concerts:            computed,
       createdAt:           festival.createdAt.toISOString(),
       updatedAt:           festival.updatedAt.toISOString(),

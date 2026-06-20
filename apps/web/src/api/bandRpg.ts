@@ -245,6 +245,18 @@ export interface BandRpgConcertDetail extends BandRpgConcertSummary {
 
 // ── Festival types ────────────────────────────────────────────────────────────
 
+export interface LineupAnalysis {
+  flowRating: number;
+  lineupReport: string;
+  headlinerScore: number;
+  openerScore: number;
+  headlinerName: string;
+  openerName: string;
+  headlinerBandName: string;
+  openerBandName: string;
+  headlinerIsStrongest: boolean;
+}
+
 export interface FestivalChemistry {
   chemistryScore: number;
   chemistryLabel: string;
@@ -274,6 +286,13 @@ export interface BandRpgFestivalConcertEntry {
   venueFit: number | null;
   venueFitLabel: string | null;
   venueName: string | null;
+  flowScore: number;
+  openerScore: number;
+  closerScore: number;
+  role: string;
+  roleLabel: string;
+  headlinerStrength: number;
+  openerStrength: number;
 }
 
 export interface BandRpgFestivalSummary {
@@ -289,6 +308,7 @@ export interface BandRpgFestivalSummary {
   festivalPersonality: string;
   festivalStory: string;
   chemistry: FestivalChemistry;
+  lineupAnalysis: LineupAnalysis;
   createdAt: string;
   updatedAt: string;
 }

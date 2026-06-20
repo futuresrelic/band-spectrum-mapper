@@ -373,6 +373,32 @@ function ErrorMsg({ msg }: { msg: string }) {
   );
 }
 
+const ROLE_STYLE: Record<string, { color: string; bg: string; label: string }> = {
+  'Opening Act':  { color: 'text-sky-400',    bg: 'bg-sky-900/30',    label: 'Opener'    },
+  'Support Act':  { color: 'text-gray-400',   bg: 'bg-gray-800/50',   label: 'Support'   },
+  'Featured Act': { color: 'text-indigo-400', bg: 'bg-indigo-900/30', label: 'Featured'  },
+  'Co-Headliner': { color: 'text-violet-400', bg: 'bg-violet-900/30', label: 'Co-Head'   },
+  'Headliner':    { color: 'text-amber-400',  bg: 'bg-amber-900/30',  label: 'Headliner' },
+};
+
+function assignLineupRoleClient(position: number, total: number): string {
+  if (total <= 1) return 'Headliner';
+  if (position === 0) return 'Opening Act';
+  if (position === total - 1) return 'Headliner';
+  if (total >= 4 && position === total - 2) return 'Co-Headliner';
+  if (position === 1) return 'Support Act';
+  return 'Featured Act';
+}
+
+function RoleBadge({ role }: { role: string }) {
+  const cfg = ROLE_STYLE[role] ?? ROLE_STYLE['Support Act']!;
+  return (
+    <span className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${cfg.color} ${cfg.bg}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
 function EmptyState({ icon, title, desc, action }: { icon: string; title: string; desc: string; action?: React.ReactNode }) {
   return (
     <div className="flex flex-col items-center justify-center h-64 gap-4 text-center px-6">
@@ -2193,7 +2219,16 @@ function drawFestivalCard(canvas: HTMLCanvasElement, data: BandRpgFestivalDetail
     y += Math.min(storyLines.length, 3) * 18 + 6;
   }
 
-  y += 16;
+  // Headliner line
+  if (data.lineupAnalysis.headlinerName) {
+    ctx.fillStyle = '#92400e';
+    ctx.font = '400 12px system-ui,sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`★ ${truncateForCanvas(ctx, data.lineupAnalysis.headlinerName, W - PAD * 2 - 80)}  ·  Flow ${data.lineupAnalysis.flowRating}`, PAD, y);
+    y += 20;
+  }
+
+  y += 6;
 
   // Chemistry Score badge
   const chem = data.chemistry;
@@ -2377,11 +2412,14 @@ function FestivalCard({ festival, onClick }: { festival: BandRpgFestivalSummary;
         </div>
       </div>
       <p className="text-xs text-violet-300/50 italic mt-0.5">{chem.chemistryLabel}</p>
+      {festival.lineupAnalysis.headlinerName && (
+        <p className="text-xs text-amber-400/50 mt-1 truncate">★ {festival.lineupAnalysis.headlinerName}</p>
+      )}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-gray-500">
         <span>🎤 {festival.bandCount} band{festival.bandCount !== 1 ? 's' : ''}</span>
         <span>🎵 {festival.totalSongs} songs</span>
+        <span className="text-sky-500/80">Flow {festival.lineupAnalysis.flowRating}</span>
         <span className="text-emerald-600">Fan {festival.avgFanService}</span>
-        <span className="text-purple-600">Deep {festival.avgDeepCuts}</span>
         {festival.avgVenueFit !== null && <span className="text-indigo-500/80">Venue {festival.avgVenueFit}/100</span>}
       </div>
     </button>
@@ -2402,10 +2440,16 @@ function FestivalRecords({ festivals }: { festivals: BandRpgFestivalSummary[] })
   const mostCohes  = best((a, b) => (a.chemistry.audienceOverlap ?? 0) > (b.chemistry.audienceOverlap ?? 0));
   const venueOnes  = festivals.filter((f) => f.avgVenueFit !== null);
   const bestVenue  = venueOnes.length > 0 ? best((a, b) => (a.avgVenueFit ?? -1) > (b.avgVenueFit ?? -1)) : null;
+  const bestHL     = best((a, b) => a.lineupAnalysis.headlinerScore > b.lineupAnalysis.headlinerScore);
+  const bestOp     = best((a, b) => a.lineupAnalysis.openerScore    > b.lineupAnalysis.openerScore);
+  const bestFlowR  = best((a, b) => a.lineupAnalysis.flowRating      > b.lineupAnalysis.flowRating);
 
   const items = [
+    { label: 'Best Headliner', icon: '★',  festival: bestHL,    value: `${bestHL.lineupAnalysis.headlinerScore} · ${bestHL.lineupAnalysis.headlinerName}`.slice(0, 30)  },
+    { label: 'Best Opener',    icon: '🔥', festival: bestOp,    value: `${bestOp.lineupAnalysis.openerScore} · ${bestOp.lineupAnalysis.openerName}`.slice(0, 30)         },
+    { label: 'Best Flow',      icon: '🌊', festival: bestFlowR, value: `Flow ${bestFlowR.lineupAnalysis.flowRating}`                                                     },
     { label: 'Best Chemistry',      icon: '⚗️', festival: topChem,   value: `${topChem.chemistry.chemistryScore} · ${topChem.chemistry.chemistryLabel}` },
-    { label: 'Best Flow',           icon: '🌊', festival: bestFlow,  value: `Flow ${bestFlow.chemistry.festivalFlow}`                                   },
+    { label: 'Chem Flow',           icon: '🌊', festival: bestFlow,  value: `Flow ${bestFlow.chemistry.festivalFlow}`                                   },
     { label: 'Most Cohesive',       icon: '🧲', festival: mostCohes, value: mostCohes.chemistry.audienceOverlap !== null ? `Overlap ${mostCohes.chemistry.audienceOverlap}` : 'No data' },
     { label: 'Largest Festival',    icon: '🎪', festival: largest,   value: `${largest.totalSongs} songs`                                              },
     { label: 'Most Bands',          icon: '🎤', festival: mostBands, value: `${mostBands.bandCount} bands`                                             },
@@ -2583,12 +2627,16 @@ function FestivalDetailModal({
       const fromDetail = detail?.concerts.find((c) => c.concertId === id);
       const fromList   = concertDataMap.get(id);
       return {
-        concertId:    id,
-        position:     pos,
-        concertName:  fromDetail?.concertName ?? fromList?.concertName ?? id,
-        bandName:     fromDetail?.bandName     ?? fromList?.bandName    ?? '—',
-        grade:        fromDetail?.grade        ?? fromList?.grade       ?? '?',
+        concertId:         id,
+        position:          pos,
+        concertName:       fromDetail?.concertName ?? fromList?.concertName ?? id,
+        bandName:          fromDetail?.bandName     ?? fromList?.bandName    ?? '—',
+        grade:             fromDetail?.grade        ?? fromList?.grade       ?? '?',
         concertPersonality: fromDetail?.concertPersonality ?? fromList?.concertPersonality ?? '',
+        role:              fromDetail?.role ?? assignLineupRoleClient(pos, lineupIds.length),
+        roleLabel:         fromDetail?.roleLabel ?? '',
+        headlinerStrength: fromDetail?.headlinerStrength ?? 0,
+        openerStrength:    fromDetail?.openerStrength    ?? 0,
       };
     }),
     [lineupIds, detail, concertDataMap],
@@ -2664,6 +2712,30 @@ function FestivalDetailModal({
                   </button>
                 </div>
 
+                {/* Lineup Analysis */}
+                <div className="bg-gray-800/60 rounded-lg px-3 py-2.5 border border-gray-700/50">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold mb-2">Lineup</p>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <div className="bg-amber-900/20 border border-amber-900/30 rounded-lg px-2.5 py-2">
+                      <p className="text-[10px] text-amber-400/70 font-semibold uppercase tracking-wide mb-0.5">Headliner</p>
+                      <p className="text-xs text-white font-semibold truncate">{detail.lineupAnalysis.headlinerName}</p>
+                      <p className="text-[10px] text-amber-400/50 mt-0.5 truncate">{detail.lineupAnalysis.headlinerBandName} · {detail.lineupAnalysis.headlinerScore}/100</p>
+                    </div>
+                    <div className="bg-sky-900/20 border border-sky-900/30 rounded-lg px-2.5 py-2">
+                      <p className="text-[10px] text-sky-400/70 font-semibold uppercase tracking-wide mb-0.5">Opener</p>
+                      <p className="text-xs text-white font-semibold truncate">{detail.lineupAnalysis.openerName}</p>
+                      <p className="text-[10px] text-sky-400/50 mt-0.5 truncate">{detail.lineupAnalysis.openerBandName} · {detail.lineupAnalysis.openerScore}/100</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <p className="text-[10px] text-gray-600 w-20 shrink-0">Flow Rating</p>
+                    <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-sky-500/70 rounded-full transition-all" style={{ width: `${detail.lineupAnalysis.flowRating}%` }} />
+                    </div>
+                    <p className="text-[10px] text-gray-500 w-7 text-right font-mono">{detail.lineupAnalysis.flowRating}</p>
+                  </div>
+                  <p className="text-xs text-amber-400/60 italic leading-relaxed">{detail.lineupAnalysis.lineupReport}</p>
+                </div>
                 {/* Chemistry Score */}
                 <div className="bg-gray-800/60 rounded-lg px-3 py-2.5 border border-gray-700/50">
                   <div className="flex items-center justify-between mb-1">
@@ -2730,6 +2802,12 @@ function FestivalDetailModal({
                       <div key={entry.concertId} className="flex items-center gap-2 px-4 py-2.5">
                         <span className="text-gray-600 text-xs w-5 text-right shrink-0">{idx + 1}</span>
                         <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <RoleBadge role={entry.role} />
+                            {entry.roleLabel && (
+                              <span className="text-[10px] text-gray-600 italic truncate">{entry.roleLabel}</span>
+                            )}
+                          </div>
                           <p className="text-sm text-white truncate">{entry.concertName}</p>
                           <p className="text-xs text-gray-600 truncate">{entry.bandName}</p>
                         </div>
