@@ -33,6 +33,7 @@ model Band {
   contentSeries   ContentSeries[]
   members         BandMember[]
   characterSkins  PlatformerCharacterSkin[]
+  liveDataCache   BandLiveDataCache?
 
   @@map("bands")
 }
@@ -1915,19 +1916,46 @@ model BandAudienceProfile {
   @@map("band_audience_profiles")
 }
 
-// Architectural placeholder for future Setlist.fm / real-world song data integration.
-// No gameplay features write to this table yet; it exists so the Song relation
-// resolves cleanly and the schema is ready when real-world data is available.
+// Phase V: Real World Intelligence — live performance data from Setlist.fm.
+// Populated via the admin fetch-live-data endpoint. Gracefully empty until fetched.
 model BandRpgSongProfile {
-  id          String   @id @default(cuid())
-  songId      String   @unique
-  trackRank   Float?   // future: relative play frequency rank from Setlist.fm (lower = performed more often)
-  setlistFmId String?  // future: Setlist.fm song identifier
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                    String    @id @default(cuid())
+  songId                String    @unique
+  trackRank             Float?    // relative play frequency rank (lower = more often)
+  setlistFmId           String?   // Setlist.fm song identifier (reserved)
+  // Phase V fields
+  totalPerformances     Int       @default(0)
+  performancePct        Float     @default(0)   // % of band's total shows this song appeared in
+  firstPerformanceDate  DateTime?
+  lastPerformanceDate   DateTime?
+  yearsSincePlayed      Float?                  // computed at fetch time; stale but good enough
+  distinctYears         Int       @default(0)   // distinct calendar years appeared
+  rarityIndex           Float     @default(50)  // 0-100; higher = rarer
+  liveStatus            String    @default("Unknown")  // Never Played | Extremely Rare | Rare | Occasional | Common | Staple | Unknown
+  liveValue             Float     @default(0)   // 0-100 excitement score
+  lastLiveDataFetchedAt DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
 
   @@map("band_rpg_song_profiles")
+}
+
+// Per-band cache of Setlist.fm fetch state.
+model BandLiveDataCache {
+  id                  String    @id @default(cuid())
+  bandId              String    @unique
+  setlistFmMbid       String?   // MusicBrainz artist ID
+  setlistFmName       String?   // artist name as returned by Setlist.fm
+  totalShows          Int       @default(0)
+  fetchedShows        Int       @default(0)
+  lastFetchedAt       DateTime?
+  fetchStatus         String    @default("never") // never | in_progress | complete | failed
+  errorMessage        String?
+
+  band Band @relation(fields: [bandId], references: [id], onDelete: Cascade)
+
+  @@map("band_live_data_caches")
 }
 

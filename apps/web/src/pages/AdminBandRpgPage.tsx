@@ -15,7 +15,8 @@ type Tab =
   | 'graphics'
   | 'settings'
   | 'leaderboard'
-  | 'testing';
+  | 'testing'
+  | 'live';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'overview',    label: 'Overview',    icon: '🗺️'  },
@@ -30,6 +31,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'settings',    label: 'Settings',    icon: '⚙️'  },
   { id: 'leaderboard', label: 'Leaderboard', icon: '🏆'  },
   { id: 'testing',     label: 'Testing',     icon: '🧪'  },
+  { id: 'live',        label: 'Live Data',   icon: '🌐'  },
 ];
 
 function ComingSoonPlaceholder({ title, desc }: { title: string; desc: string }) {
@@ -230,6 +232,244 @@ function TestingTab() {
   );
 }
 
+const STATUS_COLOR: Record<string, string> = {
+  never:       'text-surface-400',
+  in_progress: 'text-blue-600',
+  complete:    'text-emerald-600',
+  failed:      'text-red-600',
+};
+const STATUS_LABEL: Record<string, string> = {
+  never:       'Never fetched',
+  in_progress: 'In progress',
+  complete:    'Complete',
+  failed:      'Failed',
+};
+
+function LiveDataTab() {
+  const [selectedBandId, setSelectedBandId] = useState('');
+  const [searchQuery,    setSearchQuery]    = useState('');
+  const [searchResults,  setSearchResults]  = useState<Array<{ mbid: string; name: string; sortName: string; disambiguation?: string }>>([]);
+  const [fetchResult,    setFetchResult]    = useState<{ ok: boolean; songsUpdated: number; totalShows: number; fetchedShows: number; message?: string } | null>(null);
+  const [storeMessage,   setStoreMessage]   = useState<string | null>(null);
+
+  const { data: bands = [] } = useQuery({
+    queryKey: ['bands'],
+    queryFn:  () => bandsApi.list(),
+    staleTime: 5 * 60_000,
+  });
+
+  const { data: status, refetch: refetchStatus } = useQuery({
+    queryKey: ['live-data-status', selectedBandId],
+    queryFn:  () => bandRpgApi.getLiveDataStatus(selectedBandId),
+    enabled:  !!selectedBandId,
+    staleTime: 10_000,
+  });
+
+  const searchMutation = useMutation({
+    mutationFn: (artistName: string) => bandRpgApi.searchSetlistFmArtist(artistName),
+    onSuccess:  (r) => setSearchResults(r.results),
+    onError:    () => setSearchResults([]),
+  });
+
+  const storeMutation = useMutation({
+    mutationFn: ({ mbid, name }: { mbid: string; name: string }) =>
+      bandRpgApi.storeBandArtistMatch(selectedBandId, mbid, name),
+    onSuccess: () => {
+      setStoreMessage('Artist linked successfully.');
+      setSearchResults([]);
+      void refetchStatus();
+    },
+    onError: () => setStoreMessage('Failed to link artist. Check server logs.'),
+  });
+
+  const fetchMutation = useMutation({
+    mutationFn: () => bandRpgApi.fetchBandLiveData(selectedBandId),
+    onSuccess:  (r) => { setFetchResult(r); void refetchStatus(); },
+  });
+
+  const selectedBandName = bands.find((b) => b.id === selectedBandId)?.name ?? '';
+
+  return (
+    <div className="space-y-6">
+      {/* Intro */}
+      <div className="rounded-xl border border-surface-200 bg-white p-6">
+        <h2 className="font-semibold text-surface-900 mb-1">Live Intelligence — Setlist.fm</h2>
+        <p className="text-sm text-surface-500 mb-5 leading-relaxed">
+          Connect each band to their Setlist.fm artist profile to download real performance history.
+          Band RPG uses this data to compute Live Rarity, Live Value, and Concert Realism scores.
+          Requires a valid <code className="bg-surface-100 px-1 rounded text-xs">SETLISTFM_API_KEY</code> environment variable.
+        </p>
+
+        <div>
+          <label className="block text-xs font-medium text-surface-700 mb-1">Select band</label>
+          <select
+            value={selectedBandId}
+            onChange={(e) => {
+              setSelectedBandId(e.target.value);
+              setSearchResults([]);
+              setStoreMessage(null);
+              setFetchResult(null);
+            }}
+            className="border border-surface-300 bg-white rounded-lg px-3 py-2 text-sm text-surface-800 focus:outline-none focus:border-indigo-500 min-w-56"
+          >
+            <option value="">— choose a band —</option>
+            {bands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Current status */}
+      {selectedBandId && status !== undefined && (
+        <div className="rounded-xl border border-surface-200 bg-white p-6">
+          <h3 className="font-semibold text-surface-900 mb-3">
+            Live Data Status — {selectedBandName}
+          </h3>
+          {!status ? (
+            <p className="text-sm text-surface-400">
+              No live data record yet. Search for the artist below to get started.
+            </p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+                <div className="rounded-lg bg-surface-50 border border-surface-200 p-3 text-center">
+                  <div className={`text-base font-bold ${STATUS_COLOR[status.fetchStatus] ?? 'text-surface-600'}`}>
+                    {STATUS_LABEL[status.fetchStatus] ?? status.fetchStatus}
+                  </div>
+                  <div className="text-xs text-surface-400 mt-1">Status</div>
+                </div>
+                <div className="rounded-lg bg-surface-50 border border-surface-200 p-3 text-center">
+                  <div className="text-lg font-bold text-indigo-600">{status.profileCount}</div>
+                  <div className="text-xs text-surface-400 mt-1">Song profiles</div>
+                </div>
+                <div className="rounded-lg bg-surface-50 border border-surface-200 p-3 text-center">
+                  <div className="text-lg font-bold text-surface-700">{status.totalShows.toLocaleString()}</div>
+                  <div className="text-xs text-surface-400 mt-1">Total shows</div>
+                </div>
+                <div className="rounded-lg bg-surface-50 border border-surface-200 p-3 text-center">
+                  <div className="text-lg font-bold text-surface-700">{status.fetchedShows.toLocaleString()}</div>
+                  <div className="text-xs text-surface-400 mt-1">Shows analyzed</div>
+                </div>
+              </div>
+              {status.setlistFmName && (
+                <p className="text-sm text-surface-600">
+                  Linked to: <span className="font-medium text-surface-900">{status.setlistFmName}</span>
+                  <span className="ml-2 text-xs text-surface-400">MBID: {status.setlistFmMbid}</span>
+                </p>
+              )}
+              {status.lastFetchedAt && (
+                <p className="text-xs text-surface-400 mt-1">
+                  Last fetched: {new Date(status.lastFetchedAt).toLocaleString()}
+                </p>
+              )}
+              {status.errorMessage && (
+                <p className="text-xs text-red-600 mt-2">Error: {status.errorMessage}</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Search & link */}
+      {selectedBandId && (
+        <div className="rounded-xl border border-surface-200 bg-white p-6">
+          <h3 className="font-semibold text-surface-900 mb-1">Link Setlist.fm Artist</h3>
+          <p className="text-sm text-surface-500 mb-4">
+            Search by artist name, then click Select to link the correct result.
+          </p>
+
+          <div className="flex gap-2 mb-4">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && searchQuery.trim()) {
+                  setSearchResults([]);
+                  searchMutation.mutate(searchQuery.trim());
+                }
+              }}
+              placeholder={`e.g. "${selectedBandName}"`}
+              className="flex-1 border border-surface-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+            />
+            <button
+              onClick={() => { setSearchResults([]); if (searchQuery.trim()) searchMutation.mutate(searchQuery.trim()); }}
+              disabled={searchMutation.isPending || !searchQuery.trim()}
+              className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+            >
+              {searchMutation.isPending ? 'Searching…' : 'Search'}
+            </button>
+          </div>
+
+          {searchResults.length > 0 && (
+            <div className="space-y-2">
+              {searchResults.map((r) => (
+                <div key={r.mbid} className="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3 bg-surface-50">
+                  <div>
+                    <span className="font-medium text-surface-900 text-sm">{r.name}</span>
+                    {r.disambiguation && (
+                      <span className="ml-2 text-xs text-surface-400">({r.disambiguation})</span>
+                    )}
+                    <div className="text-xs text-surface-400 mt-0.5">{r.mbid}</div>
+                  </div>
+                  <button
+                    onClick={() => { setStoreMessage(null); storeMutation.mutate({ mbid: r.mbid, name: r.name }); }}
+                    disabled={storeMutation.isPending}
+                    className="text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    {storeMutation.isPending ? '…' : 'Select'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {searchMutation.isError && (
+            <p className="text-sm text-red-600 mt-2">Search failed. Is SETLISTFM_API_KEY set?</p>
+          )}
+          {storeMessage && (
+            <p className="text-sm text-emerald-700 font-medium mt-3">{storeMessage}</p>
+          )}
+        </div>
+      )}
+
+      {/* Fetch */}
+      {selectedBandId && status?.setlistFmMbid && (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-6">
+          <h3 className="font-semibold text-indigo-900 mb-1">Fetch Live Performance Data</h3>
+          <p className="text-sm text-indigo-800 leading-relaxed mb-4">
+            Downloads up to 1,500 setlists for <strong>{status.setlistFmName}</strong> and updates
+            live rarity scores, Live Value, and performance history for every matched song.
+            For very large catalogs (Phish, Dead) this can take 2–3 minutes.
+            Re-running is safe and will overwrite previous results.
+          </p>
+          <button
+            onClick={() => { setFetchResult(null); fetchMutation.mutate(); }}
+            disabled={fetchMutation.isPending}
+            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
+          >
+            {fetchMutation.isPending ? 'Fetching… (please wait)' : 'Fetch Live Data Now'}
+          </button>
+          {fetchMutation.isPending && (
+            <p className="mt-3 text-xs text-indigo-600 animate-pulse">
+              Downloading setlists from Setlist.fm — this may take a couple of minutes…
+            </p>
+          )}
+          {fetchResult && (
+            <div className="mt-4 rounded-lg bg-white border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
+              <div className="font-semibold mb-1">Fetch complete</div>
+              <div>Songs updated: <strong>{fetchResult.songsUpdated}</strong></div>
+              <div>Shows analyzed: <strong>{fetchResult.fetchedShows.toLocaleString()}</strong> of {fetchResult.totalShows.toLocaleString()} total</div>
+              {fetchResult.message && <div className="mt-1 text-xs text-surface-500">{fetchResult.message}</div>}
+            </div>
+          )}
+          {fetchMutation.isError && (
+            <p className="mt-3 text-sm text-red-700">Fetch failed. Check server logs for details.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminBandRpgPage() {
   const [tab, setTab] = useState<Tab>('overview');
 
@@ -278,7 +518,8 @@ export default function AdminBandRpgPage() {
       {/* Tab content */}
       {tab === 'overview' && <OverviewTab />}
       {tab === 'testing'  && <TestingTab />}
-      {tab !== 'overview' && tab !== 'testing' && PLACEHOLDER_CONTENT[tab] && (
+      {tab === 'live'     && <LiveDataTab />}
+      {tab !== 'overview' && tab !== 'testing' && tab !== 'live' && PLACEHOLDER_CONTENT[tab] && (
         <ComingSoonPlaceholder
           title={PLACEHOLDER_CONTENT[tab]!.title}
           desc={PLACEHOLDER_CONTENT[tab]!.desc}

@@ -66,6 +66,31 @@ export interface BandRpgStats {
   lastPlayedAt: string | null;
 }
 
+// ── Live intelligence types (Phase V) ────────────────────────────────────────
+
+export interface SongLiveData {
+  liveStatus: string;       // Never Played | Extremely Rare | Rare | Occasional | Common | Staple | Unknown
+  liveValue: number;        // 0-100 excitement score
+  rarityIndex: number;      // 0-100 rarity index
+  totalPerformances: number;
+  performancePct: number;
+  yearsSincePlayed: number | null;
+  lastPerformanceDate: string | null;
+  firstPerformanceDate: string | null;
+}
+
+export interface BandLiveDataStatus {
+  bandId: string;
+  fetchStatus: string;      // never | in_progress | complete | failed
+  totalShows: number;
+  fetchedShows: number;
+  lastFetchedAt: string | null;
+  setlistFmMbid: string | null;
+  setlistFmName: string | null;
+  errorMessage: string | null;
+  profileCount: number;
+}
+
 // ── Collection types ──────────────────────────────────────────────────────────
 
 export interface BandRpgCollectedSong {
@@ -78,6 +103,7 @@ export interface BandRpgCollectedSong {
   scoreEarned: number;
   rarity: string;
   recoveredAt: string;
+  liveData: SongLiveData | null;
 }
 
 export interface BandRpgCollectionGroup {
@@ -241,6 +267,8 @@ export interface BandRpgConcertDetail extends BandRpgConcertSummary {
   legendTrack: BandRpgConcertLegendRef | null;
   deepCutSong: BandRpgConcertLegendRef | null;
   mostFamiliar: BandRpgConcertLegendRef | null;
+  realismScore: number | null;
+  realismLabel: string | null;
 }
 
 // ── Festival types ────────────────────────────────────────────────────────────
@@ -344,6 +372,9 @@ export interface BandRpgFestivalSummary {
   lineupAnalysis: LineupAnalysis;
   audience: FestivalAudienceProfile;
   prestige: FestivalPrestige;
+  realismScore: number | null;
+  realismLabel: string | null;
+  historicalHighlights: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -482,5 +513,34 @@ export const bandRpgApi = {
     api.patch<{ ok: boolean; isDream: boolean }>(
       `/api/band-rpg/festivals/${encodeURIComponent(id)}/dream`,
       { isDream },
+    ),
+
+  // Phase V — Live Intelligence
+  getLiveProfiles: (bandId: string) =>
+    api.get<{ profiles: Array<{ songId: string } & SongLiveData>; cacheStatus: BandLiveDataStatus | null }>(
+      `/api/band-rpg/live-profiles?bandId=${encodeURIComponent(bandId)}`,
+    ),
+
+  getLiveDataStatus: (bandId: string) =>
+    api.get<BandLiveDataStatus | null>(
+      `/api/band-rpg/admin/live-data-status?bandId=${encodeURIComponent(bandId)}`,
+    ),
+
+  searchSetlistFmArtist: (artistName: string) =>
+    api.post<{ results: Array<{ mbid: string; name: string; sortName: string; disambiguation?: string }> }>(
+      '/api/band-rpg/admin/search-setlistfm',
+      { artistName },
+    ),
+
+  storeBandArtistMatch: (bandId: string, mbid: string, name: string) =>
+    api.post<{ ok: boolean }>(
+      '/api/band-rpg/admin/set-setlistfm-artist',
+      { bandId, mbid, name },
+    ),
+
+  fetchBandLiveData: (bandId: string) =>
+    api.post<{ ok: boolean; songsUpdated: number; totalShows: number; fetchedShows: number; message?: string }>(
+      '/api/band-rpg/admin/fetch-live-data',
+      { bandId },
     ),
 };

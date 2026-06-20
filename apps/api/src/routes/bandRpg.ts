@@ -2,6 +2,15 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
+import {
+  searchArtistOnSetlistFm,
+  storeBandArtistMatch,
+  fetchBandLiveData,
+  computeConcertRealism,
+  computeFestivalRealism,
+  computeHistoricalHighlights,
+  type SongHistoricalSummary,
+} from '../services/setlistIntelligenceService.js';
 
 export const bandRpgRouter = Router();
 
@@ -431,9 +440,29 @@ bandRpgRouter.get('/collection', requireAuth, async (req, res, next): Promise<vo
       },
     });
 
+    // Fetch live profiles for all collected songs (Phase V enrichment — optional)
+    const songIds     = [...new Set(entries.map((e) => e.songId))];
+    const liveProfiles = songIds.length > 0
+      ? await prisma.bandRpgSongProfile.findMany({
+          where:  { songId: { in: songIds } },
+          select: {
+            songId: true, liveStatus: true, liveValue: true, rarityIndex: true,
+            totalPerformances: true, performancePct: true,
+            yearsSincePlayed: true, lastPerformanceDate: true, firstPerformanceDate: true,
+          },
+        })
+      : [];
+    const liveProfileMap = new Map(liveProfiles.map((p) => [p.songId, p]));
+
+    type LiveDataShape = {
+      liveStatus: string; liveValue: number; rarityIndex: number;
+      totalPerformances: number; performancePct: number;
+      yearsSincePlayed: number | null;
+      lastPerformanceDate: string | null; firstPerformanceDate: string | null;
+    };
     const bandMap = new Map<string, {
       bandId: string; bandName: string;
-      collected: typeof entries;
+      collected: Array<typeof entries[0] & { liveData: LiveDataShape | null }>;
     }>();
 
     for (const entry of entries) {
@@ -442,7 +471,20 @@ bandRpgRouter.get('/collection', requireAuth, async (req, res, next): Promise<vo
         group = { bandId: entry.bandId, bandName: entry.bandName, collected: [] };
         bandMap.set(entry.bandId, group);
       }
-      group.collected.push(entry);
+      const lp = liveProfileMap.get(entry.songId) ?? null;
+      group.collected.push({
+        ...entry,
+        liveData: lp ? {
+          liveStatus:          lp.liveStatus,
+          liveValue:           lp.liveValue,
+          rarityIndex:         lp.rarityIndex,
+          totalPerformances:   lp.totalPerformances,
+          performancePct:      lp.performancePct,
+          yearsSincePlayed:    lp.yearsSincePlayed,
+          lastPerformanceDate: lp.lastPerformanceDate?.toISOString() ?? null,
+          firstPerformanceDate: lp.firstPerformanceDate?.toISOString() ?? null,
+        } : null,
+      });
     }
 
     const bandIds = Array.from(bandMap.keys());
@@ -1247,7 +1289,7 @@ bandRpgRouter.get('/concerts/:concertId', requireAuth, async (req, res, next): P
     const songs      = concert.setlist.songs;
     const songIds    = songs.map((s) => s.songId);
 
-    const [axisRows, songAlbumRows] = await Promise.all([
+    const [axisRows, songAlbumRows, liveRows] = await Promise.all([
       songIds.length > 0
         ? prisma.songAxisScore.findMany({
             where: { songId: { in: songIds } },
@@ -1260,6 +1302,12 @@ bandRpgRouter.get('/concerts/:concertId', requireAuth, async (req, res, next): P
             select: { id: true, albumId: true },
           })
         : [],
+      songIds.length > 0
+        ? prisma.bandRpgSongProfile.findMany({
+            where: { songId: { in: songIds } },
+            select: { songId: true, liveStatus: true },
+          })
+        : Promise.resolve([]),
     ]);
 
     const axisMap      = new Map(axisRows.map((r) => [r.songId, r]));
@@ -1306,6 +1354,11 @@ bandRpgRouter.get('/concerts/:concertId', requireAuth, async (req, res, next): P
       position:  s.position,
       addedAt:   s.addedAt.toISOString(),
     }));
+
+    // Phase V — Concert Realism (from live profiles, null if insufficient data)
+    const liveStatusMap = new Map(liveRows.map((r) => [r.songId, r.liveStatus]));
+    const songStatuses  = songIds.map((id) => liveStatusMap.get(id) ?? 'Unknown');
+    const realismResult = computeConcertRealism(songStatuses);
 
     // Phase M — Setlist Intelligence
     const songRefs          = songs.map((s, idx) => ({ songId: s.songId, songTitle: s.songTitle, rarity: s.rarity, position: idx }));
@@ -1375,6 +1428,8 @@ bandRpgRouter.get('/concerts/:concertId', requireAuth, async (req, res, next): P
       legendTrack,
       deepCutSong,
       mostFamiliar,
+      realismScore:  realismResult?.realismScore  ?? null,
+      realismLabel:  realismResult?.realismLabel  ?? null,
       createdAt:       concert.createdAt.toISOString(),
       updatedAt:       concert.updatedAt.toISOString(),
     });
@@ -2407,10 +2462,11 @@ function generateLegacyReport(
 // Shared data-fetching preamble used by festival list + detail to load concert data in bulk.
 async function loadConcertDataForFestivals(concertIds: string[]) {
   if (concertIds.length === 0) return {
-    concertRows: [],
-    axisMap: new Map<string, { songId: string; aggression: number; atmosphere: number; emotion: number; complexity: number; psychedelic: number; concept: number }>(),
-    songAlbumMap: new Map<string, string>(),
+    concertRows:    [],
+    axisMap:        new Map<string, { songId: string; aggression: number; atmosphere: number; emotion: number; complexity: number; psychedelic: number; concept: number }>(),
+    songAlbumMap:   new Map<string, string>(),
     bandProfileMap: new Map<string, BandAudienceProfileData>(),
+    liveProfileMap: new Map<string, { liveStatus: string; yearsSincePlayed: number | null; firstPerformanceDate: Date | null }>(),
   };
 
   const concertRows = await prisma.bandRpgConcert.findMany({
@@ -2424,7 +2480,7 @@ async function loadConcertDataForFestivals(concertIds: string[]) {
   const allSongIds  = [...new Set(concertRows.flatMap((c) => c.setlist.songs.map((s) => s.songId)))];
   const allBandIds  = [...new Set(concertRows.map((c) => c.bandId))];
 
-  const [axisRows, songAlbumRows, bandProfileRows] = await Promise.all([
+  const [axisRows, songAlbumRows, bandProfileRows, liveProfileRows] = await Promise.all([
     allSongIds.length > 0
       ? prisma.songAxisScore.findMany({
           where: { songId: { in: allSongIds } },
@@ -2447,6 +2503,12 @@ async function loadConcertDataForFestivals(concertIds: string[]) {
           },
         })
       : Promise.resolve([]),
+    allSongIds.length > 0
+      ? prisma.bandRpgSongProfile.findMany({
+          where: { songId: { in: allSongIds } },
+          select: { songId: true, liveStatus: true, yearsSincePlayed: true, firstPerformanceDate: true },
+        })
+      : Promise.resolve([]),
   ]);
 
   const axisMap       = new Map(axisRows.map((r) => [r.songId, r]));
@@ -2454,7 +2516,8 @@ async function loadConcertDataForFestivals(concertIds: string[]) {
   const bandProfileMap = new Map<string, BandAudienceProfileData>(
     bandProfileRows.map((p) => [p.bandId, p as BandAudienceProfileData]),
   );
-  return { concertRows, axisMap, songAlbumMap, bandProfileMap };
+  const liveProfileMap = new Map(liveProfileRows.map((p) => [p.songId, p]));
+  return { concertRows, axisMap, songAlbumMap, bandProfileMap, liveProfileMap };
 }
 
 // ── GET /festivals ────────────────────────────────────────────────────────────
@@ -2475,7 +2538,7 @@ bandRpgRouter.get('/festivals', requireAuth, async (req, res, next): Promise<voi
     if (festivals.length === 0) { res.json([]); return; }
 
     const allConcertIds = [...new Set(festivals.flatMap((f) => f.concerts.map((fc) => fc.concertId)))];
-    const { concertRows, axisMap, songAlbumMap, bandProfileMap } = await loadConcertDataForFestivals(allConcertIds);
+    const { concertRows, axisMap, songAlbumMap, bandProfileMap, liveProfileMap } = await loadConcertDataForFestivals(allConcertIds);
     const concertMap = new Map(concertRows.map((c) => [c.id, c]));
 
     const metricsCache = new Map(
@@ -2560,6 +2623,21 @@ bandRpgRouter.get('/festivals', requireAuth, async (req, res, next): Promise<voi
         primaryArchetypeName: audience.primaryArchetype.name,
       });
 
+      // Phase V — Festival Realism + Historical Highlights
+      const festivalSongIds = festival.concerts
+        .flatMap((fc) => concertMap.get(fc.concertId)?.setlist.songs.map((s) => s.songId) ?? []);
+      const festivalStatuses = festivalSongIds.map((id) => liveProfileMap.get(id)?.liveStatus ?? 'Unknown');
+      const festivalRealism  = computeFestivalRealism(festivalStatuses);
+      const historicalSummaries: SongHistoricalSummary[] = festivalSongIds.map((id) => {
+        const lp = liveProfileMap.get(id);
+        return {
+          liveStatus:          lp?.liveStatus          ?? 'Unknown',
+          yearsSincePlayed:    lp?.yearsSincePlayed     ?? null,
+          firstPerformanceDate: lp?.firstPerformanceDate ?? null,
+        };
+      });
+      const historicalHighlights = computeHistoricalHighlights(historicalSummaries);
+
       return {
         id:                 festival.id,
         name:               festival.name,
@@ -2577,6 +2655,9 @@ bandRpgRouter.get('/festivals', requireAuth, async (req, res, next): Promise<voi
         lineupAnalysis,
         audience,
         prestige,
+        realismScore:        festivalRealism?.realismScore  ?? null,
+        realismLabel:        festivalRealism?.realismLabel  ?? null,
+        historicalHighlights,
         createdAt:           festival.createdAt.toISOString(),
         updatedAt:           festival.updatedAt.toISOString(),
       };
@@ -2643,7 +2724,7 @@ bandRpgRouter.get('/festivals/:festivalId', requireAuth, async (req, res, next):
     if (!festival) { res.status(404).json({ error: 'Not found' }); return; }
 
     const concertIds = festival.concerts.map((fc) => fc.concertId);
-    const { concertRows, axisMap, songAlbumMap, bandProfileMap } = await loadConcertDataForFestivals(concertIds);
+    const { concertRows, axisMap, songAlbumMap, bandProfileMap, liveProfileMap: detailLiveMap } = await loadConcertDataForFestivals(concertIds);
     const concertMap = new Map(concertRows.map((c) => [c.id, c]));
 
     const computedRaw = festival.concerts.map((fc) => {
@@ -2734,6 +2815,20 @@ bandRpgRouter.get('/festivals/:festivalId', requireAuth, async (req, res, next):
       primaryArchetypeName: audience.primaryArchetype.name,
     });
 
+    // Phase V — Festival Realism + Historical Highlights
+    const detailSongIds = concertRows.flatMap((c) => c.setlist.songs.map((s) => s.songId));
+    const detailStatuses = detailSongIds.map((id) => detailLiveMap.get(id)?.liveStatus ?? 'Unknown');
+    const detailRealism  = computeFestivalRealism(detailStatuses);
+    const detailHistoricalSummaries: SongHistoricalSummary[] = detailSongIds.map((id) => {
+      const lp = detailLiveMap.get(id);
+      return {
+        liveStatus:           lp?.liveStatus          ?? 'Unknown',
+        yearsSincePlayed:     lp?.yearsSincePlayed     ?? null,
+        firstPerformanceDate: lp?.firstPerformanceDate ?? null,
+      };
+    });
+    const detailHighlights = computeHistoricalHighlights(detailHistoricalSummaries);
+
     res.json({
       id:                  festival.id,
       name:                festival.name,
@@ -2751,6 +2846,9 @@ bandRpgRouter.get('/festivals/:festivalId', requireAuth, async (req, res, next):
       lineupAnalysis,
       audience,
       prestige,
+      realismScore:        detailRealism?.realismScore  ?? null,
+      realismLabel:        detailRealism?.realismLabel  ?? null,
+      historicalHighlights: detailHighlights,
       concerts:            computed,
       createdAt:           festival.createdAt.toISOString(),
       updatedAt:           festival.updatedAt.toISOString(),
@@ -2880,6 +2978,105 @@ bandRpgRouter.put('/festivals/:festivalId/concerts', requireAuth, async (req, re
     await prisma.bandRpgFestival.update({ where: { id: festivalId }, data: { updatedAt: new Date() } });
 
     res.json({ ok: true, concertCount: concertIds.length });
+  } catch (e) { next(e); }
+});
+
+// ── Phase V: Live Intelligence endpoints ──────────────────────────────────────
+
+// GET /live-profiles?bandId=...
+bandRpgRouter.get('/live-profiles', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const bandId = typeof req.query['bandId'] === 'string' ? req.query['bandId'] : null;
+    if (!bandId) { res.status(400).json({ error: 'bandId query param required' }); return; }
+
+    const [profiles, cache] = await Promise.all([
+      prisma.bandRpgSongProfile.findMany({
+        where: { song: { bandId } },
+        select: {
+          songId: true, liveStatus: true, liveValue: true, rarityIndex: true,
+          totalPerformances: true, performancePct: true, yearsSincePlayed: true,
+          lastPerformanceDate: true, firstPerformanceDate: true, distinctYears: true,
+          lastLiveDataFetchedAt: true,
+        },
+      }),
+      prisma.bandLiveDataCache.findUnique({ where: { bandId } }),
+    ]);
+
+    res.json({
+      profiles: profiles.map((p) => ({
+        ...p,
+        lastPerformanceDate:  p.lastPerformanceDate?.toISOString()  ?? null,
+        firstPerformanceDate: p.firstPerformanceDate?.toISOString() ?? null,
+        lastLiveDataFetchedAt: p.lastLiveDataFetchedAt?.toISOString() ?? null,
+      })),
+      cache: cache ? {
+        setlistFmMbid:  cache.setlistFmMbid,
+        setlistFmName:  cache.setlistFmName,
+        totalShows:     cache.totalShows,
+        fetchedShows:   cache.fetchedShows,
+        lastFetchedAt:  cache.lastFetchedAt?.toISOString() ?? null,
+        fetchStatus:    cache.fetchStatus,
+        errorMessage:   cache.errorMessage ?? null,
+      } : null,
+    });
+  } catch (e) { next(e); }
+});
+
+// GET /admin/live-data-status?bandId=...
+bandRpgRouter.get('/admin/live-data-status', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const bandId = typeof req.query['bandId'] === 'string' ? req.query['bandId'] : null;
+    if (!bandId) { res.status(400).json({ error: 'bandId query param required' }); return; }
+
+    const cache = await prisma.bandLiveDataCache.findUnique({ where: { bandId } });
+    res.json(cache ? {
+      bandId:        cache.bandId,
+      setlistFmMbid: cache.setlistFmMbid  ?? null,
+      setlistFmName: cache.setlistFmName  ?? null,
+      totalShows:    cache.totalShows,
+      fetchedShows:  cache.fetchedShows,
+      lastFetchedAt: cache.lastFetchedAt?.toISOString() ?? null,
+      fetchStatus:   cache.fetchStatus,
+      errorMessage:  cache.errorMessage   ?? null,
+    } : null);
+  } catch (e) { next(e); }
+});
+
+// POST /admin/search-setlistfm
+bandRpgRouter.post('/admin/search-setlistfm', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const body       = req.body as Record<string, unknown>;
+    const artistName = typeof body['artistName'] === 'string' ? body['artistName'].trim() : '';
+    if (!artistName) { res.status(400).json({ error: 'artistName is required' }); return; }
+
+    const artists = await searchArtistOnSetlistFm(artistName);
+    res.json({ artists });
+  } catch (e) { next(e); }
+});
+
+// POST /admin/set-setlistfm-artist
+bandRpgRouter.post('/admin/set-setlistfm-artist', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const body   = req.body as Record<string, unknown>;
+    const bandId = typeof body['bandId'] === 'string' ? body['bandId'].trim() : '';
+    const mbid   = typeof body['mbid']   === 'string' ? body['mbid'].trim()   : '';
+    const name   = typeof body['name']   === 'string' ? body['name'].trim()   : '';
+    if (!bandId || !mbid || !name) { res.status(400).json({ error: 'bandId, mbid, and name are required' }); return; }
+
+    await storeBandArtistMatch(bandId, mbid, name);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// POST /admin/fetch-live-data
+bandRpgRouter.post('/admin/fetch-live-data', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const body   = req.body as Record<string, unknown>;
+    const bandId = typeof body['bandId'] === 'string' ? body['bandId'].trim() : '';
+    if (!bandId) { res.status(400).json({ error: 'bandId is required' }); return; }
+
+    const result = await fetchBandLiveData(bandId);
+    res.json({ ok: !result.error, ...result });
   } catch (e) { next(e); }
 });
 

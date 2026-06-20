@@ -151,6 +151,7 @@ This means:
 | `YTDLP_COOKIES_CONTENT` | No | Base64-encoded Netscape cookies.txt from a logged-in YouTube session — primary fix for 429/403 rate-limit errors on cloud IPs |
 | `YTDLP_COOKIES_FILE` | No | Path to cookies.txt on the container filesystem (alternative to YTDLP_COOKIES_CONTENT) |
 | `HUGGINGFACE_TOKEN` | No | No longer required — AI sprite generation now uses Pollinations.ai (free, no key needed) |
+| `SETLISTFM_API_KEY` | No | Setlist.fm API key for Band RPG Live Intelligence (Phase V). Register at setlist.fm/settings/api |
 
 ---
 

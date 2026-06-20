@@ -4,6 +4,40 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase V — Real World Intelligence (2026-06-20)
+
+### Added
+
+- **Setlist.fm Integration** — `setlistIntelligenceService.ts` fetches real performance history for any band via the Setlist.fm API. Searches by artist name, stores MusicBrainz MBID match, then downloads up to 1,500 setlists (75 pages × 20 shows) with 600ms rate-limit delay between pages.
+- **Song Live History Profile** — every `BandRpgSongProfile` record now carries: `totalPerformances`, `performancePct` (% of shows where the song appeared), `firstPerformanceDate`, `lastPerformanceDate`, `yearsSincePlayed`, `distinctYears`, `rarityIndex` (0–100), `liveStatus`, `liveValue`, `lastLiveDataFetchedAt`.
+- **Live Status** (6 tiers) — `Never Played` / `Extremely Rare` (<2% of shows) / `Rare` (<5%) / `Occasional` (<15%) / `Common` (<40%) / `Staple` (≥40%). `Unknown` when no data fetched.
+- **Rarity Index** (0–100) — higher = rarer. Never Played = 100, Staple → progressively lower.
+- **Live Value Score** (0–100) — excitement score for discovering a song live. Never Played starts at 90, rarer statuses start higher, bonus added for each year since last performed.
+- **Concert Realism Score** — `computeConcertRealism()` returns null when <30% of songs have live data; otherwise calculates penalties for Never Played (×30 pts) and Extremely Rare (×15 pts) songs. Labels: True to Life / Realistic / Plausible / Ambitious / Fan Fiction / Dream Only.
+- **Festival Realism Score** — `computeFestivalRealism()` applies the same logic across all concerts in a festival.
+- **Historical Highlights** — `computeHistoricalHighlights()` generates up to 5 template-driven highlight sentences per festival (e.g. "One song in this lineup has never been played live", "A song not performed in over 10 years appears").
+- **`BandLiveDataCache` model** — per-band Setlist.fm fetch state: `fetchStatus` (never / in_progress / complete / failed), `totalShows`, `fetchedShows`, `setlistFmMbid`, `setlistFmName`, `lastFetchedAt`, `errorMessage`.
+- **Live Data Admin Tab** — new "🌐 Live Data" tab in Admin → Band RPG. Select a band, search Setlist.fm for the artist, link the correct MBID, then trigger a full data fetch. Shows current cache status (profile count, shows analyzed, last fetch time).
+- **Collection: Live Status badges** — each recovered song in the Songs tab now shows a coloured live status pill (cyan for Never Played, violet for Extremely Rare, indigo for Rare, etc.) when Setlist.fm data has been fetched.
+- **Concert detail: Realism bar** — Concert Intelligence panel now includes a sky-blue "Realism" bar showing the realism score and label.
+- **Festival detail: Real World section** — below prestige/dream controls, shows realism bar + historical highlight bullets when live data is available.
+- **Discovery bonuses** — `liveValueDiscoveryBonus()` computes score bonus points for rare songs found in play sessions (Never Played = +20, Extremely Rare = +12, Rare = +6).
+- **5 new API endpoints**: `GET /live-profiles`, `GET /admin/live-data-status`, `POST /admin/search-setlistfm`, `POST /admin/set-setlistfm-artist`, `POST /admin/fetch-live-data`.
+- **Live data in collection endpoint** — `GET /collection` now includes `liveData: { liveStatus, liveValue, rarityIndex, totalPerformances, performancePct, yearsSincePlayed, lastPerformanceDate, firstPerformanceDate } | null` per song.
+
+### Schema
+- Extended `BandRpgSongProfile` with 10 live intelligence fields — migration: `20260620030000_add_live_intelligence`
+- Added `BandLiveDataCache` table — per-band Setlist.fm fetch state — same migration
+- `Band` model gains `liveDataCache BandLiveDataCache?` relation
+
+### Technical notes
+- Live data is optional enrichment — null gracefully when no data fetched. Realism returns null when <30% song coverage. Nothing blocks gameplay.
+- Title matching uses `normTitle()` fuzzy normalisation: strips parenthetical/bracketed notes, collapses punctuation, case-insensitive.
+- Setlist.fm dates are `DD-MM-YYYY` format; `parseSlDate()` converts correctly.
+- `SETLISTFM_API_KEY` environment variable required (see env vars table in README/CLAUDE.md).
+
+---
+
 ## Phase U — Dream Festivals (2026-06-20)
 
 ### Added

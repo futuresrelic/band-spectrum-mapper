@@ -420,6 +420,25 @@ function EmptyState({ icon, title, desc, action }: { icon: string; title: string
 type SortMode    = 'date_desc' | 'title_asc' | 'rarity_asc' | 'rarity_desc';
 type RarityFilter = 'all' | 'Common' | 'Uncommon' | 'Rare' | 'Legendary' | 'Mythic';
 
+const LIVE_STATUS_STYLE: Record<string, { label: string; className: string }> = {
+  'Never Played':    { label: 'Never Played',    className: 'text-cyan-300 bg-cyan-900/40 border border-cyan-800/50' },
+  'Extremely Rare':  { label: 'Extremely Rare',  className: 'text-violet-300 bg-violet-900/40 border border-violet-800/50' },
+  'Rare':            { label: 'Rare Live',        className: 'text-indigo-300 bg-indigo-900/40 border border-indigo-800/50' },
+  'Occasional':      { label: 'Occasional',       className: 'text-blue-300/80 bg-blue-900/30 border border-blue-800/40' },
+  'Common':          { label: 'Common',           className: 'text-gray-400 bg-gray-800/50 border border-gray-700/40' },
+  'Staple':          { label: 'Staple',           className: 'text-gray-500 bg-gray-800/40 border border-gray-700/30' },
+};
+
+function LiveStatusBadge({ liveStatus }: { liveStatus: string }) {
+  const cfg = LIVE_STATUS_STYLE[liveStatus];
+  if (!cfg) return null;
+  return (
+    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${cfg.className}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
 function SongRow({ song }: { song: BandRpgCollectedSong }) {
   return (
     <div className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800/60 last:border-0 hover:bg-gray-800/30 transition-colors">
@@ -429,6 +448,9 @@ function SongRow({ song }: { song: BandRpgCollectedSong }) {
         <p className="text-xs text-gray-500">{formatDate(song.recoveredAt)}</p>
       </div>
       <div className="flex items-center gap-2 shrink-0">
+        {song.liveData && song.liveData.liveStatus !== 'Unknown' && (
+          <LiveStatusBadge liveStatus={song.liveData.liveStatus} />
+        )}
         <RarityBadge rarity={song.rarity} />
         {song.guessedCorrectly && <span className="text-xs text-emerald-400 font-medium hidden sm:inline">Identified</span>}
         <span className="text-xs text-amber-400 font-mono">{song.scoreEarned} pts</span>
@@ -1957,6 +1979,17 @@ function ConcertDetailModal({
                   </div>
                 </div>
 
+                {/* Concert Realism (Phase V) */}
+                {detail.realismScore !== null && detail.realismLabel !== null && (
+                  <div className="flex items-center gap-2">
+                    <p className="text-[10px] text-gray-600 w-20 shrink-0">Realism</p>
+                    <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-sky-600/70 rounded-full transition-all" style={{ width: `${detail.realismScore}%` }} />
+                    </div>
+                    <p className="text-[10px] text-sky-400 font-semibold w-20 text-right">{detail.realismLabel}</p>
+                  </div>
+                )}
+
                 {/* Legends */}
                 {(detail.legendTrack || detail.deepCutSong || detail.mostFamiliar) && (
                   <div className="grid grid-cols-3 gap-1.5">
@@ -3305,6 +3338,29 @@ function FestivalDetailModal({
                   isPending={dreamMutation.isPending}
                   onToggle={(val) => void dreamMutation.mutate(val)}
                 />
+
+                {/* Real World Intelligence (Phase V) */}
+                {(detail.realismScore !== null || (detail.historicalHighlights && detail.historicalHighlights.length > 0)) && (
+                  <div className="rounded-lg bg-gray-800/40 border border-gray-700/40 px-3 py-3 space-y-2">
+                    <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide">Real World</p>
+                    {detail.realismScore !== null && detail.realismLabel !== null && (
+                      <div className="flex items-center gap-2">
+                        <p className="text-[10px] text-gray-600 w-16 shrink-0">Realism</p>
+                        <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                          <div className="h-full bg-sky-600/70 rounded-full transition-all" style={{ width: `${detail.realismScore}%` }} />
+                        </div>
+                        <p className="text-[10px] text-sky-400 font-semibold w-20 text-right">{detail.realismLabel}</p>
+                      </div>
+                    )}
+                    {detail.historicalHighlights && detail.historicalHighlights.length > 0 && (
+                      <div className="space-y-1">
+                        {detail.historicalHighlights.map((h, i) => (
+                          <p key={i} className="text-[11px] text-gray-400 leading-snug">• {h}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Lineup editor */}
