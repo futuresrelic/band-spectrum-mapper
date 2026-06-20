@@ -10,6 +10,7 @@ import type {
   BandRpgCollectionGroup, BandRpgSetlistSummary, BandRpgSetlistDetail,
   BandRpgConcertSummary, BandRpgConcertDetail, BandRpgSetlistSongEntry,
   BandRpgFestivalSummary, BandRpgFestivalDetail,
+  FestivalAchievement, FestivalPrestige,
 } from '../api/bandRpg';
 
 // ── Rarity display ─────────────────────────────────────────────────────────────
@@ -2351,14 +2352,260 @@ function drawFestivalCard(canvas: HTMLCanvasElement, data: BandRpgFestivalDetail
   ctx.fillText(new Date().getFullYear().toString(), W - PAD, H - 22);
 }
 
+// ── Dream Festival export card (gold canvas) ──────────────────────────────────
+
+function drawDreamFestivalCard(canvas: HTMLCanvasElement, data: BandRpgFestivalDetail): void {
+  const W = 900, H = 1400;
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  // Deep gold/black background
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0,   '#0d0a00');
+  bg.addColorStop(0.4, '#110c00');
+  bg.addColorStop(1,   '#0a0800');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Gold top bar
+  const topBar = ctx.createLinearGradient(0, 0, W, 0);
+  topBar.addColorStop(0,   '#f59e0b');
+  topBar.addColorStop(0.5, '#fbbf24');
+  topBar.addColorStop(1,   '#d97706');
+  ctx.fillStyle = topBar;
+  ctx.fillRect(0, 0, W, 8);
+
+  // Outer gold border
+  ctx.strokeStyle = '#92400e';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(18, 18, W - 36, H - 36);
+  // Inner border
+  ctx.strokeStyle = '#78350f';
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(24, 24, W - 48, H - 48);
+
+  const PAD = 60;
+  let y = 78;
+
+  // Dream badge
+  ctx.fillStyle = '#92400e';
+  rrect(ctx, PAD, y - 16, 130, 22, 4);
+  ctx.fill();
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = 'bold 11px system-ui,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('★ DREAM FESTIVAL', PAD + 65, y - 1);
+  ctx.textAlign = 'left';
+  y += 16;
+
+  // Festival name
+  const nameSize = data.name.length > 28 ? 26 : data.name.length > 18 ? 32 : 40;
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = `bold ${nameSize}px system-ui,sans-serif`;
+  ctx.fillText(truncateForCanvas(ctx, data.name, W - PAD * 2), PAD, y);
+  y += 10;
+
+  // Personality
+  ctx.fillStyle = '#d97706';
+  ctx.font = 'italic 600 16px system-ui,sans-serif';
+  y += 22;
+  ctx.fillText(data.festivalPersonality, PAD, y);
+  y += 10;
+
+  // Prestige tier + score
+  const tier  = data.prestige.prestigeTier;
+  const score = data.prestige.prestigeScore;
+  const tierColor = score >= 90 ? '#fbbf24' : score >= 75 ? '#f59e0b' : score >= 60 ? '#d97706' : '#92400e';
+  ctx.fillStyle = '#1a1200';
+  rrect(ctx, PAD, y, W - PAD * 2, 52, 8);
+  ctx.fill();
+  ctx.strokeStyle = '#78350f';
+  ctx.lineWidth = 0.5;
+  rrect(ctx, PAD, y, W - PAD * 2, 52, 8);
+  ctx.stroke();
+  ctx.fillStyle = tierColor;
+  ctx.font = 'bold 30px system-ui,sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(String(score), PAD + 14, y + 34);
+  ctx.fillStyle = '#92400e';
+  ctx.font = '600 11px system-ui,sans-serif';
+  ctx.fillText('PRESTIGE', PAD + 58, y + 18);
+  ctx.fillStyle = tierColor;
+  ctx.font = 'italic 13px system-ui,sans-serif';
+  ctx.fillText(tier, PAD + 58, y + 36);
+  y += 64;
+
+  // Legacy report (word-wrapped)
+  if (data.prestige.legacyReport) {
+    ctx.fillStyle = '#b45309';
+    ctx.font = '400 13px system-ui,sans-serif';
+    const maxW = W - PAD * 2;
+    const words = data.prestige.legacyReport.split(' ');
+    let line = '';
+    const legacyLines: string[] = [];
+    for (const word of words) {
+      const test = line ? `${line} ${word}` : word;
+      if (ctx.measureText(test).width > maxW) { legacyLines.push(line); line = word; }
+      else line = test;
+    }
+    if (line) legacyLines.push(line);
+    for (const [i, l] of legacyLines.slice(0, 4).entries()) ctx.fillText(l, PAD, y + i * 19);
+    y += Math.min(legacyLines.length, 4) * 19 + 10;
+  }
+
+  // Gold divider
+  const goldLine = ctx.createLinearGradient(PAD, 0, W - PAD, 0);
+  goldLine.addColorStop(0,   'rgba(146,64,14,0)');
+  goldLine.addColorStop(0.5, '#92400e');
+  goldLine.addColorStop(1,   'rgba(146,64,14,0)');
+  ctx.strokeStyle = goldLine;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+  y += 20;
+
+  // Achievements — unlocked ones
+  const unlocked = data.prestige.achievements.filter((a) => a.unlocked);
+  if (unlocked.length > 0) {
+    ctx.fillStyle = '#78350f';
+    ctx.font = '700 10px system-ui,sans-serif';
+    ctx.fillText(`ACHIEVEMENTS  (${unlocked.length}/${data.prestige.achievements.length})`, PAD, y);
+    y += 16;
+    const cols = 4;
+    const cellW = Math.floor((W - PAD * 2) / cols);
+    unlocked.slice(0, 8).forEach((ach, i) => {
+      const cx = PAD + (i % cols) * cellW;
+      const cy = y + Math.floor(i / cols) * 48;
+      ctx.fillStyle = '#1a1200';
+      rrect(ctx, cx + 2, cy, cellW - 8, 42, 6);
+      ctx.fill();
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 0.5;
+      rrect(ctx, cx + 2, cy, cellW - 8, 42, 6);
+      ctx.stroke();
+      ctx.font = '20px system-ui,sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillText(ach.icon, cx + cellW / 2, cy + 22);
+      ctx.font = '500 9px system-ui,sans-serif';
+      ctx.fillStyle = '#92400e';
+      ctx.fillText(truncateForCanvas(ctx, ach.name, cellW - 12), cx + cellW / 2, cy + 37);
+    });
+    y += (Math.ceil(Math.min(unlocked.length, 8) / cols)) * 48 + 10;
+    ctx.textAlign = 'left';
+  }
+
+  // Gold divider
+  ctx.strokeStyle = goldLine;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+  y += 20;
+
+  // Score bars
+  const barMaxW = W - PAD * 2 - 160;
+  const bars = [
+    { label: 'Chemistry',    value: data.chemistry.chemistryScore,  color: '#fbbf24' },
+    { label: 'Fan Service',  value: data.avgFanService,             color: '#d97706' },
+    { label: 'Deep Cuts',    value: data.avgDeepCuts,               color: '#92400e' },
+    ...(data.avgVenueFit !== null ? [{ label: 'Venue Fit', value: data.avgVenueFit, color: '#78350f' }] : []),
+  ];
+  for (const [i, bar] of bars.entries()) {
+    const by = y + i * 28;
+    ctx.fillStyle = '#78350f';
+    ctx.font = '400 12px system-ui,sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(bar.label, PAD, by);
+    const bx = PAD + 120, bby = by - 12;
+    ctx.fillStyle = '#1a1200';
+    rrect(ctx, bx, bby, barMaxW, 10, 4);
+    ctx.fill();
+    if (bar.value > 0) {
+      const barGrad = ctx.createLinearGradient(bx, 0, bx + barMaxW, 0);
+      barGrad.addColorStop(0, bar.color);
+      barGrad.addColorStop(1, '#fbbf24');
+      ctx.fillStyle = barGrad;
+      rrect(ctx, bx, bby, Math.max(10, (bar.value / 100) * barMaxW), 10, 4);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#d97706';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(bar.value), W - PAD, by);
+  }
+  y += bars.length * 28 + 14;
+  ctx.textAlign = 'left';
+
+  // Audience
+  const primary = data.audience.primaryArchetype;
+  ctx.fillStyle = '#d97706';
+  ctx.font = '400 13px system-ui,sans-serif';
+  ctx.fillText(`${primary.icon} ${primary.name}  ·  ${data.audience.audienceDiversityLabel}`, PAD, y);
+  y += 20;
+
+  // Gold divider
+  ctx.strokeStyle = goldLine;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+  y += 20;
+
+  // Lineup
+  ctx.fillStyle = '#78350f';
+  ctx.font = '700 11px system-ui,sans-serif';
+  ctx.fillText('LINEUP', PAD, y);
+  y += 20;
+
+  const displayConcerts = data.concerts.slice(0, 10);
+  for (const [i, c] of displayConcerts.entries()) {
+    const cy = y + i * 36;
+    ctx.fillStyle = '#78350f';
+    ctx.font = '400 12px system-ui,sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(i + 1).padStart(2, '0'), PAD + 22, cy);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#fbbf24';
+    ctx.font = '500 15px system-ui,sans-serif';
+    ctx.fillText(truncateForCanvas(ctx, c.concertName, W - PAD * 2 - 190), PAD + 32, cy);
+    ctx.fillStyle = '#92400e';
+    ctx.font = '400 11px system-ui,sans-serif';
+    ctx.fillText(c.bandName, PAD + 32, cy + 15);
+    const gradeCfg = GRADE_STYLE[c.grade] ?? GRADE_STYLE['D']!;
+    ctx.fillStyle = gradeCfg.canvasColor;
+    ctx.font = 'bold 12px system-ui,sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(c.grade, W - PAD, cy);
+    ctx.textAlign = 'left';
+  }
+
+  if (data.concerts.length > 10) {
+    y += displayConcerts.length * 36 + 6;
+    ctx.fillStyle = '#78350f';
+    ctx.font = 'italic 12px system-ui,sans-serif';
+    ctx.fillText(`+ ${data.concerts.length - 10} more`, PAD, y);
+  }
+
+  // Footer
+  ctx.strokeStyle = goldLine;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, H - 50); ctx.lineTo(W - PAD, H - 50); ctx.stroke();
+  ctx.fillStyle = '#92400e';
+  ctx.font = '400 12px system-ui,sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('Band Spectrum Mapper · Dream Festival Archive', PAD, H - 26);
+  ctx.textAlign = 'right';
+  ctx.fillText(new Date().getFullYear().toString(), W - PAD, H - 26);
+}
+
 // ── Festival export modal ──────────────────────────────────────────────────────
 
-function FestivalExportModal({ detail, onClose }: { detail: BandRpgFestivalDetail; onClose: () => void }) {
+function FestivalExportModal({ detail, dream, onClose }: { detail: BandRpgFestivalDetail; dream?: boolean; onClose: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const isDreamCard = dream ?? detail.isDream;
 
   useEffect(() => {
-    if (canvasRef.current) drawFestivalCard(canvasRef.current, detail);
-  }, [detail]);
+    if (!canvasRef.current) return;
+    if (isDreamCard) drawDreamFestivalCard(canvasRef.current, detail);
+    else             drawFestivalCard(canvasRef.current, detail);
+  }, [detail, isDreamCard]);
 
   function handleExport() {
     const canvas = canvasRef.current;
@@ -2366,7 +2613,7 @@ function FestivalExportModal({ detail, onClose }: { detail: BandRpgFestivalDetai
     const url = canvas.toDataURL('image/png');
     const a = document.createElement('a');
     a.href = url;
-    a.download = `festival-${detail.name}.png`.replace(/[^a-z0-9.\-_ ]/gi, '_');
+    a.download = `${isDreamCard ? 'dream-festival' : 'festival'}-${detail.name}.png`.replace(/[^a-z0-9.\-_ ]/gi, '_');
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2374,25 +2621,30 @@ function FestivalExportModal({ detail, onClose }: { detail: BandRpgFestivalDetai
 
   return (
     <div className="fixed inset-0 bg-black/85 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4" onClick={onClose}>
-      <div className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
-        onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 shrink-0">
-          <h3 className="text-white font-semibold">Share Festival</h3>
-          <button onClick={onClose} className="text-gray-600 hover:text-gray-400 text-xl leading-none">✕</button>
+      <div className={`border rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90vh] flex flex-col overflow-hidden ${
+        isDreamCard ? 'bg-amber-950/95 border-amber-800/60' : 'bg-gray-900 border-gray-700'
+      }`} onClick={(e) => e.stopPropagation()}>
+        <div className={`flex items-center justify-between px-5 py-4 border-b shrink-0 ${isDreamCard ? 'border-amber-800/40' : 'border-gray-800'}`}>
+          <h3 className={`font-semibold ${isDreamCard ? 'text-amber-300' : 'text-white'}`}>
+            {isDreamCard ? '★ Dream Festival Card' : 'Share Festival'}
+          </h3>
+          <button onClick={onClose} className={`text-xl leading-none ${isDreamCard ? 'text-amber-700 hover:text-amber-500' : 'text-gray-600 hover:text-gray-400'}`}>✕</button>
         </div>
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="rounded-xl overflow-hidden bg-gray-950 border border-gray-800">
-            <canvas ref={canvasRef} width={800} height={1100} className="w-full h-auto block" />
+          <div className={`rounded-xl overflow-hidden border ${isDreamCard ? 'bg-black border-amber-900/60' : 'bg-gray-950 border-gray-800'}`}>
+            <canvas ref={canvasRef} width={isDreamCard ? 900 : 800} height={isDreamCard ? 1400 : 1100} className="w-full h-auto block" />
           </div>
-          <p className="text-center text-xs text-gray-600 mt-3">Tap Export to save as PNG · Share anywhere</p>
+          <p className={`text-center text-xs mt-3 ${isDreamCard ? 'text-amber-800' : 'text-gray-600'}`}>
+            {isDreamCard ? 'Gold Dream Festival card · Export PNG' : 'Tap Export to save as PNG · Share anywhere'}
+          </p>
         </div>
-        <div className="flex gap-3 px-5 py-4 border-t border-gray-800 shrink-0">
+        <div className={`flex gap-3 px-5 py-4 border-t shrink-0 ${isDreamCard ? 'border-amber-800/40' : 'border-gray-800'}`}>
           <button onClick={onClose}
-            className="flex-1 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors ${isDreamCard ? 'bg-amber-900/60 hover:bg-amber-900 text-amber-300' : 'bg-gray-800 hover:bg-gray-700 text-white'}`}>
             Close
           </button>
           <button onClick={handleExport}
-            className="flex-1 bg-violet-700 hover:bg-violet-600 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors ${isDreamCard ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-violet-700 hover:bg-violet-600 text-white'}`}>
             Export PNG
           </button>
         </div>
@@ -2411,28 +2663,157 @@ function chemistryScoreColor(score: number) {
   return 'text-gray-500';
 }
 
-function FestivalCard({ festival, onClick }: { festival: BandRpgFestivalSummary; onClick: () => void }) {
-  const chem = festival.chemistry;
+// ── Prestige + Dream components ───────────────────────────────────────────────
+
+function PrestigeSection({ prestige }: { prestige: FestivalPrestige }) {
+  const tierColor = prestigeTierColorRaw(prestige.prestigeTier);
   return (
-    <button onClick={onClick}
-      className="w-full text-left bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 hover:bg-gray-800/60 transition-colors active:bg-gray-800/80">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <p className="text-white font-semibold truncate">{festival.name}</p>
-          <p className="text-violet-400/60 text-xs font-medium italic mt-0.5">{festival.festivalPersonality}</p>
+    <div className="bg-gray-800/60 rounded-lg px-3 py-2.5 border border-gray-700/50 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold">Festival Prestige</p>
+        <span className={`text-lg font-bold font-mono ${tierColor}`}>{prestige.prestigeScore}</span>
+      </div>
+      {/* Tier badge */}
+      <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-xs font-semibold ${
+        prestige.prestigeScore >= 90 ? 'bg-yellow-900/30 border-yellow-800/40 text-yellow-400' :
+        prestige.prestigeScore >= 75 ? 'bg-amber-900/30 border-amber-800/40 text-amber-400'   :
+        prestige.prestigeScore >= 60 ? 'bg-orange-900/30 border-orange-800/40 text-orange-400':
+        prestige.prestigeScore >= 40 ? 'bg-violet-900/30 border-violet-800/40 text-violet-400':
+        prestige.prestigeScore >= 20 ? 'bg-blue-900/30 border-blue-800/40 text-blue-400'      :
+                                       'bg-gray-800/60 border-gray-700/40 text-gray-500'
+      }`}>
+        {prestige.prestigeTier}
+      </div>
+      {/* Prestige bar */}
+      <div className="flex items-center gap-2">
+        <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all ${
+              prestige.prestigeScore >= 90 ? 'bg-yellow-400' :
+              prestige.prestigeScore >= 75 ? 'bg-amber-400'  :
+              prestige.prestigeScore >= 60 ? 'bg-orange-400' :
+              prestige.prestigeScore >= 40 ? 'bg-violet-500' :
+              prestige.prestigeScore >= 20 ? 'bg-blue-500'   : 'bg-gray-500'
+            }`}
+            style={{ width: `${prestige.prestigeScore}%` }} />
         </div>
-        <div className="flex items-center gap-2 shrink-0 mt-0.5">
-          <span className={`text-lg font-bold font-mono ${chemistryScoreColor(chem.chemistryScore)}`}>{chem.chemistryScore}</span>
-          <span className="text-xs text-gray-600">{festival.concertCount} concerts</span>
+        <span className="text-[10px] text-gray-500 font-mono w-6 text-right">{prestige.prestigeScore}</span>
+      </div>
+      {/* Legacy report */}
+      <p className="text-xs text-gray-400/80 leading-relaxed italic">{prestige.legacyReport}</p>
+      {/* Achievements grid */}
+      <div className="pt-1 border-t border-gray-700/30">
+        <p className="text-[10px] text-gray-600 mb-1.5">
+          Achievements · {prestige.achievements.filter((a) => a.unlocked).length}/{prestige.achievements.length}
+        </p>
+        <div className="grid grid-cols-5 gap-1">
+          {prestige.achievements.map((ach: FestivalAchievement) => (
+            <div key={ach.key}
+              title={`${ach.name}: ${ach.description}`}
+              className={`flex flex-col items-center justify-center rounded-lg p-1.5 border transition-all ${
+                ach.unlocked
+                  ? 'bg-amber-900/30 border-amber-800/40'
+                  : 'bg-gray-800/40 border-gray-700/20 opacity-40'
+              }`}>
+              <span className="text-base leading-none">{ach.icon}</span>
+              <span className={`text-[8px] mt-1 text-center leading-tight font-medium ${ach.unlocked ? 'text-amber-400/80' : 'text-gray-600'}`}>
+                {ach.name.split(' ')[0]}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
-      <p className="text-xs text-violet-300/50 italic mt-0.5">{chem.chemistryLabel}</p>
+    </div>
+  );
+}
+
+function DreamFestivalToggle({
+  isDream,
+  isPending,
+  onToggle,
+}: { isDream: boolean; isPending: boolean; onToggle: (val: boolean) => void }) {
+  return (
+    <div className={`rounded-lg px-3 py-2.5 border ${isDream ? 'bg-amber-950/40 border-amber-800/50' : 'bg-gray-800/40 border-gray-700/40'}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className={`text-xs font-semibold ${isDream ? 'text-amber-300' : 'text-gray-400'}`}>
+            {isDream ? '★ Dream Festival' : 'Dream Festival'}
+          </p>
+          <p className="text-[10px] text-gray-600 leading-relaxed mt-0.5">
+            {isDream
+              ? 'This is your Dream Festival. Only one may be active at a time.'
+              : 'Designate this as your Dream Festival — the ultimate lineup.'}
+          </p>
+        </div>
+        <button
+          onClick={() => onToggle(!isDream)}
+          disabled={isPending}
+          className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${
+            isDream
+              ? 'bg-amber-800/60 hover:bg-amber-700/60 text-amber-300 border border-amber-700/40'
+              : 'bg-gray-700 hover:bg-gray-600 text-white'
+          }`}>
+          {isPending ? '…' : isDream ? 'Unset Dream' : 'Set as Dream'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function prestigeTierColorRaw(tier: string) {
+  if (tier === 'Mythic Festival')      return 'text-yellow-400';
+  if (tier === 'World Class Festival') return 'text-amber-400';
+  if (tier === 'Legendary Event')      return 'text-orange-400';
+  if (tier === 'Cult Festival')        return 'text-violet-400';
+  if (tier === 'Regional Event')       return 'text-blue-400';
+  return 'text-gray-500';
+}
+
+function prestigeTierColor(tier: string) { return prestigeTierColorRaw(tier); }
+
+function FestivalCard({ festival, onClick }: { festival: BandRpgFestivalSummary; onClick: () => void }) {
+  const chem   = festival.chemistry;
+  const isDream = festival.isDream;
+  return (
+    <button onClick={onClick}
+      className={`w-full text-left rounded-xl px-4 py-3 transition-colors ${
+        isDream
+          ? 'bg-amber-950/40 border border-amber-800/60 hover:bg-amber-950/60 ring-1 ring-amber-700/30'
+          : 'bg-gray-900/60 border border-gray-800 hover:bg-gray-800/60'
+      } active:scale-[0.99]`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            {isDream && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-800/40 border border-amber-700/40 text-amber-400 font-bold shrink-0">
+                ★ DREAM
+              </span>
+            )}
+            <p className={`font-semibold truncate ${isDream ? 'text-amber-100' : 'text-white'}`}>{festival.name}</p>
+          </div>
+          <p className={`text-xs font-medium italic ${isDream ? 'text-amber-500/70' : 'text-violet-400/60'}`}>{festival.festivalPersonality}</p>
+        </div>
+        <div className="flex flex-col items-end gap-0.5 shrink-0 mt-0.5">
+          <span className={`text-lg font-bold font-mono ${chemistryScoreColor(chem.chemistryScore)}`}>{chem.chemistryScore}</span>
+          <span className="text-[10px] text-gray-600">{festival.concertCount} concerts</span>
+        </div>
+      </div>
+
+      {/* Prestige tier */}
+      <div className="flex items-center gap-2 mt-1">
+        <span className={`text-[10px] font-semibold ${prestigeTierColor(festival.prestige.prestigeTier)}`}>
+          {festival.prestige.prestigeScore} · {festival.prestige.prestigeTier}
+        </span>
+      </div>
+
       {festival.lineupAnalysis.headlinerName && (
-        <p className="text-xs text-amber-400/50 mt-1 truncate">★ {festival.lineupAnalysis.headlinerName}</p>
+        <p className={`text-xs mt-1 truncate ${isDream ? 'text-amber-500/60' : 'text-amber-400/50'}`}>★ {festival.lineupAnalysis.headlinerName}</p>
       )}
       {/* Audience archetypes */}
       <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-900/40 border border-indigo-800/30 text-indigo-300/80 font-medium">
+        <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${
+          isDream ? 'bg-amber-900/30 border-amber-800/30 text-amber-400/80' : 'bg-indigo-900/40 border-indigo-800/30 text-indigo-300/80'
+        }`}>
           {festival.audience.primaryArchetype.icon} {festival.audience.primaryArchetype.name}
         </span>
         {festival.audience.secondaryArchetype && (
@@ -2496,7 +2877,14 @@ function FestivalRecords({ festivals }: { festivals: BandRpgFestivalSummary[] })
     return sa > sb;
   });
 
+  const highestPrestige = best((a, b) => a.prestige.prestigeScore > b.prestige.prestigeScore);
+  const mostAchievements = best((a, b) =>
+    a.prestige.achievements.filter((x) => x.unlocked).length > b.prestige.achievements.filter((x) => x.unlocked).length
+  );
+
   const items = [
+    { label: 'Highest Prestige',    icon: '🌟', festival: highestPrestige,  value: `${highestPrestige.prestige.prestigeScore} · ${highestPrestige.prestige.prestigeTier}` },
+    { label: 'Most Legendary',      icon: '🏆', festival: mostAchievements, value: `${mostAchievements.prestige.achievements.filter((x) => x.unlocked).length}/10 achievements` },
     { label: 'Best Headliner', icon: '★',  festival: bestHL,    value: `${bestHL.lineupAnalysis.headlinerScore} · ${bestHL.lineupAnalysis.headlinerName}`.slice(0, 30)  },
     { label: 'Best Opener',    icon: '🔥', festival: bestOp,    value: `${bestOp.lineupAnalysis.openerScore} · ${bestOp.lineupAnalysis.openerName}`.slice(0, 30)         },
     { label: 'Best Flow',      icon: '🌊', festival: bestFlowR, value: `Flow ${bestFlowR.lineupAnalysis.flowRating}`                                                     },
@@ -2645,6 +3033,7 @@ function FestivalDetailModal({
   const [editName,    setEditName]    = useState('');
   const [isDirty,     setIsDirty]     = useState(false);
   const [showExport,  setShowExport]  = useState(false);
+  const [dreamExport, setDreamExport] = useState(false);
   const [lineupIds,   setLineupIds]   = useState<string[]>([]);
   const [lineupDirty, setLineupDirty] = useState(false);
   const [addId,       setAddId]       = useState('');
@@ -2728,6 +3117,14 @@ function FestivalDetailModal({
     onSuccess: onDeleted,
   });
 
+  const dreamMutation = useMutation({
+    mutationFn: (isDream: boolean) => bandRpgApi.setDreamFestival(festivalId, isDream),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['band-rpg-festivals'] });
+      void queryClient.invalidateQueries({ queryKey: ['band-rpg-festival-detail', festivalId] });
+    },
+  });
+
   const anySaving = saveMeta.isPending || saveLineup.isPending;
 
   return (
@@ -2744,15 +3141,20 @@ function FestivalDetailModal({
           ) : (
             <>
               {/* Header */}
-              <div className="px-5 py-4 border-b border-gray-800 shrink-0">
+              <div className={`px-5 py-4 border-b shrink-0 ${detail.isDream ? 'border-amber-800/40 bg-amber-950/30' : 'border-gray-800'}`}>
                 <div className="flex items-center gap-3">
+                  {detail.isDream && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-800/50 border border-amber-700/40 text-amber-400 font-bold shrink-0">★</span>
+                  )}
                   <input type="text" value={editName}
                     onChange={(e) => { setEditName(e.target.value); setIsDirty(true); }}
                     maxLength={80}
-                    className="flex-1 bg-transparent text-white font-semibold text-lg focus:outline-none border-b border-transparent focus:border-violet-500/60 pb-0.5 transition-colors min-w-0" />
+                    className={`flex-1 font-semibold text-lg focus:outline-none border-b border-transparent pb-0.5 transition-colors min-w-0 bg-transparent ${
+                      detail.isDream ? 'text-amber-100 focus:border-amber-600/60' : 'text-white focus:border-violet-500/60'
+                    }`} />
                   <button onClick={onClose} className="text-gray-600 hover:text-gray-400 text-xl leading-none shrink-0">✕</button>
                 </div>
-                <p className="text-violet-400/60 text-sm italic mt-0.5">{detail.festivalPersonality}</p>
+                <p className={`text-sm italic mt-0.5 ${detail.isDream ? 'text-amber-500/60' : 'text-violet-400/60'}`}>{detail.festivalPersonality}</p>
               </div>
 
               {/* Scrollable body: analysis + lineup */}
@@ -2764,10 +3166,18 @@ function FestivalDetailModal({
                   <span>🎸 {detail.bandCount} band{detail.bandCount !== 1 ? 's' : ''}</span>
                   <span>🎵 {detail.totalSongs} songs</span>
                   {detail.avgVenueFit !== null && <span className="text-indigo-400/80">📍 Venue Fit {detail.avgVenueFit}/100</span>}
-                  <button onClick={() => setShowExport(true)}
-                    className="ml-auto bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white px-3 py-1 rounded-lg text-xs font-semibold transition-colors">
-                    Share
-                  </button>
+                  <div className="ml-auto flex gap-1.5">
+                    {detail.isDream && (
+                      <button onClick={() => { setDreamExport(true); setShowExport(true); }}
+                        className="bg-amber-900/50 hover:bg-amber-800/60 border border-amber-800/50 text-amber-400 px-3 py-1 rounded-lg text-xs font-semibold transition-colors">
+                        ★ Dream Card
+                      </button>
+                    )}
+                    <button onClick={() => { setDreamExport(false); setShowExport(true); }}
+                      className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white px-3 py-1 rounded-lg text-xs font-semibold transition-colors">
+                      Share
+                    </button>
+                  </div>
                 </div>
 
                 {/* Lineup Analysis */}
@@ -2885,6 +3295,16 @@ function FestivalDetailModal({
                     </div>
                   ))}
                 </div>
+
+                {/* Prestige section */}
+                <PrestigeSection prestige={detail.prestige} />
+
+                {/* Dream Festival designation */}
+                <DreamFestivalToggle
+                  isDream={detail.isDream}
+                  isPending={dreamMutation.isPending}
+                  onToggle={(val) => void dreamMutation.mutate(val)}
+                />
               </div>
 
               {/* Lineup editor */}
@@ -2984,9 +3404,46 @@ function FestivalDetailModal({
       </div>
 
       {showExport && detail && (
-        <FestivalExportModal detail={detail} onClose={() => setShowExport(false)} />
+        <FestivalExportModal detail={detail} dream={dreamExport} onClose={() => { setShowExport(false); setDreamExport(false); }} />
       )}
     </>
+  );
+}
+
+function FestivalHallOfFame({ festivals, onSelect }: { festivals: BandRpgFestivalSummary[]; onSelect: (id: string) => void }) {
+  if (festivals.length < 2) return null;
+  const sorted = [...festivals].sort((a, b) => b.prestige.prestigeScore - a.prestige.prestigeScore).slice(0, 5);
+  const hasLegendary = sorted.some((f) => f.prestige.prestigeScore >= 60);
+  if (!hasLegendary) return null;
+
+  return (
+    <div className="rounded-xl border border-amber-900/40 bg-amber-950/20 overflow-hidden mt-2">
+      <div className="px-4 py-2.5 border-b border-amber-900/30 flex items-center gap-2">
+        <span className="text-amber-500 text-sm">🏆</span>
+        <p className="text-xs text-amber-600 font-semibold uppercase tracking-wide">Hall of Fame</p>
+        <p className="text-xs text-amber-900 ml-auto">Top by prestige</p>
+      </div>
+      <div className="divide-y divide-amber-900/20">
+        {sorted.filter((f) => f.prestige.prestigeScore >= 40).map((festival, i) => (
+          <button key={festival.id} onClick={() => onSelect(festival.id)}
+            className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-amber-950/40 transition-colors text-left">
+            <span className={`text-sm font-bold font-mono w-5 shrink-0 ${i === 0 ? 'text-yellow-400' : i === 1 ? 'text-amber-400' : 'text-amber-800'}`}>
+              {i + 1}
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                {festival.isDream && <span className="text-[9px] text-amber-500 font-bold">★</span>}
+                <p className="text-sm text-amber-100 font-medium truncate">{festival.name}</p>
+              </div>
+              <p className="text-[10px] text-amber-800 italic truncate">{festival.prestige.prestigeTier}</p>
+            </div>
+            <span className={`text-sm font-bold font-mono shrink-0 ${prestigeTierColorRaw(festival.prestige.prestigeTier)}`}>
+              {festival.prestige.prestigeScore}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -3044,11 +3501,32 @@ function FestivalsTab() {
         ) : (
           <>
             <FestivalRecords festivals={festivals} />
-            <div className="space-y-2">
-              {festivals.map((f) => (
-                <FestivalCard key={f.id} festival={f} onClick={() => setSelectedId(f.id)} />
-              ))}
-            </div>
+            {/* Dream Festival pinned at top */}
+            {(() => {
+              const dream = festivals.find((f) => f.isDream);
+              const rest  = festivals.filter((f) => !f.isDream);
+              return (
+                <div className="space-y-2">
+                  {dream && (
+                    <div>
+                      <p className="text-[10px] text-amber-600/70 font-semibold uppercase tracking-wide mb-1.5 px-1">★ Dream Festival</p>
+                      <FestivalCard festival={dream} onClick={() => setSelectedId(dream.id)} />
+                    </div>
+                  )}
+                  {rest.length > 0 && (
+                    <div className="space-y-2">
+                      {dream && rest.length > 0 && (
+                        <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wide px-1 pt-1">All Festivals</p>
+                      )}
+                      {rest.map((f) => (
+                        <FestivalCard key={f.id} festival={f} onClick={() => setSelectedId(f.id)} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            <FestivalHallOfFame festivals={festivals} onSelect={(id) => setSelectedId(id)} />
           </>
         )}
       </div>

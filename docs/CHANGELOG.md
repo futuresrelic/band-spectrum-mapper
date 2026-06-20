@@ -4,6 +4,31 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase U — Dream Festivals (2026-06-20)
+
+### Added
+
+- **Festival Prestige Score (0-100)** — weighted composite of 9 inputs: chemistry (28%), headliner strength (15%), concert total (13%), audience diversity (12%), venue fit (10%), fan service balance (7%), deep cut balance (7%), band count (5%), concert count (3%).
+- **6 Prestige Tiers** — Local Gathering / Regional Event / Cult Festival / Legendary Event / World Class Festival / Mythic Festival. Tier displayed on `FestivalCard` and in the detail modal.
+- **Festival Legacy Report** — template-driven multi-sentence report generated from prestige tier, personality, chemistry, primary audience, and achievements unlocked.
+- **10 Festival Achievements** — 🧪 Perfectly Curated (chemistry ≥ 90), ⭐ Headliner Excellence, 🌍 Universal Crowd, 🔍 Deep Archive, ❤️ Fan Favourite, 🏟️ Venue Harmony, 🤝 Grand Coalition (4+ bands), 🎪 Marathon Event (4+ concerts), 📈 Rising Headliner, 🌟 Mythic Status (prestige ≥ 90). Shown as an icon grid in the festival detail, unlocked ones highlighted gold.
+- **Dream Festival Designation** — any festival can be marked as the user's Dream Festival. Only one active Dream Festival per user at a time (enforced server-side via transaction). Gold border + ★ badge on the card; amber-tinted header in the detail modal.
+- **Dream Festival Export Card** — premium gold canvas (900×1400) with gold border, achievements section, prestige bar, legacy report, gold-gradient score bars, and a distinct footer. Activated via ★ Dream Card button in the detail modal.
+- **Festival Hall of Fame** — appears in the Festivals tab when any festival reaches Cult Festival tier or higher. Shows top 5 festivals by prestige score with gold rank numbers.
+- **2 New Personal Records** — Highest Prestige (prestige score + tier) and Most Legendary (achievements unlocked count).
+- **Dream Festival pinned** at the top of the Festivals list with its own header label.
+- **`PATCH /api/band-rpg/festivals/:id/dream`** endpoint — toggles `isDream` on/off. Setting to true clears any existing dream festival for the user first.
+
+### Schema
+- `BandRpgFestival.isDream Boolean @default(false)` — migration: `20260620010000_add_festival_is_dream`
+
+### Technical notes
+- `computeFestivalPrestige()` runs after the full pipeline (chemistry → lineup → audience) and feeds into `generateLegacyReport()` + `computeFestivalAchievements()`. No extra DB queries.
+- Prestige is fully derived from existing computed data — no new DB fields beyond `isDream`.
+- Prisma client regenerated after schema change.
+
+---
+
 ## Phase T — Audience Archetypes (2026-06-20)
 
 ### Added

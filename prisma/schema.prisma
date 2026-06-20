@@ -1817,6 +1817,7 @@ model BandRpgFestival {
   userId      String
   name        String
   description String?
+  isDream     Boolean  @default(false) // at most one per user (enforced at API level)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

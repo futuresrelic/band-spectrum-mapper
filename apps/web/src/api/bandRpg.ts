@@ -312,10 +312,26 @@ export interface BandRpgFestivalConcertEntry {
   openerStrength: number;
 }
 
+export interface FestivalAchievement {
+  key: string;
+  name: string;
+  icon: string;
+  description: string;
+  unlocked: boolean;
+}
+
+export interface FestivalPrestige {
+  prestigeScore: number;
+  prestigeTier: string;
+  legacyReport: string;
+  achievements: FestivalAchievement[];
+}
+
 export interface BandRpgFestivalSummary {
   id: string;
   name: string;
   description: string | null;
+  isDream: boolean;
   concertCount: number;
   bandCount: number;
   totalSongs: number;
@@ -327,6 +343,7 @@ export interface BandRpgFestivalSummary {
   chemistry: FestivalChemistry;
   lineupAnalysis: LineupAnalysis;
   audience: FestivalAudienceProfile;
+  prestige: FestivalPrestige;
   createdAt: string;
   updatedAt: string;
 }
@@ -459,5 +476,11 @@ export const bandRpgApi = {
     api.put<{ ok: boolean; concertCount: number }>(
       `/api/band-rpg/festivals/${encodeURIComponent(id)}/concerts`,
       { concertIds },
+    ),
+
+  setDreamFestival: (id: string, isDream: boolean) =>
+    api.patch<{ ok: boolean; isDream: boolean }>(
+      `/api/band-rpg/festivals/${encodeURIComponent(id)}/dream`,
+      { isDream },
     ),
 };

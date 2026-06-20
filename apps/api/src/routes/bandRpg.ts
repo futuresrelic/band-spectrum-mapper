@@ -2216,6 +2216,194 @@ function computeAudienceArchetypes(
   };
 }
 
+// ── Phase U: Festival Prestige & Dream Festivals ──────────────────────────────
+
+export interface FestivalAchievement {
+  key: string;
+  name: string;
+  icon: string;
+  description: string;
+  unlocked: boolean;
+}
+
+export interface FestivalPrestigeResult {
+  prestigeScore: number;
+  prestigeTier: string;
+  legacyReport: string;
+  achievements: FestivalAchievement[];
+}
+
+interface PrestigeInputs {
+  chemistryScore: number;
+  headlinerStrength: number;
+  openerStrength: number;
+  audienceDiversityScore: number;
+  avgConcertTotal: number;
+  avgVenueFit: number | null;
+  avgFanService: number;
+  avgDeepCuts: number;
+  bandCount: number;
+  concertCount: number;
+  festivalPersonality: string;
+  primaryArchetypeName: string;
+}
+
+function computeFestivalPrestige(inputs: PrestigeInputs): FestivalPrestigeResult {
+  const {
+    chemistryScore, headlinerStrength, openerStrength, audienceDiversityScore,
+    avgConcertTotal, avgVenueFit, avgFanService, avgDeepCuts,
+    bandCount, concertCount, festivalPersonality, primaryArchetypeName,
+  } = inputs;
+
+  // Normalize raw values to 0-100
+  const normalizedConcertTotal = Math.min(avgConcertTotal / 200 * 100, 100);
+  const venueScore             = avgVenueFit ?? 0;
+  const fanServiceBalance      = Math.max(0, 100 - Math.abs(avgFanService - 50) * 2);
+  const deepCutBalance         = Math.max(0, 100 - Math.abs(avgDeepCuts - 50) * 2);
+  const bandScore              = Math.min(bandCount / 5 * 100, 100);
+  const concertScore           = Math.min(concertCount / 4 * 100, 100);
+
+  // Weighted prestige formula — weights sum to 100
+  const prestigeRaw = ws([
+    [chemistryScore,         28],
+    [headlinerStrength,      15],
+    [audienceDiversityScore, 12],
+    [normalizedConcertTotal, 13],
+    [venueScore,             10],
+    [fanServiceBalance,       7],
+    [deepCutBalance,          7],
+    [bandScore,               5],
+    [concertScore,            3],
+  ]);
+  const prestigeScore = clamp(prestigeRaw);
+
+  const prestigeTier =
+    prestigeScore >= 90 ? 'Mythic Festival'      :
+    prestigeScore >= 75 ? 'World Class Festival' :
+    prestigeScore >= 60 ? 'Legendary Event'      :
+    prestigeScore >= 40 ? 'Cult Festival'        :
+    prestigeScore >= 20 ? 'Regional Event'       :
+                          'Local Gathering';
+
+  const achievements = computeFestivalAchievements({
+    chemistryScore, headlinerStrength, openerStrength, audienceDiversityScore,
+    avgFanService, avgDeepCuts, avgVenueFit, bandCount, concertCount, prestigeScore,
+  });
+
+  const legacyReport = generateLegacyReport(
+    prestigeScore, prestigeTier, festivalPersonality, primaryArchetypeName,
+    chemistryScore, achievements,
+  );
+
+  return { prestigeScore, prestigeTier, legacyReport, achievements };
+}
+
+function computeFestivalAchievements(params: {
+  chemistryScore: number;
+  headlinerStrength: number;
+  openerStrength: number;
+  audienceDiversityScore: number;
+  avgFanService: number;
+  avgDeepCuts: number;
+  avgVenueFit: number | null;
+  bandCount: number;
+  concertCount: number;
+  prestigeScore: number;
+}): FestivalAchievement[] {
+  const { chemistryScore, headlinerStrength, openerStrength, audienceDiversityScore,
+          avgFanService, avgDeepCuts, avgVenueFit, bandCount, concertCount, prestigeScore } = params;
+  return [
+    {
+      key: 'perfectly_curated', name: 'Perfectly Curated', icon: '🧪',
+      description: 'Festival chemistry score of 90 or higher.',
+      unlocked: chemistryScore >= 90,
+    },
+    {
+      key: 'headliner_excellence', name: 'Headliner Excellence', icon: '⭐',
+      description: 'Headliner strength score of 80 or higher.',
+      unlocked: headlinerStrength >= 80,
+    },
+    {
+      key: 'universal_crowd', name: 'Universal Crowd', icon: '🌍',
+      description: 'Audience diversity score of 70 or higher.',
+      unlocked: audienceDiversityScore >= 70,
+    },
+    {
+      key: 'deep_archive', name: 'Deep Archive', icon: '🔍',
+      description: 'Average deep cut score of 70 or higher.',
+      unlocked: avgDeepCuts >= 70,
+    },
+    {
+      key: 'fan_favourite', name: 'Fan Favourite', icon: '❤️',
+      description: 'Average fan service score of 75 or higher.',
+      unlocked: avgFanService >= 75,
+    },
+    {
+      key: 'venue_harmony', name: 'Venue Harmony', icon: '🏟️',
+      description: 'Average venue fit of 80 or higher.',
+      unlocked: (avgVenueFit ?? 0) >= 80,
+    },
+    {
+      key: 'grand_coalition', name: 'Grand Coalition', icon: '🤝',
+      description: 'Four or more different bands performing.',
+      unlocked: bandCount >= 4,
+    },
+    {
+      key: 'marathon_event', name: 'Marathon Event', icon: '🎪',
+      description: 'Four or more concerts in the lineup.',
+      unlocked: concertCount >= 4,
+    },
+    {
+      key: 'rising_headliner', name: 'Rising Headliner', icon: '📈',
+      description: 'Headliner is the strongest act and opener scores 60+.',
+      unlocked: headlinerStrength >= openerStrength && openerStrength >= 60,
+    },
+    {
+      key: 'mythic_status', name: 'Mythic Status', icon: '🌟',
+      description: 'Festival prestige score of 90 or higher.',
+      unlocked: prestigeScore >= 90,
+    },
+  ];
+}
+
+function generateLegacyReport(
+  prestige: number,
+  tier: string,
+  personality: string,
+  primaryAudience: string,
+  chemistryScore: number,
+  achievements: FestivalAchievement[],
+): string {
+  const unlockedCount = achievements.filter((a) => a.unlocked).length;
+  const achievementClause =
+    unlockedCount >= 8 ? `${unlockedCount} of 10 achievements unlocked — a near-complete collection of recognition.` :
+    unlockedCount >= 5 ? `${unlockedCount} of 10 achievements unlocked.` :
+    unlockedCount >= 2 ? `${unlockedCount} of 10 achievements unlocked — room to grow.` :
+                         'No achievements unlocked yet — there is ground still to cover.';
+
+  const chemistryClause =
+    chemistryScore >= 80 ? 'The chemistry between acts is exceptional' :
+    chemistryScore >= 60 ? 'The chemistry between acts is solid'       :
+    chemistryScore >= 40 ? 'The chemistry between acts is adequate'    :
+                           'The chemistry between acts is yet to be refined';
+
+  const TIER_OPENINGS: Record<string, string> = {
+    'Mythic Festival':      'This festival has transcended the ordinary. Its name belongs in the same breath as the greatest live music events ever conceived.',
+    'World Class Festival': 'A festival of genuine prestige. The calibre of acts, the setlist depth, and the crowd chemistry place this event among the elite.',
+    'Legendary Event':      'A strong and memorable festival. The pieces are in place — a few refinements away from world class.',
+    'Cult Festival':        'This event has built something real. The devoted will remember it; the uninitiated will regret missing it.',
+    'Regional Event':       'A promising festival still finding its identity. The foundations are here; the legend is being written.',
+    'Local Gathering':      'A start. Every great festival began here — with a lineup, a crowd, and a vision not yet fully realised.',
+  };
+
+  const opening = TIER_OPENINGS[tier] ?? `A ${tier.toLowerCase()} with a prestige score of ${prestige}.`;
+  const audienceClause  = primaryAudience ? `The primary audience — ${primaryAudience} — have found their festival.` : '';
+  const personalityClause = personality   ? `The ${personality} personality runs through every act on the bill.`    : '';
+
+  return [opening, `${chemistryClause}. ${audienceClause}`, personalityClause, achievementClause]
+    .filter(Boolean).join(' ');
+}
+
 // Shared data-fetching preamble used by festival list + detail to load concert data in bulk.
 async function loadConcertDataForFestivals(concertIds: string[]) {
   if (concertIds.length === 0) return {
@@ -2355,10 +2543,28 @@ bandRpgRouter.get('/festivals', requireAuth, async (req, res, next): Promise<voi
         .filter((p): p is BandAudienceProfileData => p !== undefined);
       const audience = computeAudienceArchetypes(uniqueBandProfiles, avgFanService, avgDeepCuts, personality, chemistry);
 
+      const avgConcertTotal = computed.length > 0
+        ? computed.reduce((s, m) => s + m.concertTotal, 0) / computed.length : 0;
+      const prestige = computeFestivalPrestige({
+        chemistryScore:         chemistry.chemistryScore,
+        headlinerStrength:      lineupAnalysis.headlinerScore,
+        openerStrength:         lineupAnalysis.openerScore,
+        audienceDiversityScore: audience.audienceDiversityScore,
+        avgConcertTotal,
+        avgVenueFit,
+        avgFanService,
+        avgDeepCuts,
+        bandCount,
+        concertCount,
+        festivalPersonality:  personality,
+        primaryArchetypeName: audience.primaryArchetype.name,
+      });
+
       return {
         id:                 festival.id,
         name:               festival.name,
         description:        festival.description ?? null,
+        isDream:            festival.isDream,
         concertCount,
         bandCount,
         totalSongs,
@@ -2370,6 +2576,7 @@ bandRpgRouter.get('/festivals', requireAuth, async (req, res, next): Promise<voi
         chemistry,
         lineupAnalysis,
         audience,
+        prestige,
         createdAt:           festival.createdAt.toISOString(),
         updatedAt:           festival.updatedAt.toISOString(),
       };
@@ -2510,10 +2717,28 @@ bandRpgRouter.get('/festivals/:festivalId', requireAuth, async (req, res, next):
       .filter((p): p is BandAudienceProfileData => p !== undefined);
     const audience = computeAudienceArchetypes(uniqueBandProfilesDetail, avgFanService, avgDeepCuts, personality, chemistry);
 
+    const avgConcertTotalDetail = computed.length > 0
+      ? computed.reduce((s, m) => s + m.concertTotal, 0) / computed.length : 0;
+    const prestige = computeFestivalPrestige({
+      chemistryScore:         chemistry.chemistryScore,
+      headlinerStrength:      lineupAnalysis.headlinerScore,
+      openerStrength:         lineupAnalysis.openerScore,
+      audienceDiversityScore: audience.audienceDiversityScore,
+      avgConcertTotal:        avgConcertTotalDetail,
+      avgVenueFit,
+      avgFanService,
+      avgDeepCuts,
+      bandCount,
+      concertCount,
+      festivalPersonality:  personality,
+      primaryArchetypeName: audience.primaryArchetype.name,
+    });
+
     res.json({
       id:                  festival.id,
       name:                festival.name,
       description:         festival.description ?? null,
+      isDream:             festival.isDream,
       concertCount,
       bandCount,
       totalSongs,
@@ -2525,6 +2750,7 @@ bandRpgRouter.get('/festivals/:festivalId', requireAuth, async (req, res, next):
       chemistry,
       lineupAnalysis,
       audience,
+      prestige,
       concerts:            computed,
       createdAt:           festival.createdAt.toISOString(),
       updatedAt:           festival.updatedAt.toISOString(),
@@ -2555,6 +2781,46 @@ bandRpgRouter.put('/festivals/:festivalId', requireAuth, async (req, res, next):
 
     await prisma.bandRpgFestival.update({ where: { id: festivalId }, data });
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ── PATCH /festivals/:festivalId/dream ───────────────────────────────────────
+
+bandRpgRouter.patch('/festivals/:festivalId/dream', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const festivalId = req.params['festivalId'];
+    if (!festivalId) { res.status(400).json({ error: 'festivalId is required' }); return; }
+
+    const festival = await prisma.bandRpgFestival.findFirst({ where: { id: festivalId, userId } });
+    if (!festival) { res.status(404).json({ error: 'Not found' }); return; }
+
+    const body    = req.body as Record<string, unknown>;
+    const isDream = typeof body['isDream'] === 'boolean' ? body['isDream'] : null;
+    if (isDream === null) { res.status(400).json({ error: 'isDream (boolean) is required' }); return; }
+
+    if (isDream) {
+      // At most one Dream Festival per user — clear existing, then set new one
+      await prisma.$transaction([
+        prisma.bandRpgFestival.updateMany({
+          where: { userId, isDream: true },
+          data:  { isDream: false },
+        }),
+        prisma.bandRpgFestival.update({
+          where: { id: festivalId },
+          data:  { isDream: true, updatedAt: new Date() },
+        }),
+      ]);
+    } else {
+      await prisma.bandRpgFestival.update({
+        where: { id: festivalId },
+        data:  { isDream: false, updatedAt: new Date() },
+      });
+    }
+
+    res.json({ ok: true, isDream });
   } catch (e) { next(e); }
 });
 
