@@ -373,15 +373,17 @@ function ErrorMsg({ msg }: { msg: string }) {
   );
 }
 
-function EmptyState({ icon, title, desc }: { icon: string; title: string; desc: string }) {
+function EmptyState({ icon, title, desc, action }: { icon: string; title: string; desc: string; action?: React.ReactNode }) {
   return (
     <div className="flex flex-col items-center justify-center h-64 gap-4 text-center px-6">
       <span className="text-4xl">{icon}</span>
       <p className="text-gray-300 font-semibold">{title}</p>
       <p className="text-gray-500 text-sm max-w-xs">{desc}</p>
-      <Link to="/play/band-rpg" className="bg-amber-700 hover:bg-amber-600 text-white px-6 py-2 rounded-lg text-sm font-semibold transition-colors">
-        Play Band RPG
-      </Link>
+      {action ?? (
+        <Link to="/play/band-rpg" className="bg-amber-700 hover:bg-amber-600 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+          Play Band RPG
+        </Link>
+      )}
     </div>
   );
 }
@@ -1772,7 +1774,7 @@ function ConcertDetailModal({
   return (
     <>
       <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
-        <div className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
+        <div className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90dvh] flex flex-col overflow-hidden"
           onClick={(e) => e.stopPropagation()}>
           {isLoading ? (
             <div className="flex items-center justify-center h-48">
@@ -1794,8 +1796,10 @@ function ConcertDetailModal({
                 <p className="text-gray-500 text-sm mt-0.5">{detail.bandName} · {detail.setlistName}</p>
               </div>
 
+              {/* Scrollable body: analysis + intelligence + setlist */}
+              <div className="flex-1 overflow-y-auto overscroll-contain">
               {/* Analysis panel */}
-              <div className="px-4 py-3 border-b border-gray-800 bg-gray-900/50 shrink-0">
+              <div className="px-4 py-3 border-b border-gray-800 bg-gray-900/50">
                 <div className="flex items-center gap-3 mb-3">
                   <ConcertGradeBadge grade={detail.grade} size="lg" />
                   <div className="flex-1 min-w-0">
@@ -1955,7 +1959,7 @@ function ConcertDetailModal({
               </div>
 
               {/* Song list with encore marker */}
-              <div className="flex-1 overflow-y-auto">
+              <div>
                 {detail.songs.length === 0 ? (
                   <div className="px-4 py-8 text-center text-gray-600 text-sm">No songs in this setlist.</div>
                 ) : (
@@ -1998,6 +2002,7 @@ function ConcertDetailModal({
                   </>
                 )}
               </div>
+              </div>{/* end scrollable body */}
 
               {/* Footer */}
               <div className="flex items-center gap-3 px-5 py-4 border-t border-gray-800 shrink-0">
@@ -2009,11 +2014,11 @@ function ConcertDetailModal({
                 </button>
                 <div className="flex-1" />
                 <button onClick={onClose}
-                  className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+                  className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
                   Close
                 </button>
                 <button onClick={() => void saveMutation.mutate()} disabled={!isDirty || saveMutation.isPending}
-                  className="bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+                  className="bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
                   {saveMutation.isPending ? 'Saving…' : 'Save'}
                 </button>
               </div>
@@ -2072,9 +2077,13 @@ function ConcertsTab() {
           <EmptyState icon="🎤" title="No concerts yet"
             desc="Build a setlist first, then turn it into a concert with flow analysis and an encore." />
         ) : concerts.length === 0 ? (
-          <div className="rounded-xl border border-gray-800 bg-gray-900/60 px-6 py-10 text-center">
-            <p className="text-gray-300 font-semibold mb-1">Stage your first concert</p>
+          <div className="rounded-xl border border-gray-800 bg-gray-900/60 px-6 py-10 text-center space-y-3">
+            <p className="text-gray-300 font-semibold">Stage your first concert</p>
             <p className="text-gray-600 text-sm">Turn one of your setlists into a concert to unlock flow analysis, opener/closer grades, and the encore marker.</p>
+            <button onClick={() => setShowCreate(true)}
+              className="inline-flex items-center bg-indigo-700 hover:bg-indigo-600 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+              + New Concert
+            </button>
           </div>
         ) : (
           <>
@@ -2618,7 +2627,7 @@ function FestivalDetailModal({
   return (
     <>
       <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
-        <div className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
+        <div className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90dvh] flex flex-col overflow-hidden"
           onClick={(e) => e.stopPropagation()}>
           {isLoading ? (
             <div className="flex items-center justify-center h-48">
@@ -2640,8 +2649,10 @@ function FestivalDetailModal({
                 <p className="text-violet-400/60 text-sm italic mt-0.5">{detail.festivalPersonality}</p>
               </div>
 
+              {/* Scrollable body: analysis + lineup */}
+              <div className="flex-1 overflow-y-auto overscroll-contain">
               {/* Analysis */}
-              <div className="px-4 py-3 border-b border-gray-800 bg-gray-900/50 shrink-0 space-y-2">
+              <div className="px-4 py-3 border-b border-gray-800 bg-gray-900/50 space-y-2">
                 <div className="flex gap-4 text-xs text-gray-500 flex-wrap">
                   <span>🎤 {detail.concertCount} concert{detail.concertCount !== 1 ? 's' : ''}</span>
                   <span>🎸 {detail.bandCount} band{detail.bandCount !== 1 ? 's' : ''}</span>
@@ -2710,7 +2721,7 @@ function FestivalDetailModal({
               </div>
 
               {/* Lineup editor */}
-              <div className="flex-1 overflow-y-auto">
+              <div>
                 {lineupEntries.length === 0 ? (
                   <div className="px-4 py-6 text-center text-gray-600 text-sm">No concerts in this lineup yet.</div>
                 ) : (
@@ -2766,6 +2777,7 @@ function FestivalDetailModal({
                   </div>
                 )}
               </div>
+              </div>{/* end scrollable body */}
 
               {/* Footer */}
               <div className="flex items-center gap-3 px-5 py-4 border-t border-gray-800 shrink-0">
@@ -2777,18 +2789,18 @@ function FestivalDetailModal({
                 </button>
                 <div className="flex-1" />
                 <button onClick={onClose}
-                  className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+                  className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
                   Close
                 </button>
                 {lineupDirty && (
                   <button onClick={() => void saveLineup.mutate()} disabled={anySaving}
-                    className="bg-violet-700 hover:bg-violet-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+                    className="bg-violet-700 hover:bg-violet-600 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
                     {saveLineup.isPending ? 'Saving…' : 'Save Lineup'}
                   </button>
                 )}
                 {isDirty && !lineupDirty && (
                   <button onClick={() => void saveMeta.mutate()} disabled={anySaving}
-                    className="bg-violet-700 hover:bg-violet-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+                    className="bg-violet-700 hover:bg-violet-600 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
                     {saveMeta.isPending ? 'Saving…' : 'Save'}
                   </button>
                 )}
@@ -2848,9 +2860,13 @@ function FestivalsTab() {
           <EmptyState icon="🎪" title="No festivals yet"
             desc="Build concerts first, then combine them into a festival lineup." />
         ) : festivals.length === 0 ? (
-          <div className="rounded-xl border border-gray-800 bg-gray-900/60 px-6 py-10 text-center">
-            <p className="text-gray-300 font-semibold mb-1">Stage your first festival</p>
-            <p className="text-gray-600 text-sm">Combine your concerts into a festival lineup. Each festival receives analysis, a personality, and an exportable card.</p>
+          <div className="rounded-xl border border-gray-800 bg-gray-900/60 px-6 py-10 text-center space-y-3">
+            <p className="text-gray-300 font-semibold">Stage your first festival</p>
+            <p className="text-gray-600 text-sm">Combine your concerts into a festival lineup. Each festival receives a Chemistry Score, personality, and an exportable card.</p>
+            <button onClick={() => setShowCreate(true)}
+              className="inline-flex items-center bg-violet-700 hover:bg-violet-600 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+              + New Festival
+            </button>
           </div>
         ) : (
           <>
@@ -2957,21 +2973,23 @@ export default function BandRpgCollectionPage() {
         <LifetimePoints />
       </div>
 
-      {/* Tab bar */}
-      <div className="flex items-center gap-1 px-4 py-2.5 bg-black/20 border-b border-gray-800 shrink-0">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setActiveTab(t.id)}
-            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
-              activeTab === t.id
-                ? 'bg-gray-800 text-white'
-                : 'text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      {/* Tab bar — scrollable on mobile so all 5 tabs are always reachable */}
+      <div className="overflow-x-auto bg-black/20 border-b border-gray-800 shrink-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex items-center gap-1 px-4 py-2.5 min-w-max">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap ${
+                activeTab === t.id
+                  ? 'bg-gray-800 text-white'
+                  : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
