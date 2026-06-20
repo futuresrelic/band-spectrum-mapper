@@ -635,6 +635,119 @@ export interface PublicTour {
   createdAt:       string;
 }
 
+// ── Phase Y.2 — Community Discovery types ────────────────────────────────────
+
+export interface CommunityCuratorCard {
+  userId:      string;
+  displayName: string;
+  title:       string;
+  level:       number;
+  xp:          number;
+  badgeCount:  number;
+  label:       string;
+}
+
+export interface CommunityFestivalCard {
+  id:           string;
+  name:         string;
+  isDream:      boolean;
+  concertCount: number;
+  label:        string;
+  createdAt:    string;
+}
+
+export interface CommunityTourCard {
+  id:        string;
+  name:      string;
+  stopCount: number;
+  label:     string;
+  createdAt: string;
+}
+
+export interface CommunityHub {
+  stats: {
+    publicCurators:          number;
+    publicFestivals:         number;
+    publicTours:             number;
+    totalSongsRecovered:     number;
+    totalChallengesCompleted: number;
+  };
+  featured: {
+    curator:   CommunityCuratorCard | null;
+    festival:  CommunityFestivalCard | null;
+    tour:      CommunityTourCard | null;
+    discovery: { type: string; id: string; name: string; url: string } | null;
+  };
+  spotlights: {
+    curatorOfWeek:  CommunityCuratorCard | null;
+    festivalOfWeek: CommunityFestivalCard | null;
+    tourOfWeek:     CommunityTourCard | null;
+  };
+}
+
+export interface LeaderboardEntry {
+  rank:        number;
+  userId:      string;
+  displayName: string;
+  title:       string;
+  level:       number;
+  score:       number;
+  scoreLabel:  string;
+  label:       string;
+}
+
+export interface LeaderboardResponse {
+  type:    string;
+  period:  string;
+  entries: LeaderboardEntry[];
+}
+
+export interface DiscoverCuratorItem {
+  userId:      string;
+  displayName: string;
+  title:       string;
+  level:       number;
+  xp:          number;
+  badgeCount:  number;
+  label:       string;
+  since:       string | null;
+  url:         string;
+}
+
+export interface DiscoverFestivalItem {
+  id:           string;
+  name:         string;
+  isDream:      boolean;
+  concertCount: number;
+  label:        string;
+  createdAt:    string;
+  url:          string;
+}
+
+export interface DiscoverTourItem {
+  id:        string;
+  name:      string;
+  stopCount: number;
+  label:     string;
+  createdAt: string;
+  url:       string;
+}
+
+export interface DiscoverResponse {
+  type:  string;
+  total: number;
+  page:  number;
+  limit: number;
+  items: (DiscoverCuratorItem | DiscoverFestivalItem | DiscoverTourItem)[];
+}
+
+export interface SurpriseResponse {
+  type: string | null;
+  id:   string | null;
+  name: string | null;
+  url:  string | null;
+}
+
 // ── API client ────────────────────────────────────────────────────────────────
 
 export const bandRpgApi = {
@@ -889,4 +1002,22 @@ export const bandRpgApi = {
 
   getPublicTour: (id: string) =>
     api.get<PublicTour>(`/api/band-rpg/public/tour/${encodeURIComponent(id)}`),
+
+  // Phase Y.2 — Community Discovery
+  getCommunityHub: () =>
+    api.get<CommunityHub>('/api/band-rpg/community/hub'),
+
+  getCommunityLeaderboard: (type: string, period: string) =>
+    api.get<LeaderboardResponse>(
+      `/api/band-rpg/community/leaderboard?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}`,
+    ),
+
+  communityDiscover: (type: string, page = 1, limit = 12, isDream?: boolean) => {
+    const qs = new URLSearchParams({ type, page: String(page), limit: String(limit) });
+    if (isDream !== undefined) qs.set('isDream', String(isDream));
+    return api.get<DiscoverResponse>(`/api/band-rpg/community/discover?${qs.toString()}`);
+  },
+
+  communitySurprise: () =>
+    api.get<SurpriseResponse>('/api/band-rpg/community/surprise'),
 };

@@ -4,6 +4,39 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Y.2 — Community Discovery (2026-06-20)
+
+### Added
+
+- **`/community` page** — public community hub with three tabs: Overview, Leaderboards, and Discover. No auth required.
+- **5 community API endpoints** (`/api/band-rpg/community/*`, all public, no auth):
+  - `GET /hub` — featured curator/festival/tour (all-time top), spotlight of the week (most active in last 7 days), community stats, and a random "discovery" pick.
+  - `GET /stats` — 7 aggregate counts: public curators, festivals, tours, total songs recovered, albums completed, challenges completed, dream festivals.
+  - `GET /leaderboard?type=&period=` — 6 leaderboard types × 3 time periods. Types: `curators` (by XP), `collectors` (by songs), `festivals` (by festival count), `tours` (by tour count), `challenges` (by completed challenges), `archivists` (by rare/legendary/mythic song count). Periods: `alltime | month | week`. All entries restricted to users with public curator profiles.
+  - `GET /discover?type=&page=&limit=&isDream=` — paginated discovery browser. Types: `curator | festival | tour`. Festivals support a `isDream=true` filter. Max 24 items per page.
+  - `GET /surprise` — returns a weighted random public entity (festival, tour, or curator) for the Surprise Me button.
+- **Overview tab**: community stats hero (5 counters), Spotlight of the Week (3 cards: curator/festival/tour), Top of the Archive (3 all-time featured cards), Surprise Me button (random navigation).
+- **Leaderboards tab**: 6 type filter tabs + 3 period filter tabs. Ranked list with gold/silver/bronze rank colouring. Each row links to the curator's public profile.
+- **Discover tab**: 3 type tabs (Festivals / Tours / Curators), Dream-only filter for festivals, paginated 2-column card grid with Prev/Next navigation and total count.
+- **3 discovery card components** (inline in CommunityPage): `CuratorMiniCard` (indigo theme, level badge, labels), `FestivalMiniCard` (amber theme, dream crown, concert count), `TourMiniCard` (teal theme, stop count).
+- **Privacy compliance**: all community endpoints only surface entities where `visibility = 'public'`. Unlisted and private items are never included in any leaderboard or discovery feed.
+- **Community statistics** — 5 live aggregate stats displayed in the hub. All queries use indexed fields.
+- **Surprise Me button** — weighted random selection proportional to counts of public festivals, tours, and curators. Navigates directly to the public page of the chosen entity.
+- **Auto-generated labels**: curators (`Newcomer / Archive Regular / Rising Star / Badge Master / Elite Curator / Mythic Archivist`), festivals (`Emerging Festival / Festival / Major Festival / Grand Festival / Dream Festival`), tours (`Intimate Run / Tour / Regional Tour / Major Tour / World Tour`).
+- **Y.3 foundation**: visibility field + discovery infrastructure is sufficient to later add likes/bookmarks/following without schema changes to the core entities.
+
+### Technical notes
+- `communityRouter` mounted at `/api/band-rpg/community` in `app.ts` (no auth middleware).
+- All leaderboard queries begin by fetching the set of public `userId` values, then filter all subsequent groupBy/findMany to that set — ensures privacy.
+- `groupBy` with `_count` used for collectors, challenges, archivists, festivals, and tours leaderboards. Direct XP sort used for curators (already in profile table).
+- Curator leaderboard time filter (week/month): uses `lastActiveDate >= since` before re-sorting by XP.
+- Hub "spotlight of the week" uses `lastActiveDate >= weekAgo` for curators and `createdAt >= monthAgo` for festivals/tours.
+- Discovery endpoint uses Prisma `skip`/`take` pagination with a parallel `count()` query for total.
+- `isDream` filter passed as `?isDream=true` query param — backend uses `where: { isDream: true }` when present.
+- All community API types exported from `apps/web/src/api/bandRpg.ts`: `CommunityCuratorCard`, `CommunityFestivalCard`, `CommunityTourCard`, `CommunityHub`, `LeaderboardEntry`, `LeaderboardResponse`, `DiscoverCuratorItem`, `DiscoverFestivalItem`, `DiscoverTourItem`, `DiscoverResponse`, `SurpriseResponse`.
+
+---
+
 ## Phase Y.1 — Sharing & Showcase (2026-06-20)
 
 ### Added

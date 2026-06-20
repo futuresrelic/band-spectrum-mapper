@@ -90,6 +90,7 @@ import BandRpgCollectionPage from './pages/BandRpgCollectionPage';
 import BandRpgPublicCuratorPage from './pages/BandRpgPublicCuratorPage';
 import BandRpgPublicFestivalPage from './pages/BandRpgPublicFestivalPage';
 import BandRpgPublicTourPage from './pages/BandRpgPublicTourPage';
+import CommunityPage from './pages/CommunityPage';
 import AdminBandRpgPage from './pages/AdminBandRpgPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
@@ -152,6 +153,8 @@ export default function App() {
         <Route path="/band-rpg/curator/:userId"  element={<BandRpgPublicCuratorPage />} />
         <Route path="/band-rpg/festival/:id"     element={<BandRpgPublicFestivalPage />} />
         <Route path="/band-rpg/tour/:id"         element={<BandRpgPublicTourPage />} />
+        {/* ── Community Discovery — Phase Y.2 ── */}
+        <Route path="/community" element={<CommunityPage />} />
 
         {/* ── USER: rating surface + game, any logged-in Google user ── */}
         <Route path="/my" element={<UserLayout />}>

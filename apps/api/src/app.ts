@@ -61,6 +61,7 @@ import { tourRouter } from './routes/tourRoutes.js';
 import { challengeRouter } from './routes/challengeRoutes.js';
 import { curatorRouter } from './routes/curatorRoutes.js';
 import { bandRpgPublicRouter } from './routes/bandRpgPublicRoutes.js';
+import { communityRouter } from './routes/communityRoutes.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -234,6 +235,9 @@ export function createApp() {
 
   // Sharing & Showcase — Phase Y.1 (public, no auth)
   app.use('/api/band-rpg/public', bandRpgPublicRouter);
+
+  // Community Discovery — Phase Y.2 (public, no auth)
+  app.use('/api/band-rpg/community', communityRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.
