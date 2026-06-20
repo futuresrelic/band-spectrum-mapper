@@ -8,6 +8,7 @@ import type {
   BandRpgCollectedSong, BandRpgAlbumProgress,
   BandRpgAlbumSong, AlbumState,
   BandRpgCollectionGroup, BandRpgSetlistSummary, BandRpgSetlistDetail,
+  BandRpgConcertSummary, BandRpgConcertDetail, BandRpgSetlistSongEntry,
 } from '../api/bandRpg';
 
 // ── Rarity display ─────────────────────────────────────────────────────────────
@@ -1240,6 +1241,651 @@ function SetlistsTab() {
   );
 }
 
+// ── Concert canvas card ────────────────────────────────────────────────────────
+
+function drawConcertCard(canvas: HTMLCanvasElement, data: BandRpgConcertDetail): void {
+  const W = 800, H = 1140;
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  // Background
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#080b14');
+  bg.addColorStop(0.5, '#0b0e1c');
+  bg.addColorStop(1, '#0e1020');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Top accent bar (indigo gradient — distinct from amber setlist)
+  const topBar = ctx.createLinearGradient(0, 0, W, 0);
+  topBar.addColorStop(0, '#6366f1');
+  topBar.addColorStop(1, '#4f46e5');
+  ctx.fillStyle = topBar;
+  ctx.fillRect(0, 0, W, 6);
+
+  const PAD = 52;
+  let y = 62;
+
+  // Header label
+  ctx.fillStyle = '#374151';
+  ctx.font = '600 11px system-ui,sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('THE ARCHIVE — CONCERT', PAD, y);
+
+  y += 38;
+
+  // Grade circle (top-right)
+  const gradeCfg = GRADE_STYLE[data.grade] ?? GRADE_STYLE['D']!;
+  const gX = W - PAD - 44, gY = y + 22;
+  ctx.beginPath();
+  ctx.arc(gX, gY, 44, 0, Math.PI * 2);
+  ctx.fillStyle = gradeCfg.canvasColor + '1a';
+  ctx.fill();
+  ctx.strokeStyle = gradeCfg.canvasColor;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = gradeCfg.canvasColor;
+  ctx.font = 'bold 42px system-ui,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(data.grade, gX, gY + 15);
+  ctx.textAlign = 'left';
+
+  // Band name
+  ctx.fillStyle = '#9ca3af';
+  ctx.font = '500 16px system-ui,sans-serif';
+  ctx.fillText(data.bandName, PAD, y);
+
+  y += 38;
+
+  // Concert name
+  const nameSize = data.concertName.length > 28 ? 26 : data.concertName.length > 18 ? 30 : 36;
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${nameSize}px system-ui,sans-serif`;
+  ctx.fillText(truncateForCanvas(ctx, data.concertName, W - PAD * 2 - 120), PAD, y);
+
+  y += 28;
+
+  // Score
+  ctx.fillStyle = '#818cf8';
+  ctx.font = 'bold 14px system-ui,sans-serif';
+  ctx.fillText(`⚡ ${data.concertTotal} pts`, PAD, y);
+  ctx.fillStyle = '#4b5563';
+  ctx.font = '400 12px system-ui,sans-serif';
+  ctx.fillText(
+    `(${data.rarityValue} rarity + ${data.diversityBonus} diversity + ${data.flowScore} flow + ${data.openerScore} opener + ${data.closerScore} closer)`,
+    PAD + 96, y,
+  );
+
+  y += 22;
+
+  // Stats
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '400 14px system-ui,sans-serif';
+  ctx.fillText(`🎵 ${data.songCount} songs   💿 ${data.albumCount} albums   〜 Flow ${data.flowScore}/20`, PAD, y);
+
+  y += 30;
+
+  // Divider
+  ctx.strokeStyle = '#1f2937';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+  y += 20;
+
+  // Main set section
+  const drawSongBlock = (label: string, songs: BandRpgSetlistSongEntry[], startIndex: number): number => {
+    ctx.fillStyle = '#374151';
+    ctx.font = '700 11px system-ui,sans-serif';
+    ctx.fillText(label.toUpperCase(), PAD, y);
+    y += 20;
+
+    const max = 10;
+    const display = songs.slice(0, max);
+    for (const [i, song] of display.entries()) {
+      const sy = y + i * 32;
+      ctx.fillStyle = '#374151';
+      ctx.font = '400 11px system-ui,sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(String(startIndex + i + 1).padStart(2, '0'), PAD + 24, sy);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#d1d5db';
+      ctx.font = '400 14px system-ui,sans-serif';
+      ctx.fillText(truncateForCanvas(ctx, song.songTitle, W - PAD * 2 - 52), PAD + 36, sy);
+      const dot = CARD_RARITY_DOT[song.rarity] ?? '#9ca3af';
+      ctx.beginPath();
+      ctx.arc(W - PAD - 8, sy - 4, 5, 0, Math.PI * 2);
+      ctx.fillStyle = dot;
+      ctx.fill();
+    }
+    y += display.length * 32;
+    if (songs.length > max) {
+      ctx.fillStyle = '#4b5563';
+      ctx.font = 'italic 12px system-ui,sans-serif';
+      ctx.fillText(`+ ${songs.length - max} more`, PAD, y + 12);
+      y += 28;
+    }
+    return y;
+  };
+
+  drawSongBlock('Main Set', data.mainSet, 0);
+
+  if (data.encore.length > 0) {
+    y += 10;
+    ctx.strokeStyle = '#312e81';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+    y += 18;
+    drawSongBlock('Encore', data.encore, data.mainSet.length);
+  }
+
+  y += 8;
+
+  // Divider
+  ctx.strokeStyle = '#1f2937';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+  y += 20;
+
+  // Opener / Closer labels
+  if (data.openerLabel || data.closerLabel) {
+    ctx.fillStyle = '#4b5563';
+    ctx.font = '400 12px system-ui,sans-serif';
+    if (data.openerLabel) ctx.fillText(`▶ ${data.openerLabel}`, PAD, y);
+    if (data.closerLabel) ctx.fillText(`◼ ${data.closerLabel}`, PAD + 260, y);
+    y += 24;
+  }
+
+  // Footer
+  ctx.strokeStyle = '#1f2937';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, H - 44); ctx.lineTo(W - PAD, H - 44); ctx.stroke();
+  ctx.fillStyle = '#374151';
+  ctx.font = '400 12px system-ui,sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('Band Spectrum Mapper · The Archive', PAD, H - 22);
+  ctx.textAlign = 'right';
+  ctx.fillText(new Date().getFullYear().toString(), W - PAD, H - 22);
+}
+
+// ── Concert export modal ───────────────────────────────────────────────────────
+
+function ConcertExportModal({ detail, onClose }: { detail: BandRpgConcertDetail; onClose: () => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (canvasRef.current) drawConcertCard(canvasRef.current, detail);
+  }, [detail]);
+
+  function handleExport() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${detail.bandName} - ${detail.concertName}.png`.replace(/[^a-z0-9.\-_ ]/gi, '_');
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/85 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 shrink-0">
+          <h3 className="text-white font-semibold">Share Concert</h3>
+          <button onClick={onClose} className="text-gray-600 hover:text-gray-400 text-xl leading-none">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="rounded-xl overflow-hidden bg-gray-950 border border-gray-800">
+            <canvas ref={canvasRef} width={800} height={1140} className="w-full h-auto block" />
+          </div>
+          <p className="text-center text-xs text-gray-600 mt-3">Tap Export to save as PNG · Share anywhere</p>
+        </div>
+        <div className="flex gap-3 px-5 py-4 border-t border-gray-800 shrink-0">
+          <button onClick={onClose}
+            className="flex-1 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+            Close
+          </button>
+          <button onClick={handleExport}
+            className="flex-1 bg-indigo-700 hover:bg-indigo-600 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+            Export PNG
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Concert components ─────────────────────────────────────────────────────────
+
+function ConcertGradeBadge({ grade, size = 'sm' }: { grade: string; size?: 'sm' | 'lg' }) {
+  const cfg = GRADE_STYLE[grade] ?? GRADE_STYLE['D']!;
+  const cls = size === 'lg'
+    ? `w-14 h-14 rounded-full border-2 flex items-center justify-center font-bold text-2xl ${cfg.bg} ${cfg.color}`
+    : `w-9 h-9 rounded-full border flex items-center justify-center font-bold text-sm ${cfg.bg} ${cfg.color}`;
+  return <div className={cls}>{grade}</div>;
+}
+
+function ConcertCard({ concert, onClick }: { concert: BandRpgConcertSummary; onClick: () => void }) {
+  return (
+    <button onClick={onClick}
+      className="w-full text-left bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 hover:bg-gray-800/60 transition-colors">
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-gray-500 mb-0.5">{concert.bandName} · {concert.setlistName}</p>
+          <p className="text-white font-semibold truncate">{concert.concertName}</p>
+        </div>
+        <ConcertGradeBadge grade={concert.grade} />
+      </div>
+      <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+        <span>🎵 {concert.songCount} songs</span>
+        <span className="text-indigo-400/80">⚡ {concert.concertTotal} pts</span>
+        <span className="text-gray-600">〜 Flow {concert.flowScore}/20</span>
+        {concert.encorePosition !== null && <span className="text-purple-500/70">Encore ✓</span>}
+      </div>
+    </button>
+  );
+}
+
+function ConcertHallOfFame({ concerts }: { concerts: BandRpgConcertSummary[] }) {
+  if (concerts.length === 0) return null;
+  const best = (fn: (a: BandRpgConcertSummary, b: BandRpgConcertSummary) => boolean) =>
+    concerts.reduce((acc, c) => (fn(c, acc) ? c : acc));
+
+  const bestGrade    = best((a, b) => a.concertTotal > b.concertTotal);
+  const highestFlow  = best((a, b) => a.flowScore > b.flowScore);
+  const mostDiverse  = best((a, b) => a.albumCount > b.albumCount);
+  const bestOpener   = best((a, b) => a.openerScore > b.openerScore);
+
+  const items = [
+    { label: 'Best Concert',   icon: '🎤', concert: bestGrade,   value: `${bestGrade.concertTotal} pts`         },
+    { label: 'Highest Flow',   icon: '〜', concert: highestFlow,  value: `Flow ${highestFlow.flowScore}/20`      },
+    { label: 'Most Diverse',   icon: '💿', concert: mostDiverse,  value: `${mostDiverse.albumCount} albums`     },
+    { label: 'Best Opener',    icon: '▶',  concert: bestOpener,   value: `Opener ${bestOpener.openerScore}/10`  },
+  ];
+
+  return (
+    <div className="rounded-xl border border-gray-800 bg-gray-900/40 overflow-hidden">
+      <div className="px-4 py-2 bg-gray-900 border-b border-gray-800">
+        <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Concert Records</p>
+      </div>
+      <div className="divide-y divide-gray-800/60">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-center gap-3 px-4 py-2.5">
+            <span className="text-base shrink-0">{item.icon}</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-600">{item.label}</p>
+              <p className="text-sm text-white font-medium truncate">{item.concert.concertName}</p>
+            </div>
+            <span className="text-xs text-indigo-400/80 font-mono shrink-0">{item.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CreateConcertModal({
+  setlists,
+  onClose,
+  onCreated,
+}: {
+  setlists: BandRpgSetlistSummary[];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [setlistId,    setSetlistId]    = useState('');
+  const [concertName,  setConcertName]  = useState('');
+
+  const createMutation = useMutation({
+    mutationFn: () => bandRpgApi.createConcert({ setlistId, concertName: concertName.trim() }),
+    onSuccess: onCreated,
+  });
+
+  const canCreate = !!setlistId && concertName.trim().length > 0 && !createMutation.isPending;
+
+  return (
+    <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+          <h2 className="text-white font-semibold">New Concert</h2>
+          <button onClick={onClose} className="text-gray-600 hover:text-gray-400 text-xl leading-none">✕</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5 font-semibold uppercase tracking-wide">Based on Setlist</label>
+            <select value={setlistId} onChange={(e) => setSetlistId(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500/60">
+              <option value="">Choose a setlist…</option>
+              {setlists.map((sl) => (
+                <option key={sl.id} value={sl.id}>
+                  {sl.bandName} — {sl.name} ({sl.songCount} songs · Grade {sl.grade})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5 font-semibold uppercase tracking-wide">Concert Name</label>
+            <input type="text" value={concertName} onChange={(e) => setConcertName(e.target.value)}
+              placeholder="e.g. Madison Square Garden 2024" maxLength={80}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/60" />
+          </div>
+
+          <p className="text-xs text-gray-600">
+            The concert uses all songs from the selected setlist. You can mark the encore after creation.
+          </p>
+        </div>
+
+        <div className="flex gap-3 px-5 py-4 border-t border-gray-800">
+          <button onClick={onClose}
+            className="flex-1 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+            Cancel
+          </button>
+          <button onClick={() => void createMutation.mutate()} disabled={!canCreate}
+            className="flex-1 bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+            {createMutation.isPending ? 'Creating…' : 'Create Concert'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConcertDetailModal({
+  concertId,
+  onClose,
+  onDeleted,
+  onSaved,
+}: {
+  concertId: string;
+  onClose: () => void;
+  onDeleted: () => void;
+  onSaved: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [editName,    setEditName]    = useState('');
+  const [isDirty,     setIsDirty]     = useState(false);
+  const [showExport,  setShowExport]  = useState(false);
+
+  const { data: detail, isLoading, isError } = useQuery({
+    queryKey: ['band-rpg-concert-detail', concertId],
+    queryFn:  () => bandRpgApi.getConcertDetail(concertId),
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (detail) { setEditName(detail.concertName); setIsDirty(false); }
+  }, [detail]);
+
+  const saveMutation = useMutation({
+    mutationFn: () => bandRpgApi.updateConcert(concertId, { concertName: editName.trim() }),
+    onSuccess: () => {
+      setIsDirty(false);
+      void queryClient.invalidateQueries({ queryKey: ['band-rpg-concert-detail', concertId] });
+      onSaved();
+    },
+  });
+
+  const encoreMutation = useMutation({
+    mutationFn: (pos: number | null) => bandRpgApi.updateConcert(concertId, { encorePosition: pos }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['band-rpg-concert-detail', concertId] });
+      onSaved();
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => bandRpgApi.deleteConcert(concertId),
+    onSuccess: onDeleted,
+  });
+
+  const gradeCfg = detail ? (GRADE_STYLE[detail.grade] ?? GRADE_STYLE['D']!) : GRADE_STYLE['D']!;
+
+  const fmtAxis = (v: number | null) => v !== null ? v.toFixed(1) : '—';
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
+        <div className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
+          onClick={(e) => e.stopPropagation()}>
+          {isLoading ? (
+            <div className="flex items-center justify-center h-48">
+              <div className="w-8 h-8 rounded-full border-2 border-indigo-500/60 border-t-indigo-400 animate-spin" />
+            </div>
+          ) : isError || !detail ? (
+            <div className="p-8 text-center text-red-400 text-sm">Failed to load concert.</div>
+          ) : (
+            <>
+              {/* Header */}
+              <div className="px-5 py-4 border-b border-gray-800 shrink-0">
+                <div className="flex items-center gap-3">
+                  <input type="text" value={editName}
+                    onChange={(e) => { setEditName(e.target.value); setIsDirty(true); }}
+                    maxLength={80}
+                    className="flex-1 bg-transparent text-white font-semibold text-lg focus:outline-none border-b border-transparent focus:border-indigo-500/60 pb-0.5 transition-colors min-w-0" />
+                  <button onClick={onClose} className="text-gray-600 hover:text-gray-400 text-xl leading-none shrink-0">✕</button>
+                </div>
+                <p className="text-gray-500 text-sm mt-0.5">{detail.bandName} · {detail.setlistName}</p>
+              </div>
+
+              {/* Analysis panel */}
+              <div className="px-4 py-3 border-b border-gray-800 bg-gray-900/50 shrink-0">
+                <div className="flex items-center gap-3 mb-3">
+                  <ConcertGradeBadge grade={detail.grade} size="lg" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-500 mb-0.5">Concert Score</p>
+                    <p className={`text-xl font-bold ${gradeCfg.color}`}>{detail.concertTotal} pts</p>
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-xs text-gray-600">
+                      <span>⚡ {detail.rarityValue} rarity</span>
+                      {detail.diversityBonus > 0 && <span className="text-emerald-700">+{detail.diversityBonus} diversity</span>}
+                      <span className="text-indigo-600">〜 {detail.flowScore}/20 flow</span>
+                      <span>▶ {detail.openerScore}/10 opener</span>
+                      <span>◼ {detail.closerScore}/10 closer</span>
+                    </div>
+                  </div>
+                  <button onClick={() => setShowExport(true)}
+                    className="shrink-0 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white px-3 py-2 rounded-lg text-xs font-semibold transition-colors">
+                    Share
+                  </button>
+                </div>
+
+                {/* Opener / Closer */}
+                <div className="flex gap-3 text-xs mb-2">
+                  <div className="flex-1 bg-gray-800/60 rounded-lg px-3 py-2">
+                    <p className="text-gray-600 mb-0.5">▶ Opener</p>
+                    <p className="text-gray-300 font-medium">{detail.openerLabel || '—'}</p>
+                    {detail.mainSet[0] && (
+                      <p className="text-gray-600 truncate mt-0.5">{detail.mainSet[0].songTitle}</p>
+                    )}
+                  </div>
+                  <div className="flex-1 bg-gray-800/60 rounded-lg px-3 py-2">
+                    <p className="text-gray-600 mb-0.5">◼ Closer</p>
+                    <p className="text-gray-300 font-medium">{detail.closerLabel || '—'}</p>
+                    {detail.songs[detail.songs.length - 1] && (
+                      <p className="text-gray-600 truncate mt-0.5">{detail.songs[detail.songs.length - 1]!.songTitle}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Spectrum averages (only if data exists) */}
+                {detail.avgAggression !== null && (
+                  <div className="grid grid-cols-3 gap-1.5 text-xs">
+                    {([
+                      ['Aggression', detail.avgAggression],
+                      ['Atmosphere', detail.avgAtmosphere],
+                      ['Emotion',    detail.avgEmotion],
+                      ['Complexity', detail.avgComplexity],
+                      ['Psychedelic',detail.avgPsychedelic],
+                      ['Concept',    detail.avgConcept],
+                    ] as [string, number | null][]).map(([label, val]) => (
+                      <div key={label} className="bg-gray-800/40 rounded px-2 py-1.5 text-center">
+                        <p className="text-gray-600 text-[10px]">{label}</p>
+                        <p className="text-gray-300 font-mono">{fmtAxis(val)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Song list with encore marker */}
+              <div className="flex-1 overflow-y-auto">
+                {detail.songs.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-gray-600 text-sm">No songs in this setlist.</div>
+                ) : (
+                  <>
+                    {detail.encorePosition !== null && detail.mainSet.length > 0 && (
+                      <div className="px-4 py-1.5 bg-gray-800/40 text-xs text-gray-500 font-semibold uppercase tracking-wide">
+                        Main Set · {detail.mainSet.length} songs
+                      </div>
+                    )}
+
+                    {detail.songs.map((song, idx) => {
+                      const isEncoreStart = detail.encorePosition !== null && idx === detail.encorePosition;
+                      const isInEncore    = detail.encorePosition !== null && idx >= detail.encorePosition;
+                      return (
+                        <div key={song.id}>
+                          {isEncoreStart && (
+                            <div className="px-4 py-1.5 bg-indigo-950/40 text-xs text-indigo-400 font-semibold uppercase tracking-wide border-t border-indigo-900/40">
+                              Encore · {detail.encore.length} songs
+                            </div>
+                          )}
+                          <div className={`flex items-center gap-2 px-4 py-2.5 border-b border-gray-800/50 last:border-0 ${isInEncore ? 'bg-indigo-950/10' : ''}`}>
+                            <span className="text-gray-600 text-xs w-5 text-right shrink-0">{idx + 1}</span>
+                            <p className="flex-1 text-sm text-white truncate">{song.songTitle}</p>
+                            <RarityBadge rarity={song.rarity} />
+                            <button
+                              onClick={() => void encoreMutation.mutate(idx === detail.encorePosition ? null : idx)}
+                              title={idx === detail.encorePosition ? 'Remove encore' : 'Encore starts here'}
+                              className={`shrink-0 text-xs px-1.5 py-0.5 rounded transition-colors ${
+                                idx === detail.encorePosition
+                                  ? 'text-indigo-400 bg-indigo-900/40 hover:bg-indigo-900/70'
+                                  : 'text-gray-700 hover:text-indigo-400 hover:bg-indigo-900/20'
+                              }`}
+                            >
+                              {idx === detail.encorePosition ? '★' : '☆'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center gap-3 px-5 py-4 border-t border-gray-800 shrink-0">
+                <button
+                  onClick={() => { if (window.confirm('Delete this concert?')) void deleteMutation.mutate(); }}
+                  disabled={deleteMutation.isPending}
+                  className="text-red-700 hover:text-red-500 disabled:opacity-50 text-sm font-semibold transition-colors px-1">
+                  {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+                </button>
+                <div className="flex-1" />
+                <button onClick={onClose}
+                  className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+                  Close
+                </button>
+                <button onClick={() => void saveMutation.mutate()} disabled={!isDirty || saveMutation.isPending}
+                  className="bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+                  {saveMutation.isPending ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {showExport && detail && (
+        <ConcertExportModal detail={detail} onClose={() => setShowExport(false)} />
+      )}
+    </>
+  );
+}
+
+function ConcertsTab() {
+  const queryClient = useQueryClient();
+  const [showCreate, setShowCreate] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const { data: concerts = [], isLoading, isError } = useQuery({
+    queryKey: ['band-rpg-concerts'],
+    queryFn:  () => bandRpgApi.getConcerts(),
+    staleTime: 60_000,
+  });
+
+  const { data: setlists = [] } = useQuery({
+    queryKey: ['band-rpg-setlists'],
+    queryFn:  () => bandRpgApi.getSetlists(),
+    staleTime: 60_000,
+  });
+
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: ['band-rpg-concerts'] });
+
+  if (isLoading) return <LoadingSpinner />;
+  if (isError)   return <ErrorMsg msg="Failed to load concerts." />;
+
+  return (
+    <>
+      <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-gray-500">
+            {concerts.length > 0
+              ? `${concerts.length} concert${concerts.length !== 1 ? 's' : ''}`
+              : 'No concerts yet'}
+          </p>
+          {setlists.length > 0 && (
+            <button onClick={() => setShowCreate(true)}
+              className="bg-indigo-700 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+              + New Concert
+            </button>
+          )}
+        </div>
+
+        {concerts.length === 0 && setlists.length === 0 ? (
+          <EmptyState icon="🎤" title="No concerts yet"
+            desc="Build a setlist first, then turn it into a concert with flow analysis and an encore." />
+        ) : concerts.length === 0 ? (
+          <div className="rounded-xl border border-gray-800 bg-gray-900/60 px-6 py-10 text-center">
+            <p className="text-gray-300 font-semibold mb-1">Stage your first concert</p>
+            <p className="text-gray-600 text-sm">Turn one of your setlists into a concert to unlock flow analysis, opener/closer grades, and the encore marker.</p>
+          </div>
+        ) : (
+          <>
+            <ConcertHallOfFame concerts={concerts} />
+            <div className="space-y-2">
+              {concerts.map((c) => (
+                <ConcertCard key={c.id} concert={c} onClick={() => setSelectedId(c.id)} />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {showCreate && (
+        <CreateConcertModal
+          setlists={setlists}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => { setShowCreate(false); refresh(); }}
+        />
+      )}
+
+      {selectedId && (
+        <ConcertDetailModal
+          concertId={selectedId}
+          onClose={() => setSelectedId(null)}
+          onDeleted={() => { setSelectedId(null); refresh(); }}
+          onSaved={refresh}
+        />
+      )}
+    </>
+  );
+}
+
 // ── Lifetime archive points ────────────────────────────────────────────────────
 
 function LifetimePoints() {
@@ -1262,12 +1908,13 @@ function LifetimePoints() {
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
-type CollectionTab = 'songs' | 'albums' | 'setlists';
+type CollectionTab = 'songs' | 'albums' | 'setlists' | 'concerts';
 
 const TABS: { id: CollectionTab; label: string }[] = [
   { id: 'songs',    label: '🎵 Songs'    },
   { id: 'albums',   label: '💿 Albums'   },
   { id: 'setlists', label: '🎸 Setlists' },
+  { id: 'concerts', label: '🎤 Concerts' },
 ];
 
 export default function BandRpgCollectionPage() {
@@ -1332,6 +1979,7 @@ export default function BandRpgCollectionPage() {
         {activeTab === 'songs'    && <SongsTab />}
         {activeTab === 'albums'   && <AlbumsTab />}
         {activeTab === 'setlists' && <SetlistsTab />}
+        {activeTab === 'concerts' && <ConcertsTab />}
       </div>
     </div>
   );

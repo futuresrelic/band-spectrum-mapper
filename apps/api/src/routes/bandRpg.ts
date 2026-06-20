@@ -850,6 +850,299 @@ bandRpgRouter.put('/setlists/:setlistId/songs', requireAuth, async (req, res, ne
   } catch (e) { next(e); }
 });
 
+// ── Concert helpers ───────────────────────────────────────────────────────────
+
+const OPENER_RARITY_SCORE: Record<string, number> = {
+  Common: 2, Uncommon: 3, Rare: 5, Legendary: 7, Mythic: 9,
+};
+
+function computeFlowScore(aggressionValues: number[]): number {
+  if (aggressionValues.length < 2) return 10;
+  let totalDelta = 0;
+  for (let i = 1; i < aggressionValues.length; i++) {
+    totalDelta += Math.abs((aggressionValues[i] ?? 0) - (aggressionValues[i - 1] ?? 0));
+  }
+  return Math.max(0, Math.floor(20 * (1 - totalDelta / (aggressionValues.length - 1) / 5)));
+}
+
+function openerLabel(rarity: string, aggression: number | null): string {
+  const score = OPENER_RARITY_SCORE[rarity] ?? 2;
+  const energetic = (aggression ?? 0) >= 3.5;
+  if (score >= 7 && energetic) return 'Electrifying Opener';
+  if (score >= 7)              return 'Commanding Entry';
+  if (score >= 5 && energetic) return 'High-Energy Start';
+  if (score >= 5)              return 'Bold Entry';
+  if (score >= 3)              return 'Measured Start';
+  return 'Quiet Open';
+}
+
+function closerLabel(rarity: string, emotion: number | null): string {
+  const score = OPENER_RARITY_SCORE[rarity] ?? 2;
+  const emotional = (emotion ?? 0) >= 3.5;
+  if (score >= 7 && emotional) return 'Legendary Closer';
+  if (score >= 7)              return 'Epic Finale';
+  if (score >= 5 && emotional) return 'Emotional Send-Off';
+  if (score >= 5)              return 'Powerful Close';
+  if (score >= 3)              return 'Solid Closer';
+  return 'Gentle End';
+}
+
+// ── GET /concerts ─────────────────────────────────────────────────────────────
+
+bandRpgRouter.get('/concerts', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const concerts = await prisma.bandRpgConcert.findMany({
+      where: { userId },
+      include: { setlist: { include: { songs: { orderBy: { position: 'asc' } } } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (concerts.length === 0) { res.json([]); return; }
+
+    // Batch axis scores + album lookups across all concerts
+    const allSongIds = [...new Set(concerts.flatMap((c) => c.setlist.songs.map((s) => s.songId)))];
+
+    const [axisRows, songAlbumRows] = await Promise.all([
+      allSongIds.length > 0
+        ? prisma.songAxisScore.findMany({
+            where: { songId: { in: allSongIds } },
+            select: { songId: true, aggression: true, emotion: true },
+          })
+        : [],
+      allSongIds.length > 0
+        ? prisma.song.findMany({
+            where: { id: { in: allSongIds }, albumId: { not: null } },
+            select: { id: true, albumId: true },
+          })
+        : [],
+    ]);
+
+    const axisMap = new Map(axisRows.map((r) => [r.songId, r]));
+    const songAlbumMap = new Map(songAlbumRows.map((r) => [r.id, r.albumId as string]));
+
+    res.json(concerts.map((concert) => {
+      const songs        = concert.setlist.songs;
+      const rarityValue  = songs.reduce((s, x) => s + (RARITY_VALUE[x.rarity] ?? 1), 0);
+      const albumCount   = new Set(songs.map((s) => songAlbumMap.get(s.songId)).filter((id): id is string => !!id)).size;
+      const diversityBonus = computeDiversityBonus(albumCount, songs.length, rarityValue);
+
+      const aggrValues   = songs.map((s) => axisMap.get(s.songId)?.aggression).filter((v): v is number => v !== undefined);
+      const flowScore    = computeFlowScore(aggrValues);
+
+      const firstSong    = songs[0];
+      const lastSong     = songs[songs.length - 1];
+      const firstAxis    = firstSong ? axisMap.get(firstSong.songId) : undefined;
+      const lastAxis     = lastSong  ? axisMap.get(lastSong.songId)  : undefined;
+      const opScore      = firstSong ? Math.min(10, (OPENER_RARITY_SCORE[firstSong.rarity] ?? 2) + ((firstAxis?.aggression ?? 0) >= 3.5 ? 1 : 0)) : 0;
+      const clScore      = lastSong  ? Math.min(10, (OPENER_RARITY_SCORE[lastSong.rarity]  ?? 2) + ((lastAxis?.emotion     ?? 0) >= 3.5 ? 1 : 0)) : 0;
+      const concertTotal = rarityValue + diversityBonus + flowScore + opScore + clScore;
+
+      return {
+        id:             concert.id,
+        concertName:    concert.concertName,
+        bandId:         concert.bandId,
+        bandName:       concert.bandName,
+        setlistId:      concert.setlistId,
+        setlistName:    concert.setlist.name,
+        songCount:      songs.length,
+        rarityValue,
+        albumCount,
+        diversityBonus,
+        flowScore,
+        openerScore:    opScore,
+        closerScore:    clScore,
+        concertTotal,
+        grade:          computeGrade(concertTotal),
+        encorePosition: concert.encorePosition ?? null,
+        realWorldScore: concert.realWorldScore ?? null,
+        createdAt:      concert.createdAt.toISOString(),
+        updatedAt:      concert.updatedAt.toISOString(),
+      };
+    }));
+  } catch (e) { next(e); }
+});
+
+// ── POST /concerts ────────────────────────────────────────────────────────────
+
+bandRpgRouter.post('/concerts', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const body        = req.body as Record<string, unknown>;
+    const setlistId   = typeof body['setlistId']   === 'string' ? body['setlistId']            : null;
+    const concertName = typeof body['concertName'] === 'string' ? body['concertName'].trim()   : null;
+
+    if (!setlistId || !concertName) {
+      res.status(400).json({ error: 'setlistId and concertName are required' }); return;
+    }
+
+    const setlist = await prisma.bandRpgSetlist.findFirst({ where: { id: setlistId, userId } });
+    if (!setlist) { res.status(404).json({ error: 'Setlist not found' }); return; }
+
+    const concert = await prisma.bandRpgConcert.create({
+      data: { userId, bandId: setlist.bandId, bandName: setlist.bandName, concertName, setlistId },
+    });
+
+    res.status(201).json({ ok: true, id: concert.id });
+  } catch (e) { next(e); }
+});
+
+// ── GET /concerts/:concertId ──────────────────────────────────────────────────
+
+bandRpgRouter.get('/concerts/:concertId', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const concertId = req.params['concertId'];
+    if (!concertId) { res.status(400).json({ error: 'concertId is required' }); return; }
+
+    const concert = await prisma.bandRpgConcert.findFirst({
+      where: { id: concertId, userId },
+      include: { setlist: { include: { songs: { orderBy: { position: 'asc' } } } } },
+    });
+    if (!concert) { res.status(404).json({ error: 'Not found' }); return; }
+
+    const songs      = concert.setlist.songs;
+    const songIds    = songs.map((s) => s.songId);
+
+    const [axisRows, songAlbumRows] = await Promise.all([
+      songIds.length > 0
+        ? prisma.songAxisScore.findMany({
+            where: { songId: { in: songIds } },
+            select: { songId: true, aggression: true, complexity: true, atmosphere: true, emotion: true, psychedelic: true, concept: true },
+          })
+        : [],
+      songIds.length > 0
+        ? prisma.song.findMany({
+            where: { id: { in: songIds }, albumId: { not: null } },
+            select: { id: true, albumId: true },
+          })
+        : [],
+    ]);
+
+    const axisMap      = new Map(axisRows.map((r) => [r.songId, r]));
+    const songAlbumMap = new Map(songAlbumRows.map((r) => [r.id, r.albumId as string]));
+    const albumCount   = new Set(songAlbumRows.map((r) => r.albumId as string)).size;
+
+    const rarityValue    = songs.reduce((s, x) => s + (RARITY_VALUE[x.rarity] ?? 1), 0);
+    const diversityBonus = computeDiversityBonus(albumCount, songs.length, rarityValue);
+
+    const aggrValues = songs.map((s) => axisMap.get(s.songId)?.aggression).filter((v): v is number => v !== undefined);
+    const flowScore  = computeFlowScore(aggrValues);
+
+    const firstSong = songs[0];
+    const lastSong  = songs[songs.length - 1];
+    const firstAxis = firstSong ? axisMap.get(firstSong.songId) : undefined;
+    const lastAxis  = lastSong  ? axisMap.get(lastSong.songId)  : undefined;
+    const opScore   = firstSong ? Math.min(10, (OPENER_RARITY_SCORE[firstSong.rarity] ?? 2) + ((firstAxis?.aggression ?? 0) >= 3.5 ? 1 : 0)) : 0;
+    const clScore   = lastSong  ? Math.min(10, (OPENER_RARITY_SCORE[lastSong.rarity]  ?? 2) + ((lastAxis?.emotion     ?? 0) >= 3.5 ? 1 : 0)) : 0;
+    const concertTotal = rarityValue + diversityBonus + flowScore + opScore + clScore;
+
+    // Spectrum averages from songs that have axis scores
+    const avg = (field: 'aggression' | 'complexity' | 'atmosphere' | 'emotion' | 'psychedelic' | 'concept'): number | null => {
+      const vals = axisRows.map((r) => r[field]);
+      return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    };
+
+    const rarityBreakdown: Record<string, number> = { Common: 0, Uncommon: 0, Rare: 0, Legendary: 0, Mythic: 0 };
+    for (const s of songs) { rarityBreakdown[s.rarity] = (rarityBreakdown[s.rarity] ?? 0) + 1; }
+
+    const encorePos = concert.encorePosition ?? null;
+    const mappedSongs = songs.map((s) => ({
+      id:        s.id,
+      songId:    s.songId,
+      songTitle: s.songTitle,
+      rarity:    s.rarity,
+      position:  s.position,
+      addedAt:   s.addedAt.toISOString(),
+    }));
+
+    res.json({
+      id:             concert.id,
+      concertName:    concert.concertName,
+      bandId:         concert.bandId,
+      bandName:       concert.bandName,
+      setlistId:      concert.setlistId,
+      setlistName:    concert.setlist.name,
+      songCount:      songs.length,
+      rarityValue,
+      albumCount,
+      diversityBonus,
+      flowScore,
+      openerScore:    opScore,
+      closerScore:    clScore,
+      concertTotal,
+      grade:          computeGrade(concertTotal),
+      encorePosition: encorePos,
+      realWorldScore: concert.realWorldScore ?? null,
+      avgAggression:  avg('aggression'),
+      avgAtmosphere:  avg('atmosphere'),
+      avgEmotion:     avg('emotion'),
+      avgComplexity:  avg('complexity'),
+      avgPsychedelic: avg('psychedelic'),
+      avgConcept:     avg('concept'),
+      openerLabel:    firstSong ? openerLabel(firstSong.rarity, firstAxis?.aggression ?? null) : '',
+      closerLabel:    lastSong  ? closerLabel(lastSong.rarity,  lastAxis?.emotion     ?? null) : '',
+      rarityBreakdown,
+      songs:          mappedSongs,
+      mainSet:        encorePos !== null ? mappedSongs.slice(0, encorePos) : mappedSongs,
+      encore:         encorePos !== null ? mappedSongs.slice(encorePos)    : [],
+      createdAt:      concert.createdAt.toISOString(),
+      updatedAt:      concert.updatedAt.toISOString(),
+    });
+  } catch (e) { next(e); }
+});
+
+// ── PUT /concerts/:concertId ──────────────────────────────────────────────────
+
+bandRpgRouter.put('/concerts/:concertId', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const concertId = req.params['concertId'];
+    if (!concertId) { res.status(400).json({ error: 'concertId is required' }); return; }
+
+    const concert = await prisma.bandRpgConcert.findFirst({ where: { id: concertId, userId } });
+    if (!concert) { res.status(404).json({ error: 'Not found' }); return; }
+
+    const body        = req.body as Record<string, unknown>;
+    const concertName = typeof body['concertName'] === 'string' ? body['concertName'].trim() : undefined;
+    const rawEncore   = body['encorePosition'];
+    const encorePosition = rawEncore === null ? null : typeof rawEncore === 'number' ? rawEncore : undefined;
+
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (concertName !== undefined) updateData['concertName'] = concertName;
+    if (encorePosition !== undefined) updateData['encorePosition'] = encorePosition;
+
+    await prisma.bandRpgConcert.update({ where: { id: concertId }, data: updateData });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ── DELETE /concerts/:concertId ───────────────────────────────────────────────
+
+bandRpgRouter.delete('/concerts/:concertId', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const concertId = req.params['concertId'];
+    if (!concertId) { res.status(400).json({ error: 'concertId is required' }); return; }
+
+    const concert = await prisma.bandRpgConcert.findFirst({ where: { id: concertId, userId } });
+    if (!concert) { res.status(404).json({ error: 'Not found' }); return; }
+
+    await prisma.bandRpgConcert.delete({ where: { id: concertId } });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 // ── POST /admin/reset-my-data ─────────────────────────────────────────────────
 
 bandRpgRouter.post('/admin/reset-my-data', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
@@ -858,13 +1151,14 @@ bandRpgRouter.post('/admin/reset-my-data', requireAuth, requireAdmin, async (req
     if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
 
     await prisma.$transaction([
+      prisma.bandRpgConcert.deleteMany({ where: { userId } }),
       prisma.bandRpgCollectedSong.deleteMany({ where: { userId } }),
       prisma.bandRpgCompletedAlbum.deleteMany({ where: { userId } }),
       prisma.bandRpgSetlist.deleteMany({ where: { userId } }),
       prisma.bandRpgPlayerProgress.deleteMany({ where: { userId } }),
     ]);
 
-    res.json({ ok: true, message: 'Band RPG collection, albums, setlists, and progress cleared.' });
+    res.json({ ok: true, message: 'Band RPG collection, albums, setlists, concerts, and progress cleared.' });
   } catch (e) { next(e); }
 });
 

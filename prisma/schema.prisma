@@ -447,6 +447,7 @@ model User {
   bandRpgCollection    BandRpgCollectedSong[]
   bandRpgCompletedAlbums BandRpgCompletedAlbum[]
   bandRpgSetlists      BandRpgSetlist[]
+  bandRpgConcerts      BandRpgConcert[]
 
   @@map("users")
 }
@@ -1734,8 +1735,9 @@ model BandRpgSetlist {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user  User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  songs BandRpgSetlistSong[]
+  user     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  songs    BandRpgSetlistSong[]
+  concerts BandRpgConcert[]
 
   @@map("band_rpg_setlists")
 }
@@ -1753,5 +1755,23 @@ model BandRpgSetlistSong {
 
   @@unique([setlistId, songId])
   @@map("band_rpg_setlist_songs")
+}
+
+model BandRpgConcert {
+  id             String   @id @default(cuid())
+  userId         String
+  bandId         String
+  bandName       String
+  concertName    String
+  setlistId      String
+  encorePosition Int?
+  realWorldScore Float?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  setlist BandRpgSetlist @relation(fields: [setlistId], references: [id], onDelete: Cascade)
+
+  @@map("band_rpg_concerts")
 }
 

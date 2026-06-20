@@ -158,6 +158,45 @@ export interface BandRpgSetlistDetail extends BandRpgSetlistSummary {
   songs: BandRpgSetlistSongEntry[];
 }
 
+// ── Concert types ─────────────────────────────────────────────────────────────
+
+export interface BandRpgConcertSummary {
+  id: string;
+  concertName: string;
+  bandId: string;
+  bandName: string;
+  setlistId: string;
+  setlistName: string;
+  songCount: number;
+  rarityValue: number;
+  albumCount: number;
+  diversityBonus: number;
+  flowScore: number;
+  openerScore: number;
+  closerScore: number;
+  concertTotal: number;
+  grade: string;
+  encorePosition: number | null;
+  realWorldScore: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BandRpgConcertDetail extends BandRpgConcertSummary {
+  avgAggression: number | null;
+  avgAtmosphere: number | null;
+  avgEmotion: number | null;
+  avgComplexity: number | null;
+  avgPsychedelic: number | null;
+  avgConcept: number | null;
+  openerLabel: string;
+  closerLabel: string;
+  rarityBreakdown: Record<string, number>;
+  songs: BandRpgSetlistSongEntry[];
+  mainSet: BandRpgSetlistSongEntry[];
+  encore: BandRpgSetlistSongEntry[];
+}
+
 // ── API client ────────────────────────────────────────────────────────────────
 
 export const bandRpgApi = {
@@ -244,4 +283,19 @@ export const bandRpgApi = {
 
   adminRandomizeRarities: (bandId: string) =>
     api.post<{ ok: boolean; updated: number }>('/api/band-rpg/admin/randomize-rarities', { bandId }),
+
+  getConcerts: () =>
+    api.get<BandRpgConcertSummary[]>('/api/band-rpg/concerts'),
+
+  createConcert: (data: { setlistId: string; concertName: string }) =>
+    api.post<{ ok: boolean; id: string }>('/api/band-rpg/concerts', data),
+
+  getConcertDetail: (id: string) =>
+    api.get<BandRpgConcertDetail>(`/api/band-rpg/concerts/${encodeURIComponent(id)}`),
+
+  updateConcert: (id: string, data: { concertName?: string; encorePosition?: number | null }) =>
+    api.put<{ ok: boolean }>(`/api/band-rpg/concerts/${encodeURIComponent(id)}`, data),
+
+  deleteConcert: (id: string) =>
+    api.delete<{ ok: boolean }>(`/api/band-rpg/concerts/${encodeURIComponent(id)}`),
 };
