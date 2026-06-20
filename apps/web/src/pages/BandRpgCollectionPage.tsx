@@ -9,6 +9,7 @@ import type {
   BandRpgAlbumSong, AlbumState,
   BandRpgCollectionGroup, BandRpgSetlistSummary, BandRpgSetlistDetail,
   BandRpgConcertSummary, BandRpgConcertDetail, BandRpgSetlistSongEntry,
+  BandRpgFestivalSummary, BandRpgFestivalDetail,
 } from '../api/bandRpg';
 
 // ── Rarity display ─────────────────────────────────────────────────────────────
@@ -2107,6 +2108,709 @@ function ConcertsTab() {
   );
 }
 
+// ── Festival canvas card ───────────────────────────────────────────────────────
+
+function drawFestivalCard(canvas: HTMLCanvasElement, data: BandRpgFestivalDetail): void {
+  const W = 800, H = 1100;
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#0c0816');
+  bg.addColorStop(0.5, '#10091a');
+  bg.addColorStop(1, '#130b1e');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Violet top bar — distinct from amber (setlist) and indigo (concert)
+  const topBar = ctx.createLinearGradient(0, 0, W, 0);
+  topBar.addColorStop(0, '#7c3aed');
+  topBar.addColorStop(1, '#6d28d9');
+  ctx.fillStyle = topBar;
+  ctx.fillRect(0, 0, W, 6);
+
+  const PAD = 52;
+  let y = 62;
+
+  ctx.fillStyle = '#374151';
+  ctx.font = '600 11px system-ui,sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('THE ARCHIVE — FESTIVAL', PAD, y);
+
+  y += 38;
+
+  // Stat badges (top-right)
+  const statStr = `${data.concertCount} concerts  ·  ${data.bandCount} bands  ·  ${data.totalSongs} songs`;
+  ctx.fillStyle = '#4b5563';
+  ctx.font = '400 12px system-ui,sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(statStr, W - PAD, y);
+  ctx.textAlign = 'left';
+
+  // Festival name
+  const nameSize = data.name.length > 30 ? 24 : data.name.length > 20 ? 28 : 34;
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${nameSize}px system-ui,sans-serif`;
+  ctx.fillText(truncateForCanvas(ctx, data.name, W - PAD * 2), PAD, y);
+
+  y += 28;
+
+  // Personality label
+  ctx.fillStyle = '#7c3aed';
+  ctx.font = 'italic 600 15px system-ui,sans-serif';
+  ctx.fillText(data.festivalPersonality, PAD, y);
+
+  y += 24;
+
+  // Story (word-wrapped)
+  if (data.festivalStory) {
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '400 13px system-ui,sans-serif';
+    const maxW = W - PAD * 2;
+    const words = data.festivalStory.split(' ');
+    let line = '';
+    const storyLines: string[] = [];
+    for (const word of words) {
+      const test = line ? `${line} ${word}` : word;
+      if (ctx.measureText(test).width > maxW) { storyLines.push(line); line = word; }
+      else line = test;
+    }
+    if (line) storyLines.push(line);
+    for (const [i, l] of storyLines.slice(0, 3).entries()) {
+      ctx.fillText(l, PAD, y + i * 18);
+    }
+    y += Math.min(storyLines.length, 3) * 18 + 6;
+  }
+
+  y += 16;
+
+  // Divider
+  ctx.strokeStyle = '#1f2937';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+  y += 20;
+
+  // Score bars
+  const barMaxW = W - PAD * 2 - 140;
+  const bars = [
+    { label: 'Fan Service', value: data.avgFanService, color: '#059669' },
+    { label: 'Deep Cuts',   value: data.avgDeepCuts,   color: '#7c3aed' },
+    ...(data.avgVenueFit !== null ? [{ label: 'Venue Fit', value: data.avgVenueFit, color: '#6366f1' }] : []),
+  ];
+  for (const [i, bar] of bars.entries()) {
+    const by = y + i * 26;
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '400 12px system-ui,sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(bar.label, PAD, by);
+    const bx = PAD + 110, bby = by - 11;
+    ctx.fillStyle = '#1f2937';
+    rrect(ctx, bx, bby, barMaxW, 9, 4);
+    ctx.fill();
+    if (bar.value > 0) {
+      ctx.fillStyle = bar.color;
+      rrect(ctx, bx, bby, Math.max(9, (bar.value / 100) * barMaxW), 9, 4);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#d1d5db';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(bar.value), W - PAD, by);
+  }
+  y += bars.length * 26 + 6;
+  ctx.textAlign = 'left';
+
+  // Divider
+  ctx.strokeStyle = '#1f2937';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+  y += 20;
+
+  // Lineup header
+  ctx.fillStyle = '#374151';
+  ctx.font = '700 11px system-ui,sans-serif';
+  ctx.fillText('LINEUP', PAD, y);
+  y += 20;
+
+  const displayConcerts = data.concerts.slice(0, 12);
+  for (const [i, c] of displayConcerts.entries()) {
+    const cy = y + i * 34;
+    ctx.fillStyle = '#374151';
+    ctx.font = '400 12px system-ui,sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(i + 1).padStart(2, '0'), PAD + 22, cy);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#d1d5db';
+    ctx.font = '500 14px system-ui,sans-serif';
+    ctx.fillText(truncateForCanvas(ctx, c.concertName, W - PAD * 2 - 180), PAD + 32, cy);
+    ctx.fillStyle = '#4b5563';
+    ctx.font = '400 11px system-ui,sans-serif';
+    ctx.fillText(c.bandName, PAD + 32, cy + 14);
+    const gradeCfg = GRADE_STYLE[c.grade] ?? GRADE_STYLE['D']!;
+    ctx.fillStyle = gradeCfg.canvasColor;
+    ctx.font = 'bold 12px system-ui,sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(c.grade, W - PAD, cy);
+    ctx.textAlign = 'left';
+  }
+
+  if (data.concerts.length > 12) {
+    y += displayConcerts.length * 34 + 6;
+    ctx.fillStyle = '#4b5563';
+    ctx.font = 'italic 12px system-ui,sans-serif';
+    ctx.fillText(`+ ${data.concerts.length - 12} more`, PAD, y);
+  }
+
+  // Footer
+  ctx.strokeStyle = '#1f2937';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, H - 44); ctx.lineTo(W - PAD, H - 44); ctx.stroke();
+  ctx.fillStyle = '#374151';
+  ctx.font = '400 12px system-ui,sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('Band Spectrum Mapper · The Archive', PAD, H - 22);
+  ctx.textAlign = 'right';
+  ctx.fillText(new Date().getFullYear().toString(), W - PAD, H - 22);
+}
+
+// ── Festival export modal ──────────────────────────────────────────────────────
+
+function FestivalExportModal({ detail, onClose }: { detail: BandRpgFestivalDetail; onClose: () => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (canvasRef.current) drawFestivalCard(canvasRef.current, detail);
+  }, [detail]);
+
+  function handleExport() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `festival-${detail.name}.png`.replace(/[^a-z0-9.\-_ ]/gi, '_');
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/85 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 shrink-0">
+          <h3 className="text-white font-semibold">Share Festival</h3>
+          <button onClick={onClose} className="text-gray-600 hover:text-gray-400 text-xl leading-none">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="rounded-xl overflow-hidden bg-gray-950 border border-gray-800">
+            <canvas ref={canvasRef} width={800} height={1100} className="w-full h-auto block" />
+          </div>
+          <p className="text-center text-xs text-gray-600 mt-3">Tap Export to save as PNG · Share anywhere</p>
+        </div>
+        <div className="flex gap-3 px-5 py-4 border-t border-gray-800 shrink-0">
+          <button onClick={onClose}
+            className="flex-1 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+            Close
+          </button>
+          <button onClick={handleExport}
+            className="flex-1 bg-violet-700 hover:bg-violet-600 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+            Export PNG
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Festival components ────────────────────────────────────────────────────────
+
+function FestivalCard({ festival, onClick }: { festival: BandRpgFestivalSummary; onClick: () => void }) {
+  return (
+    <button onClick={onClick}
+      className="w-full text-left bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 hover:bg-gray-800/60 transition-colors active:bg-gray-800/80">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-white font-semibold truncate">{festival.name}</p>
+          <p className="text-violet-400/60 text-xs font-medium italic mt-0.5">{festival.festivalPersonality}</p>
+        </div>
+        <span className="text-xs text-gray-600 shrink-0 mt-0.5">{festival.concertCount} concerts</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-gray-500">
+        <span>🎤 {festival.bandCount} band{festival.bandCount !== 1 ? 's' : ''}</span>
+        <span>🎵 {festival.totalSongs} songs</span>
+        <span className="text-emerald-600">Fan {festival.avgFanService}</span>
+        <span className="text-purple-600">Deep {festival.avgDeepCuts}</span>
+        {festival.avgVenueFit !== null && <span className="text-indigo-500/80">Venue {festival.avgVenueFit}/100</span>}
+      </div>
+    </button>
+  );
+}
+
+function FestivalRecords({ festivals }: { festivals: BandRpgFestivalSummary[] }) {
+  if (festivals.length === 0) return null;
+  const best = (fn: (a: BandRpgFestivalSummary, b: BandRpgFestivalSummary) => boolean) =>
+    festivals.reduce((acc, f) => (fn(f, acc) ? f : acc));
+
+  const largest   = best((a, b) => a.totalSongs > b.totalSongs);
+  const mostBands = best((a, b) => a.bandCount > b.bandCount);
+  const deepest   = best((a, b) => a.avgDeepCuts > b.avgDeepCuts);
+  const fanFav    = best((a, b) => a.avgFanService > b.avgFanService);
+  const venueOnes = festivals.filter((f) => f.avgVenueFit !== null);
+  const bestVenue = venueOnes.length > 0 ? best((a, b) => (a.avgVenueFit ?? -1) > (b.avgVenueFit ?? -1)) : null;
+
+  const items = [
+    { label: 'Largest Festival',    icon: '🎪', festival: largest,   value: `${largest.totalSongs} songs`        },
+    { label: 'Most Bands',          icon: '🎤', festival: mostBands, value: `${mostBands.bandCount} bands`       },
+    { label: 'Deepest Cuts',        icon: '🎭', festival: deepest,   value: `Deep Cuts ${deepest.avgDeepCuts}`   },
+    { label: 'Fan Favourite',       icon: '⭐', festival: fanFav,    value: `Fan Service ${fanFav.avgFanService}`},
+    ...(bestVenue ? [{ label: 'Best Venue Fit', icon: '📍', festival: bestVenue, value: `${bestVenue.avgVenueFit ?? 0}/100` }] : []),
+  ];
+
+  return (
+    <div className="rounded-xl border border-gray-800 bg-gray-900/40 overflow-hidden">
+      <div className="px-4 py-2 bg-gray-900 border-b border-gray-800">
+        <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Festival Records</p>
+      </div>
+      <div className="divide-y divide-gray-800/60">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-center gap-3 px-4 py-2.5">
+            <span className="text-base shrink-0">{item.icon}</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-600">{item.label}</p>
+              <p className="text-sm text-white font-medium truncate">{item.festival.name}</p>
+            </div>
+            <span className="text-xs text-violet-400/80 font-mono shrink-0">{item.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CreateFestivalModal({
+  concerts,
+  onClose,
+  onCreated,
+}: {
+  concerts: BandRpgConcertSummary[];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [name,        setName]        = useState('');
+  const [description, setDescription] = useState('');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  const toggleConcert = (id: string) =>
+    setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+
+  const createMutation = useMutation({
+    mutationFn: () => bandRpgApi.createFestival({
+      name: name.trim(),
+      ...(description.trim() ? { description: description.trim() } : {}),
+      ...(selectedIds.length > 0 ? { concertIds: selectedIds } : {}),
+    }),
+    onSuccess: onCreated,
+  });
+
+  const canCreate = name.trim().length > 0 && !createMutation.isPending;
+
+  return (
+    <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 shrink-0">
+          <h2 className="text-white font-semibold">New Festival</h2>
+          <button onClick={onClose} className="text-gray-600 hover:text-gray-400 text-xl leading-none">✕</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5 font-semibold uppercase tracking-wide">Festival Name</label>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. The Dream Convergence" maxLength={80}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500/60" />
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5 font-semibold uppercase tracking-wide">Description (optional)</label>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)}
+              placeholder="What makes this festival special…" maxLength={300} rows={2}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500/60 resize-none" />
+          </div>
+
+          {concerts.length > 0 && (
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5 font-semibold uppercase tracking-wide">Add Concerts (optional)</label>
+              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                {concerts.map((c) => (
+                  <label key={c.id}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
+                      selectedIds.includes(c.id)
+                        ? 'border-violet-600/60 bg-violet-900/20'
+                        : 'border-gray-700 bg-gray-800/60 hover:bg-gray-800'
+                    }`}>
+                    <input type="checkbox" checked={selectedIds.includes(c.id)}
+                      onChange={() => toggleConcert(c.id)} className="accent-violet-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white truncate">{c.concertName}</p>
+                      <p className="text-xs text-gray-500">{c.bandName} · Grade {c.grade}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              {selectedIds.length > 0 && (
+                <p className="text-xs text-violet-400/70 mt-1.5">{selectedIds.length} concert{selectedIds.length !== 1 ? 's' : ''} selected</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-3 px-5 py-4 border-t border-gray-800 shrink-0">
+          <button onClick={onClose}
+            className="flex-1 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+            Cancel
+          </button>
+          <button onClick={() => void createMutation.mutate()} disabled={!canCreate}
+            className="flex-1 bg-violet-700 hover:bg-violet-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+            {createMutation.isPending ? 'Creating…' : 'Create Festival'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FestivalDetailModal({
+  festivalId,
+  onClose,
+  onDeleted,
+  onSaved,
+}: {
+  festivalId: string;
+  onClose: () => void;
+  onDeleted: () => void;
+  onSaved: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [editName,    setEditName]    = useState('');
+  const [isDirty,     setIsDirty]     = useState(false);
+  const [showExport,  setShowExport]  = useState(false);
+  const [lineupIds,   setLineupIds]   = useState<string[]>([]);
+  const [lineupDirty, setLineupDirty] = useState(false);
+  const [addId,       setAddId]       = useState('');
+
+  const { data: detail, isLoading, isError } = useQuery({
+    queryKey: ['band-rpg-festival-detail', festivalId],
+    queryFn:  () => bandRpgApi.getFestivalDetail(festivalId),
+    staleTime: 30_000,
+  });
+
+  const { data: allConcerts = [] } = useQuery({
+    queryKey: ['band-rpg-concerts'],
+    queryFn:  () => bandRpgApi.getConcerts(),
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (detail) {
+      setEditName(detail.name);
+      setLineupIds(detail.concerts.map((c) => c.concertId));
+      setIsDirty(false);
+      setLineupDirty(false);
+    }
+  }, [detail]);
+
+  const concertDataMap = useMemo(
+    () => new Map(allConcerts.map((c) => [c.id, c])),
+    [allConcerts],
+  );
+
+  const availableConcerts = useMemo(
+    () => allConcerts.filter((c) => !lineupIds.includes(c.id)),
+    [allConcerts, lineupIds],
+  );
+
+  const lineupEntries = useMemo(
+    () => lineupIds.map((id, pos) => {
+      const fromDetail = detail?.concerts.find((c) => c.concertId === id);
+      const fromList   = concertDataMap.get(id);
+      return {
+        concertId:    id,
+        position:     pos,
+        concertName:  fromDetail?.concertName ?? fromList?.concertName ?? id,
+        bandName:     fromDetail?.bandName     ?? fromList?.bandName    ?? '—',
+        grade:        fromDetail?.grade        ?? fromList?.grade       ?? '?',
+        concertPersonality: fromDetail?.concertPersonality ?? fromList?.concertPersonality ?? '',
+      };
+    }),
+    [lineupIds, detail, concertDataMap],
+  );
+
+  const moveUp   = (idx: number) => { if (idx === 0) return; const ids = [...lineupIds]; [ids[idx - 1], ids[idx]] = [ids[idx]!, ids[idx - 1]!]; setLineupIds(ids); setLineupDirty(true); };
+  const moveDown = (idx: number) => { if (idx >= lineupIds.length - 1) return; const ids = [...lineupIds]; [ids[idx], ids[idx + 1]] = [ids[idx + 1]!, ids[idx]!]; setLineupIds(ids); setLineupDirty(true); };
+  const removeConcert = (id: string) => { setLineupIds((prev) => prev.filter((x) => x !== id)); setLineupDirty(true); };
+  const addConcert = () => { if (!addId || lineupIds.includes(addId)) return; setLineupIds((prev) => [...prev, addId]); setAddId(''); setLineupDirty(true); };
+
+  const saveMeta = useMutation({
+    mutationFn: () => bandRpgApi.updateFestival(festivalId, { name: editName.trim() }),
+    onSuccess: () => {
+      setIsDirty(false);
+      void queryClient.invalidateQueries({ queryKey: ['band-rpg-festival-detail', festivalId] });
+      onSaved();
+    },
+  });
+
+  const saveLineup = useMutation({
+    mutationFn: () => bandRpgApi.updateFestivalConcerts(festivalId, lineupIds),
+    onSuccess: () => {
+      setLineupDirty(false);
+      void queryClient.invalidateQueries({ queryKey: ['band-rpg-festival-detail', festivalId] });
+      onSaved();
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => bandRpgApi.deleteFestival(festivalId),
+    onSuccess: onDeleted,
+  });
+
+  const anySaving = saveMeta.isPending || saveLineup.isPending;
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
+        <div className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
+          onClick={(e) => e.stopPropagation()}>
+          {isLoading ? (
+            <div className="flex items-center justify-center h-48">
+              <div className="w-8 h-8 rounded-full border-2 border-violet-500/60 border-t-violet-400 animate-spin" />
+            </div>
+          ) : isError || !detail ? (
+            <div className="p-8 text-center text-red-400 text-sm">Failed to load festival.</div>
+          ) : (
+            <>
+              {/* Header */}
+              <div className="px-5 py-4 border-b border-gray-800 shrink-0">
+                <div className="flex items-center gap-3">
+                  <input type="text" value={editName}
+                    onChange={(e) => { setEditName(e.target.value); setIsDirty(true); }}
+                    maxLength={80}
+                    className="flex-1 bg-transparent text-white font-semibold text-lg focus:outline-none border-b border-transparent focus:border-violet-500/60 pb-0.5 transition-colors min-w-0" />
+                  <button onClick={onClose} className="text-gray-600 hover:text-gray-400 text-xl leading-none shrink-0">✕</button>
+                </div>
+                <p className="text-violet-400/60 text-sm italic mt-0.5">{detail.festivalPersonality}</p>
+              </div>
+
+              {/* Analysis */}
+              <div className="px-4 py-3 border-b border-gray-800 bg-gray-900/50 shrink-0 space-y-2">
+                <div className="flex gap-4 text-xs text-gray-500 flex-wrap">
+                  <span>🎤 {detail.concertCount} concert{detail.concertCount !== 1 ? 's' : ''}</span>
+                  <span>🎸 {detail.bandCount} band{detail.bandCount !== 1 ? 's' : ''}</span>
+                  <span>🎵 {detail.totalSongs} songs</span>
+                  {detail.avgVenueFit !== null && <span className="text-indigo-400/80">📍 Venue Fit {detail.avgVenueFit}/100</span>}
+                  <button onClick={() => setShowExport(true)}
+                    className="ml-auto bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white px-3 py-1 rounded-lg text-xs font-semibold transition-colors">
+                    Share
+                  </button>
+                </div>
+
+                {detail.festivalStory && (
+                  <p className="text-xs text-gray-500 leading-relaxed">{detail.festivalStory}</p>
+                )}
+
+                <div className="space-y-1.5">
+                  {[
+                    { label: 'Fan Service', value: detail.avgFanService, color: 'bg-emerald-600/70' },
+                    { label: 'Deep Cuts',   value: detail.avgDeepCuts,   color: 'bg-purple-600/70'  },
+                  ].map((bar) => (
+                    <div key={bar.label} className="flex items-center gap-2">
+                      <p className="text-[10px] text-gray-600 w-20 shrink-0">{bar.label}</p>
+                      <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                        <div className={`h-full ${bar.color} rounded-full transition-all`} style={{ width: `${bar.value}%` }} />
+                      </div>
+                      <p className="text-[10px] text-gray-500 w-7 text-right font-mono">{bar.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Lineup editor */}
+              <div className="flex-1 overflow-y-auto">
+                {lineupEntries.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-gray-600 text-sm">No concerts in this lineup yet.</div>
+                ) : (
+                  <div className="divide-y divide-gray-800/50">
+                    {lineupEntries.map((entry, idx) => (
+                      <div key={entry.concertId} className="flex items-center gap-2 px-4 py-2.5">
+                        <span className="text-gray-600 text-xs w-5 text-right shrink-0">{idx + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white truncate">{entry.concertName}</p>
+                          <p className="text-xs text-gray-600 truncate">{entry.bandName}</p>
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          <button
+                            onClick={() => moveUp(idx)}
+                            disabled={idx === 0}
+                            className="text-gray-600 hover:text-violet-400 disabled:opacity-20 text-sm px-1 py-0.5 rounded transition-colors"
+                            title="Move up">
+                            ▲
+                          </button>
+                          <button
+                            onClick={() => moveDown(idx)}
+                            disabled={idx === lineupEntries.length - 1}
+                            className="text-gray-600 hover:text-violet-400 disabled:opacity-20 text-sm px-1 py-0.5 rounded transition-colors"
+                            title="Move down">
+                            ▼
+                          </button>
+                          <button
+                            onClick={() => removeConcert(entry.concertId)}
+                            className="text-gray-700 hover:text-red-500 text-sm px-1 py-0.5 rounded transition-colors ml-1"
+                            title="Remove">
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add concert */}
+                {availableConcerts.length > 0 && (
+                  <div className="flex gap-2 px-4 py-3 border-t border-gray-800/50">
+                    <select value={addId} onChange={(e) => setAddId(e.target.value)}
+                      className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-300 focus:outline-none focus:border-violet-500/60">
+                      <option value="">Add a concert…</option>
+                      {availableConcerts.map((c) => (
+                        <option key={c.id} value={c.id}>{c.concertName} — {c.bandName}</option>
+                      ))}
+                    </select>
+                    <button onClick={addConcert} disabled={!addId}
+                      className="bg-violet-700 hover:bg-violet-600 disabled:opacity-40 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors shrink-0">
+                      Add
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center gap-3 px-5 py-4 border-t border-gray-800 shrink-0">
+                <button
+                  onClick={() => { if (window.confirm('Delete this festival?')) void deleteMutation.mutate(); }}
+                  disabled={deleteMutation.isPending}
+                  className="text-red-700 hover:text-red-500 disabled:opacity-50 text-sm font-semibold transition-colors px-1">
+                  {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+                </button>
+                <div className="flex-1" />
+                <button onClick={onClose}
+                  className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+                  Close
+                </button>
+                {lineupDirty && (
+                  <button onClick={() => void saveLineup.mutate()} disabled={anySaving}
+                    className="bg-violet-700 hover:bg-violet-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+                    {saveLineup.isPending ? 'Saving…' : 'Save Lineup'}
+                  </button>
+                )}
+                {isDirty && !lineupDirty && (
+                  <button onClick={() => void saveMeta.mutate()} disabled={anySaving}
+                    className="bg-violet-700 hover:bg-violet-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+                    {saveMeta.isPending ? 'Saving…' : 'Save'}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {showExport && detail && (
+        <FestivalExportModal detail={detail} onClose={() => setShowExport(false)} />
+      )}
+    </>
+  );
+}
+
+function FestivalsTab() {
+  const queryClient = useQueryClient();
+  const [showCreate, setShowCreate] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const { data: festivals = [], isLoading, isError } = useQuery({
+    queryKey: ['band-rpg-festivals'],
+    queryFn:  () => bandRpgApi.getFestivals(),
+    staleTime: 60_000,
+  });
+
+  const { data: concerts = [] } = useQuery({
+    queryKey: ['band-rpg-concerts'],
+    queryFn:  () => bandRpgApi.getConcerts(),
+    staleTime: 60_000,
+  });
+
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: ['band-rpg-festivals'] });
+
+  if (isLoading) return <LoadingSpinner />;
+  if (isError)   return <ErrorMsg msg="Failed to load festivals." />;
+
+  return (
+    <>
+      <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-gray-500">
+            {festivals.length > 0
+              ? `${festivals.length} festival${festivals.length !== 1 ? 's' : ''}`
+              : 'No festivals yet'}
+          </p>
+          {concerts.length > 0 && (
+            <button onClick={() => setShowCreate(true)}
+              className="bg-violet-700 hover:bg-violet-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+              + New Festival
+            </button>
+          )}
+        </div>
+
+        {festivals.length === 0 && concerts.length === 0 ? (
+          <EmptyState icon="🎪" title="No festivals yet"
+            desc="Build concerts first, then combine them into a festival lineup." />
+        ) : festivals.length === 0 ? (
+          <div className="rounded-xl border border-gray-800 bg-gray-900/60 px-6 py-10 text-center">
+            <p className="text-gray-300 font-semibold mb-1">Stage your first festival</p>
+            <p className="text-gray-600 text-sm">Combine your concerts into a festival lineup. Each festival receives analysis, a personality, and an exportable card.</p>
+          </div>
+        ) : (
+          <>
+            <FestivalRecords festivals={festivals} />
+            <div className="space-y-2">
+              {festivals.map((f) => (
+                <FestivalCard key={f.id} festival={f} onClick={() => setSelectedId(f.id)} />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {showCreate && (
+        <CreateFestivalModal
+          concerts={concerts}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => { setShowCreate(false); refresh(); }}
+        />
+      )}
+
+      {selectedId && (
+        <FestivalDetailModal
+          festivalId={selectedId}
+          onClose={() => setSelectedId(null)}
+          onDeleted={() => { setSelectedId(null); refresh(); }}
+          onSaved={refresh}
+        />
+      )}
+    </>
+  );
+}
+
 // ── Lifetime archive points ────────────────────────────────────────────────────
 
 function LifetimePoints() {
@@ -2129,13 +2833,14 @@ function LifetimePoints() {
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
-type CollectionTab = 'songs' | 'albums' | 'setlists' | 'concerts';
+type CollectionTab = 'songs' | 'albums' | 'setlists' | 'concerts' | 'festivals';
 
 const TABS: { id: CollectionTab; label: string }[] = [
-  { id: 'songs',    label: '🎵 Songs'    },
-  { id: 'albums',   label: '💿 Albums'   },
-  { id: 'setlists', label: '🎸 Setlists' },
-  { id: 'concerts', label: '🎤 Concerts' },
+  { id: 'songs',     label: '🎵 Songs'     },
+  { id: 'albums',    label: '💿 Albums'    },
+  { id: 'setlists',  label: '🎸 Setlists'  },
+  { id: 'concerts',  label: '🎤 Concerts'  },
+  { id: 'festivals', label: '🎪 Festivals' },
 ];
 
 export default function BandRpgCollectionPage() {
@@ -2197,10 +2902,11 @@ export default function BandRpgCollectionPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {activeTab === 'songs'    && <SongsTab />}
-        {activeTab === 'albums'   && <AlbumsTab />}
-        {activeTab === 'setlists' && <SetlistsTab />}
-        {activeTab === 'concerts' && <ConcertsTab />}
+        {activeTab === 'songs'     && <SongsTab />}
+        {activeTab === 'albums'    && <AlbumsTab />}
+        {activeTab === 'setlists'  && <SetlistsTab />}
+        {activeTab === 'concerts'  && <ConcertsTab />}
+        {activeTab === 'festivals' && <FestivalsTab />}
       </div>
     </div>
   );

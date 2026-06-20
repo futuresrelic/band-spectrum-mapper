@@ -243,6 +243,46 @@ export interface BandRpgConcertDetail extends BandRpgConcertSummary {
   mostFamiliar: BandRpgConcertLegendRef | null;
 }
 
+// ── Festival types ────────────────────────────────────────────────────────────
+
+export interface BandRpgFestivalConcertEntry {
+  festivalConcertId: string;
+  position: number;
+  concertId: string;
+  concertName: string;
+  bandId: string;
+  bandName: string;
+  songCount: number;
+  grade: string;
+  concertTotal: number;
+  concertPersonality: string;
+  fanServiceScore: number;
+  deepCutScore: number;
+  venueFit: number | null;
+  venueFitLabel: string | null;
+  venueName: string | null;
+}
+
+export interface BandRpgFestivalSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  concertCount: number;
+  bandCount: number;
+  totalSongs: number;
+  avgFanService: number;
+  avgDeepCuts: number;
+  avgVenueFit: number | null;
+  festivalPersonality: string;
+  festivalStory: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BandRpgFestivalDetail extends BandRpgFestivalSummary {
+  concerts: BandRpgFestivalConcertEntry[];
+}
+
 // ── API client ────────────────────────────────────────────────────────────────
 
 export const bandRpgApi = {
@@ -347,4 +387,25 @@ export const bandRpgApi = {
 
   getVenues: () =>
     api.get<BandRpgVenue[]>('/api/band-rpg/venues'),
+
+  getFestivals: () =>
+    api.get<BandRpgFestivalSummary[]>('/api/band-rpg/festivals'),
+
+  createFestival: (data: { name: string; description?: string; concertIds?: string[] }) =>
+    api.post<{ ok: boolean; id: string }>('/api/band-rpg/festivals', data),
+
+  getFestivalDetail: (id: string) =>
+    api.get<BandRpgFestivalDetail>(`/api/band-rpg/festivals/${encodeURIComponent(id)}`),
+
+  updateFestival: (id: string, data: { name?: string; description?: string }) =>
+    api.put<{ ok: boolean }>(`/api/band-rpg/festivals/${encodeURIComponent(id)}`, data),
+
+  deleteFestival: (id: string) =>
+    api.delete<{ ok: boolean }>(`/api/band-rpg/festivals/${encodeURIComponent(id)}`),
+
+  updateFestivalConcerts: (id: string, concertIds: string[]) =>
+    api.put<{ ok: boolean; concertCount: number }>(
+      `/api/band-rpg/festivals/${encodeURIComponent(id)}/concerts`,
+      { concertIds },
+    ),
 };

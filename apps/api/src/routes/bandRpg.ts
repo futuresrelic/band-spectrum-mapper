@@ -1429,6 +1429,401 @@ bandRpgRouter.delete('/concerts/:concertId', requireAuth, async (req, res, next)
   } catch (e) { next(e); }
 });
 
+// ── Festival helpers ──────────────────────────────────────────────────────────
+
+const CONCERT_TO_FESTIVAL_PERSONALITY: Record<string, string> = {
+  'The Assault':     'Heavy Music Celebration',
+  'The Dreamscape':  'Atmospheric Summit',
+  'The Catharsis':   'Emotional Journey Festival',
+  'The Labyrinth':   'Progressive Gathering',
+  'The Ritual':      'Psychedelic Communion',
+  'The Manifesto':   'Conceptual Assembly',
+  'The Convergence': 'Spectrum Showcase',
+  'The Expedition':  'Discovery Festival',
+  'The Unknown':     'Archive Gathering',
+};
+
+function computeFestivalPersonality(concerts: Array<{
+  concertPersonality: string; fanServiceScore: number; deepCutScore: number;
+}>): string {
+  if (concerts.length === 0) return 'Archive Gathering';
+  const counts: Record<string, number> = {};
+  for (const c of concerts) counts[c.concertPersonality] = (counts[c.concertPersonality] ?? 0) + 1;
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const [topP, topCount] = sorted[0]!;
+  if (topCount / concerts.length >= 0.5) return CONCERT_TO_FESTIVAL_PERSONALITY[topP] ?? 'Spectrum Showcase';
+  const avgDeep = concerts.reduce((s, c) => s + c.deepCutScore, 0) / concerts.length;
+  if (avgDeep >= 65) return 'Deep Cut Convention';
+  const avgFan  = concerts.reduce((s, c) => s + c.fanServiceScore, 0) / concerts.length;
+  if (avgFan >= 70) return 'Legendary Archive Festival';
+  return 'Spectrum Showcase';
+}
+
+const FESTIVAL_STORIES: Record<string, (b: number, s: number, c: number) => string> = {
+  'Heavy Music Celebration':    (b, s, c) => `A festival built for impact — ${c} concert${c !== 1 ? 's' : ''}, ${b} band${b !== 1 ? 's' : ''}, and ${s} songs that hit hard from first note to last. This lineup does not relent.`,
+  'Atmospheric Summit':         (b, s, c) => `${c} performance${c !== 1 ? 's' : ''} across ${b} band${b !== 1 ? 's' : ''}, united by atmosphere and immersion. ${s} songs that breathe, build, and dissolve — a festival that lives in the space between the notes.`,
+  'Emotional Journey Festival': (b, s, c) => `${b} band${b !== 1 ? 's' : ''}, ${c} concert${c !== 1 ? 's' : ''}, ${s} songs — and every one of them means something. This festival was not assembled for spectacle. It was assembled to be felt.`,
+  'Progressive Gathering':      (b, s, c) => `A gathering for those who listen carefully. ${c} concert${c !== 1 ? 's' : ''}, ${b} band${b !== 1 ? 's' : ''}, and ${s} songs built on complexity, patience, and architecture.`,
+  'Psychedelic Communion':      (b, s, c) => `${c} ritual${c !== 1 ? 's' : ''}, ${b} band${b !== 1 ? 's' : ''}, ${s} songs. This festival does not ask for passive listening — it asks for surrender.`,
+  'Conceptual Assembly':        (b, s, c) => `${b} band${b !== 1 ? 's' : ''} with something to say — assembled across ${c} concert${c !== 1 ? 's' : ''} and ${s} songs. Each performance is an argument. The festival is the conclusion.`,
+  'Spectrum Showcase':          (b, s, c) => `A festival of range: ${b} band${b !== 1 ? 's' : ''}, ${c} concert${c !== 1 ? 's' : ''}, ${s} songs, and no singular direction. This is not a genre festival. This is a celebration of what music can become.`,
+  'Discovery Festival':         (b, s, c) => `The journey is the point. ${c} concert${c !== 1 ? 's' : ''}, ${b} band${b !== 1 ? 's' : ''}, and ${s} songs — arranged not for spectacle, but for exploration.`,
+  'Deep Cut Convention':        (b, s, c) => `This festival rewards the patient fan. ${c} concert${c !== 1 ? 's' : ''}, ${b} band${b !== 1 ? 's' : ''}, and ${s} songs — leaning heavily on rare material that casual audiences have never encountered.`,
+  'Legendary Archive Festival': (b, s, c) => `A celebration for the devoted. ${c} concert${c !== 1 ? 's' : ''}, ${b} band${b !== 1 ? 's' : ''}, ${s} songs — curated to deliver the songs fans know and love, elevated to something extraordinary.`,
+  'Archive Gathering':          (b, s, c) => `${c} concert${c !== 1 ? 's' : ''} assembled from ${b} band${b !== 1 ? 's' : ''} across ${s} songs. A festival taking shape — its identity still revealing itself.`,
+};
+
+function generateFestivalStory(personality: string, bandCount: number, songCount: number, concertCount: number): string {
+  const fn = FESTIVAL_STORIES[personality] ?? FESTIVAL_STORIES['Archive Gathering']!;
+  return fn(bandCount, songCount, concertCount);
+}
+
+// Shared per-concert computation used by both festival list and detail endpoints.
+// Takes pre-fetched concert data + shared lookups; returns derived metrics.
+function deriveConcertMetrics(
+  concert: {
+    id: string; bandId: string; bandName: string; concertName: string; venueId: string | null;
+    venue: { id: string; name: string; description: string } | null;
+    setlist: { songs: Array<{ songId: string; songTitle: string; rarity: string; position: number }> };
+  },
+  axisMap: Map<string, { aggression: number; atmosphere: number; emotion: number; complexity: number; psychedelic: number; concept: number }>,
+  songAlbumMap: Map<string, string>,
+) {
+  const songs       = concert.setlist.songs;
+  const rarityValue = songs.reduce((s, x) => s + (RARITY_VALUE[x.rarity] ?? 1), 0);
+  const albumCount  = new Set(songs.map((s) => songAlbumMap.get(s.songId)).filter((id): id is string => !!id)).size;
+  const diversityBonus = computeDiversityBonus(albumCount, songs.length, rarityValue);
+
+  const scoredRows = songs.map((s) => axisMap.get(s.songId)).filter((r): r is NonNullable<typeof r> => r !== undefined);
+  const getAvg = (f: 'aggression' | 'atmosphere' | 'emotion' | 'complexity' | 'psychedelic' | 'concept') =>
+    scoredRows.length > 0 ? scoredRows.reduce((a, r) => a + r[f], 0) / scoredRows.length : null;
+  const avgs = {
+    aggression:  getAvg('aggression'),  atmosphere:  getAvg('atmosphere'),
+    emotion:     getAvg('emotion'),     complexity:  getAvg('complexity'),
+    psychedelic: getAvg('psychedelic'), concept:     getAvg('concept'),
+  };
+
+  const aggrValues = scoredRows.map((r) => r.aggression);
+  const flowScore  = computeFlowScore(aggrValues);
+
+  const firstSong = songs[0];
+  const lastSong  = songs[songs.length - 1];
+  const firstAxis = firstSong ? axisMap.get(firstSong.songId) : undefined;
+  const lastAxis  = lastSong  ? axisMap.get(lastSong.songId)  : undefined;
+  const opScore   = firstSong ? Math.min(10, (OPENER_RARITY_SCORE[firstSong.rarity] ?? 2) + ((firstAxis?.aggression ?? 0) >= 3.5 ? 1 : 0)) : 0;
+  const clScore   = lastSong  ? Math.min(10, (OPENER_RARITY_SCORE[lastSong.rarity]  ?? 2) + ((lastAxis?.emotion     ?? 0) >= 3.5 ? 1 : 0)) : 0;
+
+  const venueEntry    = concert.venue ? (VENUE_MAP.get(concert.venue.id) ?? null) : null;
+  const venueFit      = venueEntry ? computeVenueFit(venueEntry, avgs, rarityValue) : null;
+  const venueContrib  = venueFit !== null ? Math.floor(venueFit * 0.1) : 0;
+  const concertTotal  = rarityValue + diversityBonus + flowScore + opScore + clScore + venueContrib;
+
+  return {
+    songCount:          songs.length,
+    rarityValue,
+    albumCount,
+    diversityBonus,
+    flowScore,
+    concertTotal,
+    grade:              computeGrade(concertTotal),
+    venueFit,
+    venueFitLabel:      venueFit !== null ? venueFitLabel(venueFit) : null,
+    venueName:          concert.venue?.name ?? null,
+    fanServiceScore:    computeFanServiceScore(songs),
+    deepCutScore:       computeDeepCutScore(songs),
+    concertPersonality: computeConcertPersonality(avgs),
+  };
+}
+
+// Shared data-fetching preamble used by festival list + detail to load concert data in bulk.
+async function loadConcertDataForFestivals(concertIds: string[]) {
+  if (concertIds.length === 0) return { concertRows: [], axisMap: new Map(), songAlbumMap: new Map() };
+
+  const concertRows = await prisma.bandRpgConcert.findMany({
+    where: { id: { in: concertIds } },
+    include: {
+      setlist: { include: { songs: { orderBy: { position: 'asc' } } } },
+      venue: true,
+    },
+  });
+
+  const allSongIds = [...new Set(concertRows.flatMap((c) => c.setlist.songs.map((s) => s.songId)))];
+  const [axisRows, songAlbumRows] = allSongIds.length > 0
+    ? await Promise.all([
+        prisma.songAxisScore.findMany({
+          where: { songId: { in: allSongIds } },
+          select: { songId: true, aggression: true, atmosphere: true, emotion: true, complexity: true, psychedelic: true, concept: true },
+        }),
+        prisma.song.findMany({
+          where: { id: { in: allSongIds }, albumId: { not: null } },
+          select: { id: true, albumId: true },
+        }),
+      ])
+    : [[], []];
+
+  const axisMap      = new Map(axisRows.map((r) => [r.songId, r]));
+  const songAlbumMap = new Map(songAlbumRows.map((r) => [r.id, r.albumId as string]));
+  return { concertRows, axisMap, songAlbumMap };
+}
+
+// ── GET /festivals ────────────────────────────────────────────────────────────
+
+bandRpgRouter.get('/festivals', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    await ensureVenuesSeeded();
+
+    const festivals = await prisma.bandRpgFestival.findMany({
+      where: { userId },
+      include: { concerts: { orderBy: { position: 'asc' } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (festivals.length === 0) { res.json([]); return; }
+
+    const allConcertIds = [...new Set(festivals.flatMap((f) => f.concerts.map((fc) => fc.concertId)))];
+    const { concertRows, axisMap, songAlbumMap } = await loadConcertDataForFestivals(allConcertIds);
+    const concertMap = new Map(concertRows.map((c) => [c.id, c]));
+
+    const metricsCache = new Map(
+      concertRows.map((c) => [c.id, deriveConcertMetrics(c, axisMap, songAlbumMap)]),
+    );
+
+    res.json(festivals.map((festival) => {
+      const computed = festival.concerts
+        .map((fc) => metricsCache.get(fc.concertId))
+        .filter((m): m is NonNullable<typeof m> => m !== undefined);
+
+      const concert = festival.concerts
+        .map((fc) => concertMap.get(fc.concertId))
+        .filter((c): c is NonNullable<typeof c> => c !== undefined);
+
+      const concertCount  = festival.concerts.length;
+      const bandCount     = new Set(concert.map((c) => c.bandId)).size;
+      const totalSongs    = computed.reduce((s, m) => s + m.songCount, 0);
+      const avgFanService = computed.length > 0 ? Math.round(computed.reduce((s, m) => s + m.fanServiceScore, 0) / computed.length) : 0;
+      const avgDeepCuts   = computed.length > 0 ? Math.round(computed.reduce((s, m) => s + m.deepCutScore, 0) / computed.length) : 0;
+      const fitVals       = computed.filter((m) => m.venueFit !== null).map((m) => m.venueFit!);
+      const avgVenueFit   = fitVals.length > 0 ? Math.round(fitVals.reduce((s, v) => s + v, 0) / fitVals.length) : null;
+
+      const personality = computeFestivalPersonality(computed.map((m) => ({
+        concertPersonality: m.concertPersonality, fanServiceScore: m.fanServiceScore, deepCutScore: m.deepCutScore,
+      })));
+
+      return {
+        id:                 festival.id,
+        name:               festival.name,
+        description:        festival.description ?? null,
+        concertCount,
+        bandCount,
+        totalSongs,
+        avgFanService,
+        avgDeepCuts,
+        avgVenueFit,
+        festivalPersonality: personality,
+        festivalStory:       generateFestivalStory(personality, bandCount, totalSongs, concertCount),
+        createdAt:           festival.createdAt.toISOString(),
+        updatedAt:           festival.updatedAt.toISOString(),
+      };
+    }));
+  } catch (e) { next(e); }
+});
+
+// ── POST /festivals ───────────────────────────────────────────────────────────
+
+bandRpgRouter.post('/festivals', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const body        = req.body as Record<string, unknown>;
+    const name        = typeof body['name']        === 'string' ? body['name'].trim()        : null;
+    const description = typeof body['description'] === 'string' ? body['description'].trim() : null;
+    const rawConcerts = Array.isArray(body['concertIds']) ? body['concertIds'] as string[] : [];
+
+    if (!name) { res.status(400).json({ error: 'name is required' }); return; }
+
+    // Validate concert ownership
+    const concertIds = rawConcerts.filter((id): id is string => typeof id === 'string');
+    if (concertIds.length > 0) {
+      const owned = await prisma.bandRpgConcert.findMany({
+        where: { id: { in: concertIds }, userId },
+        select: { id: true },
+      });
+      const ownedSet = new Set(owned.map((c) => c.id));
+      const invalid  = concertIds.filter((id) => !ownedSet.has(id));
+      if (invalid.length > 0) { res.status(400).json({ error: 'One or more concert IDs are invalid' }); return; }
+    }
+
+    const festival = await prisma.bandRpgFestival.create({
+      data: {
+        userId, name,
+        ...(description ? { description } : {}),
+        concerts: {
+          create: concertIds.map((concertId, idx) => ({ concertId, position: idx })),
+        },
+      },
+    });
+
+    res.status(201).json({ ok: true, id: festival.id });
+  } catch (e) { next(e); }
+});
+
+// ── GET /festivals/:festivalId ────────────────────────────────────────────────
+
+bandRpgRouter.get('/festivals/:festivalId', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const festivalId = req.params['festivalId'];
+    if (!festivalId) { res.status(400).json({ error: 'festivalId is required' }); return; }
+
+    await ensureVenuesSeeded();
+
+    const festival = await prisma.bandRpgFestival.findFirst({
+      where: { id: festivalId, userId },
+      include: { concerts: { orderBy: { position: 'asc' } } },
+    });
+    if (!festival) { res.status(404).json({ error: 'Not found' }); return; }
+
+    const concertIds = festival.concerts.map((fc) => fc.concertId);
+    const { concertRows, axisMap, songAlbumMap } = await loadConcertDataForFestivals(concertIds);
+    const concertMap = new Map(concertRows.map((c) => [c.id, c]));
+
+    const computed = festival.concerts.map((fc) => {
+      const concert = concertMap.get(fc.concertId);
+      if (!concert) return null;
+      const metrics = deriveConcertMetrics(concert, axisMap, songAlbumMap);
+      return {
+        festivalConcertId: fc.id,
+        position:          fc.position,
+        concertId:         fc.concertId,
+        concertName:       concert.concertName,
+        bandId:            concert.bandId,
+        bandName:          concert.bandName,
+        ...metrics,
+      };
+    }).filter((x): x is NonNullable<typeof x> => x !== null);
+
+    const concertCount  = festival.concerts.length;
+    const bandCount     = new Set(computed.map((m) => m.bandId)).size;
+    const totalSongs    = computed.reduce((s, m) => s + m.songCount, 0);
+    const avgFanService = computed.length > 0 ? Math.round(computed.reduce((s, m) => s + m.fanServiceScore, 0) / computed.length) : 0;
+    const avgDeepCuts   = computed.length > 0 ? Math.round(computed.reduce((s, m) => s + m.deepCutScore, 0) / computed.length) : 0;
+    const fitVals       = computed.filter((m) => m.venueFit !== null).map((m) => m.venueFit!);
+    const avgVenueFit   = fitVals.length > 0 ? Math.round(fitVals.reduce((s, v) => s + v, 0) / fitVals.length) : null;
+
+    const personality = computeFestivalPersonality(computed.map((m) => ({
+      concertPersonality: m.concertPersonality, fanServiceScore: m.fanServiceScore, deepCutScore: m.deepCutScore,
+    })));
+
+    res.json({
+      id:                  festival.id,
+      name:                festival.name,
+      description:         festival.description ?? null,
+      concertCount,
+      bandCount,
+      totalSongs,
+      avgFanService,
+      avgDeepCuts,
+      avgVenueFit,
+      festivalPersonality: personality,
+      festivalStory:       generateFestivalStory(personality, bandCount, totalSongs, concertCount),
+      concerts:            computed,
+      createdAt:           festival.createdAt.toISOString(),
+      updatedAt:           festival.updatedAt.toISOString(),
+    });
+  } catch (e) { next(e); }
+});
+
+// ── PUT /festivals/:festivalId ────────────────────────────────────────────────
+
+bandRpgRouter.put('/festivals/:festivalId', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const festivalId = req.params['festivalId'];
+    if (!festivalId) { res.status(400).json({ error: 'festivalId is required' }); return; }
+
+    const festival = await prisma.bandRpgFestival.findFirst({ where: { id: festivalId, userId } });
+    if (!festival) { res.status(404).json({ error: 'Not found' }); return; }
+
+    const body        = req.body as Record<string, unknown>;
+    const name        = typeof body['name']        === 'string' ? body['name'].trim()        : undefined;
+    const description = typeof body['description'] === 'string' ? body['description'].trim() : undefined;
+
+    const data: Record<string, unknown> = { updatedAt: new Date() };
+    if (name        !== undefined) data['name']        = name;
+    if (description !== undefined) data['description'] = description;
+
+    await prisma.bandRpgFestival.update({ where: { id: festivalId }, data });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ── DELETE /festivals/:festivalId ─────────────────────────────────────────────
+
+bandRpgRouter.delete('/festivals/:festivalId', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const festivalId = req.params['festivalId'];
+    if (!festivalId) { res.status(400).json({ error: 'festivalId is required' }); return; }
+
+    const festival = await prisma.bandRpgFestival.findFirst({ where: { id: festivalId, userId } });
+    if (!festival) { res.status(404).json({ error: 'Not found' }); return; }
+
+    await prisma.bandRpgFestival.delete({ where: { id: festivalId } });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ── PUT /festivals/:festivalId/concerts ───────────────────────────────────────
+
+bandRpgRouter.put('/festivals/:festivalId/concerts', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+    const festivalId = req.params['festivalId'];
+    if (!festivalId) { res.status(400).json({ error: 'festivalId is required' }); return; }
+
+    const festival = await prisma.bandRpgFestival.findFirst({ where: { id: festivalId, userId } });
+    if (!festival) { res.status(404).json({ error: 'Not found' }); return; }
+
+    const body    = req.body as Record<string, unknown>;
+    const rawIds  = Array.isArray(body['concertIds']) ? body['concertIds'] as unknown[] : [];
+    const concertIds = rawIds.filter((id): id is string => typeof id === 'string');
+
+    // Validate ownership of all concerts
+    if (concertIds.length > 0) {
+      const owned = await prisma.bandRpgConcert.findMany({
+        where: { id: { in: concertIds }, userId },
+        select: { id: true },
+      });
+      const ownedSet = new Set(owned.map((c) => c.id));
+      if (concertIds.some((id) => !ownedSet.has(id))) {
+        res.status(400).json({ error: 'One or more concert IDs are invalid' }); return;
+      }
+    }
+
+    await prisma.$transaction([
+      prisma.bandRpgFestivalConcert.deleteMany({ where: { festivalId } }),
+      ...concertIds.map((concertId, idx) =>
+        prisma.bandRpgFestivalConcert.create({ data: { festivalId, concertId, position: idx } }),
+      ),
+    ]);
+    await prisma.bandRpgFestival.update({ where: { id: festivalId }, data: { updatedAt: new Date() } });
+
+    res.json({ ok: true, concertCount: concertIds.length });
+  } catch (e) { next(e); }
+});
+
 // ── POST /admin/reset-my-data ─────────────────────────────────────────────────
 
 bandRpgRouter.post('/admin/reset-my-data', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
@@ -1437,6 +1832,7 @@ bandRpgRouter.post('/admin/reset-my-data', requireAuth, requireAdmin, async (req
     if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
 
     await prisma.$transaction([
+      prisma.bandRpgFestival.deleteMany({ where: { userId } }),
       prisma.bandRpgConcert.deleteMany({ where: { userId } }),
       prisma.bandRpgCollectedSong.deleteMany({ where: { userId } }),
       prisma.bandRpgCompletedAlbum.deleteMany({ where: { userId } }),
@@ -1444,7 +1840,7 @@ bandRpgRouter.post('/admin/reset-my-data', requireAuth, requireAdmin, async (req
       prisma.bandRpgPlayerProgress.deleteMany({ where: { userId } }),
     ]);
 
-    res.json({ ok: true, message: 'Band RPG collection, albums, setlists, concerts, and progress cleared.' });
+    res.json({ ok: true, message: 'Band RPG collection, albums, setlists, concerts, festivals, and progress cleared.' });
   } catch (e) { next(e); }
 });
 

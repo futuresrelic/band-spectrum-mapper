@@ -449,6 +449,7 @@ model User {
   bandRpgCompletedAlbums BandRpgCompletedAlbum[]
   bandRpgSetlists      BandRpgSetlist[]
   bandRpgConcerts      BandRpgConcert[]
+  bandRpgFestivals     BandRpgFestival[]
 
   @@map("users")
 }
@@ -1790,11 +1791,45 @@ model BandRpgConcert {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  setlist BandRpgSetlist  @relation(fields: [setlistId], references: [id], onDelete: Cascade)
-  venue   BandRpgVenue?   @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  user           User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  setlist        BandRpgSetlist            @relation(fields: [setlistId], references: [id], onDelete: Cascade)
+  venue          BandRpgVenue?             @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  festivalEntries BandRpgFestivalConcert[]
 
   @@map("band_rpg_concerts")
+}
+
+// ---------------------------------------------------------------------------
+// Festival Builder — Phase N
+// A Festival is an ordered collection of Concerts.
+// ---------------------------------------------------------------------------
+
+model BandRpgFestival {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user     User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  concerts BandRpgFestivalConcert[]
+
+  @@map("band_rpg_festivals")
+}
+
+model BandRpgFestivalConcert {
+  id         String   @id @default(cuid())
+  festivalId String
+  concertId  String
+  position   Int
+  addedAt    DateTime @default(now())
+
+  festival BandRpgFestival @relation(fields: [festivalId], references: [id], onDelete: Cascade)
+  concert  BandRpgConcert  @relation(fields: [concertId], references: [id], onDelete: Cascade)
+
+  @@unique([festivalId, concertId])
+  @@map("band_rpg_festival_concerts")
 }
 
 // Architectural placeholder for future Setlist.fm / real-world song data integration.
