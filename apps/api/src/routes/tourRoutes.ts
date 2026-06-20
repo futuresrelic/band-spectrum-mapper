@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { computeConcertRealism } from '../services/setlistIntelligenceService.js';
+import { grantXP, XP_GRANTS } from '../services/curatorService.js';
 
 export const tourRouter = Router();
 
@@ -444,6 +445,7 @@ tourRouter.post('/', requireAuth, async (req, res, next): Promise<void> => {
       },
     });
 
+    void grantXP(userId, XP_GRANTS.TOUR_CREATED).catch(() => undefined);
     res.json({ ok: true, id: tour.id }); return;
   } catch (err) { next(err); }
 });

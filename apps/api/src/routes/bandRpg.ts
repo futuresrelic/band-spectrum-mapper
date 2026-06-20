@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
+import { grantXP, persistChallengeTitles, XP_GRANTS } from '../services/curatorService.js';
 import {
   searchArtistOnSetlistFm,
   storeBandArtistMatch,
@@ -416,6 +417,17 @@ bandRpgRouter.post('/collect', requireAuth, async (req, res, next): Promise<void
     }
     // ── End album completion check ─────────────────────────────────────────
 
+    // XP grants — fire-and-forget; never block the response
+    if (isNew) {
+      void grantXP(userId, XP_GRANTS.SONG_RECOVERED, { setFirstRecovery: true }).catch(() => undefined);
+      if (guessedCorrectly) {
+        void grantXP(userId, XP_GRANTS.CORRECT_GUESS).catch(() => undefined);
+      }
+    }
+    if (albumCompleted) {
+      void grantXP(userId, XP_GRANTS.ALBUM_COMPLETED).catch(() => undefined);
+    }
+
     res.json({
       ok: true, isNew, albumCompleted,
       ...(completedAlbumId ? { completedAlbumId, completedAlbumTitle } : {}),
@@ -736,6 +748,7 @@ bandRpgRouter.post('/setlists', requireAuth, async (req, res, next): Promise<voi
       data: { userId, bandId, bandName, name },
     });
 
+    void grantXP(userId, XP_GRANTS.SETLIST_CREATED).catch(() => undefined);
     res.status(201).json({ ok: true, id: setlist.id });
   } catch (e) { next(e); }
 });
@@ -1264,6 +1277,7 @@ bandRpgRouter.post('/concerts', requireAuth, async (req, res, next): Promise<voi
       data: { userId, bandId: setlist.bandId, bandName: setlist.bandName, concertName, setlistId, ...(venueId ? { venueId } : {}) },
     });
 
+    void grantXP(userId, XP_GRANTS.CONCERT_CREATED).catch(() => undefined);
     res.status(201).json({ ok: true, id: concert.id });
   } catch (e) { next(e); }
 });
@@ -2701,6 +2715,7 @@ bandRpgRouter.post('/festivals', requireAuth, async (req, res, next): Promise<vo
       },
     });
 
+    void grantXP(userId, XP_GRANTS.FESTIVAL_CREATED).catch(() => undefined);
     res.status(201).json({ ok: true, id: festival.id });
   } catch (e) { next(e); }
 });

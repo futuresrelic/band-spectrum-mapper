@@ -14,6 +14,7 @@ import type {
   BandRpgTourSummary, BandRpgTourDetail, TourAchievement,
   BandRpgChallenge, BandRpgChallengeStats, BandRpgChallengeHistoryEntry,
   ChallengeAttemptResult,
+  BandRpgCuratorProfile, CuratorBadge,
 } from '../api/bandRpg';
 
 // ── Rarity display ─────────────────────────────────────────────────────────────
@@ -4316,6 +4317,468 @@ function ToursTab() {
   );
 }
 
+// ── Curator Progression (Phase X.5) ───────────────────────────────────────────
+
+function XPBar({ xpIntoLevel, xpForNextLevel, pct }: { xpIntoLevel: number; xpForNextLevel: number; pct: number }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+        <span>{xpIntoLevel.toLocaleString()} XP</span>
+        <span>{xpForNextLevel.toLocaleString()} XP to next level</span>
+      </div>
+      <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-700"
+          style={{ width: `${Math.max(2, pct)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function drawCuratorCard(
+  ctx: CanvasRenderingContext2D,
+  profile: BandRpgCuratorProfile,
+): void {
+  const W = 900, H = 1200, PAD = 60;
+
+  // Background — deep indigo
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0,    '#0a0a1a');
+  bg.addColorStop(0.5,  '#0f0a25');
+  bg.addColorStop(1,    '#05050f');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Silver border
+  ctx.strokeStyle = '#9090b8';
+  ctx.lineWidth   = 3;
+  ctx.strokeRect(12, 12, W - 24, H - 24);
+  ctx.strokeStyle = '#3a3a6a';
+  ctx.lineWidth   = 1;
+  ctx.strokeRect(22, 22, W - 44, H - 44);
+
+  ctx.textAlign = 'center';
+
+  // Header
+  ctx.fillStyle = '#9090c8';
+  ctx.font      = 'bold 22px sans-serif';
+  ctx.fillText('BAND RPG — CURATOR PROFILE', W / 2, 65);
+
+  // Character / avatar placeholder
+  ctx.fillStyle = '#1a1a3a';
+  ctx.beginPath();
+  ctx.arc(W / 2, 155, 70, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#6060a0';
+  ctx.lineWidth   = 2;
+  ctx.stroke();
+  ctx.fillStyle = '#8080b8';
+  ctx.font      = '56px sans-serif';
+  ctx.fillText(profile.selectedCharacterName ? profile.selectedCharacterName.charAt(0).toUpperCase() : '🎵', W / 2, 175);
+
+  // Level badge
+  ctx.fillStyle = '#ffd700';
+  ctx.font      = 'bold 56px serif';
+  ctx.fillText(`Lv. ${profile.level}`, W / 2, 270);
+
+  // Level title
+  ctx.fillStyle = '#b8b0e8';
+  ctx.font      = 'bold 26px serif';
+  ctx.fillText(profile.levelTitle, W / 2, 308);
+
+  // Current title
+  if (profile.currentTitle && profile.currentTitle !== profile.levelTitle) {
+    ctx.fillStyle = '#e0d060';
+    ctx.font      = '20px sans-serif';
+    ctx.fillText(`✦ ${profile.currentTitle}`, W / 2, 342);
+  }
+
+  // XP bar
+  const barX  = PAD + 20;
+  const barW  = W - (PAD + 20) * 2;
+  const barY  = 370;
+  ctx.fillStyle = '#1a1a3a';
+  ctx.fillRect(barX, barY, barW, 16);
+  const fillW = Math.max(4, Math.round((profile.xpProgressPct / 100) * barW));
+  const grad = ctx.createLinearGradient(barX, 0, barX + fillW, 0);
+  grad.addColorStop(0, '#6060ff');
+  grad.addColorStop(1, '#a060ff');
+  ctx.fillStyle = grad;
+  ctx.fillRect(barX, barY, fillW, 16);
+  ctx.fillStyle = '#707090';
+  ctx.font      = '14px sans-serif';
+  ctx.fillText(`${profile.xp.toLocaleString()} XP  ·  ${profile.xpProgressPct}% to Level ${profile.level + 1}`, W / 2, barY + 34);
+
+  // Divider
+  ctx.strokeStyle = '#2a2a5a';
+  ctx.lineWidth   = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, 420); ctx.lineTo(W - PAD, 420); ctx.stroke();
+
+  // Stats grid (2-column)
+  const statItems = [
+    ['Songs', String(profile.stats.songsRecovered)],
+    ['Albums', String(profile.stats.albumsCompleted)],
+    ['Concerts', String(profile.stats.concertsCreated)],
+    ['Festivals', String(profile.stats.festivalsCreated)],
+    ['Tours', String(profile.stats.toursCreated)],
+    ['Challenges', String(profile.stats.challengesCompleted)],
+    ['Rare Songs', String(profile.stats.rareSongsFound)],
+    ['Correct %', `${profile.stats.correctGuessPct}%`],
+  ];
+  ctx.fillStyle = '#8080b0';
+  ctx.font      = 'bold 16px sans-serif';
+  ctx.fillText('STATS', W / 2, 448);
+  const colW = (W - PAD * 2) / 2;
+  statItems.forEach(([label, value], i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const x   = PAD + col * colW + colW / 2;
+    const y   = 475 + row * 48;
+    ctx.fillStyle = '#505080';
+    ctx.font      = '14px sans-serif';
+    ctx.fillText(label ?? '', x, y);
+    ctx.fillStyle = '#d0d0f0';
+    ctx.font      = 'bold 22px serif';
+    ctx.fillText(value ?? '', x, y + 22);
+  });
+
+  // Divider
+  ctx.strokeStyle = '#2a2a5a';
+  ctx.lineWidth   = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, 680); ctx.lineTo(W - PAD, 680); ctx.stroke();
+
+  // Badges
+  const unlockedBadges = profile.badges.filter(b => b.unlocked);
+  ctx.fillStyle = '#8080b0';
+  ctx.font      = 'bold 16px sans-serif';
+  ctx.fillText('BADGES', W / 2, 706);
+  ctx.font = '36px sans-serif';
+  const bRow   = Math.ceil(unlockedBadges.length / 6);
+  const bStart = W / 2 - Math.min(unlockedBadges.length, 6) * 56 / 2;
+  unlockedBadges.forEach((b, i) => {
+    const col = i % 6;
+    const row = Math.floor(i / 6);
+    ctx.fillText(b.icon, bStart + col * 56, 750 + row * 56);
+  });
+  const nextY = 750 + bRow * 56 + 20;
+
+  // Footer
+  ctx.fillStyle = '#3a3a6a';
+  ctx.font      = '14px sans-serif';
+  ctx.fillText('Band RPG — The Archive', W / 2, Math.max(nextY + 40, H - 55));
+}
+
+function CuratorExportModal({
+  profile, onClose,
+}: { profile: BandRpgCuratorProfile; onClose: () => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    canvas.width  = 900;
+    canvas.height = 1200;
+    drawCuratorCard(ctx, profile);
+  }, [profile]);
+
+  const handleDownload = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const a = document.createElement('a');
+    a.href     = canvas.toDataURL('image/png');
+    a.download = `curator-card-level-${profile.level}.png`;
+    a.click();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+      <div className="bg-gray-900 border border-gray-700 rounded-xl max-w-sm w-full shadow-2xl">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+          <span className="text-white font-semibold text-sm">Curator Card</span>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl">×</button>
+        </div>
+        <div className="p-4">
+          <canvas ref={canvasRef} className="w-full rounded border border-gray-700" />
+          <button onClick={handleDownload} className="mt-3 w-full py-2 rounded-lg bg-indigo-900/50 hover:bg-indigo-800/60 text-indigo-300 text-sm font-semibold transition-colors">
+            Download PNG
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TitleSelectorModal({
+  profile, onSelect, onClose,
+}: {
+  profile:  BandRpgCuratorProfile;
+  onSelect: (title: string) => void;
+  onClose:  () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-sm shadow-2xl">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+          <span className="text-white font-semibold text-sm">Select Title</span>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl">×</button>
+        </div>
+        <div className="p-3 max-h-80 overflow-y-auto space-y-1">
+          {profile.allTitles.map(t => (
+            <button
+              key={t}
+              onClick={() => { onSelect(t); onClose(); }}
+              className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                profile.currentTitle === t
+                  ? 'bg-indigo-900/50 text-indigo-300 font-semibold'
+                  : 'text-gray-300 hover:bg-gray-800'
+              }`}
+            >
+              {profile.currentTitle === t ? '✦ ' : ''}{t}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BadgeGrid({ badges }: { badges: CuratorBadge[] }) {
+  const [tooltip, setTooltip] = useState<string | null>(null);
+  return (
+    <div className="flex flex-wrap gap-3">
+      {badges.map(b => (
+        <div
+          key={b.key}
+          className={`relative flex flex-col items-center gap-1 p-2 rounded-xl border w-[68px] cursor-default transition-all ${
+            b.unlocked
+              ? 'bg-indigo-950/50 border-indigo-700/50'
+              : 'bg-gray-900/40 border-gray-800/40 opacity-40'
+          }`}
+          onMouseEnter={() => setTooltip(b.key)}
+          onMouseLeave={() => setTooltip(null)}
+        >
+          <span className="text-2xl">{b.icon}</span>
+          <span className={`text-[10px] font-semibold text-center leading-tight ${b.unlocked ? 'text-indigo-300' : 'text-gray-600'}`}>
+            {b.name}
+          </span>
+          {b.progress && !b.unlocked && (
+            <div className="w-full h-1 bg-gray-800 rounded-full overflow-hidden mt-0.5">
+              <div
+                className="h-full bg-indigo-600 rounded-full"
+                style={{ width: `${Math.round((b.progress.current / b.progress.target) * 100)}%` }}
+              />
+            </div>
+          )}
+          {tooltip === b.key && (
+            <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-gray-800 border border-gray-600 rounded-lg px-2 py-1.5 z-20 w-44 shadow-xl pointer-events-none">
+              <p className="text-white text-xs font-semibold">{b.name}</p>
+              <p className="text-gray-400 text-xs mt-0.5">{b.description}</p>
+              {b.progress && (
+                <p className="text-indigo-400 text-xs mt-1">{b.progress.current} / {b.progress.target}</p>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CuratorTab() {
+  const queryClient = useQueryClient();
+  const [showExport, setShowExport]       = useState(false);
+  const [showTitles, setShowTitles]       = useState(false);
+
+  const { data: profile, isLoading } = useQuery({
+    queryKey: ['band-rpg-curator'],
+    queryFn:  () => bandRpgApi.getCuratorProfile(),
+  });
+
+  const setTitle = useMutation({
+    mutationFn: (title: string) => bandRpgApi.setCuratorTitle(title),
+    onSuccess:  () => void queryClient.invalidateQueries({ queryKey: ['band-rpg-curator'] }),
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 rounded-full border-2 border-indigo-500/60 border-t-indigo-400 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!profile) return null;
+
+  const stats = profile.stats;
+  const unlockedCount = profile.badges.filter(b => b.unlocked).length;
+
+  return (
+    <div className="p-4 space-y-6 max-w-2xl mx-auto">
+      {/* Identity card */}
+      <div className="bg-gray-900 border border-indigo-900/50 rounded-2xl p-5 shadow-lg">
+        <div className="flex items-start gap-4">
+          {/* Avatar */}
+          <div className="w-16 h-16 rounded-full bg-indigo-950 border-2 border-indigo-700/60 flex items-center justify-center text-2xl shrink-0">
+            {profile.selectedCharacterName
+              ? profile.selectedCharacterName.charAt(0).toUpperCase()
+              : '🎵'}
+          </div>
+
+          {/* Level + title */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-yellow-400 font-bold text-xl">Level {profile.level}</span>
+              <span className="text-indigo-400 text-sm font-semibold">{profile.levelTitle}</span>
+            </div>
+
+            {/* Active title */}
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-indigo-300 text-sm">
+                ✦ {profile.currentTitle ?? profile.levelTitle}
+              </span>
+              {profile.allTitles.length > 1 && (
+                <button
+                  onClick={() => setShowTitles(true)}
+                  className="text-[11px] text-gray-500 hover:text-indigo-400 transition-colors underline"
+                >
+                  Change
+                </button>
+              )}
+            </div>
+
+            {/* XP bar */}
+            <div className="mt-3">
+              <XPBar
+                xpIntoLevel={profile.xpIntoLevel}
+                xpForNextLevel={profile.xpForNextLevel}
+                pct={profile.xpProgressPct}
+              />
+            </div>
+          </div>
+
+          {/* Export button */}
+          <button
+            onClick={() => setShowExport(true)}
+            title="Export Curator Card"
+            className="shrink-0 text-indigo-500 hover:text-indigo-300 text-xl transition-colors"
+          >
+            ↓
+          </button>
+        </div>
+
+        {/* Total XP */}
+        <p className="text-xs text-gray-600 mt-3 text-right">
+          {profile.xp.toLocaleString()} total XP
+          {profile.firstRecoveryDate && ` · First recovery ${formatDate(profile.firstRecoveryDate)}`}
+        </p>
+      </div>
+
+      {/* Stats */}
+      <div>
+        <h3 className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-3">Curator Stats</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {([
+            { label: 'Songs',       value: stats.songsRecovered },
+            { label: 'Albums',      value: stats.albumsCompleted },
+            { label: 'Concerts',    value: stats.concertsCreated },
+            { label: 'Festivals',   value: stats.festivalsCreated },
+            { label: 'Tours',       value: stats.toursCreated },
+            { label: 'Challenges',  value: stats.challengesCompleted },
+            { label: 'Rare Songs',  value: stats.rareSongsFound },
+            { label: 'Correct %',   value: `${stats.correctGuessPct}%` },
+          ] as { label: string; value: string | number }[]).map(({ label, value }) => (
+            <div key={label} className="bg-gray-900/80 border border-gray-800/60 rounded-xl p-3 text-center">
+              <p className="text-white font-bold text-xl">{value}</p>
+              <p className="text-gray-500 text-xs mt-0.5">{label}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Legendary / Mythic highlight */}
+      {(stats.legendarySongsFound > 0 || stats.mythicSongsFound > 0) && (
+        <div className="flex gap-3">
+          {stats.legendarySongsFound > 0 && (
+            <div className="flex-1 bg-purple-950/30 border border-purple-800/40 rounded-xl p-3 text-center">
+              <p className="text-purple-300 font-bold text-2xl">{stats.legendarySongsFound}</p>
+              <p className="text-purple-400/70 text-xs">🟣 Legendary Songs</p>
+            </div>
+          )}
+          {stats.mythicSongsFound > 0 && (
+            <div className="flex-1 bg-orange-950/30 border border-orange-800/40 rounded-xl p-3 text-center">
+              <p className="text-orange-300 font-bold text-2xl">{stats.mythicSongsFound}</p>
+              <p className="text-orange-400/70 text-xs">🟠 Mythic Songs</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Badges */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <h3 className="text-gray-400 text-xs font-semibold uppercase tracking-wider">Badges</h3>
+          <span className="text-gray-600 text-xs">{unlockedCount}/{profile.badges.length} unlocked</span>
+        </div>
+        <BadgeGrid badges={profile.badges} />
+      </div>
+
+      {/* Titles */}
+      {profile.titlesUnlocked.length > 0 && (
+        <div>
+          <h3 className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2">Earned Titles</h3>
+          <div className="flex flex-wrap gap-2">
+            {profile.titlesUnlocked.map(t => (
+              <span key={t} className="text-xs px-2 py-1 rounded-full bg-yellow-900/30 text-yellow-400 border border-yellow-700/40 font-semibold">
+                ✦ {t}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent activity */}
+      {profile.recentActivity.length > 0 && (
+        <div>
+          <h3 className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-3">Recent Activity</h3>
+          <div className="space-y-1.5">
+            {profile.recentActivity.slice(0, 10).map((a, i) => (
+              <div key={i} className="flex items-center gap-3 py-1.5 px-3 rounded-lg bg-gray-900/50 border border-gray-800/40">
+                <span className="text-base">{a.icon}</span>
+                <p className="text-gray-300 text-sm truncate flex-1">{a.label}</p>
+                <span className="text-gray-600 text-xs shrink-0">{formatDate(a.date)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {profile.stats.songsRecovered === 0 && (
+        <div className="text-center py-8 text-gray-600 text-sm">
+          <p className="text-4xl mb-3">🎵</p>
+          <p>Your curator journey begins with the first song.</p>
+          <p className="text-xs mt-1">Play Band RPG to start building your legacy.</p>
+        </div>
+      )}
+
+      {/* Modals */}
+      {showExport && (
+        <CuratorExportModal profile={profile} onClose={() => setShowExport(false)} />
+      )}
+      {showTitles && (
+        <TitleSelectorModal
+          profile={profile}
+          onSelect={(t) => setTitle.mutate(t)}
+          onClose={() => setShowTitles(false)}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Rival Events & Challenges (Phase X) ───────────────────────────────────────
 
 const DIFFICULTY_BADGE: Record<string, { label: string; className: string }> = {
@@ -5078,7 +5541,7 @@ function ChallengesTab() {
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
-type CollectionTab = 'songs' | 'albums' | 'setlists' | 'concerts' | 'festivals' | 'tours' | 'challenges';
+type CollectionTab = 'songs' | 'albums' | 'setlists' | 'concerts' | 'festivals' | 'tours' | 'challenges' | 'curator';
 
 const TABS: { id: CollectionTab; label: string }[] = [
   { id: 'songs',      label: '🎵 Songs'      },
@@ -5088,6 +5551,7 @@ const TABS: { id: CollectionTab; label: string }[] = [
   { id: 'festivals',  label: '🎪 Festivals'  },
   { id: 'tours',      label: '🗺️ Tours'     },
   { id: 'challenges', label: '⚔ Challenges' },
+  { id: 'curator',    label: '👤 Curator'    },
 ];
 
 export default function BandRpgCollectionPage() {
@@ -5158,6 +5622,7 @@ export default function BandRpgCollectionPage() {
         {activeTab === 'festivals'  && <FestivalsTab />}
         {activeTab === 'tours'      && <ToursTab />}
         {activeTab === 'challenges' && <ChallengesTab />}
+        {activeTab === 'curator'    && <CuratorTab />}
       </div>
     </div>
   );

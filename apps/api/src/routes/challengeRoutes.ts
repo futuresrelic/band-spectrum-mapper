@@ -8,6 +8,7 @@ import {
   computeCollectionMetrics,
   generateChallengeForUser,
 } from '../services/challengeService.js';
+import { grantXP, persistChallengeTitles, XP_GRANTS } from '../services/curatorService.js';
 
 export const challengeRouter = Router();
 
@@ -283,6 +284,19 @@ challengeRouter.post('/:id/attempt', requireAuth, async (req, res, next): Promis
     const message = result.achieved
       ? `${result.tier === 'platinum' ? '🏆 PLATINUM!' : result.tier === 'gold' ? '🥇 Gold!' : result.tier === 'silver' ? '🥈 Silver!' : '🥉 Bronze!'} Challenge complete. Reward: ${challenge.rewardTitle ?? 'Challenger'}.`
       : `Not yet. Keep building. You need to improve your scores to beat this challenge.`;
+
+    // XP + title grant on achievement (fire-and-forget)
+    if (result.achieved) {
+      const xpMap: Record<string, number> = {
+        easy:      XP_GRANTS.CHALLENGE_EASY,
+        medium:    XP_GRANTS.CHALLENGE_MEDIUM,
+        hard:      XP_GRANTS.CHALLENGE_HARD,
+        legendary: XP_GRANTS.CHALLENGE_LEGENDARY,
+      };
+      const xpAmount = xpMap[challenge.difficulty] ?? XP_GRANTS.CHALLENGE_EASY;
+      void grantXP(userId, xpAmount).catch(() => undefined);
+      void persistChallengeTitles(userId, challenge.rewardTitle).catch(() => undefined);
+    }
 
     res.json({
       achieved:    result.achieved,

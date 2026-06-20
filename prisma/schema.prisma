@@ -457,6 +457,7 @@ model User {
   bandRpgTours             BandRpgTour[]
   bandRpgChallenges        BandRpgChallenge[]
   bandRpgChallengeAttempts BandRpgChallengeAttempt[]
+  bandRpgCuratorProfile    BandRpgCuratorProfile?
 
   @@map("users")
 }
@@ -2060,4 +2061,29 @@ model BandRpgChallengeAttempt {
   @@index([challengeId])
   @@index([userId])
   @@map("band_rpg_challenge_attempts")
+}
+
+// ---------------------------------------------------------------------------
+// Phase X.5: Curator Progression
+// A single profile per user tracking XP, level, titles, and earned badges.
+// Stats are computed live from other tables; only persistent unlock state lives here.
+// ---------------------------------------------------------------------------
+
+model BandRpgCuratorProfile {
+  id                    String    @id @default(cuid())
+  userId                String    @unique
+  xp                    Int       @default(0)
+  currentTitle          String?
+  titlesUnlocked        String[]  @default([])  // challenge-earned titles
+  badgesUnlocked        String[]  @default([])  // badge keys
+  selectedCharacterId   String?
+  selectedCharacterName String?
+  firstRecoveryDate     DateTime?
+  lastActiveDate        DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("band_rpg_curator_profiles")
 }

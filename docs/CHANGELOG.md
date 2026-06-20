@@ -4,6 +4,50 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase X.5 — Curator Progression (2026-06-20)
+
+### Added
+
+- **`BandRpgCuratorProfile` model** — persistent identity record per user: XP total, current title, titlesUnlocked (String[]), badgesUnlocked (String[]), selectedCharacterId, selectedCharacterName, firstRecoveryDate, lastActiveDate.
+- **XP System** — every action earns XP: Song Recovered +10, Correct Guess +5, Album Completed +50, Setlist Created +25, Concert Created +50, Festival Created +100, Tour Created +150. Challenge rewards: Easy +50, Medium +100, Hard +200, Legendary +500.
+- **Level Progression (1–100+)** — 6-tier XP curve (Newcomer slope → Grand Archivist plateau). Each level has a named tier title:
+  - Archive Newcomer (1+), Archive Assistant (5+), Archivist (10+), Collection Keeper (15+), Music Historian (20+), Setlist Scholar (25+), Festival Architect (30+), Tour Director (35+), Master Curator (40+), Elite Archivist (50+), Legend Keeper (60+), Mythic Archivist (75+), Grand Archivist (100+)
+- **15 Curator Badges** with unlock conditions and progress tracking: First Recovery, Vinyl Collector, Silver Hunter, Gold Chaser, Platinum Seeker, Bronze Brawler, Rare Hunter, Legend Hunter, Myth Hunter, Archive Veteran, Setlist Maestro, Festival Founder, Tour Commander, Discophile, Prolific Curator.
+- **Curator Stats** (12 live DB queries): songs recovered, albums completed, setlists/concerts/festivals/dream-festivals/tours created, challenges completed, rare/legendary/mythic songs found, correct guess count, total guesses, correct guess %.
+- **3 Curator API endpoints**:
+  - `GET /api/band-rpg/curator` — full profile (level, XP bar, stats, badges with progress, recent activity, all available titles). Automatically evaluates and persists newly unlocked badges.
+  - `PUT /api/band-rpg/curator/title` — set active title (validates against all available titles)
+  - `PUT /api/band-rpg/curator/character` — link selected character avatar
+- **Recent Activity feed** — merged from 6 tables (songs, setlists, concerts, festivals, tours, challenge attempts), sorted by date, top 20 items. Each item has type, icon, label, and ISO date.
+- **👤 Curator tab** in Band RPG → The Archive:
+  - Level badge + XP bar (% filled, xpIntoLevel / xpForNextLevel)
+  - Active title display with "Change Title" button
+  - Stats grid (8 metrics: songs recovered, albums, setlists, concerts, festivals, tours, challenges, correct guess %)
+  - Badge Hall with tooltip overlay + progress bars for in-progress badges
+  - Recent Activity list (icon + label + date)
+  - "Export Curator Card" button — 900×1200 canvas: deep indigo/silver theme, level, XP bar, title, stats, badge count, distinct from other card styles
+- **XP hooks wired into all existing actions** (fire-and-forget, never blocks the main response):
+  - `POST /api/band-rpg/collect` — song recovery + optional correct-guess XP; album completion bonus
+  - `POST /api/band-rpg/setlists` — setlist created XP
+  - `POST /api/band-rpg/concerts` — concert created XP
+  - `POST /api/band-rpg/festivals` — festival created XP
+  - `POST /api/band-rpg/tours` — tour created XP
+  - `POST /api/band-rpg/challenges/:id/attempt` — challenge difficulty XP + title persist on achievement
+
+### Schema
+- Added `BandRpgCuratorProfile` model — migration: `20260620060000_add_curator_profile`
+- Back-relation `bandRpgCuratorProfile` added to `User` model
+
+### Technical notes
+- `curatorService.ts` — standalone service: `grantXP()`, `buildCuratorProfile()`, `computeStats()`, `evaluateBadges()`, `computeRecentActivity()`, `persistChallengeTitles()`, `levelTitle()`, `computeLevel()`, `xpToReachLevel()`. All badge evaluation is pure logic — no AI, no external calls.
+- `curatorRoutes.ts` — mounted at `/api/band-rpg/curator`, separate focused file.
+- `grantXP()` uses Prisma upsert with `increment` — safe under concurrent requests; `firstRecoveryDate` is set only if not already present (two-query guard).
+- Badge evaluation runs on every `GET /curator` — if new badges unlock, they are persisted before the response. This avoids checking on every individual action.
+- XP grants use fire-and-forget pattern (`void fn().catch(() => undefined)`) — never blocks or fails the triggering endpoint.
+- Curator Card canvas uses deep indigo (#1e1b4b) background with silver accent (#c0c0c0) — visually distinct from the crimson Challenge card and teal/purple Tour/Festival cards.
+
+---
+
 ## Phase X — Rival Events & Challenges (2026-06-20)
 
 ### Added

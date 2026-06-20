@@ -503,6 +503,61 @@ export interface ChallengeAttemptResult {
   message:     string;
 }
 
+// ── Curator Progression types (Phase X.5) ────────────────────────────────────
+
+export interface CuratorStatsSummary {
+  songsRecovered:        number;
+  albumsCompleted:       number;
+  setlistsCreated:       number;
+  concertsCreated:       number;
+  festivalsCreated:      number;
+  dreamFestivalsCreated: number;
+  toursCreated:          number;
+  challengesCompleted:   number;
+  rareSongsFound:        number;
+  legendarySongsFound:   number;
+  mythicSongsFound:      number;
+  correctGuessCount:     number;
+  totalGuesses:          number;
+  correctGuessPct:       number;
+}
+
+export interface CuratorBadge {
+  key:         string;
+  icon:        string;
+  name:        string;
+  description: string;
+  unlocked:    boolean;
+  progress:    { current: number; target: number } | null;
+}
+
+export interface CuratorActivityItem {
+  type:  string;
+  icon:  string;
+  label: string;
+  date:  string;
+}
+
+export interface BandRpgCuratorProfile {
+  level:               number;
+  xp:                  number;
+  xpIntoLevel:         number;
+  xpForNextLevel:      number;
+  xpProgressPct:       number;
+  levelTitle:          string;
+  currentTitle:        string | null;
+  titlesUnlocked:      string[];
+  allTitles:           string[];
+  badgesUnlocked:      string[];
+  firstRecoveryDate:   string | null;
+  lastActiveDate:      string | null;
+  selectedCharacterId:   string | null;
+  selectedCharacterName: string | null;
+  stats:          CuratorStatsSummary;
+  badges:         CuratorBadge[];
+  recentActivity: CuratorActivityItem[];
+}
+
 // ── API client ────────────────────────────────────────────────────────────────
 
 export const bandRpgApi = {
@@ -722,4 +777,14 @@ export const bandRpgApi = {
       `/api/band-rpg/challenges/${encodeURIComponent(id)}/attempt`,
       data,
     ),
+
+  // Phase X.5 — Curator Progression
+  getCuratorProfile: () =>
+    api.get<BandRpgCuratorProfile>('/api/band-rpg/curator'),
+
+  setCuratorTitle: (title: string) =>
+    api.put<{ ok: boolean; currentTitle: string }>('/api/band-rpg/curator/title', { title }),
+
+  setCuratorCharacter: (characterId: string, characterName: string) =>
+    api.put<{ ok: boolean }>('/api/band-rpg/curator/character', { characterId, characterName }),
 };
