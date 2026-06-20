@@ -48,6 +48,15 @@ const GRADE_STYLE: Record<string, { color: string; bg: string; canvasColor: stri
   D: { color: 'text-gray-400',    bg: 'bg-gray-800/60 border-gray-700',         canvasColor: '#6b7280' },
 };
 
+// ── Venue fit display ──────────────────────────────────────────────────────────
+
+const VENUE_FIT_STYLE: Record<string, { color: string; canvasColor: string }> = {
+  'Legendary Fit': { color: 'text-amber-400',  canvasColor: '#f59e0b' },
+  'Excellent Fit':  { color: 'text-blue-400',   canvasColor: '#60a5fa' },
+  'Good Fit':       { color: 'text-yellow-400', canvasColor: '#eab308' },
+  'Poor Fit':       { color: 'text-gray-500',   canvasColor: '#6b7280' },
+};
+
 // ── Setlist rarity values ─────────────────────────────────────────────────────
 
 const SETLIST_RARITY_VALUE: Record<string, number> = {
@@ -1323,9 +1332,23 @@ function drawConcertCard(canvas: HTMLCanvasElement, data: BandRpgConcertDetail):
   // Stats
   ctx.fillStyle = '#6b7280';
   ctx.font = '400 14px system-ui,sans-serif';
-  ctx.fillText(`🎵 ${data.songCount} songs   💿 ${data.albumCount} albums   〜 Flow ${data.flowScore}/20`, PAD, y);
+  ctx.fillText(`${data.songCount} songs  ·  ${data.albumCount} albums  ·  Flow ${data.flowScore}/20`, PAD, y);
 
-  y += 30;
+  y += 22;
+
+  // Venue line (if set)
+  if (data.venueName && data.venueFitLabel) {
+    ctx.fillStyle = '#9ca3af';
+    ctx.font = '400 13px system-ui,sans-serif';
+    const venuePrefix = `Venue: ${data.venueName}  ·  `;
+    ctx.fillText(venuePrefix, PAD, y);
+    const fitCfg = VENUE_FIT_STYLE[data.venueFitLabel] ?? VENUE_FIT_STYLE['Poor Fit']!;
+    ctx.fillStyle = fitCfg.canvasColor;
+    ctx.fillText(data.venueFitLabel, PAD + ctx.measureText(venuePrefix).width, y);
+    y += 20;
+  }
+
+  y += 10;
 
   // Divider
   ctx.strokeStyle = '#1f2937';
@@ -1469,6 +1492,7 @@ function ConcertGradeBadge({ grade, size = 'sm' }: { grade: string; size?: 'sm' 
 }
 
 function ConcertCard({ concert, onClick }: { concert: BandRpgConcertSummary; onClick: () => void }) {
+  const fitCfg = concert.venueFitLabel ? (VENUE_FIT_STYLE[concert.venueFitLabel] ?? VENUE_FIT_STYLE['Poor Fit']!) : null;
   return (
     <button onClick={onClick}
       className="w-full text-left bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 hover:bg-gray-800/60 transition-colors">
@@ -1479,10 +1503,17 @@ function ConcertCard({ concert, onClick }: { concert: BandRpgConcertSummary; onC
         </div>
         <ConcertGradeBadge grade={concert.grade} />
       </div>
-      <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-gray-500">
         <span>🎵 {concert.songCount} songs</span>
         <span className="text-indigo-400/80">⚡ {concert.concertTotal} pts</span>
-        <span className="text-gray-600">〜 Flow {concert.flowScore}/20</span>
+        <span className="text-gray-600">Flow {concert.flowScore}/20</span>
+        {concert.venueName && fitCfg && (
+          <span>
+            <span className="text-gray-700">📍 {concert.venueName} · </span>
+            <span className={fitCfg.color}>{concert.venueFitLabel}</span>
+          </span>
+        )}
+        {!concert.venueName && <span className="text-gray-700">No venue</span>}
         {concert.encorePosition !== null && <span className="text-purple-500/70">Encore ✓</span>}
       </div>
     </button>
@@ -1494,16 +1525,21 @@ function ConcertHallOfFame({ concerts }: { concerts: BandRpgConcertSummary[] }) 
   const best = (fn: (a: BandRpgConcertSummary, b: BandRpgConcertSummary) => boolean) =>
     concerts.reduce((acc, c) => (fn(c, acc) ? c : acc));
 
-  const bestGrade    = best((a, b) => a.concertTotal > b.concertTotal);
-  const highestFlow  = best((a, b) => a.flowScore > b.flowScore);
-  const mostDiverse  = best((a, b) => a.albumCount > b.albumCount);
-  const bestOpener   = best((a, b) => a.openerScore > b.openerScore);
+  const bestGrade     = best((a, b) => a.concertTotal > b.concertTotal);
+  const highestFlow   = best((a, b) => a.flowScore > b.flowScore);
+  const mostDiverse   = best((a, b) => a.albumCount > b.albumCount);
+  const bestOpener    = best((a, b) => a.openerScore > b.openerScore);
+  const venueContests = concerts.filter((c) => c.venueFit !== null);
+  const bestVenueFit  = venueContests.length > 0
+    ? best((a, b) => (a.venueFit ?? -1) > (b.venueFit ?? -1))
+    : null;
 
   const items = [
-    { label: 'Best Concert',   icon: '🎤', concert: bestGrade,   value: `${bestGrade.concertTotal} pts`         },
-    { label: 'Highest Flow',   icon: '〜', concert: highestFlow,  value: `Flow ${highestFlow.flowScore}/20`      },
-    { label: 'Most Diverse',   icon: '💿', concert: mostDiverse,  value: `${mostDiverse.albumCount} albums`     },
-    { label: 'Best Opener',    icon: '▶',  concert: bestOpener,   value: `Opener ${bestOpener.openerScore}/10`  },
+    { label: 'Best Concert',    icon: '🎤', concert: bestGrade,   value: `${bestGrade.concertTotal} pts`         },
+    { label: 'Highest Flow',    icon: '〜', concert: highestFlow,  value: `Flow ${highestFlow.flowScore}/20`      },
+    { label: 'Most Diverse',    icon: '💿', concert: mostDiverse,  value: `${mostDiverse.albumCount} albums`     },
+    { label: 'Best Opener',     icon: '▶',  concert: bestOpener,   value: `Opener ${bestOpener.openerScore}/10`  },
+    ...(bestVenueFit ? [{ label: 'Best Venue Fit', icon: '📍', concert: bestVenueFit, value: `${bestVenueFit.venueFit ?? 0}/100` }] : []),
   ];
 
   return (
@@ -1536,11 +1572,23 @@ function CreateConcertModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const [setlistId,    setSetlistId]    = useState('');
-  const [concertName,  setConcertName]  = useState('');
+  const [setlistId,   setSetlistId]   = useState('');
+  const [concertName, setConcertName] = useState('');
+  const [venueId,     setVenueId]     = useState('');
+
+  const { data: venues = [] } = useQuery({
+    queryKey: ['band-rpg-venues'],
+    queryFn:  () => bandRpgApi.getVenues(),
+    staleTime: Infinity,
+  });
+
+  const selectedVenue = venues.find((v) => v.id === venueId) ?? null;
 
   const createMutation = useMutation({
-    mutationFn: () => bandRpgApi.createConcert({ setlistId, concertName: concertName.trim() }),
+    mutationFn: () => bandRpgApi.createConcert({
+      setlistId, concertName: concertName.trim(),
+      ...(venueId ? { venueId } : {}),
+    }),
     onSuccess: onCreated,
   });
 
@@ -1572,13 +1620,23 @@ function CreateConcertModal({
           <div>
             <label className="block text-xs text-gray-400 mb-1.5 font-semibold uppercase tracking-wide">Concert Name</label>
             <input type="text" value={concertName} onChange={(e) => setConcertName(e.target.value)}
-              placeholder="e.g. Madison Square Garden 2024" maxLength={80}
+              placeholder="e.g. The Observatory Session" maxLength={80}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/60" />
           </div>
 
-          <p className="text-xs text-gray-600">
-            The concert uses all songs from the selected setlist. You can mark the encore after creation.
-          </p>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5 font-semibold uppercase tracking-wide">Venue (optional)</label>
+            <select value={venueId} onChange={(e) => setVenueId(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500/60">
+              <option value="">No venue assigned</option>
+              {venues.map((v) => (
+                <option key={v.id} value={v.id}>{v.name} (cap. {v.capacity.toLocaleString()})</option>
+              ))}
+            </select>
+            {selectedVenue && (
+              <p className="mt-1.5 text-xs text-gray-600 leading-relaxed">{selectedVenue.description}</p>
+            )}
+          </div>
         </div>
 
         <div className="flex gap-3 px-5 py-4 border-t border-gray-800">
@@ -1618,6 +1676,12 @@ function ConcertDetailModal({
     staleTime: 30_000,
   });
 
+  const { data: venues = [] } = useQuery({
+    queryKey: ['band-rpg-venues'],
+    queryFn:  () => bandRpgApi.getVenues(),
+    staleTime: Infinity,
+  });
+
   useEffect(() => {
     if (detail) { setEditName(detail.concertName); setIsDirty(false); }
   }, [detail]);
@@ -1626,6 +1690,14 @@ function ConcertDetailModal({
     mutationFn: () => bandRpgApi.updateConcert(concertId, { concertName: editName.trim() }),
     onSuccess: () => {
       setIsDirty(false);
+      void queryClient.invalidateQueries({ queryKey: ['band-rpg-concert-detail', concertId] });
+      onSaved();
+    },
+  });
+
+  const venueMutation = useMutation({
+    mutationFn: (venueId: string | null) => bandRpgApi.updateConcert(concertId, { venueId }),
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['band-rpg-concert-detail', concertId] });
       onSaved();
     },
@@ -1710,6 +1782,50 @@ function ConcertDetailModal({
                       <p className="text-gray-600 truncate mt-0.5">{detail.songs[detail.songs.length - 1]!.songTitle}</p>
                     )}
                   </div>
+                </div>
+
+                {/* Venue selector + fit */}
+                <div className="mt-2">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <p className="text-xs text-gray-600 font-semibold uppercase tracking-wide">Venue</p>
+                    {detail.venueFitLabel && (() => {
+                      const cfg = VENUE_FIT_STYLE[detail.venueFitLabel] ?? VENUE_FIT_STYLE['Poor Fit']!;
+                      return (
+                        <span className={`text-xs font-semibold ${cfg.color}`}>
+                          {detail.venueFit}/100 · {detail.venueFitLabel}
+                        </span>
+                      );
+                    })()}
+                    {detail.venueContribution > 0 && (
+                      <span className="text-xs text-indigo-500/80 ml-auto">+{detail.venueContribution} pts</span>
+                    )}
+                  </div>
+                  <select
+                    value={detail.venueId ?? ''}
+                    onChange={(e) => void venueMutation.mutate(e.target.value || null)}
+                    disabled={venueMutation.isPending}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500/60 disabled:opacity-60"
+                  >
+                    <option value="">No venue assigned</option>
+                    {venues.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                  {detail.venueDescription && (
+                    <p className="mt-1.5 text-xs text-gray-600 leading-relaxed">{detail.venueDescription}</p>
+                  )}
+                  {detail.venueAffinities && (
+                    <div className="grid grid-cols-3 gap-1 mt-2">
+                      {(Object.entries(detail.venueAffinities) as [string, number][]).map(([axis, val]) => (
+                        <div key={axis} className="bg-gray-800/50 rounded px-2 py-1 text-center">
+                          <p className="text-gray-600 text-[10px] capitalize">{axis}</p>
+                          <div className="flex gap-0.5 justify-center mt-0.5">
+                            {Array.from({ length: 5 }, (_, i) => (
+                              <div key={i} className={`w-2 h-2 rounded-sm ${i < val ? 'bg-indigo-500' : 'bg-gray-700'}`} />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Spectrum averages (only if data exists) */}

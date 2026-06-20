@@ -1757,6 +1757,25 @@ model BandRpgSetlistSong {
   @@map("band_rpg_setlist_songs")
 }
 
+model BandRpgVenue {
+  id                  String   @id
+  name                String
+  description         String
+  capacity            Int
+  atmosphereAffinity  Int
+  aggressionAffinity  Int
+  complexityAffinity  Int
+  emotionAffinity     Int
+  psychedelicAffinity Int
+  conceptAffinity     Int
+  rarityBonus         Int
+  createdAt           DateTime @default(now())
+
+  concerts BandRpgConcert[]
+
+  @@map("band_rpg_venues")
+}
+
 model BandRpgConcert {
   id             String   @id @default(cuid())
   userId         String
@@ -1764,13 +1783,15 @@ model BandRpgConcert {
   bandName       String
   concertName    String
   setlistId      String
+  venueId        String?
   encorePosition Int?
   realWorldScore Float?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  setlist BandRpgSetlist @relation(fields: [setlistId], references: [id], onDelete: Cascade)
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  setlist BandRpgSetlist  @relation(fields: [setlistId], references: [id], onDelete: Cascade)
+  venue   BandRpgVenue?   @relation(fields: [venueId], references: [id], onDelete: SetNull)
 
   @@map("band_rpg_concerts")
 }

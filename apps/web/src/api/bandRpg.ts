@@ -158,6 +158,22 @@ export interface BandRpgSetlistDetail extends BandRpgSetlistSummary {
   songs: BandRpgSetlistSongEntry[];
 }
 
+// ── Venue types ───────────────────────────────────────────────────────────────
+
+export interface BandRpgVenue {
+  id: string;
+  name: string;
+  description: string;
+  capacity: number;
+  atmosphereAffinity: number;
+  aggressionAffinity: number;
+  complexityAffinity: number;
+  emotionAffinity: number;
+  psychedelicAffinity: number;
+  conceptAffinity: number;
+  rarityBonus: number;
+}
+
 // ── Concert types ─────────────────────────────────────────────────────────────
 
 export interface BandRpgConcertSummary {
@@ -174,12 +190,26 @@ export interface BandRpgConcertSummary {
   flowScore: number;
   openerScore: number;
   closerScore: number;
+  venueId: string | null;
+  venueName: string | null;
+  venueFit: number | null;
+  venueFitLabel: string | null;
+  venueContribution: number;
   concertTotal: number;
   grade: string;
   encorePosition: number | null;
   realWorldScore: number | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface BandRpgConcertVenueAffinities {
+  aggression: number;
+  atmosphere: number;
+  emotion: number;
+  complexity: number;
+  psychedelic: number;
+  concept: number;
 }
 
 export interface BandRpgConcertDetail extends BandRpgConcertSummary {
@@ -191,6 +221,8 @@ export interface BandRpgConcertDetail extends BandRpgConcertSummary {
   avgConcept: number | null;
   openerLabel: string;
   closerLabel: string;
+  venueDescription: string | null;
+  venueAffinities: BandRpgConcertVenueAffinities | null;
   rarityBreakdown: Record<string, number>;
   songs: BandRpgSetlistSongEntry[];
   mainSet: BandRpgSetlistSongEntry[];
@@ -293,9 +325,12 @@ export const bandRpgApi = {
   getConcertDetail: (id: string) =>
     api.get<BandRpgConcertDetail>(`/api/band-rpg/concerts/${encodeURIComponent(id)}`),
 
-  updateConcert: (id: string, data: { concertName?: string; encorePosition?: number | null }) =>
+  updateConcert: (id: string, data: { concertName?: string; encorePosition?: number | null; venueId?: string | null }) =>
     api.put<{ ok: boolean }>(`/api/band-rpg/concerts/${encodeURIComponent(id)}`, data),
 
   deleteConcert: (id: string) =>
     api.delete<{ ok: boolean }>(`/api/band-rpg/concerts/${encodeURIComponent(id)}`),
+
+  getVenues: () =>
+    api.get<BandRpgVenue[]>('/api/band-rpg/venues'),
 };

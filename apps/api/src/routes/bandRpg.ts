@@ -850,6 +850,125 @@ bandRpgRouter.put('/setlists/:setlistId/songs', requireAuth, async (req, res, ne
   } catch (e) { next(e); }
 });
 
+// ── Venue catalog ─────────────────────────────────────────────────────────────
+
+interface VenueCatalogEntry {
+  id: string; name: string; description: string; capacity: number;
+  atmosphereAffinity: number; aggressionAffinity: number; complexityAffinity: number;
+  emotionAffinity: number; psychedelicAffinity: number; conceptAffinity: number;
+  rarityBonus: number;
+}
+
+const VENUE_CATALOG: VenueCatalogEntry[] = [
+  {
+    id: 'venue-spiral-hall', name: 'Spiral Hall', capacity: 2000,
+    description: 'The Spiral Hall thrives on immersive, layered experiences. Psychedelic and atmospheric performances unlock its full resonance.',
+    atmosphereAffinity: 5, aggressionAffinity: 1, complexityAffinity: 2, emotionAffinity: 2, psychedelicAffinity: 5, conceptAffinity: 2, rarityBonus: 3,
+  },
+  {
+    id: 'venue-reflection-theatre', name: 'The Reflection Theatre', capacity: 800,
+    description: 'The Reflection Theatre is built for emotional resonance. Vulnerable, introspective performances find their fullest expression here.',
+    atmosphereAffinity: 3, aggressionAffinity: 1, complexityAffinity: 3, emotionAffinity: 5, psychedelicAffinity: 2, conceptAffinity: 4, rarityBonus: 2,
+  },
+  {
+    id: 'venue-rosetta-pavilion', name: 'The Rosetta Pavilion', capacity: 5000,
+    description: 'The Rosetta Pavilion rewards diversity and range. Concerts that span multiple albums and moods are celebrated here.',
+    atmosphereAffinity: 3, aggressionAffinity: 2, complexityAffinity: 3, emotionAffinity: 3, psychedelicAffinity: 3, conceptAffinity: 3, rarityBonus: 6,
+  },
+  {
+    id: 'venue-spectrum-centre', name: 'Spectrum Centre', capacity: 10000,
+    description: 'Spectrum Centre honours all dimensions equally. Balanced concerts that score across every axis reach their peak potential here.',
+    atmosphereAffinity: 4, aggressionAffinity: 4, complexityAffinity: 4, emotionAffinity: 4, psychedelicAffinity: 4, conceptAffinity: 4, rarityBonus: 4,
+  },
+  {
+    id: 'venue-lateral-arena', name: 'The Lateral Arena', capacity: 15000,
+    description: 'The Lateral Arena was built for high-energy confrontation. Raw aggression and relentless power dominate its stage.',
+    atmosphereAffinity: 1, aggressionAffinity: 5, complexityAffinity: 2, emotionAffinity: 1, psychedelicAffinity: 1, conceptAffinity: 2, rarityBonus: 2,
+  },
+  {
+    id: 'venue-aether-dome', name: 'The Æther Dome', capacity: 3000,
+    description: 'The Æther Dome suspends reality. Psychedelic, atmospheric, and conceptually dense performances create unforgettable events here.',
+    atmosphereAffinity: 5, aggressionAffinity: 1, complexityAffinity: 3, emotionAffinity: 3, psychedelicAffinity: 5, conceptAffinity: 4, rarityBonus: 4,
+  },
+  {
+    id: 'venue-observatory', name: 'The Observatory', capacity: 1200,
+    description: 'The Observatory rewards thoughtful and concept-heavy performances. Complexity and intellectual depth are prized above all else.',
+    atmosphereAffinity: 3, aggressionAffinity: 1, complexityAffinity: 5, emotionAffinity: 2, psychedelicAffinity: 3, conceptAffinity: 5, rarityBonus: 3,
+  },
+  {
+    id: 'venue-crystal-stage', name: 'The Crystal Stage', capacity: 4000,
+    description: 'The Crystal Stage amplifies rare and legendary material. The rarer the setlist, the more brilliantly it resonates here.',
+    atmosphereAffinity: 3, aggressionAffinity: 2, complexityAffinity: 3, emotionAffinity: 4, psychedelicAffinity: 3, conceptAffinity: 3, rarityBonus: 10,
+  },
+  {
+    id: 'venue-parallax-amphitheatre', name: 'The Parallax Amphitheatre', capacity: 8000,
+    description: 'The Parallax Amphitheatre celebrates momentum and flow. Concerts with consistent energy and strong transitions are rewarded here.',
+    atmosphereAffinity: 3, aggressionAffinity: 3, complexityAffinity: 2, emotionAffinity: 3, psychedelicAffinity: 3, conceptAffinity: 2, rarityBonus: 2,
+  },
+];
+
+const VENUE_MAP = new Map(VENUE_CATALOG.map((v) => [v.id, v]));
+
+let venuesSeeded = false;
+async function ensureVenuesSeeded(): Promise<void> {
+  if (venuesSeeded) return;
+  await Promise.all(
+    VENUE_CATALOG.map((v) =>
+      prisma.bandRpgVenue.upsert({ where: { id: v.id }, update: {}, create: v }),
+    ),
+  );
+  venuesSeeded = true;
+}
+
+function computeVenueFit(
+  venue: VenueCatalogEntry,
+  avgs: { aggression: number | null; atmosphere: number | null; emotion: number | null; complexity: number | null; psychedelic: number | null; concept: number | null },
+  rarityValue: number,
+): number {
+  const axes: Array<{ value: number | null; affinity: number }> = [
+    { value: avgs.aggression,  affinity: venue.aggressionAffinity  },
+    { value: avgs.atmosphere,  affinity: venue.atmosphereAffinity   },
+    { value: avgs.emotion,     affinity: venue.emotionAffinity      },
+    { value: avgs.complexity,  affinity: venue.complexityAffinity   },
+    { value: avgs.psychedelic, affinity: venue.psychedelicAffinity  },
+    { value: avgs.concept,     affinity: venue.conceptAffinity      },
+  ];
+  const scored = axes.filter((a): a is { value: number; affinity: number } => a.value !== null);
+
+  let spectrumFit: number;
+  if (scored.length === 0) {
+    spectrumFit = 40;
+  } else {
+    let totalWeight = 0, totalScore = 0;
+    for (const { value, affinity } of scored) {
+      const alignment = 1 - Math.abs(value / 5 - affinity / 5);
+      totalScore  += alignment * affinity;
+      totalWeight += affinity;
+    }
+    spectrumFit = totalWeight > 0 ? (totalScore / totalWeight) * 80 : 40;
+  }
+
+  // rarityBonus 2–10; Crystal Stage (10) gives big bonus to rare-heavy setlists
+  const rarityFit = Math.min(20, Math.round(rarityValue / 150 * 20 * (venue.rarityBonus / 5)));
+  return Math.min(100, Math.round(spectrumFit + rarityFit));
+}
+
+function venueFitLabel(score: number): string {
+  if (score >= 80) return 'Legendary Fit';
+  if (score >= 60) return 'Excellent Fit';
+  if (score >= 40) return 'Good Fit';
+  return 'Poor Fit';
+}
+
+// ── GET /venues ───────────────────────────────────────────────────────────────
+
+bandRpgRouter.get('/venues', async (_req, res, next): Promise<void> => {
+  try {
+    await ensureVenuesSeeded();
+    res.json(VENUE_CATALOG);
+  } catch (e) { next(e); }
+});
+
 // ── Concert helpers ───────────────────────────────────────────────────────────
 
 const OPENER_RARITY_SCORE: Record<string, number> = {
@@ -894,9 +1013,11 @@ bandRpgRouter.get('/concerts', requireAuth, async (req, res, next): Promise<void
     const userId = req.user?.userId;
     if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
 
+    await ensureVenuesSeeded();
+
     const concerts = await prisma.bandRpgConcert.findMany({
       where: { userId },
-      include: { setlist: { include: { songs: { orderBy: { position: 'asc' } } } } },
+      include: { setlist: { include: { songs: { orderBy: { position: 'asc' } } } }, venue: true },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -909,7 +1030,7 @@ bandRpgRouter.get('/concerts', requireAuth, async (req, res, next): Promise<void
       allSongIds.length > 0
         ? prisma.songAxisScore.findMany({
             where: { songId: { in: allSongIds } },
-            select: { songId: true, aggression: true, emotion: true },
+            select: { songId: true, aggression: true, atmosphere: true, emotion: true, complexity: true, psychedelic: true, concept: true },
           })
         : [],
       allSongIds.length > 0
@@ -920,16 +1041,24 @@ bandRpgRouter.get('/concerts', requireAuth, async (req, res, next): Promise<void
         : [],
     ]);
 
-    const axisMap = new Map(axisRows.map((r) => [r.songId, r]));
+    const axisMap     = new Map(axisRows.map((r) => [r.songId, r]));
     const songAlbumMap = new Map(songAlbumRows.map((r) => [r.id, r.albumId as string]));
 
     res.json(concerts.map((concert) => {
-      const songs        = concert.setlist.songs;
-      const rarityValue  = songs.reduce((s, x) => s + (RARITY_VALUE[x.rarity] ?? 1), 0);
-      const albumCount   = new Set(songs.map((s) => songAlbumMap.get(s.songId)).filter((id): id is string => !!id)).size;
+      const songs          = concert.setlist.songs;
+      const rarityValue    = songs.reduce((s, x) => s + (RARITY_VALUE[x.rarity] ?? 1), 0);
+      const albumCount     = new Set(songs.map((s) => songAlbumMap.get(s.songId)).filter((id): id is string => !!id)).size;
       const diversityBonus = computeDiversityBonus(albumCount, songs.length, rarityValue);
 
-      const aggrValues   = songs.map((s) => axisMap.get(s.songId)?.aggression).filter((v): v is number => v !== undefined);
+      const scoredRows     = songs.map((s) => axisMap.get(s.songId)).filter((r): r is NonNullable<typeof r> => r !== undefined);
+      const getAvg = (field: 'aggression' | 'atmosphere' | 'emotion' | 'complexity' | 'psychedelic' | 'concept') =>
+        scoredRows.length > 0 ? scoredRows.reduce((a, r) => a + r[field], 0) / scoredRows.length : null;
+      const avgs = {
+        aggression: getAvg('aggression'), atmosphere: getAvg('atmosphere'), emotion: getAvg('emotion'),
+        complexity: getAvg('complexity'), psychedelic: getAvg('psychedelic'), concept: getAvg('concept'),
+      };
+
+      const aggrValues   = scoredRows.map((r) => r.aggression);
       const flowScore    = computeFlowScore(aggrValues);
 
       const firstSong    = songs[0];
@@ -938,28 +1067,37 @@ bandRpgRouter.get('/concerts', requireAuth, async (req, res, next): Promise<void
       const lastAxis     = lastSong  ? axisMap.get(lastSong.songId)  : undefined;
       const opScore      = firstSong ? Math.min(10, (OPENER_RARITY_SCORE[firstSong.rarity] ?? 2) + ((firstAxis?.aggression ?? 0) >= 3.5 ? 1 : 0)) : 0;
       const clScore      = lastSong  ? Math.min(10, (OPENER_RARITY_SCORE[lastSong.rarity]  ?? 2) + ((lastAxis?.emotion     ?? 0) >= 3.5 ? 1 : 0)) : 0;
-      const concertTotal = rarityValue + diversityBonus + flowScore + opScore + clScore;
+
+      const venueEntry    = concert.venue ? (VENUE_MAP.get(concert.venue.id) ?? null) : null;
+      const venueFit      = venueEntry ? computeVenueFit(venueEntry, avgs, rarityValue) : null;
+      const venueContrib  = venueFit !== null ? Math.floor(venueFit * 0.1) : 0;
+      const concertTotal  = rarityValue + diversityBonus + flowScore + opScore + clScore + venueContrib;
 
       return {
-        id:             concert.id,
-        concertName:    concert.concertName,
-        bandId:         concert.bandId,
-        bandName:       concert.bandName,
-        setlistId:      concert.setlistId,
-        setlistName:    concert.setlist.name,
-        songCount:      songs.length,
+        id:               concert.id,
+        concertName:      concert.concertName,
+        bandId:           concert.bandId,
+        bandName:         concert.bandName,
+        setlistId:        concert.setlistId,
+        setlistName:      concert.setlist.name,
+        songCount:        songs.length,
         rarityValue,
         albumCount,
         diversityBonus,
         flowScore,
-        openerScore:    opScore,
-        closerScore:    clScore,
+        openerScore:      opScore,
+        closerScore:      clScore,
+        venueId:          concert.venueId  ?? null,
+        venueName:        concert.venue?.name ?? null,
+        venueFit,
+        venueFitLabel:    venueFit !== null ? venueFitLabel(venueFit) : null,
+        venueContribution: venueContrib,
         concertTotal,
-        grade:          computeGrade(concertTotal),
-        encorePosition: concert.encorePosition ?? null,
-        realWorldScore: concert.realWorldScore ?? null,
-        createdAt:      concert.createdAt.toISOString(),
-        updatedAt:      concert.updatedAt.toISOString(),
+        grade:            computeGrade(concertTotal),
+        encorePosition:   concert.encorePosition ?? null,
+        realWorldScore:   concert.realWorldScore ?? null,
+        createdAt:        concert.createdAt.toISOString(),
+        updatedAt:        concert.updatedAt.toISOString(),
       };
     }));
   } catch (e) { next(e); }
@@ -975,6 +1113,7 @@ bandRpgRouter.post('/concerts', requireAuth, async (req, res, next): Promise<voi
     const body        = req.body as Record<string, unknown>;
     const setlistId   = typeof body['setlistId']   === 'string' ? body['setlistId']            : null;
     const concertName = typeof body['concertName'] === 'string' ? body['concertName'].trim()   : null;
+    const venueId     = typeof body['venueId']     === 'string' ? body['venueId']              : null;
 
     if (!setlistId || !concertName) {
       res.status(400).json({ error: 'setlistId and concertName are required' }); return;
@@ -983,8 +1122,14 @@ bandRpgRouter.post('/concerts', requireAuth, async (req, res, next): Promise<voi
     const setlist = await prisma.bandRpgSetlist.findFirst({ where: { id: setlistId, userId } });
     if (!setlist) { res.status(404).json({ error: 'Setlist not found' }); return; }
 
+    if (venueId) {
+      await ensureVenuesSeeded();
+      const venueExists = await prisma.bandRpgVenue.findUnique({ where: { id: venueId }, select: { id: true } });
+      if (!venueExists) { res.status(400).json({ error: 'Venue not found' }); return; }
+    }
+
     const concert = await prisma.bandRpgConcert.create({
-      data: { userId, bandId: setlist.bandId, bandName: setlist.bandName, concertName, setlistId },
+      data: { userId, bandId: setlist.bandId, bandName: setlist.bandName, concertName, setlistId, ...(venueId ? { venueId } : {}) },
     });
 
     res.status(201).json({ ok: true, id: concert.id });
@@ -1001,9 +1146,11 @@ bandRpgRouter.get('/concerts/:concertId', requireAuth, async (req, res, next): P
     const concertId = req.params['concertId'];
     if (!concertId) { res.status(400).json({ error: 'concertId is required' }); return; }
 
+    await ensureVenuesSeeded();
+
     const concert = await prisma.bandRpgConcert.findFirst({
       where: { id: concertId, userId },
-      include: { setlist: { include: { songs: { orderBy: { position: 'asc' } } } } },
+      include: { setlist: { include: { songs: { orderBy: { position: 'asc' } } } }, venue: true },
     });
     if (!concert) { res.status(404).json({ error: 'Not found' }); return; }
 
@@ -1041,13 +1188,21 @@ bandRpgRouter.get('/concerts/:concertId', requireAuth, async (req, res, next): P
     const lastAxis  = lastSong  ? axisMap.get(lastSong.songId)  : undefined;
     const opScore   = firstSong ? Math.min(10, (OPENER_RARITY_SCORE[firstSong.rarity] ?? 2) + ((firstAxis?.aggression ?? 0) >= 3.5 ? 1 : 0)) : 0;
     const clScore   = lastSong  ? Math.min(10, (OPENER_RARITY_SCORE[lastSong.rarity]  ?? 2) + ((lastAxis?.emotion     ?? 0) >= 3.5 ? 1 : 0)) : 0;
-    const concertTotal = rarityValue + diversityBonus + flowScore + opScore + clScore;
 
     // Spectrum averages from songs that have axis scores
     const avg = (field: 'aggression' | 'complexity' | 'atmosphere' | 'emotion' | 'psychedelic' | 'concept'): number | null => {
       const vals = axisRows.map((r) => r[field]);
       return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
     };
+    const avgs = {
+      aggression: avg('aggression'), atmosphere: avg('atmosphere'), emotion: avg('emotion'),
+      complexity: avg('complexity'), psychedelic: avg('psychedelic'), concept: avg('concept'),
+    };
+
+    const venueEntry   = concert.venue ? (VENUE_MAP.get(concert.venue.id) ?? null) : null;
+    const venueFit     = venueEntry ? computeVenueFit(venueEntry, avgs, rarityValue) : null;
+    const venueContrib = venueFit !== null ? Math.floor(venueFit * 0.1) : 0;
+    const concertTotal = rarityValue + diversityBonus + flowScore + opScore + clScore + venueContrib;
 
     const rarityBreakdown: Record<string, number> = { Common: 0, Uncommon: 0, Rare: 0, Legendary: 0, Mythic: 0 };
     for (const s of songs) { rarityBreakdown[s.rarity] = (rarityBreakdown[s.rarity] ?? 0) + 1; }
@@ -1063,31 +1218,45 @@ bandRpgRouter.get('/concerts/:concertId', requireAuth, async (req, res, next): P
     }));
 
     res.json({
-      id:             concert.id,
-      concertName:    concert.concertName,
-      bandId:         concert.bandId,
-      bandName:       concert.bandName,
-      setlistId:      concert.setlistId,
-      setlistName:    concert.setlist.name,
-      songCount:      songs.length,
+      id:               concert.id,
+      concertName:      concert.concertName,
+      bandId:           concert.bandId,
+      bandName:         concert.bandName,
+      setlistId:        concert.setlistId,
+      setlistName:      concert.setlist.name,
+      songCount:        songs.length,
       rarityValue,
       albumCount,
       diversityBonus,
       flowScore,
-      openerScore:    opScore,
-      closerScore:    clScore,
+      openerScore:      opScore,
+      closerScore:      clScore,
+      venueId:          concert.venueId  ?? null,
+      venueName:        concert.venue?.name ?? null,
+      venueFit,
+      venueFitLabel:    venueFit !== null ? venueFitLabel(venueFit) : null,
+      venueContribution: venueContrib,
       concertTotal,
-      grade:          computeGrade(concertTotal),
-      encorePosition: encorePos,
-      realWorldScore: concert.realWorldScore ?? null,
-      avgAggression:  avg('aggression'),
-      avgAtmosphere:  avg('atmosphere'),
-      avgEmotion:     avg('emotion'),
-      avgComplexity:  avg('complexity'),
-      avgPsychedelic: avg('psychedelic'),
-      avgConcept:     avg('concept'),
-      openerLabel:    firstSong ? openerLabel(firstSong.rarity, firstAxis?.aggression ?? null) : '',
-      closerLabel:    lastSong  ? closerLabel(lastSong.rarity,  lastAxis?.emotion     ?? null) : '',
+      grade:            computeGrade(concertTotal),
+      encorePosition:   encorePos,
+      realWorldScore:   concert.realWorldScore ?? null,
+      avgAggression:    avgs.aggression,
+      avgAtmosphere:    avgs.atmosphere,
+      avgEmotion:       avgs.emotion,
+      avgComplexity:    avgs.complexity,
+      avgPsychedelic:   avgs.psychedelic,
+      avgConcept:       avgs.concept,
+      openerLabel:      firstSong ? openerLabel(firstSong.rarity, firstAxis?.aggression ?? null) : '',
+      closerLabel:      lastSong  ? closerLabel(lastSong.rarity,  lastAxis?.emotion     ?? null) : '',
+      venueDescription: concert.venue?.description ?? null,
+      venueAffinities:  venueEntry ? {
+        aggression:  venueEntry.aggressionAffinity,
+        atmosphere:  venueEntry.atmosphereAffinity,
+        emotion:     venueEntry.emotionAffinity,
+        complexity:  venueEntry.complexityAffinity,
+        psychedelic: venueEntry.psychedelicAffinity,
+        concept:     venueEntry.conceptAffinity,
+      } : null,
       rarityBreakdown,
       songs:          mappedSongs,
       mainSet:        encorePos !== null ? mappedSongs.slice(0, encorePos) : mappedSongs,
@@ -1115,10 +1284,13 @@ bandRpgRouter.put('/concerts/:concertId', requireAuth, async (req, res, next): P
     const concertName = typeof body['concertName'] === 'string' ? body['concertName'].trim() : undefined;
     const rawEncore   = body['encorePosition'];
     const encorePosition = rawEncore === null ? null : typeof rawEncore === 'number' ? rawEncore : undefined;
+    const rawVenue    = body['venueId'];
+    const venueId     = rawVenue === null ? null : typeof rawVenue === 'string' ? rawVenue : undefined;
 
     const updateData: Record<string, unknown> = { updatedAt: new Date() };
-    if (concertName !== undefined) updateData['concertName'] = concertName;
-    if (encorePosition !== undefined) updateData['encorePosition'] = encorePosition;
+    if (concertName     !== undefined) updateData['concertName']    = concertName;
+    if (encorePosition  !== undefined) updateData['encorePosition'] = encorePosition;
+    if (venueId         !== undefined) updateData['venueId']        = venueId;
 
     await prisma.bandRpgConcert.update({ where: { id: concertId }, data: updateData });
     res.json({ ok: true });
