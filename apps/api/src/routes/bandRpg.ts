@@ -1478,6 +1478,242 @@ function generateFestivalStory(personality: string, bandCount: number, songCount
   return fn(bandCount, songCount, concertCount);
 }
 
+// ── Festival Chemistry — Phase P ──────────────────────────────────────────────
+// Rule-based, no AI. Computes 6 sub-scores → weighted composite 0-100.
+
+interface BandAudienceProfileData {
+  progressive: number; heavy: number; technical: number;
+  atmospheric: number; experimental: number; accessible: number;
+  psychedelic: number; emotional: number; aggressive: number;
+  improvisational: number;
+}
+
+export interface FestivalChemistryResult {
+  chemistryScore: number;          // 0-100 weighted composite
+  chemistryLabel: string;
+  chemistryReport: string;
+  audienceOverlap: number | null;  // null when no BandAudienceProfile rows exist
+  personalityCompatibility: number;
+  festivalFlow: number;
+  venueCompatibility: number | null;
+  fanServiceBalance: number;
+  deepCutBalance: number;
+  hasAudienceData: boolean;
+}
+
+const AUD_DIMS = [
+  'progressive','heavy','technical','atmospheric','experimental',
+  'accessible','psychedelic','emotional','aggressive','improvisational',
+] as const;
+type AudDim = typeof AUD_DIMS[number];
+
+// Personality family — drives compatibility pairwise scoring
+const PERS_FAMILY: Record<string, string> = {
+  'The Dreamscape': 'atmospheric', 'The Ritual': 'atmospheric', 'The Expedition': 'atmospheric',
+  'The Assault': 'intense',       'The Manifesto': 'intense',
+  'The Labyrinth': 'cerebral',    'The Catharsis': 'cerebral',
+  'The Convergence': 'bridge',
+};
+
+function personalityCompatPair(a: string, b: string): number {
+  if (a === b) return 70;
+  const fa = PERS_FAMILY[a] ?? 'unknown';
+  const fb = PERS_FAMILY[b] ?? 'unknown';
+  if (fa === 'bridge' || fb === 'bridge') return 75;
+  if (fa === 'unknown' || fb === 'unknown') return 55;
+  if (fa === fb) return 80;
+  if ((fa === 'atmospheric' && fb === 'intense') || (fa === 'intense' && fb === 'atmospheric')) return 40;
+  if ((fa === 'atmospheric' && fb === 'cerebral') || (fa === 'cerebral' && fb === 'atmospheric')) return 72;
+  if ((fa === 'intense' && fb === 'cerebral') || (fa === 'cerebral' && fb === 'intense')) return 65;
+  return 55;
+}
+
+function computePersonalityCompatibility(personalities: string[]): number {
+  if (personalities.length <= 1) return 80;
+  let total = 0, pairs = 0;
+  for (let i = 0; i < personalities.length; i++) {
+    for (let j = i + 1; j < personalities.length; j++) {
+      total += personalityCompatPair(personalities[i]!, personalities[j]!);
+      pairs++;
+    }
+  }
+  return pairs > 0 ? Math.round(total / pairs) : 80;
+}
+
+function computeAudienceOverlap(profiles: BandAudienceProfileData[]): number | null {
+  if (profiles.length === 0) return null;
+  if (profiles.length === 1) return 80;
+  const stdDevs: number[] = [];
+  for (const dim of AUD_DIMS) {
+    const vals = profiles.map((p) => p[dim as AudDim]);
+    const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+    const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length;
+    stdDevs.push(Math.sqrt(variance));
+  }
+  const avgStdDev = stdDevs.reduce((s, v) => s + v, 0) / stdDevs.length;
+  return Math.max(0, Math.round(100 - avgStdDev * 1.5));
+}
+
+function computeFestivalFlowScore(
+  orderedPersonalities: string[],
+  orderedProfiles: Array<BandAudienceProfileData | undefined>,
+): number {
+  if (orderedPersonalities.length <= 1) return 80;
+
+  // Consecutive pair personality compatibility (base flow)
+  let baseTotal = 0;
+  for (let i = 0; i < orderedPersonalities.length - 1; i++) {
+    baseTotal += personalityCompatPair(orderedPersonalities[i]!, orderedPersonalities[i + 1]!);
+  }
+  const baseFlow = baseTotal / (orderedPersonalities.length - 1);
+
+  // Dimensional analysis (when profiles are available)
+  const validProfiles = orderedProfiles.filter((p): p is BandAudienceProfileData => p !== undefined);
+  if (validProfiles.length < 2) return Math.round(baseFlow);
+
+  // Dimensional smoothness: penalise large jumps between consecutive bands
+  let dimSmoothTotal = 0;
+  for (let i = 0; i < validProfiles.length - 1; i++) {
+    const a = validProfiles[i]!;
+    const b = validProfiles[i + 1]!;
+    const avgChange = AUD_DIMS.reduce((s, d) => s + Math.abs(a[d as AudDim] - b[d as AudDim]), 0) / AUD_DIMS.length;
+    dimSmoothTotal += Math.max(0, 100 - avgChange * 1.5);
+  }
+  const dimSmooth = dimSmoothTotal / (validProfiles.length - 1);
+
+  // Energy progression: heavy+aggressive+progressive should build toward the headliner
+  const energies = validProfiles.map((p) => (p.heavy + p.aggressive + p.progressive) / 3);
+  const mid = Math.max(1, Math.floor(energies.length / 2));
+  const firstHalf  = energies.slice(0, mid).reduce((s, v) => s + v, 0) / mid;
+  const secondHalf = energies.slice(mid).reduce((s, v) => s + v, 0) / Math.max(1, energies.length - mid);
+
+  let progressionScore: number;
+  if (secondHalf > firstHalf + 15)           progressionScore = 90;
+  else if (secondHalf > firstHalf + 5)       progressionScore = 75;
+  else if (Math.abs(secondHalf - firstHalf) <= 5) progressionScore = 62;
+  else                                       progressionScore = 40;
+
+  return Math.max(0, Math.round(baseFlow * 0.40 + dimSmooth * 0.30 + progressionScore * 0.30));
+}
+
+function computeChemistryTotal(params: {
+  audienceOverlap: number | null;
+  personalityCompatibility: number;
+  festivalFlow: number;
+  venueCompatibility: number | null;
+  fanServiceBalance: number;
+  deepCutBalance: number;
+}): number {
+  const entries: Array<[number, number]> = [];
+  if (params.audienceOverlap !== null)   entries.push([params.audienceOverlap, 25]);
+  entries.push([params.personalityCompatibility, 20]);
+  entries.push([params.festivalFlow, 20]);
+  if (params.venueCompatibility !== null) entries.push([params.venueCompatibility, 15]);
+  entries.push([params.fanServiceBalance, 10]);
+  entries.push([params.deepCutBalance, 10]);
+  const totalW  = entries.reduce((s, [, w]) => s + w, 0);
+  const weightedSum = entries.reduce((s, [v, w]) => s + v * w, 0);
+  return Math.round(weightedSum / totalW);
+}
+
+function computeChemistryLabel(
+  score: number,
+  audienceOverlap: number | null,
+  dominantPersonality: string,
+  avgFanService: number,
+  avgDeepCuts: number,
+): string {
+  if (score >= 88) return (audienceOverlap !== null && audienceOverlap >= 72) ? 'Legendary Combination' : 'Perfect Match';
+  if (score >= 75) {
+    const fam = PERS_FAMILY[dominantPersonality] ?? 'unknown';
+    if (fam === 'atmospheric')  return 'Atmospheric Journey';
+    if (fam === 'intense')      return 'Heavy Onslaught';
+    if (dominantPersonality === 'The Ritual')    return 'Ritual Experience';
+    if (dominantPersonality === 'The Catharsis') return 'Cathartic Journey';
+    if (fam === 'cerebral')     return 'Progressive Gathering';
+    return 'Strong Alignment';
+  }
+  if (score >= 60) {
+    if (avgFanService >= 65) return 'Fan Favourite Festival';
+    if (avgDeepCuts   >= 60) return 'Deep Cut Convention';
+    return 'Solid Festival';
+  }
+  if (score >= 45) return 'Eclectic Experience';
+  if (score >= 30) return 'Wild Experiment';
+  return 'Chaotic Lineup';
+}
+
+function generateChemistryReport(label: string, bandCount: number, concertCount: number): string {
+  const c = concertCount, b = bandCount;
+  const acts  = `${c} act${c !== 1 ? 's' : ''}`;
+  const bands = `${b} band${b !== 1 ? 's' : ''}`;
+  const REPORTS: Record<string, string> = {
+    'Legendary Combination':  `A rare convergence — ${acts} across ${bands} whose musical identities align almost perfectly. This lineup does not merely work; it resonates at every dimension, from sound to audience to flow.`,
+    'Perfect Match':          `Every element aligns across ${acts}. Personality, flow, and balance combine to create a festival that feels curated rather than assembled — a lineup with intention behind every slot.`,
+    'Atmospheric Journey':    `The atmospheric thread running through these ${acts} creates a festival of sustained immersion. ${bands} united by mood and texture, building a world the audience can step inside and stay.`,
+    'Heavy Onslaught':        `${acts} built for maximum impact. The intensity across ${bands} is consistent and cumulative — a festival that does not ask for passive listening, it demands full surrender.`,
+    'Progressive Gathering':  `Complexity and craft define this ${acts} lineup. These ${bands} reward patience and punish distraction. A festival that grows in the memory long after the last note.`,
+    'Ritual Experience':      `A festival that transcends entertainment. The ${acts} across ${bands} share a ceremonial quality — performances that become collective rituals rather than individual concerts.`,
+    'Cathartic Journey':      `Emotion is the connective tissue across these ${acts}. The ${bands} build tension and release it, then build it again — a lineup designed for emotional impact at scale.`,
+    'Strong Alignment':       `Strong personality compatibility across ${acts}. These ${bands} share enough musical DNA to feel intentional, with enough variety to avoid predictability — a festival with a clear identity.`,
+    'Fan Favourite Festival': `Heavy on familiar material, this ${acts} lineup services its audience faithfully. The ${bands} deliver what fans came for — crowd-pleasing setlists that reward the converted.`,
+    'Deep Cut Convention':    `For the devoted only. These ${acts} across ${bands} lean into rare and deep material that casual audiences will not recognise — and hardcore fans will never forget.`,
+    'Solid Festival':         `A well-constructed ${acts} lineup across ${bands}. No single dimension dominates — this festival works because it balances its ambitions rather than chasing a single vision.`,
+    'Eclectic Experience':    `The range is the point. These ${acts} across ${bands} resist a single label — expect surprise, contrast, and an experience that refuses to settle into one identity.`,
+    'Wild Experiment':        `Bold choices across ${acts} from ${bands}. Some combinations here were not expected to work. Whether they do is left to the audience — but the ambition is undeniable.`,
+    'Chaotic Lineup':         `A festival that challenges coherence itself. These ${acts} across ${bands} share little in common musically. The result may be exhilarating, exhausting, or both — but predictable it is not.`,
+  };
+  return REPORTS[label] ?? `A ${acts} festival across ${bands}.`;
+}
+
+function computeFestivalChemistry(
+  sortedConcerts: Array<{
+    bandId: string; concertPersonality: string;
+    fanServiceScore: number; deepCutScore: number; venueFit: number | null;
+  }>,
+  bandProfileMap: Map<string, BandAudienceProfileData>,
+  festivalPersonality: string,
+  avgFanService: number,
+  avgDeepCuts: number,
+): FestivalChemistryResult {
+  if (sortedConcerts.length === 0) {
+    return {
+      chemistryScore: 0, chemistryLabel: 'Chaotic Lineup',
+      chemistryReport: 'No concerts in this festival yet.',
+      audienceOverlap: null, personalityCompatibility: 0, festivalFlow: 0,
+      venueCompatibility: null, fanServiceBalance: 0, deepCutBalance: 0, hasAudienceData: false,
+    };
+  }
+
+  const personalities     = sortedConcerts.map((c) => c.concertPersonality);
+  const uniqueBandIds     = [...new Set(sortedConcerts.map((c) => c.bandId))];
+  const uniqueProfiles    = uniqueBandIds.map((id) => bandProfileMap.get(id)).filter((p): p is BandAudienceProfileData => p !== undefined);
+  const orderedProfiles   = sortedConcerts.map((c) => bandProfileMap.get(c.bandId));
+
+  const audienceOverlap          = computeAudienceOverlap(uniqueProfiles);
+  const personalityCompatibility = computePersonalityCompatibility(personalities);
+  const festivalFlow             = computeFestivalFlowScore(personalities, orderedProfiles);
+
+  const venueFits        = sortedConcerts.map((c) => c.venueFit).filter((v): v is number => v !== null);
+  const venueCompatibility = venueFits.length > 0
+    ? Math.round(venueFits.reduce((s, v) => s + v, 0) / venueFits.length)
+    : null;
+
+  const fanServiceBalance = Math.max(0, Math.round(100 - Math.abs(avgFanService - 55) * 2));
+  const deepCutBalance    = Math.max(0, Math.round(100 - Math.abs(avgDeepCuts   - 45) * 2));
+
+  const chemistryScore  = computeChemistryTotal({ audienceOverlap, personalityCompatibility, festivalFlow, venueCompatibility, fanServiceBalance, deepCutBalance });
+  const chemistryLabel  = computeChemistryLabel(chemistryScore, audienceOverlap, festivalPersonality, avgFanService, avgDeepCuts);
+  const chemistryReport = generateChemistryReport(chemistryLabel, uniqueBandIds.length, sortedConcerts.length);
+
+  return {
+    chemistryScore, chemistryLabel, chemistryReport,
+    audienceOverlap, personalityCompatibility, festivalFlow,
+    venueCompatibility, fanServiceBalance, deepCutBalance,
+    hasAudienceData: uniqueProfiles.length > 0,
+  };
+}
+
 // Shared per-concert computation used by both festival list and detail endpoints.
 // Takes pre-fetched concert data + shared lookups; returns derived metrics.
 function deriveConcertMetrics(
@@ -1537,7 +1773,12 @@ function deriveConcertMetrics(
 
 // Shared data-fetching preamble used by festival list + detail to load concert data in bulk.
 async function loadConcertDataForFestivals(concertIds: string[]) {
-  if (concertIds.length === 0) return { concertRows: [], axisMap: new Map(), songAlbumMap: new Map() };
+  if (concertIds.length === 0) return {
+    concertRows: [],
+    axisMap: new Map<string, { songId: string; aggression: number; atmosphere: number; emotion: number; complexity: number; psychedelic: number; concept: number }>(),
+    songAlbumMap: new Map<string, string>(),
+    bandProfileMap: new Map<string, BandAudienceProfileData>(),
+  };
 
   const concertRows = await prisma.bandRpgConcert.findMany({
     where: { id: { in: concertIds } },
@@ -1547,23 +1788,40 @@ async function loadConcertDataForFestivals(concertIds: string[]) {
     },
   });
 
-  const allSongIds = [...new Set(concertRows.flatMap((c) => c.setlist.songs.map((s) => s.songId)))];
-  const [axisRows, songAlbumRows] = allSongIds.length > 0
-    ? await Promise.all([
-        prisma.songAxisScore.findMany({
+  const allSongIds  = [...new Set(concertRows.flatMap((c) => c.setlist.songs.map((s) => s.songId)))];
+  const allBandIds  = [...new Set(concertRows.map((c) => c.bandId))];
+
+  const [axisRows, songAlbumRows, bandProfileRows] = await Promise.all([
+    allSongIds.length > 0
+      ? prisma.songAxisScore.findMany({
           where: { songId: { in: allSongIds } },
           select: { songId: true, aggression: true, atmosphere: true, emotion: true, complexity: true, psychedelic: true, concept: true },
-        }),
-        prisma.song.findMany({
+        })
+      : Promise.resolve([]),
+    allSongIds.length > 0
+      ? prisma.song.findMany({
           where: { id: { in: allSongIds }, albumId: { not: null } },
           select: { id: true, albumId: true },
-        }),
-      ])
-    : [[], []];
+        })
+      : Promise.resolve([]),
+    allBandIds.length > 0
+      ? prisma.bandAudienceProfile.findMany({
+          where: { bandId: { in: allBandIds } },
+          select: {
+            bandId: true, progressive: true, heavy: true, technical: true,
+            atmospheric: true, experimental: true, accessible: true,
+            psychedelic: true, emotional: true, aggressive: true, improvisational: true,
+          },
+        })
+      : Promise.resolve([]),
+  ]);
 
-  const axisMap      = new Map(axisRows.map((r) => [r.songId, r]));
-  const songAlbumMap = new Map(songAlbumRows.map((r) => [r.id, r.albumId as string]));
-  return { concertRows, axisMap, songAlbumMap };
+  const axisMap       = new Map(axisRows.map((r) => [r.songId, r]));
+  const songAlbumMap  = new Map(songAlbumRows.map((r) => [r.id, r.albumId as string]));
+  const bandProfileMap = new Map<string, BandAudienceProfileData>(
+    bandProfileRows.map((p) => [p.bandId, p as BandAudienceProfileData]),
+  );
+  return { concertRows, axisMap, songAlbumMap, bandProfileMap };
 }
 
 // ── GET /festivals ────────────────────────────────────────────────────────────
@@ -1584,7 +1842,7 @@ bandRpgRouter.get('/festivals', requireAuth, async (req, res, next): Promise<voi
     if (festivals.length === 0) { res.json([]); return; }
 
     const allConcertIds = [...new Set(festivals.flatMap((f) => f.concerts.map((fc) => fc.concertId)))];
-    const { concertRows, axisMap, songAlbumMap } = await loadConcertDataForFestivals(allConcertIds);
+    const { concertRows, axisMap, songAlbumMap, bandProfileMap } = await loadConcertDataForFestivals(allConcertIds);
     const concertMap = new Map(concertRows.map((c) => [c.id, c]));
 
     const metricsCache = new Map(
@@ -1612,6 +1870,23 @@ bandRpgRouter.get('/festivals', requireAuth, async (req, res, next): Promise<voi
         concertPersonality: m.concertPersonality, fanServiceScore: m.fanServiceScore, deepCutScore: m.deepCutScore,
       })));
 
+      const sortedConcerts = festival.concerts
+        .map((fc) => {
+          const c = concertMap.get(fc.concertId);
+          const m = metricsCache.get(fc.concertId);
+          if (!c || !m) return null;
+          return {
+            bandId: c.bandId,
+            concertPersonality: m.concertPersonality,
+            fanServiceScore: m.fanServiceScore,
+            deepCutScore: m.deepCutScore,
+            venueFit: m.venueFit,
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+
+      const chemistry = computeFestivalChemistry(sortedConcerts, bandProfileMap, personality, avgFanService, avgDeepCuts);
+
       return {
         id:                 festival.id,
         name:               festival.name,
@@ -1624,6 +1899,7 @@ bandRpgRouter.get('/festivals', requireAuth, async (req, res, next): Promise<voi
         avgVenueFit,
         festivalPersonality: personality,
         festivalStory:       generateFestivalStory(personality, bandCount, totalSongs, concertCount),
+        chemistry,
         createdAt:           festival.createdAt.toISOString(),
         updatedAt:           festival.updatedAt.toISOString(),
       };
@@ -1690,7 +1966,7 @@ bandRpgRouter.get('/festivals/:festivalId', requireAuth, async (req, res, next):
     if (!festival) { res.status(404).json({ error: 'Not found' }); return; }
 
     const concertIds = festival.concerts.map((fc) => fc.concertId);
-    const { concertRows, axisMap, songAlbumMap } = await loadConcertDataForFestivals(concertIds);
+    const { concertRows, axisMap, songAlbumMap, bandProfileMap } = await loadConcertDataForFestivals(concertIds);
     const concertMap = new Map(concertRows.map((c) => [c.id, c]));
 
     const computed = festival.concerts.map((fc) => {
@@ -1720,6 +1996,15 @@ bandRpgRouter.get('/festivals/:festivalId', requireAuth, async (req, res, next):
       concertPersonality: m.concertPersonality, fanServiceScore: m.fanServiceScore, deepCutScore: m.deepCutScore,
     })));
 
+    const sortedConcerts = computed.map((m) => ({
+      bandId:             m.bandId,
+      concertPersonality: m.concertPersonality,
+      fanServiceScore:    m.fanServiceScore,
+      deepCutScore:       m.deepCutScore,
+      venueFit:           m.venueFit,
+    }));
+    const chemistry = computeFestivalChemistry(sortedConcerts, bandProfileMap, personality, avgFanService, avgDeepCuts);
+
     res.json({
       id:                  festival.id,
       name:                festival.name,
@@ -1732,6 +2017,7 @@ bandRpgRouter.get('/festivals/:festivalId', requireAuth, async (req, res, next):
       avgVenueFit,
       festivalPersonality: personality,
       festivalStory:       generateFestivalStory(personality, bandCount, totalSongs, concertCount),
+      chemistry,
       concerts:            computed,
       createdAt:           festival.createdAt.toISOString(),
       updatedAt:           festival.updatedAt.toISOString(),

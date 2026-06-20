@@ -2186,6 +2186,24 @@ function drawFestivalCard(canvas: HTMLCanvasElement, data: BandRpgFestivalDetail
 
   y += 16;
 
+  // Chemistry Score badge
+  const chem = data.chemistry;
+  const chemColor = chem.chemistryScore >= 88 ? '#fbbf24' : chem.chemistryScore >= 75 ? '#34d399' : chem.chemistryScore >= 60 ? '#a78bfa' : chem.chemistryScore >= 45 ? '#60a5fa' : '#6b7280';
+  ctx.fillStyle = '#111827';
+  rrect(ctx, PAD, y - 14, W - PAD * 2, 38, 6);
+  ctx.fill();
+  ctx.fillStyle = chemColor;
+  ctx.font = 'bold 22px system-ui,sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(String(chem.chemistryScore), PAD + 10, y + 10);
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '600 11px system-ui,sans-serif';
+  ctx.fillText('CHEMISTRY', PAD + 44, y - 1);
+  ctx.fillStyle = '#7c3aed';
+  ctx.font = 'italic 12px system-ui,sans-serif';
+  ctx.fillText(chem.chemistryLabel, PAD + 44, y + 13);
+  y += 36;
+
   // Divider
   ctx.strokeStyle = '#1f2937';
   ctx.lineWidth = 1;
@@ -2326,7 +2344,16 @@ function FestivalExportModal({ detail, onClose }: { detail: BandRpgFestivalDetai
 
 // ── Festival components ────────────────────────────────────────────────────────
 
+function chemistryScoreColor(score: number) {
+  if (score >= 88) return 'text-yellow-400';
+  if (score >= 75) return 'text-emerald-400';
+  if (score >= 60) return 'text-violet-400';
+  if (score >= 45) return 'text-blue-400';
+  return 'text-gray-500';
+}
+
 function FestivalCard({ festival, onClick }: { festival: BandRpgFestivalSummary; onClick: () => void }) {
+  const chem = festival.chemistry;
   return (
     <button onClick={onClick}
       className="w-full text-left bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 hover:bg-gray-800/60 transition-colors active:bg-gray-800/80">
@@ -2335,8 +2362,12 @@ function FestivalCard({ festival, onClick }: { festival: BandRpgFestivalSummary;
           <p className="text-white font-semibold truncate">{festival.name}</p>
           <p className="text-violet-400/60 text-xs font-medium italic mt-0.5">{festival.festivalPersonality}</p>
         </div>
-        <span className="text-xs text-gray-600 shrink-0 mt-0.5">{festival.concertCount} concerts</span>
+        <div className="flex items-center gap-2 shrink-0 mt-0.5">
+          <span className={`text-lg font-bold font-mono ${chemistryScoreColor(chem.chemistryScore)}`}>{chem.chemistryScore}</span>
+          <span className="text-xs text-gray-600">{festival.concertCount} concerts</span>
+        </div>
       </div>
+      <p className="text-xs text-violet-300/50 italic mt-0.5">{chem.chemistryLabel}</p>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-gray-500">
         <span>🎤 {festival.bandCount} band{festival.bandCount !== 1 ? 's' : ''}</span>
         <span>🎵 {festival.totalSongs} songs</span>
@@ -2353,18 +2384,24 @@ function FestivalRecords({ festivals }: { festivals: BandRpgFestivalSummary[] })
   const best = (fn: (a: BandRpgFestivalSummary, b: BandRpgFestivalSummary) => boolean) =>
     festivals.reduce((acc, f) => (fn(f, acc) ? f : acc));
 
-  const largest   = best((a, b) => a.totalSongs > b.totalSongs);
-  const mostBands = best((a, b) => a.bandCount > b.bandCount);
-  const deepest   = best((a, b) => a.avgDeepCuts > b.avgDeepCuts);
-  const fanFav    = best((a, b) => a.avgFanService > b.avgFanService);
-  const venueOnes = festivals.filter((f) => f.avgVenueFit !== null);
-  const bestVenue = venueOnes.length > 0 ? best((a, b) => (a.avgVenueFit ?? -1) > (b.avgVenueFit ?? -1)) : null;
+  const largest    = best((a, b) => a.totalSongs > b.totalSongs);
+  const mostBands  = best((a, b) => a.bandCount > b.bandCount);
+  const deepest    = best((a, b) => a.avgDeepCuts > b.avgDeepCuts);
+  const fanFav     = best((a, b) => a.avgFanService > b.avgFanService);
+  const topChem    = best((a, b) => a.chemistry.chemistryScore > b.chemistry.chemistryScore);
+  const bestFlow   = best((a, b) => a.chemistry.festivalFlow > b.chemistry.festivalFlow);
+  const mostCohes  = best((a, b) => (a.chemistry.audienceOverlap ?? 0) > (b.chemistry.audienceOverlap ?? 0));
+  const venueOnes  = festivals.filter((f) => f.avgVenueFit !== null);
+  const bestVenue  = venueOnes.length > 0 ? best((a, b) => (a.avgVenueFit ?? -1) > (b.avgVenueFit ?? -1)) : null;
 
   const items = [
-    { label: 'Largest Festival',    icon: '🎪', festival: largest,   value: `${largest.totalSongs} songs`        },
-    { label: 'Most Bands',          icon: '🎤', festival: mostBands, value: `${mostBands.bandCount} bands`       },
-    { label: 'Deepest Cuts',        icon: '🎭', festival: deepest,   value: `Deep Cuts ${deepest.avgDeepCuts}`   },
-    { label: 'Fan Favourite',       icon: '⭐', festival: fanFav,    value: `Fan Service ${fanFav.avgFanService}`},
+    { label: 'Best Chemistry',      icon: '⚗️', festival: topChem,   value: `${topChem.chemistry.chemistryScore} · ${topChem.chemistry.chemistryLabel}` },
+    { label: 'Best Flow',           icon: '🌊', festival: bestFlow,  value: `Flow ${bestFlow.chemistry.festivalFlow}`                                   },
+    { label: 'Most Cohesive',       icon: '🧲', festival: mostCohes, value: mostCohes.chemistry.audienceOverlap !== null ? `Overlap ${mostCohes.chemistry.audienceOverlap}` : 'No data' },
+    { label: 'Largest Festival',    icon: '🎪', festival: largest,   value: `${largest.totalSongs} songs`                                              },
+    { label: 'Most Bands',          icon: '🎤', festival: mostBands, value: `${mostBands.bandCount} bands`                                             },
+    { label: 'Deepest Cuts',        icon: '🎭', festival: deepest,   value: `Deep Cuts ${deepest.avgDeepCuts}`                                         },
+    { label: 'Fan Favourite',       icon: '⭐', festival: fanFav,    value: `Fan Service ${fanFav.avgFanService}`                                       },
     ...(bestVenue ? [{ label: 'Best Venue Fit', icon: '📍', festival: bestVenue, value: `${bestVenue.avgVenueFit ?? 0}/100` }] : []),
   ];
 
@@ -2614,6 +2651,42 @@ function FestivalDetailModal({
                     className="ml-auto bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white px-3 py-1 rounded-lg text-xs font-semibold transition-colors">
                     Share
                   </button>
+                </div>
+
+                {/* Chemistry Score */}
+                <div className="bg-gray-800/60 rounded-lg px-3 py-2.5 border border-gray-700/50">
+                  <div className="flex items-center justify-between mb-1">
+                    <div>
+                      <span className="text-xs text-gray-500 uppercase tracking-wide font-semibold">Chemistry</span>
+                      <span className="ml-2 text-xs text-violet-300/60 italic">{detail.chemistry.chemistryLabel}</span>
+                    </div>
+                    <span className={`text-2xl font-bold font-mono ${chemistryScoreColor(detail.chemistry.chemistryScore)}`}>
+                      {detail.chemistry.chemistryScore}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 leading-relaxed mb-2">{detail.chemistry.chemistryReport}</p>
+                  <div className="space-y-1">
+                    {([
+                      { label: 'Personality',   value: detail.chemistry.personalityCompatibility, color: 'bg-violet-600/70'  },
+                      { label: 'Flow',          value: detail.chemistry.festivalFlow,              color: 'bg-cyan-600/70'    },
+                      { label: 'Fan Balance',   value: detail.chemistry.fanServiceBalance,         color: 'bg-emerald-600/70' },
+                      { label: 'Deep Balance',  value: detail.chemistry.deepCutBalance,            color: 'bg-purple-600/70'  },
+                      ...(detail.chemistry.audienceOverlap !== null
+                        ? [{ label: 'Audience',  value: detail.chemistry.audienceOverlap,  color: 'bg-indigo-500/70' }]
+                        : []),
+                      ...(detail.chemistry.venueCompatibility !== null
+                        ? [{ label: 'Venue',     value: detail.chemistry.venueCompatibility, color: 'bg-blue-600/70'  }]
+                        : []),
+                    ] as { label: string; value: number; color: string }[]).map((bar) => (
+                      <div key={bar.label} className="flex items-center gap-2">
+                        <p className="text-[10px] text-gray-600 w-20 shrink-0">{bar.label}</p>
+                        <div className="flex-1 h-1 bg-gray-700 rounded-full overflow-hidden">
+                          <div className={`h-full ${bar.color} rounded-full transition-all`} style={{ width: `${bar.value}%` }} />
+                        </div>
+                        <p className="text-[10px] text-gray-500 w-6 text-right font-mono">{bar.value}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 {detail.festivalStory && (

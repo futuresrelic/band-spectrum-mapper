@@ -245,6 +245,19 @@ export interface BandRpgConcertDetail extends BandRpgConcertSummary {
 
 // ── Festival types ────────────────────────────────────────────────────────────
 
+export interface FestivalChemistry {
+  chemistryScore: number;
+  chemistryLabel: string;
+  chemistryReport: string;
+  audienceOverlap: number | null;
+  personalityCompatibility: number;
+  festivalFlow: number;
+  venueCompatibility: number | null;
+  fanServiceBalance: number;
+  deepCutBalance: number;
+  hasAudienceData: boolean;
+}
+
 export interface BandRpgFestivalConcertEntry {
   festivalConcertId: string;
   position: number;
@@ -275,6 +288,7 @@ export interface BandRpgFestivalSummary {
   avgVenueFit: number | null;
   festivalPersonality: string;
   festivalStory: string;
+  chemistry: FestivalChemistry;
   createdAt: string;
   updatedAt: string;
 }
