@@ -1279,6 +1279,11 @@ model BandMember {
   role      String?  // vocalist, guitarist, bassist, drummer, etc.
   createdAt DateTime @default(now())
 
+  // Avatar prompt storage — persisted so re-opening the editor reuses the saved prompt
+  originalAvatarPrompt     String? @db.Text // auto-generated once, never overwritten
+  lastAvatarPrompt         String? @db.Text // user-edited version saved on each generation
+  lastAvatarNegativePrompt String?           // negative prompt saved on each generation
+
   band  Band                      @relation(fields: [bandId], references: [id], onDelete: Cascade)
   skins PlatformerCharacterSkin[]
 

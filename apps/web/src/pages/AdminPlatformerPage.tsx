@@ -17,6 +17,7 @@ import { platformerApi, type PlatformerAsset, type PlatformerMember, type Charac
 import { api } from '../lib/api';
 import { SpritePixelEditor, SPRITE_SIZES } from '../components/SpritePixelEditor';
 import HeadshotEditor from '../components/HeadshotEditor';
+import { AvatarPromptEditor } from '../components/AvatarPromptEditor';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -449,7 +450,6 @@ function MembersAndSkins() {
   const [addName, setAddName]     = useState('');
   const [addRole, setAddRole]     = useState('');
   const [addMsg, setAddMsg]       = useState<{ text: string; ok: boolean } | null>(null);
-  const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [genMsg, setGenMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   // AI suggestions state
@@ -465,6 +465,9 @@ function MembersAndSkins() {
 
   // Edit skin (headshot editor) state
   const [editingSkin, setEditingSkin] = useState<CharacterSkin | null>(null);
+
+  // Avatar prompt editor state
+  const [promptEditorMemberId, setPromptEditorMemberId] = useState<string | null>(null);
 
   const { data: bands = [] } = useQuery<BandStub[]>({
     queryKey: ['bands-list'],
@@ -561,28 +564,8 @@ function MembersAndSkins() {
     await updateSkinMut.mutateAsync({ id: editingSkin.id, dataUrl });
   }
 
-  async function handleAiGenerate(member: PlatformerMember) {
-    const band = bands.find((b) => b.id === member.bandId);
-    if (!band) return;
-    setGeneratingId(member.id);
-    setGenMsg(null);
-    try {
-      await platformerApi.aiGenerateSkin({
-        memberId: member.id,
-        memberName: member.name,
-        memberRole: member.role,
-        bandName: band.name,
-        bandId: member.bandId,
-      });
-      flash(setGenMsg, `AI skin generated for ${member.name}.`, true);
-      invalidate();
-    } catch (err: unknown) {
-      const msg = (err as { error?: string })?.error
-        ?? (err instanceof Error ? err.message : 'Unknown error');
-      flash(setGenMsg, `Failed: ${msg}`, false);
-    } finally {
-      setGeneratingId(null);
-    }
+  function handleAiGenerate(member: PlatformerMember) {
+    setPromptEditorMemberId(member.id);
   }
 
   async function handleSuggest() {
@@ -648,6 +631,21 @@ function MembersAndSkins() {
           initialDataUrl={editingSkin.dataUrl}
           onSave={handleSkinEditorSave}
           onClose={() => setEditingSkin(null)}
+        />
+      )}
+
+      {/* Avatar prompt editor overlay */}
+      {promptEditorMemberId && (
+        <AvatarPromptEditor
+          memberId={promptEditorMemberId}
+          onClose={() => {
+            setPromptEditorMemberId(null);
+          }}
+          onDone={() => {
+            setPromptEditorMemberId(null);
+            flash(setGenMsg, 'Avatar generated and saved.', true);
+            invalidate();
+          }}
         />
       )}
 
@@ -807,11 +805,10 @@ function MembersAndSkins() {
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <button
-                          onClick={() => { void handleAiGenerate(m); }}
-                          disabled={generatingId === m.id}
-                          className="text-xs bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 text-indigo-700 border border-indigo-200 rounded px-3 py-1 transition-colors font-medium"
+                          onClick={() => { handleAiGenerate(m); }}
+                          className="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded px-3 py-1 transition-colors font-medium"
                         >
-                          {generatingId === m.id ? 'Generating…' : 'AI Sprite'}
+                          AI Sprite
                         </button>
                         <button
                           onClick={() => { void deleteMemberMut.mutate(m.id); }}

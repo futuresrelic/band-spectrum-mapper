@@ -729,162 +729,271 @@ platformerRouter.delete('/skins/:id', requireAuth, requireAdmin, async (req, res
 });
 
 // ---------------------------------------------------------------------------
-// POST /skins/ai-generate — AI pixel art generation for a band member (admin only)
-// Body: { memberId: string, memberName: string, bandName: string }
+// BSM avatar style constants — shared by generate-prompt, ai-generate, save-variation
+// ---------------------------------------------------------------------------
+
+const BSM_STYLE_PREFIX =
+  'Pixel art face portrait for a retro side-scrolling platformer video game character. ' +
+  'Three-quarter angle view — face turned slightly to the right so the character ' +
+  'appears to be looking forward while running left-to-right. ' +
+  'Head and hair only — no body, no shoulders. ' +
+  'If the character has long hair, let it flow naturally downward. ';
+
+const BSM_STYLE_SUFFIX =
+  'Expressive pixelated face, bold pixel art style, transparent background, ' +
+  'centered in a square canvas, no text, no border, clean crisp pixel art.';
+
+function buildAvatarImagePrompt(characterDescription: string, negativePrompt: string | null): string {
+  let prompt = BSM_STYLE_PREFIX + characterDescription.trim() + ' ' + BSM_STYLE_SUFFIX;
+  if (negativePrompt && negativePrompt.trim()) {
+    prompt += ` Avoid: ${negativePrompt.trim()}.`;
+  }
+  return prompt;
+}
+
+function surfaceOpenAiError(e: unknown): { msg: string; status: number } {
+  let msg = 'Unknown error';
+  let status = 502;
+  if (e instanceof Error) {
+    msg = e.message;
+    const apiErr = e as Error & { status?: number; code?: string; error?: unknown };
+    if (apiErr.status) status = apiErr.status;
+    if (apiErr.code) msg += ` [code: ${apiErr.code}]`;
+    if (apiErr.error) msg += ` [detail: ${JSON.stringify(apiErr.error)}]`;
+  }
+  return { msg, status };
+}
+
+// ---------------------------------------------------------------------------
+// POST /skins/generate-prompt — build appearance description for a member (Step 1)
+// Returns the editable character description without generating an image.
+// Re-uses saved prompt if available (avoids redundant GPT calls).
+// Body: { memberId: string }
+// ---------------------------------------------------------------------------
+
+platformerRouter.post('/skins/generate-prompt', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const { memberId } = req.body as { memberId?: unknown };
+    if (typeof memberId !== 'string' || !memberId) {
+      res.status(400).json({ error: 'memberId is required' }); return;
+    }
+
+    const member = await prisma.bandMember.findUnique({
+      where: { id: memberId },
+      select: {
+        id: true, name: true, role: true,
+        originalAvatarPrompt: true, lastAvatarPrompt: true, lastAvatarNegativePrompt: true,
+        band: { select: { id: true, name: true, description: true, contextAnalysis: { select: { overallNarrative: true } } } },
+      },
+    });
+    if (!member) { res.status(404).json({ error: 'Member not found' }); return; }
+
+    const nameStr = member.name;
+    const bandStr = member.band.name;
+    const role = member.role ?? null;
+    const roleDesc = role ? `${role} player` : 'musician';
+
+    // Return saved prompt if available — no API call needed
+    if (member.lastAvatarPrompt) {
+      res.json({
+        characterDescription: member.lastAvatarPrompt,
+        originalDescription: member.originalAvatarPrompt ?? member.lastAvatarPrompt,
+        lastNegativePrompt: member.lastAvatarNegativePrompt ?? null,
+        memberName: nameStr,
+        memberRole: role,
+        bandName: bandStr,
+        bsmStylePrefix: BSM_STYLE_PREFIX,
+        bsmStyleSuffix: BSM_STYLE_SUFFIX,
+      });
+      return;
+    }
+
+    // Generate description via GPT-4o-mini
+    const openAiKey = process.env['OPENAI_API_KEY'];
+    if (!openAiKey) { res.status(503).json({ error: 'OPENAI_API_KEY is not configured.' }); return; }
+
+    let appearanceHint = '';
+    try {
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({ apiKey: openAiKey });
+
+      const parts: string[] = [];
+      if (member.band.description) parts.push(member.band.description.slice(0, 300));
+      if (member.band.contextAnalysis?.overallNarrative) {
+        parts.push(member.band.contextAnalysis.overallNarrative.slice(0, 300));
+      }
+      const bandContextLine = parts.length > 0 ? `Band context: ${parts.join(' ')} ` : '';
+
+      const descRes = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{
+          role: 'user',
+          content:
+            `Describe the distinctive facial and hair appearance of ${nameStr}, the ${roleDesc} from the band ${bandStr}, ` +
+            `in one short sentence for a pixel art face portrait. ` +
+            `${bandContextLine}` +
+            `Focus on hair color, hair length/style (including if it is long), skin tone, notable facial features, and any facial hair or signature accessories. ` +
+            `Output the description only — no name, no explanation.`,
+        }],
+        max_tokens: 80,
+      });
+      const hint = descRes.choices[0]?.message?.content?.trim();
+      if (hint) appearanceHint = hint;
+    } catch {
+      // Non-fatal: fall back to generic description
+    }
+
+    const characterDescription = `Rock musician (${roleDesc}, ${bandStr} band). ${appearanceHint}`.trim();
+
+    // Persist for future re-use
+    await prisma.bandMember.update({
+      where: { id: memberId },
+      data: { originalAvatarPrompt: characterDescription, lastAvatarPrompt: characterDescription },
+    });
+
+    res.json({
+      characterDescription,
+      originalDescription: characterDescription,
+      lastNegativePrompt: null,
+      memberName: nameStr,
+      memberRole: role,
+      bandName: bandStr,
+      bsmStylePrefix: BSM_STYLE_PREFIX,
+      bsmStyleSuffix: BSM_STYLE_SUFFIX,
+    });
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// POST /skins/ai-generate — generate pixel art avatar(s) from a character description
+// Body: { memberId: string, characterDescription: string, negativePrompt?: string, count?: number }
+// count 1 (default): generates + saves skin, returns { ok, skin }
+// count 2–4: generates N variations WITHOUT saving, returns { ok, variations: string[] }
 // ---------------------------------------------------------------------------
 
 platformerRouter.post('/skins/ai-generate', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
   try {
-    const { memberId, memberName, memberRole, bandName } = req.body as {
-      memberId?: unknown; memberName?: unknown; memberRole?: unknown; bandName?: unknown;
+    const body = req.body as {
+      memberId?: unknown; characterDescription?: unknown;
+      negativePrompt?: unknown; count?: unknown;
     };
+    const memberId = typeof body.memberId === 'string' && body.memberId ? body.memberId : null;
+    const characterDescription = typeof body.characterDescription === 'string' && body.characterDescription
+      ? body.characterDescription.trim() : null;
+    const negativePrompt = typeof body.negativePrompt === 'string' && body.negativePrompt
+      ? body.negativePrompt.trim() : null;
+    const count = typeof body.count === 'number' ? Math.min(4, Math.max(1, Math.round(body.count))) : 1;
 
-    if (typeof memberName !== 'string' || !memberName.trim()) {
-      res.status(400).json({ error: 'memberName is required' }); return;
+    if (!characterDescription) {
+      res.status(400).json({ error: 'characterDescription is required' }); return;
     }
-    if (typeof bandName !== 'string' || !bandName.trim()) {
-      res.status(400).json({ error: 'bandName is required' }); return;
-    }
 
-    const nameStr = memberName.trim();
-    const bandStr = bandName.trim();
-    const role = typeof memberRole === 'string' && memberRole ? memberRole.trim() : null;
-    const roleDesc = role ? `${role} player` : 'musician';
-
-    // Resolve bandId: prefer passed memberId lookup, then passed bandId field
-    const passedBandId = typeof (req.body as Record<string, unknown>)['bandId'] === 'string'
-      ? ((req.body as Record<string, unknown>)['bandId'] as string)
-      : null;
-
-    // Step 1: Ask GPT-4o-mini to describe the member's appearance for a more accurate sprite.
-    // We avoid naming the real person in the image prompt to stay within content policy.
-    // We include any band description / analysis context to guide the description.
-    let appearanceHint = '';
     const openAiKey = process.env['OPENAI_API_KEY'];
-    if (openAiKey) {
-      try {
-        const OpenAI = (await import('openai')).default;
-        const openai = new OpenAI({ apiKey: openAiKey });
+    if (!openAiKey) { res.status(503).json({ error: 'OPENAI_API_KEY is not configured.' }); return; }
 
-        // Fetch band context to improve appearance descriptions
-        let bandContextLine = '';
-        const lookupBandId = passedBandId ?? (typeof memberId === 'string' && memberId ? memberId : null);
-        if (lookupBandId) {
-          const bandRecord = await prisma.band.findFirst({
-            where: typeof memberId === 'string' && memberId
-              ? { members: { some: { id: memberId } } }
-              : { id: lookupBandId },
-            select: {
-              description: true,
-              contextAnalysis: { select: { overallNarrative: true } },
-            },
-          });
-          const parts: string[] = [];
-          if (bandRecord?.description) parts.push(bandRecord.description.slice(0, 300));
-          if (bandRecord?.contextAnalysis?.overallNarrative) {
-            parts.push(bandRecord.contextAnalysis.overallNarrative.slice(0, 300));
-          }
-          if (parts.length > 0) bandContextLine = `Band context: ${parts.join(' ')} `;
-        }
+    const imagePrompt = buildAvatarImagePrompt(characterDescription, negativePrompt);
 
-        const descRes = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: [{
-            role: 'user',
-            content:
-              `Describe the distinctive facial and hair appearance of ${nameStr}, the ${roleDesc} from the band ${bandStr}, ` +
-              `in one short sentence for a pixel art face portrait. ` +
-              `${bandContextLine}` +
-              `Focus on hair color, hair length/style (including if it is long), skin tone, notable facial features, and any facial hair or signature accessories. ` +
-              `Output the description only — no name, no explanation.`,
-          }],
-          max_tokens: 80,
-        });
-        const hint = descRes.choices[0]?.message?.content?.trim();
-        if (hint) appearanceHint = `${hint} `;
-      } catch {
-        // Non-fatal: continue with generic prompt if GPT fails
-      }
-    }
-
-    // Step 2: Build the face-portrait prompt.
-    // We generate the head/face only with a transparent background so it can be
-    // composited onto the game character's animated body at runtime.
-    // Three-quarter angle so the face looks natural when the character runs sideways.
-    const prompt =
-      `Pixel art face portrait for a retro side-scrolling platformer video game character. ` +
-      `Rock musician (${roleDesc}, ${bandStr} band). ` +
-      appearanceHint +
-      `Three-quarter angle view — face turned slightly to the right so the character ` +
-      `appears to be looking forward while running left-to-right. ` +
-      `Head and hair only — no body, no shoulders. ` +
-      `If the character has long hair, let it flow naturally downward. ` +
-      `Expressive pixelated face, bold pixel art style, transparent background, ` +
-      `centered in a square canvas, no text, no border, clean crisp pixel art.`;
-
-    // Step 3: Generate pixel art sprite via OpenAI gpt-image-1
-    // Requires image generation to be enabled on the project at platform.openai.com
-    if (!openAiKey) {
-      res.status(503).json({ error: 'OPENAI_API_KEY is not configured.' }); return;
+    // Resolve member + band data if memberId provided
+    let memberRow: { id: string; name: string; bandId: string } | null = null;
+    if (memberId) {
+      memberRow = await prisma.bandMember.findUnique({
+        where: { id: memberId }, select: { id: true, name: true, bandId: true },
+      }) ?? null;
     }
 
     const { default: OpenAI } = await import('openai');
-    const openaiForImage = new OpenAI({ apiKey: openAiKey });
+    const openai = new OpenAI({ apiKey: openAiKey });
 
-    const imageResponse = await openaiForImage.images.generate({
+    const imageResponse = await openai.images.generate({
       model: 'gpt-image-1',
-      prompt,
-      n: 1,
+      prompt: imagePrompt,
+      n: count,
       size: '1024x1024',
       quality: 'low',
       background: 'transparent',
     });
 
-    const b64 = imageResponse.data?.[0]?.b64_json;
-    if (!b64) {
-      res.status(502).json({ error: 'No image data returned from OpenAI.' }); return;
+    // Save last-used prompt on the member record
+    if (memberId) {
+      await prisma.bandMember.update({
+        where: { id: memberId },
+        data: {
+          lastAvatarPrompt: characterDescription,
+          ...(negativePrompt !== null ? { lastAvatarNegativePrompt: negativePrompt } : {}),
+        },
+      }).catch(() => null); // non-fatal
     }
+
+    if (count > 1) {
+      // Variation mode — return data URLs without persisting
+      const variations = (imageResponse.data ?? [])
+        .map((d) => d.b64_json ? `data:image/png;base64,${d.b64_json}` : null)
+        .filter((v): v is string => v !== null);
+      if (variations.length === 0) {
+        res.status(502).json({ error: 'No image data returned from OpenAI.' }); return;
+      }
+      res.json({ ok: true, variations });
+      return;
+    }
+
+    // Single mode — persist immediately
+    const b64 = imageResponse.data?.[0]?.b64_json;
+    if (!b64) { res.status(502).json({ error: 'No image data returned from OpenAI.' }); return; }
     const dataUrl = `data:image/png;base64,${b64}`;
 
-    // Step 4: Persist the skin record
     const skinData: {
-      name: string;
-      dataUrl: string;
-      isApproved: boolean;
-      isAiGenerated: boolean;
-      bandId?: string;
-      memberId?: string;
+      name: string; dataUrl: string; isApproved: boolean; isAiGenerated: boolean;
+      bandId?: string; memberId?: string;
     } = {
-      name: `${nameStr} (AI)`,
-      dataUrl,
-      isApproved: true,
-      isAiGenerated: true,
+      name: memberRow ? `${memberRow.name} (AI)` : 'AI Portrait',
+      dataUrl, isApproved: true, isAiGenerated: true,
     };
-
-    if (typeof memberId === 'string' && memberId) skinData.memberId = memberId;
-
-    if (typeof memberId === 'string' && memberId) {
-      const member = await prisma.bandMember.findUnique({ where: { id: memberId }, select: { bandId: true } });
-      if (member) skinData.bandId = member.bandId;
-    }
+    if (memberRow) { skinData.memberId = memberRow.id; skinData.bandId = memberRow.bandId; }
 
     const skin = await prisma.platformerCharacterSkin.create({ data: skinData });
-    res.status(201).json(skin);
+    res.status(201).json({ ok: true, skin });
   } catch (e: unknown) {
-    // Surface the raw OpenAI error so we can see exactly what's failing
-    let msg = 'Unknown error';
-    let status = 502;
-    if (e instanceof Error) {
-      msg = e.message;
-      const apiErr = e as Error & { status?: number; code?: string; error?: unknown };
-      if (apiErr.status) status = apiErr.status;
-      // Append any extra detail from the error body
-      if (apiErr.code) msg += ` [code: ${apiErr.code}]`;
-      if (apiErr.error) msg += ` [detail: ${JSON.stringify(apiErr.error)}]`;
-    }
+    const { msg, status } = surfaceOpenAiError(e);
     console.error('[ai-generate] OpenAI error:', msg);
     res.status(status < 400 ? 502 : status).json({ error: `Sprite generation failed: ${msg}` });
   }
+});
+
+// ---------------------------------------------------------------------------
+// POST /skins/save-variation — save a chosen variation dataUrl as a skin
+// Body: { memberId: string, dataUrl: string }
+// ---------------------------------------------------------------------------
+
+platformerRouter.post('/skins/save-variation', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const body = req.body as { memberId?: unknown; dataUrl?: unknown };
+    const memberId = typeof body.memberId === 'string' && body.memberId ? body.memberId : null;
+    const dataUrl = typeof body.dataUrl === 'string' && body.dataUrl ? body.dataUrl : null;
+
+    if (!dataUrl) { res.status(400).json({ error: 'dataUrl is required' }); return; }
+    if (Buffer.byteLength(dataUrl, 'utf8') > MAX_DATA_URL_BYTES) {
+      res.status(413).json({ error: 'Image exceeds 5 MB limit.' }); return;
+    }
+
+    let memberRow: { id: string; name: string; bandId: string } | null = null;
+    if (memberId) {
+      memberRow = await prisma.bandMember.findUnique({
+        where: { id: memberId }, select: { id: true, name: true, bandId: true },
+      }) ?? null;
+    }
+
+    const skinData: {
+      name: string; dataUrl: string; isApproved: boolean; isAiGenerated: boolean;
+      bandId?: string; memberId?: string;
+    } = {
+      name: memberRow ? `${memberRow.name} (AI)` : 'AI Portrait',
+      dataUrl, isApproved: true, isAiGenerated: true,
+    };
+    if (memberRow) { skinData.memberId = memberRow.id; skinData.bandId = memberRow.bandId; }
+
+    const skin = await prisma.platformerCharacterSkin.create({ data: skinData });
+    res.status(201).json({ ok: true, skin });
+  } catch (e) { next(e); }
 });
 
 // ---------------------------------------------------------------------------

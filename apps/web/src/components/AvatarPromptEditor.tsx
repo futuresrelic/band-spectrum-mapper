@@ -1,0 +1,376 @@
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { platformerApi, AvatarPromptData, CharacterSkin } from '../api/platformer';
+
+// ── Preset trait chips ────────────────────────────────────────────────────────
+
+const PRESET_TRAITS = [
+  'Bald', 'Shaved head', 'Beard', 'Long hair', 'Short hair', 'Glasses',
+  'Stage makeup', 'Theatrical', 'Intense expression', 'Aggressive',
+  'Psychedelic', 'Vintage', 'Futuristic', 'Mohawk', 'Dreadlocks',
+];
+
+function addTrait(description: string, trait: string): string {
+  const t = description.trimEnd();
+  if (!t) return trait + '.';
+  if (t.endsWith('.') || t.endsWith(',')) return `${t} ${trait}.`;
+  return `${t}, ${trait}.`;
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+type Step = 'loading' | 'editing' | 'generating' | 'picking' | 'done';
+
+interface Props {
+  memberId: string;
+  onClose: () => void;
+  onDone: (skin: CharacterSkin) => void;
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export function AvatarPromptEditor({ memberId, onClose, onDone }: Props) {
+  const [step, setStep] = useState<Step>('loading');
+  const [promptData, setPromptData] = useState<AvatarPromptData | null>(null);
+  const [description, setDescription] = useState('');
+  const [originalDescription, setOriginalDescription] = useState('');
+  const [negativePrompt, setNegativePrompt] = useState('');
+  const [styleLocked, setStyleLocked] = useState(true);
+  const [showStyle, setShowStyle] = useState(false);
+  const [showNegative, setShowNegative] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [variations, setVariations] = useState<string[]>([]);
+  const [doneSkin, setDoneSkin] = useState<CharacterSkin | null>(null);
+  const [generatingCount, setGeneratingCount] = useState(1);
+  const fetchRef = useRef(0);
+
+  const loadPrompt = useCallback(() => {
+    const id = ++fetchRef.current;
+    setStep('loading');
+    setError(null);
+    platformerApi.generateAvatarPrompt(memberId)
+      .then((data) => {
+        if (fetchRef.current !== id) return;
+        setPromptData(data);
+        setDescription(data.characterDescription);
+        setOriginalDescription(data.originalDescription ?? data.characterDescription);
+        setNegativePrompt(data.lastNegativePrompt ?? '');
+        setStep('editing');
+      })
+      .catch((e: unknown) => {
+        if (fetchRef.current !== id) return;
+        const msg = (e as { error?: string })?.error ?? (e instanceof Error ? e.message : 'Failed to load prompt');
+        setError(msg);
+        setStep('editing');
+      });
+  }, [memberId]);
+
+  useEffect(() => { loadPrompt(); }, [loadPrompt]);
+
+  const handleGenerate = useCallback(async (count: number) => {
+    if (!description.trim()) return;
+    setError(null);
+    setGeneratingCount(count);
+    setStep('generating');
+    try {
+      const result = await platformerApi.aiGenerateSkin({
+        memberId,
+        characterDescription: description,
+        negativePrompt: negativePrompt.trim() || null,
+        count,
+      });
+      if (count > 1 && result.variations && result.variations.length > 0) {
+        setVariations(result.variations);
+        setStep('picking');
+      } else if (result.skin) {
+        setDoneSkin(result.skin);
+        setStep('done');
+        onDone(result.skin);
+      } else {
+        setError('No image returned. Try again.');
+        setStep('editing');
+      }
+    } catch (e: unknown) {
+      const msg = (e as { error?: string })?.error ?? (e instanceof Error ? e.message : 'Generation failed');
+      setError(msg);
+      setStep('editing');
+    }
+  }, [description, negativePrompt, memberId, onDone]);
+
+  const handlePickVariation = useCallback(async (dataUrl: string) => {
+    setGeneratingCount(1);
+    setStep('generating');
+    try {
+      const result = await platformerApi.saveVariation({ memberId, dataUrl });
+      setDoneSkin(result.skin);
+      setStep('done');
+      onDone(result.skin);
+    } catch (e: unknown) {
+      const msg = (e as { error?: string })?.error ?? (e instanceof Error ? e.message : 'Save failed');
+      setError(msg);
+      setStep('picking');
+    }
+  }, [memberId, onDone]);
+
+  // ── Derived ───────────────────────────────────────────────────────────────
+
+  const memberLabel = promptData
+    ? `${promptData.memberName}${promptData.memberRole ? ` · ${promptData.memberRole}` : ''}${promptData.bandName ? ` (${promptData.bandName})` : ''}`
+    : 'Band Member';
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="w-full max-w-2xl bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-col max-h-[90dvh]">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 shrink-0">
+          <div>
+            <p className="text-white font-semibold text-sm">Avatar Prompt Editor</p>
+            <p className="text-gray-400 text-xs mt-0.5">{memberLabel}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-white transition-colors text-lg leading-none px-2 py-1"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-4">
+
+          {/* Loading state */}
+          {(step === 'loading' || (step === 'generating' && generatingCount === 1 && variations.length === 0)) && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <div className="w-7 h-7 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+              <p className="text-gray-400 text-sm">
+                {step === 'loading' ? 'Generating appearance description…' : 'Generating avatar…'}
+              </p>
+              <p className="text-gray-600 text-xs">This may take up to 30 seconds.</p>
+            </div>
+          )}
+
+          {/* Generating variations */}
+          {step === 'generating' && generatingCount > 1 && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <div className="w-7 h-7 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+              <p className="text-gray-400 text-sm">Generating {generatingCount} variations…</p>
+              <p className="text-gray-600 text-xs">This may take up to 60 seconds.</p>
+            </div>
+          )}
+
+          {/* Variation picker */}
+          {step === 'picking' && (
+            <div className="space-y-3">
+              <p className="text-gray-300 text-sm">Choose the best result — only the selected image will be saved.</p>
+              <div className="grid grid-cols-2 gap-3">
+                {variations.map((v, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { void handlePickVariation(v); }}
+                    className="group relative aspect-square rounded-lg overflow-hidden border-2 border-gray-700 hover:border-indigo-400 transition-colors"
+                  >
+                    <img src={v} alt={`Variation ${i + 1}`} className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                      <span className="opacity-0 group-hover:opacity-100 text-white font-semibold text-sm transition-opacity">
+                        Select
+                      </span>
+                    </div>
+                    <div className="absolute top-1.5 left-1.5 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
+                      {i + 1}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Done */}
+          {step === 'done' && doneSkin && (
+            <div className="flex flex-col items-center py-12 gap-4">
+              <div className="w-32 h-32 rounded-lg overflow-hidden border border-gray-700">
+                <img src={doneSkin.dataUrl} alt="Generated avatar" className="w-full h-full object-cover" />
+              </div>
+              <p className="text-green-400 font-semibold text-sm">Avatar saved successfully!</p>
+              <button onClick={onClose} className="text-xs text-gray-400 hover:text-white transition-colors">
+                Close
+              </button>
+            </div>
+          )}
+
+          {/* Editing */}
+          {step === 'editing' && (
+            <>
+              {/* Error */}
+              {error && (
+                <div className="bg-red-900/30 border border-red-800/50 rounded-lg px-3 py-2 text-sm text-red-300">
+                  {error}
+                </div>
+              )}
+
+              {/* Style Lock */}
+              <div className="bg-gray-800/60 border border-gray-700/50 rounded-lg px-3 py-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setStyleLocked((v) => !v)}
+                      className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ${styleLocked ? 'bg-indigo-600' : 'bg-gray-600'}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${styleLocked ? 'translate-x-4' : 'translate-x-0.5'}`}
+                      />
+                    </button>
+                    <span className="text-xs text-gray-300 font-medium">Lock to BSM Style</span>
+                  </div>
+                  {promptData && (
+                    <button
+                      onClick={() => setShowStyle((v) => !v)}
+                      className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors"
+                    >
+                      {showStyle ? 'Hide' : 'Show'} style frame
+                    </button>
+                  )}
+                </div>
+                {showStyle && promptData && (
+                  <div className="mt-2 space-y-1 border-t border-gray-700/40 pt-2">
+                    <p className="text-[10px] text-gray-600 uppercase tracking-wide font-semibold">Prefix</p>
+                    <p className="text-[10px] text-gray-500 leading-relaxed italic">{promptData.bsmStylePrefix}</p>
+                    <p className="text-[10px] text-gray-600 uppercase tracking-wide font-semibold mt-1">Suffix</p>
+                    <p className="text-[10px] text-gray-500 leading-relaxed italic">{promptData.bsmStyleSuffix}</p>
+                  </div>
+                )}
+                {!styleLocked && (
+                  <p className="text-[10px] text-amber-500/70 mt-1.5">
+                    Style lock is off — the BSM pixel art frame will not wrap your description.
+                  </p>
+                )}
+              </div>
+
+              {/* Character description */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs text-gray-400 font-semibold uppercase tracking-wide">
+                    Character Description
+                  </label>
+                  <button
+                    onClick={() => setDescription(originalDescription)}
+                    className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors"
+                    title="Reset to auto-generated description"
+                  >
+                    Reset to original
+                  </button>
+                </div>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={5}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-600 resize-y focus:outline-none focus:border-indigo-500 transition-colors font-mono leading-relaxed"
+                  placeholder="Rock musician (vocalist, Band name). Short hair, intense expression…"
+                />
+              </div>
+
+              {/* Preset trait chips */}
+              <div className="space-y-1.5">
+                <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Quick Add Traits</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {PRESET_TRAITS.map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setDescription((d) => addTrait(d, t))}
+                      className="text-[11px] px-2 py-1 rounded bg-gray-800 border border-gray-700 text-gray-400 hover:text-white hover:border-indigo-500 transition-colors"
+                    >
+                      + {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Negative prompt */}
+              <div className="space-y-1.5">
+                <button
+                  onClick={() => setShowNegative((v) => !v)}
+                  className="text-xs text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1.5"
+                >
+                  <span className="text-[9px]">{showNegative ? '▼' : '▶'}</span>
+                  Negative Prompt (optional)
+                </button>
+                {showNegative && (
+                  <>
+                    <input
+                      type="text"
+                      value={negativePrompt}
+                      onChange={(e) => setNegativePrompt(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors"
+                      placeholder="generic pop singer, long hair, baseball cap, smiling teenager"
+                    />
+                    <p className="text-[10px] text-gray-600">Appended to the prompt as: "Avoid: …"</p>
+                  </>
+                )}
+              </div>
+
+              {/* Prompt source info */}
+              <div className="bg-gray-800/40 border border-gray-700/30 rounded-lg px-3 py-2.5 space-y-1">
+                <p className="text-[10px] text-gray-600 uppercase tracking-wide font-semibold">Prompt Source</p>
+                <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-[11px]">
+                  <span className="text-gray-600">Member</span>
+                  <span className="text-gray-400">{promptData?.memberName || '—'}</span>
+                  <span className="text-gray-600">Role</span>
+                  <span className="text-gray-400">{promptData?.memberRole || '—'}</span>
+                  <span className="text-gray-600">Band</span>
+                  <span className="text-gray-400">{promptData?.bandName || '—'}</span>
+                  <span className="text-gray-600">Description source</span>
+                  <span className="text-gray-400">AI-generated, editable</span>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Footer — editing */}
+        {step === 'editing' && (
+          <div className="px-5 py-4 border-t border-gray-800 shrink-0 flex items-center gap-2 flex-wrap justify-end">
+            <button
+              onClick={loadPrompt}
+              className="px-3 py-2 text-xs rounded-lg bg-gray-800 border border-gray-700 text-gray-300 hover:text-white hover:border-gray-600 transition-colors"
+            >
+              Regenerate Prompt
+            </button>
+            <button
+              onClick={() => { void handleGenerate(4); }}
+              disabled={!description.trim()}
+              className="px-3 py-2 text-xs rounded-lg bg-gray-700 border border-gray-600 text-gray-200 hover:bg-gray-600 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Generate 4 Variations
+            </button>
+            <button
+              onClick={() => { void handleGenerate(1); }}
+              disabled={!description.trim()}
+              className="px-4 py-2 text-xs rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Generate Avatar
+            </button>
+          </div>
+        )}
+
+        {/* Footer — variation picker */}
+        {step === 'picking' && (
+          <div className="px-5 py-4 border-t border-gray-800 shrink-0 flex items-center gap-2 justify-between">
+            <button
+              onClick={() => setStep('editing')}
+              className="px-3 py-2 text-xs rounded-lg bg-gray-800 border border-gray-700 text-gray-300 hover:text-white transition-colors"
+            >
+              ← Back to editor
+            </button>
+            <button
+              onClick={() => { void handleGenerate(4); }}
+              className="px-3 py-2 text-xs rounded-lg bg-gray-700 border border-gray-600 text-gray-200 hover:bg-gray-600 hover:text-white transition-colors"
+            >
+              Regenerate variations
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

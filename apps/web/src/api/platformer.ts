@@ -64,6 +64,17 @@ export interface CharacterSkin {
   createdAt?: string;
 }
 
+export interface AvatarPromptData {
+  characterDescription: string;
+  originalDescription: string | null;
+  lastNegativePrompt: string | null;
+  memberName: string;
+  memberRole: string | null;
+  bandName: string;
+  bsmStylePrefix: string;
+  bsmStyleSuffix: string;
+}
+
 // ---------------------------------------------------------------------------
 // Custom level types (used by level designer and game)
 // ---------------------------------------------------------------------------
@@ -224,14 +235,23 @@ export const platformerApi = {
     return api.put<CharacterSkin>(`/api/platformer/skins/${encodeURIComponent(id)}/assign`, data);
   },
 
+  generateAvatarPrompt(memberId: string): Promise<AvatarPromptData> {
+    return api.post<AvatarPromptData>('/api/platformer/skins/generate-prompt', { memberId });
+  },
+
   aiGenerateSkin(data: {
-    memberId?: string;
-    memberName: string;
-    memberRole?: string | null;
-    bandName: string;
-    bandId?: string;
-  }): Promise<CharacterSkin> {
-    return api.post<CharacterSkin>('/api/platformer/skins/ai-generate', data);
+    memberId: string;
+    characterDescription: string;
+    negativePrompt?: string | null;
+    count?: number;
+  }): Promise<{ ok: boolean; skin?: CharacterSkin; variations?: string[] }> {
+    return api.post<{ ok: boolean; skin?: CharacterSkin; variations?: string[] }>(
+      '/api/platformer/skins/ai-generate', data,
+    );
+  },
+
+  saveVariation(data: { memberId: string; dataUrl: string }): Promise<{ ok: boolean; skin: CharacterSkin }> {
+    return api.post<{ ok: boolean; skin: CharacterSkin }>('/api/platformer/skins/save-variation', data);
   },
 
   // ---------------------------------------------------------------------------
