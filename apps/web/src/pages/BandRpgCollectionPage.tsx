@@ -416,6 +416,42 @@ function sortSongs(songs: BandRpgCollectedSong[], mode: SortMode): BandRpgCollec
   return copy;
 }
 
+const NOTABLE_RARITIES = new Set(['Legendary', 'Mythic']);
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+function NotableRecoveriesBanner({ groups }: { groups: Array<{ collected: BandRpgCollectedSong[] }> }) {
+  const notable = useMemo(() => {
+    const now = Date.now();
+    return groups
+      .flatMap((g) => g.collected)
+      .filter((s) => NOTABLE_RARITIES.has(s.rarity) && now - new Date(s.recoveredAt).getTime() < SEVEN_DAYS_MS)
+      .sort((a, b) => new Date(b.recoveredAt).getTime() - new Date(a.recoveredAt).getTime())
+      .slice(0, 5);
+  }, [groups]);
+
+  if (notable.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-orange-900/40 bg-orange-950/20 overflow-hidden">
+      <div className="px-4 py-2 border-b border-orange-900/30">
+        <p className="text-xs text-orange-400/80 font-semibold uppercase tracking-wide">Notable Recoveries · Last 7 Days</p>
+      </div>
+      <div className="divide-y divide-gray-800/40">
+        {notable.map((s) => (
+          <div key={s.id} className="flex items-center gap-3 px-4 py-2">
+            <span className="text-base shrink-0">{s.rarity === 'Mythic' ? '🟠' : '🟣'}</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-white truncate">{s.songTitle}</p>
+              <p className="text-xs text-gray-600">{s.bandName} · {formatDate(s.recoveredAt)}</p>
+            </div>
+            <RarityBadge rarity={s.rarity} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SongsTab() {
   const [search,       setSearch]       = useState('');
   const [sort,         setSort]         = useState<SortMode>('date_desc');
@@ -457,6 +493,7 @@ function SongsTab() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+      <NotableRecoveriesBanner groups={groups} />
       <div className="flex flex-wrap gap-2">
         <input
           type="text"
@@ -1348,6 +1385,14 @@ function drawConcertCard(canvas: HTMLCanvasElement, data: BandRpgConcertDetail):
     y += 20;
   }
 
+  // Personality label
+  if (data.concertPersonality) {
+    ctx.fillStyle = '#4f46e5';
+    ctx.font = 'italic 600 13px system-ui,sans-serif';
+    ctx.fillText(data.concertPersonality, PAD, y);
+    y += 20;
+  }
+
   y += 10;
 
   // Divider
@@ -1516,6 +1561,9 @@ function ConcertCard({ concert, onClick }: { concert: BandRpgConcertSummary; onC
         {!concert.venueName && <span className="text-gray-700">No venue</span>}
         {concert.encorePosition !== null && <span className="text-purple-500/70">Encore ✓</span>}
       </div>
+      {concert.concertPersonality && (
+        <p className="text-xs text-indigo-400/50 mt-1.5 font-medium italic">{concert.concertPersonality}</p>
+      )}
     </button>
   );
 }
@@ -1844,6 +1892,63 @@ function ConcertDetailModal({
                         <p className="text-gray-300 font-mono">{fmtAxis(val)}</p>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Concert Intelligence panel */}
+              <div className="px-4 py-3 border-b border-gray-800 bg-gray-950/40 space-y-3">
+                {/* Personality */}
+                <div>
+                  <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wide mb-1">Concert Personality</p>
+                  <p className="text-indigo-400 font-semibold italic text-sm">{detail.concertPersonality}</p>
+                  {detail.setlistStory && (
+                    <p className="text-gray-500 text-xs leading-relaxed mt-1.5">{detail.setlistStory}</p>
+                  )}
+                </div>
+
+                {/* Score bars */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[10px] text-gray-600 w-20 shrink-0">Fan Service</p>
+                    <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-600/70 rounded-full transition-all" style={{ width: `${detail.fanServiceScore}%` }} />
+                    </div>
+                    <p className="text-[10px] text-gray-500 w-8 text-right font-mono">{detail.fanServiceScore}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-[10px] text-gray-600 w-20 shrink-0">Deep Cuts</p>
+                    <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-purple-600/70 rounded-full transition-all" style={{ width: `${detail.deepCutScore}%` }} />
+                    </div>
+                    <p className="text-[10px] text-gray-500 w-8 text-right font-mono">{detail.deepCutScore}</p>
+                  </div>
+                </div>
+
+                {/* Legends */}
+                {(detail.legendTrack || detail.deepCutSong || detail.mostFamiliar) && (
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {detail.legendTrack && (
+                      <div className="bg-gray-800/50 rounded-lg px-2 py-2">
+                        <p className="text-[9px] text-orange-500/80 font-semibold uppercase tracking-wide mb-0.5">Legend</p>
+                        <p className="text-[11px] text-white leading-tight line-clamp-2">{detail.legendTrack.songTitle}</p>
+                        <p className="text-[9px] text-orange-500/60 mt-0.5">{detail.legendTrack.rarity}</p>
+                      </div>
+                    )}
+                    {detail.deepCutSong && (
+                      <div className="bg-gray-800/50 rounded-lg px-2 py-2">
+                        <p className="text-[9px] text-purple-400/80 font-semibold uppercase tracking-wide mb-0.5">Deep Cut</p>
+                        <p className="text-[11px] text-white leading-tight line-clamp-2">{detail.deepCutSong.songTitle}</p>
+                        <p className="text-[9px] text-purple-400/60 mt-0.5">{detail.deepCutSong.rarity}</p>
+                      </div>
+                    )}
+                    {detail.mostFamiliar && (
+                      <div className="bg-gray-800/50 rounded-lg px-2 py-2">
+                        <p className="text-[9px] text-emerald-400/80 font-semibold uppercase tracking-wide mb-0.5">Familiar</p>
+                        <p className="text-[11px] text-white leading-tight line-clamp-2">{detail.mostFamiliar.songTitle}</p>
+                        <p className="text-[9px] text-emerald-400/60 mt-0.5">{detail.mostFamiliar.rarity}</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

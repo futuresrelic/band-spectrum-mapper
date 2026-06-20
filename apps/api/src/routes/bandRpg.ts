@@ -960,6 +960,89 @@ function venueFitLabel(score: number): string {
   return 'Poor Fit';
 }
 
+// ── Setlist intelligence helpers ──────────────────────────────────────────────
+
+const RARITY_FAN_PTS: Record<string, number>  = { Common: 3, Uncommon: 2 };
+const RARITY_DEEP_PTS: Record<string, number> = { Rare: 2, Legendary: 3, Mythic: 5 };
+
+function computeFanServiceScore(songs: Array<{ rarity: string }>): number {
+  if (songs.length === 0) return 0;
+  const pts = songs.reduce((s, x) => s + (RARITY_FAN_PTS[x.rarity] ?? 0), 0);
+  return Math.min(100, Math.round((pts / (songs.length * 3)) * 100));
+}
+
+function computeDeepCutScore(songs: Array<{ rarity: string }>): number {
+  if (songs.length === 0) return 0;
+  const pts = songs.reduce((s, x) => s + (RARITY_DEEP_PTS[x.rarity] ?? 0), 0);
+  return Math.min(100, Math.round((pts / (songs.length * 5)) * 100));
+}
+
+const AXIS_PERSONALITY: Record<string, string> = {
+  aggression:  'The Assault',
+  atmosphere:  'The Dreamscape',
+  emotion:     'The Catharsis',
+  complexity:  'The Labyrinth',
+  psychedelic: 'The Ritual',
+  concept:     'The Manifesto',
+};
+
+function computeConcertPersonality(avgs: {
+  aggression: number | null; atmosphere: number | null; emotion: number | null;
+  complexity: number | null; psychedelic: number | null; concept: number | null;
+}): string {
+  const entries = (Object.entries(avgs) as [string, number | null][])
+    .filter((e): e is [string, number] => e[1] !== null)
+    .sort((a, b) => b[1] - a[1]);
+
+  if (entries.length === 0) return 'The Unknown';
+  const [topAxis, topVal] = entries[0]!;
+  const secondVal = entries[1]?.[1] ?? 0;
+
+  if (topVal < 2.5) return 'The Expedition';
+  if (topVal >= 3.0 && (topVal - secondVal) < 0.3) return 'The Convergence';
+  return AXIS_PERSONALITY[topAxis] ?? 'The Expedition';
+}
+
+interface SongRef { songId: string; songTitle: string; rarity: string; position: number }
+
+function findLegendTrack(songs: SongRef[]): SongRef | null {
+  if (songs.length === 0) return null;
+  return songs.reduce((best, s) => (RARITY_VALUE[s.rarity] ?? 0) > (RARITY_VALUE[best.rarity] ?? 0) ? s : best);
+}
+
+function findDeepCutSong(songs: SongRef[]): SongRef | null {
+  const eligible = songs.filter((s) => s.position > 0 && (RARITY_VALUE[s.rarity] ?? 0) >= 4);
+  if (eligible.length === 0) return null;
+  return eligible.reduce((best, s) => (RARITY_VALUE[s.rarity] ?? 0) > (RARITY_VALUE[best.rarity] ?? 0) ? s : best);
+}
+
+function findMostFamiliar(songs: SongRef[]): SongRef | null {
+  const commons = songs.filter((s) => s.rarity === 'Common');
+  if (commons.length > 0) return commons[Math.floor(commons.length / 2)]!;
+  const uncommons = songs.filter((s) => s.rarity === 'Uncommon');
+  return uncommons[0] ?? null;
+}
+
+const PERSONALITY_STORY: Record<string, (b: string, n: number, a: number, op: string, cl: string) => string> = {
+  'The Assault':     (b, n, a, op, cl) => `${b} bring the fire across ${n} songs and ${a} album${a !== 1 ? 's' : ''}. From the opening salvo of "${op}" to the final blow of "${cl}", this concert hits hard and never yields.`,
+  'The Dreamscape':  (b, n, a, op, cl) => `${b} craft an immersive journey through ${n} songs from ${a} album${a !== 1 ? 's' : ''}. "${op}" opens the gates and "${cl}" lets the dream dissolve — a concert that lives in atmosphere.`,
+  'The Catharsis':   (b, n, a, op, cl) => `${b} turn emotion into architecture across ${n} songs and ${a} album${a !== 1 ? 's' : ''}. "${op}" breaks the surface and "${cl}" carries the weight home — a concert built for feeling.`,
+  'The Labyrinth':   (b, n, a, op, cl) => `${b} construct a web of complexity across ${n} songs from ${a} album${a !== 1 ? 's' : ''}. "${op}" opens the maze and "${cl}" seals it — a concert that demands full attention.`,
+  'The Ritual':      (b, n, a, op, cl) => `${b} perform a ceremony: ${n} songs drawn from ${a} album${a !== 1 ? 's' : ''}. "${op}" begins the invocation. "${cl}" closes the circle. This concert does not entertain — it transforms.`,
+  'The Manifesto':   (b, n, a, op, cl) => `${b} make a statement in ${n} songs across ${a} album${a !== 1 ? 's' : ''}. "${op}" announces the intent. "${cl}" seals it. A concert with something to say.`,
+  'The Convergence': (b, n, a, op, cl) => `${b} defy easy classification across ${n} songs from ${a} album${a !== 1 ? 's' : ''}. Multiple dimensions converge — "${op}" sets the stage and "${cl}" refuses to resolve the tension.`,
+  'The Expedition':  (b, n, a, op, cl) => `${b} span ${n} songs from ${a} album${a !== 1 ? 's' : ''} in a survey of range and breadth. "${op}" starts the journey. "${cl}" marks the furthest point reached.`,
+  'The Unknown':     (b, n, a, op, cl) => `${b} stage ${n} songs from ${a} album${a !== 1 ? 's' : ''}. "${op}" opens and "${cl}" closes — a concert whose character remains to be discovered.`,
+};
+
+function generateSetlistStory(
+  personality: string, bandName: string, songCount: number,
+  albumCount: number, opener: string, closer: string,
+): string {
+  const fn = PERSONALITY_STORY[personality] ?? PERSONALITY_STORY['The Unknown']!;
+  return fn(bandName, songCount, albumCount, opener || 'the first song', closer || 'the last song');
+}
+
 // ── GET /venues ───────────────────────────────────────────────────────────────
 
 bandRpgRouter.get('/venues', async (_req, res, next): Promise<void> => {
@@ -1073,6 +1156,10 @@ bandRpgRouter.get('/concerts', requireAuth, async (req, res, next): Promise<void
       const venueContrib  = venueFit !== null ? Math.floor(venueFit * 0.1) : 0;
       const concertTotal  = rarityValue + diversityBonus + flowScore + opScore + clScore + venueContrib;
 
+      const fanServiceScore    = computeFanServiceScore(songs);
+      const deepCutScore       = computeDeepCutScore(songs);
+      const concertPersonality = computeConcertPersonality(avgs);
+
       return {
         id:               concert.id,
         concertName:      concert.concertName,
@@ -1096,6 +1183,9 @@ bandRpgRouter.get('/concerts', requireAuth, async (req, res, next): Promise<void
         grade:            computeGrade(concertTotal),
         encorePosition:   concert.encorePosition ?? null,
         realWorldScore:   concert.realWorldScore ?? null,
+        fanServiceScore,
+        deepCutScore,
+        concertPersonality,
         createdAt:        concert.createdAt.toISOString(),
         updatedAt:        concert.updatedAt.toISOString(),
       };
@@ -1217,6 +1307,23 @@ bandRpgRouter.get('/concerts/:concertId', requireAuth, async (req, res, next): P
       addedAt:   s.addedAt.toISOString(),
     }));
 
+    // Phase M — Setlist Intelligence
+    const songRefs          = songs.map((s, idx) => ({ songId: s.songId, songTitle: s.songTitle, rarity: s.rarity, position: idx }));
+    const fanServiceScore    = computeFanServiceScore(songs);
+    const deepCutScore       = computeDeepCutScore(songs);
+    const concertPersonality = computeConcertPersonality(avgs);
+    const legendTrack        = findLegendTrack(songRefs);
+    const deepCutSong        = findDeepCutSong(songRefs);
+    const mostFamiliar       = findMostFamiliar(songRefs);
+    const setlistStory       = generateSetlistStory(
+      concertPersonality,
+      concert.bandName,
+      songs.length,
+      albumCount,
+      firstSong?.songTitle ?? '',
+      lastSong?.songTitle  ?? '',
+    );
+
     res.json({
       id:               concert.id,
       concertName:      concert.concertName,
@@ -1258,11 +1365,18 @@ bandRpgRouter.get('/concerts/:concertId', requireAuth, async (req, res, next): P
         concept:     venueEntry.conceptAffinity,
       } : null,
       rarityBreakdown,
-      songs:          mappedSongs,
-      mainSet:        encorePos !== null ? mappedSongs.slice(0, encorePos) : mappedSongs,
-      encore:         encorePos !== null ? mappedSongs.slice(encorePos)    : [],
-      createdAt:      concert.createdAt.toISOString(),
-      updatedAt:      concert.updatedAt.toISOString(),
+      songs:           mappedSongs,
+      mainSet:         encorePos !== null ? mappedSongs.slice(0, encorePos) : mappedSongs,
+      encore:          encorePos !== null ? mappedSongs.slice(encorePos)    : [],
+      fanServiceScore,
+      deepCutScore,
+      concertPersonality,
+      setlistStory,
+      legendTrack,
+      deepCutSong,
+      mostFamiliar,
+      createdAt:       concert.createdAt.toISOString(),
+      updatedAt:       concert.updatedAt.toISOString(),
     });
   } catch (e) { next(e); }
 });

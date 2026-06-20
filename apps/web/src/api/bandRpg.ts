@@ -199,6 +199,9 @@ export interface BandRpgConcertSummary {
   grade: string;
   encorePosition: number | null;
   realWorldScore: number | null;
+  fanServiceScore: number;
+  deepCutScore: number;
+  concertPersonality: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -210,6 +213,13 @@ export interface BandRpgConcertVenueAffinities {
   complexity: number;
   psychedelic: number;
   concept: number;
+}
+
+export interface BandRpgConcertLegendRef {
+  songId: string;
+  songTitle: string;
+  rarity: string;
+  position: number;
 }
 
 export interface BandRpgConcertDetail extends BandRpgConcertSummary {
@@ -227,6 +237,10 @@ export interface BandRpgConcertDetail extends BandRpgConcertSummary {
   songs: BandRpgSetlistSongEntry[];
   mainSet: BandRpgSetlistSongEntry[];
   encore: BandRpgSetlistSongEntry[];
+  setlistStory: string;
+  legendTrack: BandRpgConcertLegendRef | null;
+  deepCutSong: BandRpgConcertLegendRef | null;
+  mostFamiliar: BandRpgConcertLegendRef | null;
 }
 
 // ── API client ────────────────────────────────────────────────────────────────

@@ -131,6 +131,7 @@ model Song {
   spectrumAnalyses   SongSpectrumAnalysis[]
   socialPosts        SocialPost[]
   tagProposals       TagProposal[]
+  bandRpgProfile     BandRpgSongProfile?
 
   @@unique([bandId, slug])
   @@map("songs")
@@ -1794,5 +1795,21 @@ model BandRpgConcert {
   venue   BandRpgVenue?   @relation(fields: [venueId], references: [id], onDelete: SetNull)
 
   @@map("band_rpg_concerts")
+}
+
+// Architectural placeholder for future Setlist.fm / real-world song data integration.
+// No gameplay features write to this table yet; it exists so the Song relation
+// resolves cleanly and the schema is ready when real-world data is available.
+model BandRpgSongProfile {
+  id          String   @id @default(cuid())
+  songId      String   @unique
+  trackRank   Float?   // future: relative play frequency rank from Setlist.fm (lower = performed more often)
+  setlistFmId String?  // future: Setlist.fm song identifier
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@map("band_rpg_song_profiles")
 }
 
