@@ -12,6 +12,8 @@ import type {
   BandRpgFestivalSummary, BandRpgFestivalDetail,
   FestivalAchievement, FestivalPrestige,
   BandRpgTourSummary, BandRpgTourDetail, TourAchievement,
+  BandRpgChallenge, BandRpgChallengeStats, BandRpgChallengeHistoryEntry,
+  ChallengeAttemptResult,
 } from '../api/bandRpg';
 
 // ── Rarity display ─────────────────────────────────────────────────────────────
@@ -4314,17 +4316,778 @@ function ToursTab() {
   );
 }
 
+// ── Rival Events & Challenges (Phase X) ───────────────────────────────────────
+
+const DIFFICULTY_BADGE: Record<string, { label: string; className: string }> = {
+  easy:      { label: 'Easy',      className: 'text-green-400 bg-green-900/30 border border-green-800/50' },
+  medium:    { label: 'Medium',    className: 'text-yellow-400 bg-yellow-900/30 border border-yellow-800/50' },
+  hard:      { label: 'Hard',      className: 'text-orange-400 bg-orange-900/30 border border-orange-800/50' },
+  legendary: { label: 'Legendary', className: 'text-red-400 bg-red-900/30 border border-red-800/50' },
+};
+
+const TIER_BADGE: Record<string, { label: string; className: string }> = {
+  bronze:   { label: '🥉 Bronze',   className: 'text-amber-600 bg-amber-900/20 border border-amber-800/40' },
+  silver:   { label: '🥈 Silver',   className: 'text-gray-300 bg-gray-700/40 border border-gray-600/40' },
+  gold:     { label: '🥇 Gold',     className: 'text-yellow-400 bg-yellow-900/30 border border-yellow-700/40' },
+  platinum: { label: '🏆 Platinum', className: 'text-cyan-300 bg-cyan-900/30 border border-cyan-700/40' },
+};
+
+function ChallengeDifficultyBadge({ difficulty }: { difficulty: string }) {
+  const b = DIFFICULTY_BADGE[difficulty] ?? { label: difficulty, className: 'text-gray-400 bg-gray-800' };
+  return <span className={`text-xs font-semibold px-2 py-0.5 rounded ${b.className}`}>{b.label}</span>;
+}
+
+function ChallengeTierBadge({ tier }: { tier: string }) {
+  const b = TIER_BADGE[tier] ?? { label: tier, className: 'text-gray-400 bg-gray-800' };
+  return <span className={`text-xs font-semibold px-2 py-0.5 rounded ${b.className}`}>{b.label}</span>;
+}
+
+function ChallengeObjectiveTags({ ch }: { ch: BandRpgChallenge }) {
+  const tags: string[] = [];
+  if (ch.minChemistry  != null) tags.push(`Chemistry ≥ ${ch.minChemistry}`);
+  if (ch.minVariety    != null) tags.push(`Variety ≥ ${ch.minVariety}`);
+  if (ch.minMomentum   != null) tags.push(`Momentum ≥ ${ch.minMomentum}`);
+  if (ch.minPrestige   != null) tags.push(`Prestige ≥ ${ch.minPrestige}`);
+  if (ch.minDiversity  != null) tags.push(`Diversity ≥ ${ch.minDiversity}`);
+  if (ch.minDeepCut    != null) tags.push(`Deep Cuts ≥ ${ch.minDeepCut}`);
+  if (ch.minFanService != null) tags.push(`Fan Service ≥ ${ch.minFanService}`);
+  if (ch.minRareSongs  != null) tags.push(`Rare Songs ≥ ${ch.minRareSongs}`);
+  if (ch.minAlbums     != null) tags.push(`Albums ≥ ${ch.minAlbums}`);
+  if (ch.minStopCount  != null) tags.push(`Stops ≥ ${ch.minStopCount}`);
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-2">
+      {tags.map(t => (
+        <span key={t} className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-300 font-mono border border-gray-700/50">
+          {t}
+        </span>
+      ))}
+      {ch.targetAudience && (
+        <span className="text-xs px-2 py-0.5 rounded bg-purple-900/30 text-purple-300 border border-purple-800/40">
+          {ch.targetAudience}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function drawChallengeCard(
+  ctx: CanvasRenderingContext2D,
+  data: {
+    challengeName: string;
+    description:   string;
+    tier:          string;
+    entityName:    string;
+    metricScore:   number;
+    rivalName:     string | null;
+    rewardTitle:   string | null;
+    rewardBadge:   string | null;
+    difficulty:    string;
+  },
+): void {
+  const W = 900, H = 1200, PAD = 60;
+
+  // Background gradient — dark crimson to deep bronze
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0,    '#1a0505');
+  bg.addColorStop(0.45, '#2d1a00');
+  bg.addColorStop(1,    '#0d0505');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Outer gold border
+  ctx.strokeStyle = '#b8860b';
+  ctx.lineWidth   = 4;
+  ctx.strokeRect(12, 12, W - 24, H - 24);
+
+  // Inner border
+  ctx.strokeStyle = '#6b4309';
+  ctx.lineWidth   = 1;
+  ctx.strokeRect(22, 22, W - 44, H - 44);
+
+  ctx.textAlign = 'center';
+
+  // Header
+  ctx.fillStyle = '#ffd700';
+  ctx.font      = 'bold 28px serif';
+  ctx.fillText('⚔  CHALLENGE VICTORY', W / 2, 78);
+
+  // Tier
+  const TIER_COLORS: Record<string, string> = {
+    platinum: '#e5e4e2', gold: '#ffd700', silver: '#c0c0c0', bronze: '#cd7f32',
+  };
+  const tierColor = TIER_COLORS[data.tier] ?? '#ffd700';
+  ctx.fillStyle = tierColor;
+  ctx.font      = 'bold 72px serif';
+  ctx.fillText(data.tier.toUpperCase(), W / 2, 175);
+
+  // Challenge name
+  ctx.fillStyle = '#f5e6c8';
+  ctx.font      = 'bold 38px serif';
+  ctx.fillText(truncateForCanvas(ctx, data.challengeName, W - PAD * 2), W / 2, 250);
+
+  // Entity name
+  ctx.fillStyle = '#c0a060';
+  ctx.font      = '22px sans-serif';
+  ctx.fillText(truncateForCanvas(ctx, data.entityName, W - PAD * 2), W / 2, 292);
+
+  // Divider
+  ctx.strokeStyle = '#6b4309';
+  ctx.lineWidth   = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, 320); ctx.lineTo(W - PAD, 320); ctx.stroke();
+
+  // Description
+  ctx.fillStyle = '#d4b896';
+  ctx.font      = '21px sans-serif';
+  ctx.fillText(truncateForCanvas(ctx, data.description, W - PAD * 2), W / 2, 362);
+
+  // Rival
+  let nextY = 420;
+  if (data.rivalName) {
+    ctx.fillStyle = '#ff8080';
+    ctx.font      = 'bold 18px sans-serif';
+    ctx.fillText('RIVAL DEFEATED', W / 2, nextY);
+    nextY += 40;
+    ctx.fillStyle = '#f5c0c0';
+    ctx.font      = '28px serif';
+    ctx.fillText(truncateForCanvas(ctx, data.rivalName, W - PAD * 2), W / 2, nextY);
+    nextY += 60;
+  }
+
+  // Score
+  ctx.strokeStyle = '#6b4309';
+  ctx.lineWidth   = 1;
+  ctx.beginPath(); ctx.moveTo(PAD, nextY); ctx.lineTo(W - PAD, nextY); ctx.stroke();
+  nextY += 30;
+  ctx.fillStyle = '#9ca3af';
+  ctx.font      = '18px sans-serif';
+  ctx.fillText('SCORE', W / 2, nextY);
+  nextY += 10;
+  ctx.fillStyle = tierColor;
+  ctx.font      = 'bold 80px serif';
+  ctx.fillText(String(Math.round(data.metricScore)), W / 2, nextY + 80);
+  nextY += 110;
+
+  // Reward title
+  if (data.rewardTitle) {
+    ctx.strokeStyle = '#6b4309';
+    ctx.lineWidth   = 1;
+    ctx.beginPath(); ctx.moveTo(PAD, nextY + 20); ctx.lineTo(W - PAD, nextY + 20); ctx.stroke();
+    nextY += 50;
+    ctx.fillStyle = '#ffd700';
+    ctx.font      = 'bold 20px sans-serif';
+    ctx.fillText('TITLE UNLOCKED', W / 2, nextY);
+    nextY += 44;
+    const badge = data.rewardBadge ? `${data.rewardBadge}  ` : '';
+    ctx.fillStyle = '#fff8e1';
+    ctx.font      = 'bold 34px serif';
+    ctx.fillText(`${badge}${data.rewardTitle}`, W / 2, nextY);
+  }
+
+  // Difficulty
+  const DIFF_COLORS: Record<string, string> = {
+    easy: '#4ade80', medium: '#fbbf24', hard: '#f97316', legendary: '#ef4444',
+  };
+  ctx.fillStyle = DIFF_COLORS[data.difficulty] ?? '#9ca3af';
+  ctx.font      = 'bold 16px sans-serif';
+  ctx.fillText(data.difficulty.toUpperCase() + ' CHALLENGE', W / 2, H - 90);
+
+  ctx.fillStyle = '#6b5a3e';
+  ctx.font      = '15px sans-serif';
+  ctx.fillText('Band RPG — The Archive', W / 2, H - 55);
+}
+
+function ChallengeExportModal({
+  data,
+  onClose,
+}: {
+  data: {
+    challengeName: string; description: string; tier: string; entityName: string;
+    metricScore: number; rivalName: string | null; rewardTitle: string | null;
+    rewardBadge: string | null; difficulty: string;
+  };
+  onClose: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    canvas.width  = 900;
+    canvas.height = 1200;
+    drawChallengeCard(ctx, data);
+  }, [data]);
+
+  const handleDownload = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const a = document.createElement('a');
+    a.href     = canvas.toDataURL('image/png');
+    a.download = `challenge-victory-${data.tier}.png`;
+    a.click();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+      <div className="bg-gray-900 border border-gray-700 rounded-xl max-w-sm w-full shadow-2xl">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+          <span className="text-white font-semibold text-sm">Victory Card</span>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl">×</button>
+        </div>
+        <div className="p-4">
+          <canvas ref={canvasRef} className="w-full rounded border border-gray-700" />
+          <button
+            onClick={handleDownload}
+            className="mt-3 w-full py-2 rounded-lg bg-yellow-700/40 hover:bg-yellow-700/60 text-yellow-300 text-sm font-semibold transition-colors"
+          >
+            Download PNG
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type EntityOption = {
+  id: string;
+  label: string;
+  metrics: {
+    chemistry?: number; variety?: number; momentum?: number; prestige?: number;
+    diversity?: number; deepCut?: number; fanService?: number; stopCount?: number;
+  };
+};
+
+function AttemptModal({
+  challenge,
+  stats,
+  onClose,
+  onSubmitted,
+}: {
+  challenge:   BandRpgChallenge;
+  stats:       BandRpgChallengeStats;
+  onClose:     () => void;
+  onSubmitted: () => void;
+}) {
+  const queryClient                  = useQueryClient();
+  const [selectedId, setSelectedId]  = useState('');
+  const [result, setResult]          = useState<ChallengeAttemptResult | null>(null);
+  const [showExport, setShowExport]  = useState(false);
+
+  const isFestival  = challenge.type === 'festival' || challenge.type === 'dream_festival';
+  const isTour      = challenge.type === 'tour';
+  const isConcert   = challenge.type === 'concert';
+  const isSetlist   = challenge.type === 'setlist';
+  const isCollection = challenge.type === 'collection';
+
+  const { data: festivals } = useQuery({
+    queryKey: ['band-rpg-festivals'],
+    queryFn:  () => bandRpgApi.getFestivals(),
+    enabled:  isFestival,
+  });
+  const { data: tours } = useQuery({
+    queryKey: ['band-rpg-tours'],
+    queryFn:  () => bandRpgApi.getTours(),
+    enabled:  isTour,
+  });
+  const { data: concerts } = useQuery({
+    queryKey: ['band-rpg-concerts'],
+    queryFn:  () => bandRpgApi.getConcerts(),
+    enabled:  isConcert,
+  });
+  const { data: setlists } = useQuery({
+    queryKey: ['band-rpg-setlists'],
+    queryFn:  () => bandRpgApi.getSetlists(),
+    enabled:  isSetlist,
+  });
+
+  const entityOptions = useMemo((): EntityOption[] => {
+    if (isCollection) return [];
+    if (isFestival && festivals) {
+      return (challenge.type === 'dream_festival' ? festivals.filter(f => f.isDream) : festivals)
+        .map(f => ({
+          id:      f.id,
+          label:   f.name,
+          metrics: {
+            chemistry:  f.chemistry.chemistryScore,
+            prestige:   f.prestige.prestigeScore,
+            fanService: f.avgFanService,
+            deepCut:    f.avgDeepCuts,
+            diversity:  f.audience.audienceDiversityScore,
+            stopCount:  f.concertCount,
+          },
+        }));
+    }
+    if (isTour && tours) {
+      return tours.map(t => ({
+        id:      t.id,
+        label:   t.name,
+        metrics: { momentum: t.momentum, variety: t.variety, stopCount: t.stops.length },
+      }));
+    }
+    if (isConcert && concerts) {
+      return concerts.map(c => ({
+        id:      c.id,
+        label:   c.concertName,
+        metrics: { fanService: c.fanServiceScore, deepCut: c.deepCutScore },
+      }));
+    }
+    if (isSetlist && setlists) {
+      return setlists.map(s => ({
+        id:      s.id,
+        label:   s.name,
+        metrics: {},
+      }));
+    }
+    return [];
+  }, [isFestival, isTour, isConcert, isSetlist, isCollection, festivals, tours, concerts, setlists, challenge.type]);
+
+  const selected = entityOptions.find(e => e.id === selectedId);
+
+  const attempt = useMutation({
+    mutationFn: async () => {
+      if (isCollection) {
+        return bandRpgApi.attemptChallenge(challenge.id, {
+          entityType: 'collection',
+          entityId:   '',
+          entityName: 'My Collection',
+        });
+      }
+      if (!selected) throw new Error('Please select an entity first');
+      return bandRpgApi.attemptChallenge(challenge.id, {
+        entityType: challenge.type,
+        entityId:   selected.id,
+        entityName: selected.label,
+        ...selected.metrics,
+      });
+    },
+    onSuccess: (data) => {
+      setResult(data);
+      void queryClient.invalidateQueries({ queryKey: ['band-rpg-challenges'] });
+      void queryClient.invalidateQueries({ queryKey: ['band-rpg-challenge-stats'] });
+      void queryClient.invalidateQueries({ queryKey: ['band-rpg-challenge-history'] });
+      onSubmitted();
+    },
+  });
+
+  const entityLabel =
+    isCollection ? 'My Collection' :
+    isFestival   ? 'Festival' :
+    isTour       ? 'Tour' :
+    isConcert    ? 'Concert' :
+    'Setlist';
+
+  const canSubmit = isCollection || !!selected;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 shrink-0">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-white font-semibold">Attempt Challenge</span>
+              <ChallengeDifficultyBadge difficulty={challenge.difficulty} />
+            </div>
+            <p className="text-amber-400 font-bold mt-0.5">{challenge.name}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl">×</button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Challenge details */}
+          <p className="text-gray-300 text-sm">{challenge.description}</p>
+          {challenge.rivalName && (
+            <div className="bg-red-950/30 border border-red-900/40 rounded-lg px-3 py-2">
+              <p className="text-red-400 text-xs font-semibold mb-0.5">RIVAL: {challenge.rivalName}</p>
+              {challenge.rivalDesc && <p className="text-red-300/70 text-xs">{challenge.rivalDesc}</p>}
+            </div>
+          )}
+          <ChallengeObjectiveTags ch={challenge} />
+
+          {/* Entity picker */}
+          {!isCollection && (
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Select {entityLabel}</label>
+              {entityOptions.length === 0 ? (
+                <p className="text-gray-500 text-sm">No {entityLabel.toLowerCase()}s found. Build one first.</p>
+              ) : (
+                <select
+                  value={selectedId}
+                  onChange={e => setSelectedId(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm"
+                >
+                  <option value="">— choose —</option>
+                  {entityOptions.map(e => (
+                    <option key={e.id} value={e.id}>{e.label}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
+          {/* Metrics preview */}
+          {selected && Object.keys(selected.metrics).length > 0 && (
+            <div className="bg-gray-800/60 rounded-lg px-3 py-3">
+              <p className="text-xs text-gray-400 mb-2 font-semibold">SELECTED METRICS</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                {(Object.entries(selected.metrics) as [string, number | undefined][]).map(([k, v]) => {
+                  if (v == null) return null;
+                  const label = k === 'stopCount' ? 'Stops' : k.charAt(0).toUpperCase() + k.slice(1);
+                  const min = (challenge as unknown as Record<string, number | null>)[`min${k.charAt(0).toUpperCase() + k.slice(1)}`];
+                  const passing = min == null || v >= min;
+                  return (
+                    <div key={k} className="flex items-center justify-between">
+                      <span className="text-xs text-gray-400">{label}</span>
+                      <span className={`text-xs font-mono font-semibold ${passing ? 'text-green-400' : 'text-red-400'}`}>
+                        {Math.round(v)}{!passing && min != null ? ` / ${min}` : ''}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Collection stats for collection challenges */}
+          {isCollection && (
+            <div className="bg-gray-800/60 rounded-lg px-3 py-3">
+              <p className="text-xs text-gray-400 mb-2 font-semibold">COLLECTION STATS</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-400">Rare Songs</span>
+                  <span className={`text-xs font-mono font-semibold ${challenge.minRareSongs == null || stats.rareSongsCount >= challenge.minRareSongs ? 'text-green-400' : 'text-red-400'}`}>
+                    {stats.rareSongsCount}{challenge.minRareSongs != null ? ` / ${challenge.minRareSongs}` : ''}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-400">Albums Done</span>
+                  <span className={`text-xs font-mono font-semibold ${challenge.minAlbums == null || stats.albumsCompleted >= challenge.minAlbums ? 'text-green-400' : 'text-red-400'}`}>
+                    {stats.albumsCompleted}{challenge.minAlbums != null ? ` / ${challenge.minAlbums}` : ''}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Result */}
+          {result && (
+            <div className={`rounded-lg px-4 py-3 ${result.achieved ? 'bg-green-950/40 border border-green-800/50' : 'bg-red-950/30 border border-red-900/40'}`}>
+              <p className={`font-semibold text-sm ${result.achieved ? 'text-green-300' : 'text-red-400'}`}>
+                {result.message}
+              </p>
+              {result.achieved && result.tier && (
+                <div className="mt-2 flex items-center gap-2">
+                  <ChallengeTierBadge tier={result.tier} />
+                  <button
+                    onClick={() => setShowExport(true)}
+                    className="text-xs text-yellow-400 hover:text-yellow-300 underline"
+                  >
+                    Export Victory Card
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Error */}
+          {attempt.isError && (
+            <p className="text-red-400 text-xs">{String(attempt.error)}</p>
+          )}
+
+          {/* Actions */}
+          {!result && (
+            <button
+              onClick={() => attempt.mutate()}
+              disabled={attempt.isPending || !canSubmit}
+              className="w-full py-2.5 rounded-lg bg-red-900/50 hover:bg-red-800/60 text-red-200 font-semibold text-sm transition-colors disabled:opacity-50"
+            >
+              {attempt.isPending ? 'Evaluating…' : '⚔ Attempt Challenge'}
+            </button>
+          )}
+          {result && (
+            <button
+              onClick={onClose}
+              className="w-full py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-semibold transition-colors"
+            >
+              Close
+            </button>
+          )}
+        </div>
+      </div>
+
+      {showExport && result?.achieved && result.tier && (
+        <ChallengeExportModal
+          data={{
+            challengeName: challenge.name,
+            description:   challenge.description,
+            tier:          result.tier,
+            entityName:    selected?.label ?? 'My Collection',
+            metricScore:   result.metricScore,
+            rivalName:     challenge.rivalName,
+            rewardTitle:   challenge.rewardTitle,
+            rewardBadge:   challenge.rewardBadge,
+            difficulty:    challenge.difficulty,
+          }}
+          onClose={() => setShowExport(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ChallengeCard({
+  challenge,
+  stats,
+  onAttemptDone,
+}: {
+  challenge:    BandRpgChallenge;
+  stats:        BandRpgChallengeStats;
+  onAttemptDone: () => void;
+}) {
+  const [showAttempt, setShowAttempt] = useState(false);
+  const best = challenge.bestAttempt;
+
+  return (
+    <div className={`bg-gray-900 border rounded-xl p-4 flex flex-col gap-3 ${
+      best?.achieved
+        ? 'border-yellow-700/40'
+        : 'border-gray-700/60'
+    }`}>
+      {/* Header row */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-white font-semibold text-sm">{challenge.name}</span>
+            <ChallengeDifficultyBadge difficulty={challenge.difficulty} />
+            {best?.achieved && best.tier && <ChallengeTierBadge tier={best.tier} />}
+          </div>
+          <p className="text-gray-400 text-xs mt-1 leading-relaxed">{challenge.description}</p>
+        </div>
+        {challenge.rewardBadge && (
+          <span className="text-2xl shrink-0">{challenge.rewardBadge}</span>
+        )}
+      </div>
+
+      {/* Rival */}
+      {challenge.rivalName && (
+        <div className="flex items-center gap-2">
+          <span className="text-red-500 text-xs">⚔</span>
+          <span className="text-red-400 text-xs font-semibold">{challenge.rivalName}</span>
+        </div>
+      )}
+
+      {/* Objective tags */}
+      <ChallengeObjectiveTags ch={challenge} />
+
+      {/* Reward */}
+      {challenge.rewardTitle && (
+        <p className="text-xs text-yellow-500/70">
+          Reward: <span className="text-yellow-400">{challenge.rewardTitle}</span>
+        </p>
+      )}
+
+      {/* Best attempt info */}
+      {best && (
+        <p className="text-xs text-gray-500">
+          {best.achieved
+            ? `Best: scored ${Math.round(best.metricScore)} with "${best.entityName}"`
+            : `Last attempt: ${Math.round(best.metricScore)} with "${best.entityName}" — not yet achieved`}
+          {challenge.totalAttempts > 1 && ` (${challenge.totalAttempts} attempts)`}
+        </p>
+      )}
+
+      {/* Attempt button */}
+      <button
+        onClick={() => setShowAttempt(true)}
+        className="py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/50 text-red-300 text-xs font-semibold transition-colors border border-red-900/30"
+      >
+        ⚔ Attempt
+      </button>
+
+      {showAttempt && (
+        <AttemptModal
+          challenge={challenge}
+          stats={stats}
+          onClose={() => setShowAttempt(false)}
+          onSubmitted={() => {
+            setShowAttempt(false);
+            onAttemptDone();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+const DIFFICULTY_ORDER = ['easy', 'medium', 'hard', 'legendary'];
+
+function ChallengeHistoryList({ history }: { history: BandRpgChallengeHistoryEntry[] }) {
+  if (history.length === 0) return null;
+  return (
+    <div>
+      <h3 className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-3">Recent Attempts</h3>
+      <div className="space-y-2">
+        {history.slice(0, 12).map(entry => (
+          <div key={entry.id} className="flex items-center gap-3 py-2 px-3 bg-gray-900/60 rounded-lg border border-gray-800/60">
+            <span className="text-lg">{entry.rewardBadge ?? '⚔'}</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-gray-200 truncate">{entry.challengeName}</p>
+              <p className="text-xs text-gray-500 truncate">{entry.entityName} · {formatDate(entry.completedAt)}</p>
+            </div>
+            <div className="shrink-0">
+              {entry.achieved && entry.tier
+                ? <ChallengeTierBadge tier={entry.tier} />
+                : <span className="text-xs text-gray-600 bg-gray-800 px-2 py-0.5 rounded">Failed</span>
+              }
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ChallengesTab() {
+  const queryClient = useQueryClient();
+
+  const { data: challenges = [], isLoading: loadingChallenges } = useQuery({
+    queryKey: ['band-rpg-challenges'],
+    queryFn:  () => bandRpgApi.getChallenges(),
+  });
+
+  const { data: stats } = useQuery({
+    queryKey: ['band-rpg-challenge-stats'],
+    queryFn:  () => bandRpgApi.getChallengeStats(),
+  });
+
+  const { data: history = [] } = useQuery({
+    queryKey: ['band-rpg-challenge-history'],
+    queryFn:  () => bandRpgApi.getChallengeHistory(),
+  });
+
+  const generate = useMutation({
+    mutationFn: () => bandRpgApi.generateChallenge(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['band-rpg-challenges'] });
+    },
+  });
+
+  const handleAttemptDone = () => {
+    void queryClient.invalidateQueries({ queryKey: ['band-rpg-challenges'] });
+    void queryClient.invalidateQueries({ queryKey: ['band-rpg-challenge-stats'] });
+    void queryClient.invalidateQueries({ queryKey: ['band-rpg-challenge-history'] });
+  };
+
+  const defaultStats: BandRpgChallengeStats = {
+    totalAttempts: 0, achievedAttempts: 0, bestTier: null,
+    titlesUnlocked: [], challengesCompleted: 0, rareSongsCount: 0, albumsCompleted: 0,
+  };
+  const s = stats ?? defaultStats;
+
+  // Group challenges by difficulty
+  const byDifficulty = useMemo(() => {
+    const map = new Map<string, BandRpgChallenge[]>();
+    for (const d of DIFFICULTY_ORDER) map.set(d, []);
+    for (const ch of challenges) {
+      const list = map.get(ch.difficulty);
+      if (list) list.push(ch);
+      else map.set(ch.difficulty, [ch]);
+    }
+    return map;
+  }, [challenges]);
+
+  if (loadingChallenges) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 rounded-full border-2 border-red-500/60 border-t-red-400 animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 space-y-6 max-w-2xl mx-auto">
+      {/* Stats row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Completed',   value: s.challengesCompleted },
+          { label: 'Best Tier',   value: s.bestTier ? s.bestTier.charAt(0).toUpperCase() + s.bestTier.slice(1) : '—' },
+          { label: 'Rare Songs',  value: s.rareSongsCount },
+          { label: 'Albums Done', value: s.albumsCompleted },
+        ].map(({ label, value }) => (
+          <div key={label} className="bg-gray-900 border border-gray-700/60 rounded-xl p-3 text-center">
+            <p className="text-2xl font-bold text-white">{value}</p>
+            <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Titles unlocked */}
+      {s.titlesUnlocked.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {s.titlesUnlocked.map(t => (
+            <span key={t} className="text-xs px-2 py-1 rounded-full bg-yellow-900/30 text-yellow-400 border border-yellow-700/40 font-semibold">
+              ★ {t}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Generate button */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => generate.mutate()}
+          disabled={generate.isPending}
+          className="px-4 py-2 rounded-lg bg-red-900/40 hover:bg-red-800/50 text-red-300 text-sm font-semibold border border-red-900/40 transition-colors disabled:opacity-50"
+        >
+          {generate.isPending ? 'Generating…' : '⚔ Generate New Challenge'}
+        </button>
+        <p className="text-xs text-gray-500">Weighted random — from Easy to Legendary</p>
+      </div>
+
+      {/* Challenge grid by difficulty */}
+      {DIFFICULTY_ORDER.map(diff => {
+        const group = byDifficulty.get(diff) ?? [];
+        if (group.length === 0) return null;
+        const badge = DIFFICULTY_BADGE[diff] ?? { label: diff, className: '' };
+        return (
+          <div key={diff}>
+            <div className="flex items-center gap-2 mb-3">
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded ${badge.className}`}>{badge.label}</span>
+              <span className="text-gray-600 text-xs">{group.filter(c => c.bestAttempt?.achieved).length}/{group.length} completed</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {group.map(ch => (
+                <ChallengeCard
+                  key={ch.id}
+                  challenge={ch}
+                  stats={s}
+                  onAttemptDone={handleAttemptDone}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* History */}
+      <ChallengeHistoryList history={history} />
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
-type CollectionTab = 'songs' | 'albums' | 'setlists' | 'concerts' | 'festivals' | 'tours';
+type CollectionTab = 'songs' | 'albums' | 'setlists' | 'concerts' | 'festivals' | 'tours' | 'challenges';
 
 const TABS: { id: CollectionTab; label: string }[] = [
-  { id: 'songs',     label: '🎵 Songs'     },
-  { id: 'albums',    label: '💿 Albums'    },
-  { id: 'setlists',  label: '🎸 Setlists'  },
-  { id: 'concerts',  label: '🎤 Concerts'  },
-  { id: 'festivals', label: '🎪 Festivals' },
-  { id: 'tours',     label: '🗺️ Tours'    },
+  { id: 'songs',      label: '🎵 Songs'      },
+  { id: 'albums',     label: '💿 Albums'     },
+  { id: 'setlists',   label: '🎸 Setlists'   },
+  { id: 'concerts',   label: '🎤 Concerts'   },
+  { id: 'festivals',  label: '🎪 Festivals'  },
+  { id: 'tours',      label: '🗺️ Tours'     },
+  { id: 'challenges', label: '⚔ Challenges' },
 ];
 
 export default function BandRpgCollectionPage() {
@@ -4388,12 +5151,13 @@ export default function BandRpgCollectionPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {activeTab === 'songs'     && <SongsTab />}
-        {activeTab === 'albums'    && <AlbumsTab />}
-        {activeTab === 'setlists'  && <SetlistsTab />}
-        {activeTab === 'concerts'  && <ConcertsTab />}
-        {activeTab === 'festivals' && <FestivalsTab />}
-        {activeTab === 'tours'     && <ToursTab />}
+        {activeTab === 'songs'      && <SongsTab />}
+        {activeTab === 'albums'     && <AlbumsTab />}
+        {activeTab === 'setlists'   && <SetlistsTab />}
+        {activeTab === 'concerts'   && <ConcertsTab />}
+        {activeTab === 'festivals'  && <FestivalsTab />}
+        {activeTab === 'tours'      && <ToursTab />}
+        {activeTab === 'challenges' && <ChallengesTab />}
       </div>
     </div>
   );

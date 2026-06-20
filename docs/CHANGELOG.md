@@ -4,6 +4,52 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase X — Rival Events & Challenges (2026-06-20)
+
+### Added
+
+- **`BandRpgChallenge` model** — a challenge definition with type, difficulty, rival entity, reward title/badge, and up to 10 numeric thresholds (chemistry, variety, momentum, prestige, diversity, deepCut, fanService, rareSongs, albums, stopCount). Global challenges (userId = null) are seeded on first API call; user-generated challenges belong to a user.
+- **`BandRpgChallengeAttempt` model** — records every attempt: entityType, entityId, entityName, achieved (boolean), metricScore, tier (bronze/silver/gold/platinum).
+- **12 Global Challenges** (stable `gc-` prefix IDs, always visible to all users):
+  - Easy: The First Note (rare songs ≥ 1), New Arrival (albums ≥ 1), First Connection (chemistry ≥ 50), Hit the Road (tour stops ≥ 3)
+  - Medium: Festival Chemist (chemistry ≥ 75), The Collector (rare songs ≥ 10), The Road Warrior (momentum ≥ 65 + variety ≥ 60 + stops ≥ 5), Crowd Pleaser (chemistry ≥ 70 + fanService ≥ 60)
+  - Hard: The Deep Archive (chemistry ≥ 82 + deepCut ≥ 60), The Progressive Summit (chemistry ≥ 80, target: Progressive Pilgrims), Momentum Machine (momentum ≥ 80 + variety ≥ 70)
+  - Legendary: The Mythic Gathering (chemistry ≥ 90 + prestige ≥ 80)
+- **6 Rival Entities** — AI-free, template-generated: The Crowd Alchemist, The Stadium Circuit, The Archivist's Dream, The Progressive Summit, The Deep Cut Convention, The Mythic Circuit.
+- **Tier Scoring** (margin above minimum threshold): Bronze (+0), Silver (+7/10), Gold (+14/20), Platinum (+21/30) — thresholds tighten with difficulty (easy → legendary).
+- **Challenge Generator** — "⚔ Generate New Challenge" button. Picks from 16 generated templates weighted 40% easy / 35% medium / 20% hard / 5% legendary. Avoids re-generating challenges the user already has.
+- **5 Challenge API endpoints**:
+  - `GET /api/band-rpg/challenges` — all challenges (global + user-generated) with best attempt per user
+  - `GET /api/band-rpg/challenges/history` — last 50 attempt records
+  - `GET /api/band-rpg/challenges/stats` — aggregate stats + live collection counts
+  - `POST /api/band-rpg/challenges/generate` — create a new generated challenge
+  - `POST /api/band-rpg/challenges/:id/attempt` — submit attempt, returns tier + message
+- **Collection challenge evaluation** — backend computes rare-song count (`Rare`, `Legendary`, `Mythic`) and completed album count directly from DB. Client cannot inflate these.
+- **Festival/tour/concert/setlist challenges** — client submits metric values; server verifies entity ownership before recording the attempt.
+- **⚔ Challenges tab** in Band RPG → The Archive. Includes:
+  - Stats row: completed, best tier, rare songs, albums done
+  - Titles unlocked ribbon (gold badges)
+  - Generate New Challenge button
+  - Challenges grid grouped by difficulty (Easy → Legendary)
+  - Each card shows: name, difficulty badge, description, rival name, objective tags (metric thresholds), best tier, reward title/badge, and Attempt button
+  - AttemptModal: entity picker (festival / tour / concert / setlist dropdown), metrics preview with pass/fail coloring, result display with tier badge
+  - Victory Export Card — dark crimson-gold 900×1200 canvas: tier, challenge name, entity, score, rival defeated, title unlocked, difficulty label
+- **Challenge history list** — last 12 attempts shown at the bottom of the Challenges tab.
+
+### Schema
+- Added `BandRpgChallenge` and `BandRpgChallengeAttempt` models — migration: `20260620050000_add_challenges`
+- Back-relations added to `User` model
+
+### Technical notes
+- `challengeService.ts` — standalone service with GLOBAL_CHALLENGES constant, GEN_TEMPLATES pool (16 templates), `evaluateChallenge()`, `computeTier()`, `computeCollectionMetrics()`, `generateChallengeForUser()`, `seedGlobalChallenges()`.
+- `challengeRoutes.ts` — mounted at `/api/band-rpg/challenges`, separate from the large `bandRpg.ts`.
+- Global challenges are seeded lazily on first `GET /challenges` call (idempotent upsert with stable IDs).
+- `EvalInput` interface accepts `number | null` fields — compatible with Prisma's nullable model fields under `exactOptionalPropertyTypes: true`.
+- All evaluation is pure logic: no AI, no external calls.
+- Victory card uses same canvas export pattern as Tour and Festival cards (dark red-gold theme distinct from teal/purple).
+
+---
+
 ## Phase W — Tour Builder (2026-06-20)
 
 ### Added

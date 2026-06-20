@@ -435,6 +435,74 @@ export interface BandRpgTourDetail extends BandRpgTourSummary {
   story: string;
 }
 
+// ── Challenge types (Phase X) ─────────────────────────────────────────────────
+
+export interface ChallengeAttemptSummary {
+  tier:        string | null;
+  metricScore: number;
+  achieved:    boolean;
+  entityName:  string;
+  completedAt: string;
+}
+
+export interface BandRpgChallenge {
+  id:             string;
+  name:           string;
+  description:    string;
+  type:           string;
+  difficulty:     string;
+  rivalName:      string | null;
+  rivalDesc:      string | null;
+  targetAudience: string | null;
+  rewardTitle:    string | null;
+  rewardBadge:    string | null;
+  minChemistry:   number | null;
+  minVariety:     number | null;
+  minMomentum:    number | null;
+  minPrestige:    number | null;
+  minDiversity:   number | null;
+  minDeepCut:     number | null;
+  minFanService:  number | null;
+  minRareSongs:   number | null;
+  minAlbums:      number | null;
+  minStopCount:   number | null;
+  isGenerated:    boolean;
+  totalAttempts:  number;
+  bestAttempt:    ChallengeAttemptSummary | null;
+}
+
+export interface BandRpgChallengeHistoryEntry {
+  id:            string;
+  challengeId:   string;
+  challengeName: string;
+  difficulty:    string;
+  rewardBadge:   string | null;
+  entityType:    string;
+  entityName:    string;
+  achieved:      boolean;
+  metricScore:   number;
+  tier:          string | null;
+  completedAt:   string;
+}
+
+export interface BandRpgChallengeStats {
+  totalAttempts:       number;
+  achievedAttempts:    number;
+  bestTier:            string | null;
+  titlesUnlocked:      string[];
+  challengesCompleted: number;
+  rareSongsCount:      number;
+  albumsCompleted:     number;
+}
+
+export interface ChallengeAttemptResult {
+  achieved:    boolean;
+  tier:        string | null;
+  metricScore: number;
+  margin:      number;
+  message:     string;
+}
+
 // ── API client ────────────────────────────────────────────────────────────────
 
 export const bandRpgApi = {
@@ -619,5 +687,39 @@ export const bandRpgApi = {
     api.put<{ ok: boolean; stopCount: number }>(
       `/api/band-rpg/tours/${encodeURIComponent(id)}/stops`,
       { stops },
+    ),
+
+  // Phase X — Rival Events & Challenges
+  getChallenges: () =>
+    api.get<BandRpgChallenge[]>('/api/band-rpg/challenges'),
+
+  getChallengeHistory: () =>
+    api.get<BandRpgChallengeHistoryEntry[]>('/api/band-rpg/challenges/history'),
+
+  getChallengeStats: () =>
+    api.get<BandRpgChallengeStats>('/api/band-rpg/challenges/stats'),
+
+  generateChallenge: () =>
+    api.post<{ ok: boolean; id: string }>('/api/band-rpg/challenges/generate', {}),
+
+  attemptChallenge: (
+    id: string,
+    data: {
+      entityType: string;
+      entityId:   string;
+      entityName: string;
+      chemistry?:  number;
+      variety?:    number;
+      momentum?:   number;
+      prestige?:   number;
+      diversity?:  number;
+      deepCut?:    number;
+      fanService?: number;
+      stopCount?:  number;
+    },
+  ) =>
+    api.post<ChallengeAttemptResult>(
+      `/api/band-rpg/challenges/${encodeURIComponent(id)}/attempt`,
+      data,
     ),
 };

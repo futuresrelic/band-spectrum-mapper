@@ -454,7 +454,9 @@ model User {
   bandRpgSetlists      BandRpgSetlist[]
   bandRpgConcerts      BandRpgConcert[]
   bandRpgFestivals     BandRpgFestival[]
-  bandRpgTours         BandRpgTour[]
+  bandRpgTours             BandRpgTour[]
+  bandRpgChallenges        BandRpgChallenge[]
+  bandRpgChallengeAttempts BandRpgChallengeAttempt[]
 
   @@map("users")
 }
@@ -1999,3 +2001,63 @@ model BandRpgTourStop {
   @@map("band_rpg_tour_stops")
 }
 
+
+// ---------------------------------------------------------------------------
+// Phase X: Rival Events & Challenges
+// A Challenge defines an objective. Attempts record each evaluation.
+// Global challenges (userId = null) are seeded at boot; user-generated ones
+// are created on demand via the Generate endpoint.
+// ---------------------------------------------------------------------------
+
+model BandRpgChallenge {
+  id             String    @id @default(cuid())
+  userId         String?
+  name           String
+  description    String
+  type           String    // festival | tour | concert | setlist | collection | dream_festival
+  difficulty     String    // easy | medium | hard | legendary
+  rivalName      String?
+  rivalDesc      String?
+  targetAudience String?
+  rewardTitle    String?
+  rewardBadge    String?
+  minChemistry   Float?
+  minVariety     Float?
+  minMomentum    Float?
+  minPrestige    Float?
+  minDiversity   Float?
+  minDeepCut     Float?
+  minFanService  Float?
+  minRareSongs   Int?
+  minAlbums      Int?
+  minStopCount   Int?
+  isGenerated    Boolean   @default(false)
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  user     User?                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attempts BandRpgChallengeAttempt[]
+
+  @@index([userId])
+  @@map("band_rpg_challenges")
+}
+
+model BandRpgChallengeAttempt {
+  id          String   @id @default(cuid())
+  challengeId String
+  userId      String
+  entityType  String   // festival | tour | concert | setlist | collection
+  entityId    String   @default("")
+  entityName  String
+  achieved    Boolean  @default(false)
+  metricScore Float    @default(0)
+  tier        String?  // bronze | silver | gold | platinum
+  completedAt DateTime @default(now())
+
+  challenge BandRpgChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([challengeId])
+  @@index([userId])
+  @@map("band_rpg_challenge_attempts")
+}
