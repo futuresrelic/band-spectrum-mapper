@@ -11,6 +11,8 @@ import ItemEditor from '../components/bandRpgEditor/ItemEditor';
 import TimelineEditor from '../components/bandRpgEditor/TimelineEditor';
 import LeaderboardTab from '../components/bandRpgEditor/LeaderboardTab';
 import WorldEditor from '../components/bandRpgEditor/WorldEditor';
+import AdventureEditor from '../components/bandRpgEditor/AdventureEditor';
+import PlaytestChecklist from '../components/bandRpgEditor/PlaytestChecklist';
 
 type Tab =
   | 'overview'
@@ -22,9 +24,11 @@ type Tab =
   | 'characters'
   | 'items'
   | 'world'
+  | 'adventures'
   | 'graphics'
   | 'settings'
   | 'leaderboard'
+  | 'playtest'
   | 'testing'
   | 'live';
 
@@ -38,9 +42,11 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'characters',  label: 'Characters',  icon: '🎭'  },
   { id: 'items',       label: 'Items',       icon: '🎒'  },
   { id: 'world',       label: 'World',       icon: '🧩'  },
+  { id: 'adventures',  label: 'Adventures',  icon: '📦'  },
   { id: 'graphics',    label: 'Graphics',    icon: '🎨'  },
   { id: 'settings',    label: 'Settings',    icon: '⚙️'  },
   { id: 'leaderboard', label: 'Leaderboard', icon: '🏆'  },
+  { id: 'playtest',    label: 'Playtest',    icon: '✅'  },
   { id: 'testing',     label: 'Testing',     icon: '🧪'  },
   { id: 'live',        label: 'Live Data',   icon: '🌐'  },
 ];
@@ -595,6 +601,8 @@ export default function AdminBandRpgPage() {
       )}
       {tab === 'items'       && <ItemEditor />}
       {tab === 'world'       && <WorldEditor />}
+      {tab === 'adventures'  && <AdventureEditor />}
+      {tab === 'playtest'    && <PlaytestChecklist />}
       {tab === 'graphics'    && (
         <ComingSoonPlaceholder
           title="Graphics & Theme"

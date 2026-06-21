@@ -4,6 +4,75 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.4 — Engine Audit + Adventure Import/Export (2026-06-21)
+
+### Added
+
+**Adventure Scoping (`BandRpgAdventure` model):**
+- New `BandRpgAdventure` model: `slug`, `name`, `description`, `version`, `isPublished`
+- `adventureId String?` added to `BandRpgLevel`, `BandRpgQuest`, `BandRpgStoryArc`, `BandRpgItem`
+- Adventures are optional grouping containers — existing content is unaffected until tagged
+
+**Adventure Export (Part C):**
+- `GET /api/band-rpg/adventures/:id/export` — exports full adventure package as JSON
+- Serializes: levels (with nested objectives, NPCs, beats, doors, switches, puzzles), quests, arcs, items, timeline
+- Human-readable cross-references: `targetSlug` for items/quests, `targetName` for level-scoped doors/switches
+- Triggers download of `{slug}-adventure.json` from the admin UI
+
+**Adventure Import (Parts D–F):**
+- `POST /api/band-rpg/adventures/validate` — dry run: validates JSON without writing to DB
+- `POST /api/band-rpg/adventures/import` — validates then imports in three modes:
+  - **create** — strict; fails if any slug exists
+  - **update** — upserts by slug; merges with existing
+  - **replace** — deletes existing adventure content, recreates fresh (player progress preserved)
+- Validates: required fields, slug format, duplicate slugs within package, cross-reference integrity, DB conflicts
+- Dry-run preview shows entity counts before confirmation
+- Cross-reference resolution: `targetSlug` → DB item/quest ID; `targetName` → DB door/switch/NPC ID
+
+**Admin UI — Adventures tab (Part C–H):**
+- New `Adventures` tab in `/admin/band-rpg`
+- Adventure list with count badges (levels/quests/arcs/items)
+- Create/edit/delete adventures
+- One-click export to JSON file
+- Import tab: JSON paste or file upload, mode selector, Validate button, Import button with preview
+- Validation error display with path-specific messages
+
+**Playtest Checklist (Part B):**
+- New `Playtest` tab in `/admin/band-rpg`
+- 28 manual test items across 7 categories: Core, NPCs, Quests, Items, World, Exits, Save, Story
+- Click badge to cycle status: — untested → ✓ pass → ✗ fail → ⊘ skip
+- Summary panel: total/tested/pass/fail counts; fail list for quick review
+- Expandable hints per item; per-item notes field
+- State is session-local (intentionally not persisted — fresh each test session)
+
+**Mobile Controls (Part A — Engine Audit):**
+- On-screen D-pad overlay added to game viewport (bottom-left)
+- Arrow buttons (▲▼◀▶) dispatch `handleMove` directly without keyboard events
+- [E] button dispatches `handleInteract` (talk, open door, activate switch, advance dialogue)
+- Works on all touch devices; also usable on desktop
+
+**Engine fixes (Part A — Audit):**
+- Added `handleMove(dx, dy)` and `handleInteract()` to `GameEngineControls` — programmatic movement API
+- Fixed exit-trigger-when-blocked bug: level transition now only fires when destination tile is walkable and not blocked by a closed door
+- `isAdjacent` already exported via `export { isAdjacent }` at module end (verified)
+
+**Sample Adventure Template (Part I):**
+- `docs/sample-adventure.json` — complete reference adventure: 2 levels, 1 item, 1 quest, 1 arc, 1 NPC per level, 1 door, 1 switch, 2 puzzles, 3 timeline events
+
+**Adventure Format Documentation (Part J):**
+- `docs/ADVENTURE_FORMAT.md` — full schema reference for human and AI adventure authors
+- Covers all fields, types, cross-reference conventions, import modes, validation rules, AI tips, limitations
+
+### Technical notes
+- `BandRpgAdventure` relations use named `@relation("AdventureItems")` on `BandRpgItem` to avoid collision with existing `@relation("LevelItems")`
+- Export resolves condition/action `targetId` → `targetSlug`/`targetName` before serializing
+- Import resolves in dependency order: arcs → items → levels → objectives → NPCs → beats → doors → switches → puzzles → quests → timeline
+- NPC `giverId` patched to DB ID after NPCs are created in the same transaction pass
+- `createManyAndReturn` used for objectives to get IDs for prerequisite chaining
+- All Prisma mutations use `UncheckedCreateInput`/`UncheckedUpdateInput`; JSON fields use `as Prisma.InputJsonValue`
+
+---
+
 ## Phase Z.3 — World Systems & Puzzle Framework (2026-06-21)
 
 ### Added

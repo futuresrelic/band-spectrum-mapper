@@ -594,6 +594,8 @@ export interface GameEngineControls {
   getAdjacentNpc: () => RuntimeNpc | null;
   isLevelLocked: (slug: string) => boolean;
   getWorldSnapshot: () => WorldSnapshot;
+  handleMove: (dx: number, dy: number) => void;
+  handleInteract: () => void;
   handleNextLine: () => void;
   handleChoose: (action: import('../../api/bandRpgRuntime').DialogueChoiceAction) => void;
   handleCloseDlg: () => void;
@@ -682,10 +684,16 @@ export function useGameEngine(
         dispatch({ type: 'MOVE', dx, dy, level: lv });
         const newX = s.playerX + dx;
         const newY = s.playerY + dy;
-        const exit = lv.exits.find(ex => ex.tileX === newX && ex.tileY === newY);
-        if (exit) {
-          const locked = !s.unlockedLevelSlugs.includes(exit.targetLevelSlug) && s.unlockedLevelSlugs.length > 0;
-          if (!locked) onLevelTransition(exit.targetLevelSlug);
+        // Only check exit if the tile is actually walkable (prevents transition when blocked by door/wall)
+        if ((lv.mapData.tiles[newY]?.[newX] ?? 0) === 1) {
+          const doorBlocking = lv.doors.find(d => d.tileX === newX && d.tileY === newY);
+          if (!doorBlocking || isDoorOpen(doorBlocking, toWorldSnapshot(s))) {
+            const exit = lv.exits.find(ex => ex.tileX === newX && ex.tileY === newY);
+            if (exit) {
+              const locked = s.unlockedLevelSlugs.length > 0 && !s.unlockedLevelSlugs.includes(exit.targetLevelSlug);
+              if (!locked) onLevelTransition(exit.targetLevelSlug);
+            }
+          }
         }
         return;
       }
@@ -795,8 +803,60 @@ export function useGameEngine(
     if (level) dispatch({ type: 'CHEAT_ACTIVATE_SWITCH', switchId, level });
   }, [level]);
 
+  // Mobile / programmatic movement
+  const handleMove = useCallback((dx: number, dy: number) => {
+    if (!level) return;
+    const lv = level;
+    const s = stateRef.current;
+    // Don't move during dialogue
+    if (s.dialogueMode !== 'none') return;
+    dispatch({ type: 'MOVE', dx, dy, level: lv });
+    const newX = s.playerX + dx;
+    const newY = s.playerY + dy;
+    // Check exit — only if tile is passable
+    if ((lv.mapData.tiles[newY]?.[newX] ?? 0) === 1) {
+      const exit = lv.exits.find(ex => ex.tileX === newX && ex.tileY === newY);
+      if (exit) {
+        const locked = s.unlockedLevelSlugs.length > 0 && !s.unlockedLevelSlugs.includes(exit.targetLevelSlug);
+        if (!locked) onLevelTransition(exit.targetLevelSlug);
+      }
+    }
+  }, [level, onLevelTransition]);
+
+  const handleInteract = useCallback(() => {
+    if (!level) return;
+    const lv = level;
+    const s = stateRef.current;
+
+    // In dialogue: advance line
+    if (s.dialogueMode !== 'none') {
+      const currentLine = s.dialogueLines[s.dialogueIndex];
+      if (!currentLine?.choices || currentLine.choices.length === 0) {
+        dispatch({ type: 'NEXT_LINE', level: lv });
+      }
+      return;
+    }
+
+    const snap = toWorldSnapshot(s);
+    const adjDoor = lv.doors.find(d => isAdjacent(s.playerX, s.playerY, d.tileX, d.tileY));
+    if (adjDoor) { dispatch({ type: 'INTERACT_DOOR', doorId: adjDoor.id, level: lv }); return; }
+    const adjSwitch = lv.switches.find(sw => isAdjacent(s.playerX, s.playerY, sw.tileX, sw.tileY));
+    if (adjSwitch) { dispatch({ type: 'ACTIVATE_SWITCH', switchId: adjSwitch.id, level: lv }); return; }
+    const visibleNpcs = lv.npcs.filter(n => isNpcVisible(n, snap));
+    const adj = findAdjacentNpc(s.playerX, s.playerY, visibleNpcs);
+    if (adj) {
+      const lines = buildNpcDialogue(
+        adj.id, adj.name, adj.portraitUrl, adj.dialogue,
+        lv.quests, s.activeQuestIds, s.completedQuests,
+        lv.objectives, s.completedObjectives, s.objectiveProgress,
+      );
+      dispatch({ type: 'OPEN_NPC_DIALOGUE', npc: adj, lines });
+    }
+  }, [level]);
+
   return {
     state, getAdjacentNpc, isLevelLocked, getWorldSnapshot,
+    handleMove, handleInteract,
     handleNextLine, handleChoose, handleCloseDlg, handleCloseCheat,
     cheatCompleteQuest, cheatGrantItem, cheatUnlockLevel, cheatTeleport,
     cheatOpenDoor, cheatActivateSwitch,

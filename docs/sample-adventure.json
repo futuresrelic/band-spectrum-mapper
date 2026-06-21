@@ -1,0 +1,252 @@
+{
+  "bandRpgAdventureVersion": 1,
+  "exportedAt": "2026-06-21T00:00:00.000Z",
+  "adventure": {
+    "slug": "the-first-archive",
+    "name": "The First Archive",
+    "description": "A short introductory adventure demonstrating the full Band RPG puzzle framework."
+  },
+
+  "items": [
+    {
+      "slug": "old-key",
+      "name": "Old Key",
+      "description": "A rusted key found near the entrance. Opens something nearby.",
+      "type": "key_item",
+      "rarity": "common",
+      "scoreValue": 10,
+      "isVisible": true
+    }
+  ],
+
+  "arcs": [
+    {
+      "slug": "archive-intro",
+      "title": "The Archive Opens",
+      "description": "The player discovers the first locked area of the archive.",
+      "order": 1
+    }
+  ],
+
+  "quests": [
+    {
+      "slug": "find-the-key",
+      "name": "Find the Key",
+      "description": "The Archive Keeper says someone left a key nearby. Find it.",
+      "giverNpcName": "Archive Keeper",
+      "giverNpcLevelSlug": "archive-entrance",
+      "reward": {
+        "xp": 50,
+        "message": "Key found! The inner door should open now."
+      },
+      "isOptional": false,
+      "order": 1
+    }
+  ],
+
+  "levels": [
+    {
+      "slug": "archive-entrance",
+      "name": "Archive Entrance",
+      "description": "The outer hall of the archive.",
+      "order": 1,
+      "spawnX": 1,
+      "spawnY": 7,
+      "isPublished": true,
+      "mapData": {
+        "width": 12,
+        "height": 10,
+        "tiles": [
+          [0,0,0,0,0,0,0,0,0,0,0,0],
+          [0,1,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,0,1,1,1,1,1,0],
+          [0,1,1,1,1,0,1,1,1,1,1,0],
+          [0,1,1,1,1,0,1,1,1,1,1,0],
+          [0,1,1,1,1,0,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,1,1,1,0],
+          [0,0,0,0,0,0,0,0,0,0,0,0]
+        ],
+        "entities": [
+          { "id": "spawn-1", "type": "spawn", "x": 1, "y": 7 },
+          { "id": "item-key", "type": "item", "x": 9, "y": 3, "refId": "old-key" },
+          { "id": "exit-inner", "type": "exit", "x": 5, "y": 4, "targetLevelSlug": "archive-inner", "label": "Inner Archive" }
+        ]
+      },
+      "objectives": [
+        {
+          "name": "Collect the Old Key",
+          "description": "Pick up the key found near the north wall.",
+          "type": "find_item",
+          "target": "old-key",
+          "condition": {},
+          "reward": {},
+          "isOptional": false,
+          "order": 1
+        }
+      ],
+      "npcs": [
+        {
+          "name": "Archive Keeper",
+          "role": "quest_giver",
+          "positionX": 3,
+          "positionY": 5,
+          "defaultDialogue": [
+            { "text": "Welcome to the Archive. Someone left a key near the north wall — you should find it.", "speakerName": "Archive Keeper" },
+            { "text": "The inner door is locked. The key should open it.", "speakerName": "Archive Keeper" }
+          ]
+        }
+      ],
+      "beats": [
+        {
+          "arcSlug": "archive-intro",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "You step into the archive entrance. The air smells of old vinyl and faded ink." }
+            ]
+          },
+          "unlockCondition": { "type": "always" },
+          "order": 1
+        },
+        {
+          "arcSlug": "archive-intro",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "The inner door swings open. The archive reveals its secrets." }
+            ]
+          },
+          "unlockCondition": { "type": "door_open", "targetName": "Inner Archive Door" },
+          "order": 2
+        }
+      ],
+      "doors": [
+        {
+          "name": "Inner Archive Door",
+          "tileX": 5,
+          "tileY": 4,
+          "type": "key_door",
+          "lockCondition": {
+            "type": "item_owned",
+            "targetSlug": "old-key"
+          },
+          "openedByDefault": false,
+          "label": "Inner Archive"
+        }
+      ],
+      "switches": [
+        {
+          "name": "Stone Lever",
+          "tileX": 9,
+          "tileY": 7,
+          "type": "lever",
+          "effect": {
+            "type": "set_world_state",
+            "key": "lever_pulled",
+            "value": true
+          },
+          "label": "Lever"
+        }
+      ],
+      "puzzles": [
+        {
+          "name": "Key collected → complete quest",
+          "trigger": {
+            "on": "item_collected",
+            "targetId": "old-key"
+          },
+          "condition": { "type": "always" },
+          "action": {
+            "type": "set_world_state",
+            "key": "key_collected",
+            "value": true
+          },
+          "order": 1
+        },
+        {
+          "name": "Lever pulled → open door",
+          "trigger": {
+            "on": "switch_activated",
+            "targetName": "Stone Lever"
+          },
+          "condition": { "type": "always" },
+          "action": {
+            "type": "open_door",
+            "targetName": "Inner Archive Door"
+          },
+          "order": 2
+        }
+      ]
+    },
+
+    {
+      "slug": "archive-inner",
+      "name": "Archive Inner Chamber",
+      "description": "The inner sanctum, revealed after finding the key.",
+      "order": 2,
+      "spawnX": 1,
+      "spawnY": 5,
+      "isPublished": false,
+      "mapData": {
+        "width": 8,
+        "height": 8,
+        "tiles": [
+          [0,0,0,0,0,0,0,0],
+          [0,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,0],
+          [0,0,0,0,0,0,0,0]
+        ],
+        "entities": [
+          { "id": "spawn-inner", "type": "spawn", "x": 1, "y": 5 },
+          { "id": "exit-back", "type": "exit", "x": 1, "y": 1, "targetLevelSlug": "archive-entrance", "label": "Back to Entrance" }
+        ]
+      },
+      "objectives": [],
+      "npcs": [
+        {
+          "name": "The Archivist",
+          "role": "ambient",
+          "positionX": 5,
+          "positionY": 3,
+          "defaultDialogue": [
+            { "text": "You made it inside. The records here hold years of musical history.", "speakerName": "The Archivist" }
+          ]
+        }
+      ],
+      "beats": [],
+      "doors": [],
+      "switches": [],
+      "puzzles": []
+    }
+  ],
+
+  "timeline": [
+    {
+      "title": "Archive Entrance",
+      "type": "level",
+      "refSlug": "archive-entrance",
+      "isRequired": true,
+      "order": 1
+    },
+    {
+      "title": "Find the Key",
+      "type": "quest",
+      "refSlug": "find-the-key",
+      "isRequired": true,
+      "order": 2
+    },
+    {
+      "title": "Archive Inner Chamber",
+      "type": "level",
+      "refSlug": "archive-inner",
+      "isRequired": false,
+      "order": 3
+    }
+  ]
+}

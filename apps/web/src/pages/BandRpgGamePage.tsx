@@ -7,6 +7,7 @@ import DialogueBox from '../components/bandRpgRuntime/DialogueBox';
 import GameHud from '../components/bandRpgRuntime/GameHud';
 import DebugPanel from '../components/bandRpgRuntime/DebugPanel';
 import CheatPanel from '../components/bandRpgRuntime/CheatPanel';
+import MobileControls from '../components/bandRpgRuntime/MobileControls';
 import { useGameEngine } from '../components/bandRpgRuntime/useGameEngine';
 import { bandRpgRuntimeApi } from '../api/bandRpgRuntime';
 import { useAuth } from '../contexts/AuthContext';
@@ -64,6 +65,7 @@ export default function BandRpgGamePage() {
 
   const {
     state, getWorldSnapshot,
+    handleMove, handleInteract,
     handleNextLine, handleChoose, handleCloseDlg, handleCloseCheat,
     cheatCompleteQuest, cheatGrantItem, cheatUnlockLevel, cheatTeleport,
     cheatOpenDoor, cheatActivateSwitch,
@@ -171,6 +173,9 @@ export default function BandRpgGamePage() {
               activatedSwitches={state.activatedSwitches}
               visibleNpcs={visibleNpcs}
             />
+
+            {/* Mobile D-pad — shown on touch devices */}
+            <MobileControls onMove={handleMove} onInteract={handleInteract} />
 
             {/* Dialogue / Beat overlay */}
             {state.dialogueMode !== 'none' && (

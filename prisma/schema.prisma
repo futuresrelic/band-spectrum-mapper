@@ -1462,6 +1462,7 @@ model BandRpgLevel {
   name        String
   description String?
   order       Int      @default(0)
+  adventureId String?  // Phase Z.4 — optional adventure grouping
   bandId      String?  // Optional band association
   albumId     String?  // Optional album association
   songId      String?  // Optional song association
@@ -1474,6 +1475,7 @@ model BandRpgLevel {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  adventure  BandRpgAdventure? @relation(fields: [adventureId], references: [id], onDelete: SetNull)
   objectives BandRpgObjective[]
   npcs       BandRpgNpc[]
   items      BandRpgItem[]      @relation("LevelItems")
@@ -1602,6 +1604,7 @@ model BandRpgQuest {
   slug         String   @unique
   name         String
   description  String?
+  adventureId  String?  // Phase Z.4 — optional adventure grouping
   giverId      String?  // BandRpgNpc.id
   objectiveIds Json     @default("[]")  // ordered list of objective IDs
   branchPaths  Json     @default("[]")  // optional branching logic
@@ -1614,6 +1617,8 @@ model BandRpgQuest {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  adventure BandRpgAdventure? @relation(fields: [adventureId], references: [id], onDelete: SetNull)
+
   @@map("band_rpg_quests")
 }
 
@@ -1622,11 +1627,13 @@ model BandRpgStoryArc {
   slug        String   @unique
   title       String
   description String?
+  adventureId String?  // Phase Z.4 — optional adventure grouping
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  beats BandRpgStoryBeat[]
+  adventure BandRpgAdventure? @relation(fields: [adventureId], references: [id], onDelete: SetNull)
+  beats     BandRpgStoryBeat[]
 
   @@map("band_rpg_story_arcs")
 }
@@ -1716,6 +1723,7 @@ model BandRpgItem {
   spriteUrl   String?
   rarity      String          @default("common") // "common" | "rare" | "epic" | "legendary"
   scoreValue  Int             @default(0)
+  adventureId String?         // Phase Z.4 — optional adventure grouping
   bandId      String?
   albumId     String?
   songId      String?
@@ -1723,7 +1731,8 @@ model BandRpgItem {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  levels BandRpgLevel[] @relation("LevelItems")
+  adventure BandRpgAdventure? @relation("AdventureItems", fields: [adventureId], references: [id], onDelete: SetNull)
+  levels    BandRpgLevel[]    @relation("LevelItems")
 
   @@map("band_rpg_items")
 }
@@ -2209,4 +2218,24 @@ model BandRpgCuratorFollow {
   @@unique([followerId, followeeId])
   @@index([followeeId])
   @@map("band_rpg_curator_follows")
+}
+
+// ── Phase Z.4: Adventure Scoping ──────────────────────────────────────────────
+
+model BandRpgAdventure {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?
+  version     Int      @default(1)
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  levels BandRpgLevel[]
+  quests BandRpgQuest[]
+  arcs   BandRpgStoryArc[]
+  items  BandRpgItem[]   @relation("AdventureItems")
+
+  @@map("band_rpg_adventures")
 }
