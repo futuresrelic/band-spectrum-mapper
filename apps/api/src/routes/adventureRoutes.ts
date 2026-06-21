@@ -304,7 +304,17 @@ adventureRouter.get('/:id/export', async (req, res, next): Promise<void> => {
 
 interface ImportPayload {
   bandRpgAdventureVersion?: number;
-  adventure: { slug: string; name: string; description?: string };
+  adventure: {
+    slug: string;
+    name: string;
+    description?: string;
+    featured?: boolean;
+    authorName?: string;
+    coverImageUrl?: string;
+    difficulty?: string;
+    estimatedPlaytime?: number;
+    tags?: string[];
+  };
   items?: ImportItem[];
   quests?: ImportQuest[];
   arcs?: ImportArc[];
@@ -327,6 +337,15 @@ interface ImportLevel { slug: string; name: string; description?: string; order?
 interface ValidationError { path: string; message: string; }
 interface ValidationResult { valid: boolean; errors: ValidationError[]; preview: ImportPreview | null; }
 interface ImportPreview { levelCount: number; npcCount: number; objectiveCount: number; questCount: number; arcCount: number; itemCount: number; beatCount: number; doorCount: number; switchCount: number; puzzleCount: number; timelineCount: number; }
+
+// Valid enum values — must stay in sync with prisma/schema.prisma BandRpgItemType
+const VALID_ITEM_TYPES = [
+  'collectible', 'key_item', 'quest_item', 'power_up',
+  'lore_item', 'album_artifact', 'song_artifact', 'cosmetic',
+] as const;
+
+// Documented rarity values — rarity is a plain String field but validated for consistency
+const VALID_RARITIES = ['common', 'rare', 'epic', 'legendary'] as const;
 
 function validatePayload(body: unknown): ValidationResult {
   const errors: ValidationError[] = [];
@@ -363,6 +382,24 @@ function validatePayload(body: unknown): ValidationResult {
 
   const dupArc = arcSlugs.find((s, i) => arcSlugs.indexOf(s) !== i);
   if (dupArc) errors.push({ path: 'arcs', message: `Duplicate arc slug: "${dupArc}"` });
+
+  // Validate item required fields and enum values
+  for (const [i, item] of (p.items ?? []).entries()) {
+    if (!item.slug) errors.push({ path: `items[${i}].slug`, message: 'Required' });
+    if (!item.name) errors.push({ path: `items[${i}].name`, message: 'Required' });
+    if (item.type && !(VALID_ITEM_TYPES as readonly string[]).includes(item.type)) {
+      errors.push({
+        path: `items[${i}].type`,
+        message: `Invalid item type "${item.type}" for item "${item.slug ?? i}". Expected one of: ${VALID_ITEM_TYPES.join(', ')}`,
+      });
+    }
+    if (item.rarity && !(VALID_RARITIES as readonly string[]).includes(item.rarity)) {
+      errors.push({
+        path: `items[${i}].rarity`,
+        message: `Invalid item rarity "${item.rarity}" for item "${item.slug ?? i}". Expected one of: ${VALID_RARITIES.join(', ')}`,
+      });
+    }
+  }
 
   // Validate level required fields
   for (const [i, level] of (p.levels ?? []).entries()) {
@@ -453,20 +490,20 @@ adventureRouter.post('/validate', async (req, res, next): Promise<void> => {
   } catch (err) { next(err); return; }
 });
 
-// ── POST /import — validate + write to DB ─────────────────────────────────────
+// ── POST /import — validate + write to DB (fully atomic transaction) ──────────
 
 adventureRouter.post('/import', async (req, res, next): Promise<void> => {
   try {
     const { payload, mode = 'create' } = req.body as { payload: unknown; mode?: 'create' | 'update' | 'replace' };
 
-    // Step 1: structural validation
+    // Step 1: structural + enum validation (no DB writes)
     const validation = validatePayload(payload);
     if (!validation.valid) {
       res.status(422).json({ ok: false, errors: validation.errors, preview: validation.preview }); return;
     }
     const p = payload as ImportPayload;
 
-    // Step 2: DB existence checks for create mode
+    // Step 2: DB existence checks for create mode (reads only — outside transaction)
     if (mode === 'create') {
       const dbErrors: ValidationError[] = [];
       const levelSlugs = (p.levels ?? []).map(l => l.slug);
@@ -494,410 +531,387 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
       }
     }
 
-    // Step 3: For replace mode, delete existing adventure content
-    if (mode === 'replace') {
-      const existing = await prisma.bandRpgAdventure.findUnique({ where: { slug: p.adventure.slug } });
-      if (existing) {
-        // Delete level-scoped entities first (cascade handles sub-entities)
-        const existingLevels = await prisma.bandRpgLevel.findMany({
-          where: { adventureId: existing.id }, select: { id: true },
-        });
-        const levelIds = existingLevels.map(l => l.id);
-        await prisma.$transaction([
-          prisma.bandRpgPuzzle.deleteMany({ where: { levelId: { in: levelIds } } }),
-          prisma.bandRpgDoor.deleteMany({ where: { levelId: { in: levelIds } } }),
-          prisma.bandRpgSwitch.deleteMany({ where: { levelId: { in: levelIds } } }),
-          prisma.bandRpgNpc.deleteMany({ where: { levelId: { in: levelIds } } }),
-          prisma.bandRpgObjective.deleteMany({ where: { levelId: { in: levelIds } } }),
-          prisma.bandRpgStoryBeat.deleteMany({ where: { levelId: { in: levelIds } } }),
-          prisma.bandRpgLevel.deleteMany({ where: { adventureId: existing.id } }),
-          prisma.bandRpgQuest.deleteMany({ where: { adventureId: existing.id } }),
-          prisma.bandRpgStoryArc.deleteMany({ where: { adventureId: existing.id } }),
-          prisma.bandRpgItem.deleteMany({ where: { adventureId: existing.id } }),
-        ]);
-      }
-    }
+    // Steps 3–11: all DB writes in a single atomic transaction.
+    // If anything throws, the entire import is rolled back — no partial data left behind.
+    const adventureId = await prisma.$transaction(async (tx) => {
 
-    // Step 4: Create or upsert adventure
-    let adventureId: string;
-    if (mode === 'update' || mode === 'replace') {
-      const upserted = await prisma.bandRpgAdventure.upsert({
-        where: { slug: p.adventure.slug },
-        update: {
-          name: p.adventure.name,
-          ...(p.adventure.description !== undefined ? { description: p.adventure.description } : {}),
-        },
-        create: {
-          slug: p.adventure.slug,
-          name: p.adventure.name,
-          ...(p.adventure.description !== undefined ? { description: p.adventure.description } : {}),
-        },
-      });
-      adventureId = upserted.id;
-    } else {
-      const created = await prisma.bandRpgAdventure.create({
-        data: {
-          slug: p.adventure.slug, name: p.adventure.name,
-          ...(p.adventure.description !== undefined ? { description: p.adventure.description } : {}),
-        },
-      });
-      adventureId = created.id;
-    }
-
-    // Step 5: Create arcs
-    const arcSlugToId = new Map<string, string>();
-    for (const arc of p.arcs ?? []) {
-      if (mode === 'update') {
-        const upserted = await prisma.bandRpgStoryArc.upsert({
-          where: { slug: arc.slug },
-          update: { title: arc.title, adventureId },
-          create: { slug: arc.slug, title: arc.title, adventureId, order: arc.order ?? 0 },
-        });
-        arcSlugToId.set(arc.slug, upserted.id);
-      } else {
-        const created = await prisma.bandRpgStoryArc.create({
-          data: { slug: arc.slug, title: arc.title, adventureId, order: arc.order ?? 0,
-            ...(arc.description !== undefined ? { description: arc.description } : {}) },
-        });
-        arcSlugToId.set(arc.slug, created.id);
-      }
-    }
-
-    // Step 6: Create items
-    const itemSlugToId = new Map<string, string>();
-
-    // Pre-load existing item slugs referenced in conditions
-    const existingItemSlugs = new Set<string>();
-    for (const level of p.levels ?? []) {
-      for (const door of level.doors ?? []) {
-        const cond = door.lockCondition as Record<string, unknown> | undefined;
-        if (cond?.['targetSlug'] && typeof cond['targetSlug'] === 'string') existingItemSlugs.add(cond['targetSlug']);
-      }
-    }
-    if (existingItemSlugs.size > 0) {
-      const existing = await prisma.bandRpgItem.findMany({
-        where: { slug: { in: [...existingItemSlugs] } }, select: { id: true, slug: true },
-      });
-      for (const i of existing) itemSlugToId.set(i.slug, i.id);
-    }
-
-    for (const item of p.items ?? []) {
-      if (mode === 'update') {
-        const upserted = await prisma.bandRpgItem.upsert({
-          where: { slug: item.slug },
-          update: { name: item.name, adventureId },
-          create: {
-            slug: item.slug, name: item.name, adventureId,
-            type: (item.type as import('@prisma/client').BandRpgItemType) ?? 'collectible',
-            rarity: item.rarity ?? 'common', scoreValue: item.scoreValue ?? 0,
-            ...(item.description !== undefined ? { description: item.description } : {}),
-          },
-        });
-        itemSlugToId.set(item.slug, upserted.id);
-      } else {
-        const created = await prisma.bandRpgItem.create({
-          data: {
-            slug: item.slug, name: item.name, adventureId,
-            type: (item.type as import('@prisma/client').BandRpgItemType) ?? 'collectible',
-            rarity: item.rarity ?? 'common', scoreValue: item.scoreValue ?? 0,
-            ...(item.description !== undefined ? { description: item.description } : {}),
-          },
-        });
-        itemSlugToId.set(item.slug, created.id);
-      }
-    }
-
-    // Helper: resolve slug/name → id in conditions and actions
-    function resolveRef(
-      cond: Record<string, unknown>,
-      levelSlugToId: Map<string, string>,
-      questSlugToId: Map<string, string>,
-    ): Record<string, unknown> {
-      const out = { ...cond };
-      if (typeof out['targetSlug'] === 'string') {
-        const slug = out['targetSlug'];
-        const t = out['type'];
-        let resolved: string | undefined;
-        if (t === 'item_owned' || t === 'grant_item') resolved = itemSlugToId.get(slug);
-        else if (t === 'quest_complete' || t === 'quest_active') resolved = questSlugToId.get(slug);
-        else if (t === 'reveal_exit') resolved = slug; // already a level slug — keep as-is (runtime uses slug)
-        if (resolved) { out['targetId'] = resolved; delete out['targetSlug']; }
-      }
-      return out;
-    }
-
-    // Step 7: Create levels (and NPCs, objectives, beats, doors, switches, puzzles)
-    const levelSlugToId = new Map<string, string>();
-    const questSlugToId = new Map<string, string>(); // filled in step 8
-
-    const levelImportData: Array<{
-      levelId: string;
-      levelSlug: string;
-      npcs: ImportNpc[];
-      objectives: ImportObjective[];
-      beats: ImportBeat[];
-      doors: ImportDoor[];
-      switches: ImportSwitch[];
-      puzzles: ImportPuzzle[];
-    }> = [];
-
-    for (const level of p.levels ?? []) {
-      let levelId: string;
-      if (mode === 'update') {
-        const upserted = await prisma.bandRpgLevel.upsert({
-          where: { slug: level.slug },
-          update: { name: level.name, adventureId, spawnX: level.spawnX ?? 0, spawnY: level.spawnY ?? 0, mapData: (level.mapData ?? {}) as Prisma.InputJsonValue },
-          create: {
-            slug: level.slug, name: level.name, adventureId,
-            spawnX: level.spawnX ?? 0, spawnY: level.spawnY ?? 0,
-            mapData: (level.mapData ?? {}) as Prisma.InputJsonValue,
-            order: level.order ?? 0, isPublished: level.isPublished ?? false,
-            ...(level.description !== undefined ? { description: level.description } : {}),
-            ...(level.background !== undefined ? { background: level.background } : {}),
-          },
-        });
-        levelId = upserted.id;
-      } else {
-        const created = await prisma.bandRpgLevel.create({
-          data: {
-            slug: level.slug, name: level.name, adventureId,
-            spawnX: level.spawnX ?? 0, spawnY: level.spawnY ?? 0,
-            mapData: (level.mapData ?? {}) as Prisma.InputJsonValue,
-            order: level.order ?? 0, isPublished: level.isPublished ?? false,
-            ...(level.description !== undefined ? { description: level.description } : {}),
-            ...(level.background !== undefined ? { background: level.background } : {}),
-          },
-        });
-        levelId = created.id;
-      }
-      levelSlugToId.set(level.slug, levelId);
-      levelImportData.push({
-        levelId, levelSlug: level.slug,
-        npcs: level.npcs ?? [],
-        objectives: level.objectives ?? [],
-        beats: level.beats ?? [],
-        doors: level.doors ?? [],
-        switches: level.switches ?? [],
-        puzzles: level.puzzles ?? [],
-      });
-    }
-
-    // Step 8: Create quests (need level data for NPC lookup)
-    for (const quest of p.quests ?? []) {
-      // Resolve giver NPC id
-      let giverId: string | undefined;
-      if (quest.giverNpcName && quest.giverNpcLevelSlug) {
-        const lv = levelImportData.find(l => l.levelSlug === quest.giverNpcLevelSlug);
-        if (lv) {
-          // NPC not created yet — we'll update giverId after NPC creation in step 9
-          // For now, leave giverId undefined and patch later
+      // Step 3: For replace mode, delete all existing adventure content first
+      if (mode === 'replace') {
+        const existing = await tx.bandRpgAdventure.findUnique({ where: { slug: p.adventure.slug } });
+        if (existing) {
+          const existingLevels = await tx.bandRpgLevel.findMany({
+            where: { adventureId: existing.id }, select: { id: true },
+          });
+          const levelIds = existingLevels.map(l => l.id);
+          await tx.bandRpgPuzzle.deleteMany({ where: { levelId: { in: levelIds } } });
+          await tx.bandRpgDoor.deleteMany({ where: { levelId: { in: levelIds } } });
+          await tx.bandRpgSwitch.deleteMany({ where: { levelId: { in: levelIds } } });
+          await tx.bandRpgNpc.deleteMany({ where: { levelId: { in: levelIds } } });
+          await tx.bandRpgObjective.deleteMany({ where: { levelId: { in: levelIds } } });
+          await tx.bandRpgStoryBeat.deleteMany({ where: { levelId: { in: levelIds } } });
+          await tx.bandRpgLevel.deleteMany({ where: { adventureId: existing.id } });
+          await tx.bandRpgQuest.deleteMany({ where: { adventureId: existing.id } });
+          await tx.bandRpgStoryArc.deleteMany({ where: { adventureId: existing.id } });
+          await tx.bandRpgItem.deleteMany({ where: { adventureId: existing.id } });
         }
       }
 
-      if (mode === 'update') {
-        const upserted = await prisma.bandRpgQuest.upsert({
-          where: { slug: quest.slug },
-          update: { name: quest.name, adventureId, ...(giverId ? { giverId } : {}), reward: (quest.reward ?? {}) as Prisma.InputJsonValue },
-          create: {
-            slug: quest.slug, name: quest.name, adventureId,
-            ...(giverId ? { giverId } : {}),
-            reward: (quest.reward ?? {}) as Prisma.InputJsonValue,
-            isOptional: quest.isOptional ?? false, order: quest.order ?? 0,
-            ...(quest.description !== undefined ? { description: quest.description } : {}),
-          },
+      // Step 4: Create or upsert adventure — apply all metadata fields from the JSON
+      const adventureMeta = {
+        name: p.adventure.name,
+        ...(p.adventure.description !== undefined ? { description: p.adventure.description } : {}),
+        ...(p.adventure.featured !== undefined ? { featured: p.adventure.featured } : {}),
+        ...(p.adventure.authorName !== undefined ? { authorName: p.adventure.authorName } : {}),
+        ...(p.adventure.coverImageUrl !== undefined ? { coverImageUrl: p.adventure.coverImageUrl } : {}),
+        ...(p.adventure.difficulty !== undefined ? { difficulty: p.adventure.difficulty } : {}),
+        ...(p.adventure.estimatedPlaytime !== undefined ? { estimatedPlaytime: p.adventure.estimatedPlaytime } : {}),
+        ...(p.adventure.tags !== undefined ? { tags: p.adventure.tags as Prisma.InputJsonValue } : {}),
+      };
+
+      let advId: string;
+      if (mode === 'update' || mode === 'replace') {
+        const upserted = await tx.bandRpgAdventure.upsert({
+          where: { slug: p.adventure.slug },
+          update: adventureMeta,
+          create: { slug: p.adventure.slug, ...adventureMeta },
         });
-        questSlugToId.set(quest.slug, upserted.id);
+        advId = upserted.id;
       } else {
-        const created = await prisma.bandRpgQuest.create({
-          data: {
-            slug: quest.slug, name: quest.name, adventureId,
-            ...(giverId ? { giverId } : {}),
-            reward: (quest.reward ?? {}) as Prisma.InputJsonValue,
-            isOptional: quest.isOptional ?? false, order: quest.order ?? 0,
-            ...(quest.description !== undefined ? { description: quest.description } : {}),
-          },
+        const created = await tx.bandRpgAdventure.create({
+          data: { slug: p.adventure.slug, ...adventureMeta },
         });
-        questSlugToId.set(quest.slug, created.id);
-      }
-    }
-
-    // Step 9: Create level-scoped entities (NPCs, objectives, beats, doors, switches, puzzles)
-    const npcNameToId = new Map<string, string>(); // level-scoped: "levelSlug:npcName" → id
-
-    for (const lv of levelImportData) {
-      // Objectives
-      const objNameToId = new Map<string, string>();
-      const objectivesToCreate = lv.objectives.map(o => ({
-        levelId: lv.levelId, name: o.name, type: o.type as import('@prisma/client').BandRpgObjectiveType,
-        condition: (o.condition ?? {}) as Prisma.InputJsonValue,
-        reward: (o.reward ?? {}) as Prisma.InputJsonValue,
-        isOptional: o.isOptional ?? false, order: o.order ?? 0,
-        ...(o.description !== undefined ? { description: o.description } : {}),
-        ...(o.target !== undefined ? { target: o.target } : {}),
-        ...(o.dialogueText !== undefined ? { dialogueText: o.dialogueText } : {}),
-      }));
-      const createdObjs = await prisma.bandRpgObjective.createManyAndReturn({ data: objectivesToCreate });
-      for (let i = 0; i < createdObjs.length; i++) {
-        const obj = lv.objectives[i]!;
-        const created = createdObjs[i]!;
-        objNameToId.set(obj.name, created.id);
+        advId = created.id;
       }
 
-      // Patch prerequisite links
-      for (const obj of lv.objectives) {
-        if (obj.prerequisiteName) {
-          const prereqId = objNameToId.get(obj.prerequisiteName);
-          const objId = objNameToId.get(obj.name);
-          if (prereqId && objId) {
-            await prisma.bandRpgObjective.update({ where: { id: objId }, data: { prerequisiteId: prereqId } });
+      // Step 5: Create arcs
+      const arcSlugToId = new Map<string, string>();
+      for (const arc of p.arcs ?? []) {
+        if (mode === 'update') {
+          const upserted = await tx.bandRpgStoryArc.upsert({
+            where: { slug: arc.slug },
+            update: { title: arc.title, adventureId: advId },
+            create: {
+              slug: arc.slug, title: arc.title, adventureId: advId, order: arc.order ?? 0,
+              ...(arc.description !== undefined ? { description: arc.description } : {}),
+            },
+          });
+          arcSlugToId.set(arc.slug, upserted.id);
+        } else {
+          const created = await tx.bandRpgStoryArc.create({
+            data: {
+              slug: arc.slug, title: arc.title, adventureId: advId, order: arc.order ?? 0,
+              ...(arc.description !== undefined ? { description: arc.description } : {}),
+            },
+          });
+          arcSlugToId.set(arc.slug, created.id);
+        }
+      }
+
+      // Step 6: Create items
+      const itemSlugToId = new Map<string, string>();
+
+      // Pre-load IDs for item slugs already in DB that conditions may reference
+      const referencedItemSlugs = new Set<string>();
+      for (const level of p.levels ?? []) {
+        for (const door of level.doors ?? []) {
+          const cond = door.lockCondition as Record<string, unknown> | undefined;
+          if (typeof cond?.['targetSlug'] === 'string') referencedItemSlugs.add(cond['targetSlug']);
+        }
+      }
+      if (referencedItemSlugs.size > 0) {
+        const existing = await tx.bandRpgItem.findMany({
+          where: { slug: { in: [...referencedItemSlugs] } }, select: { id: true, slug: true },
+        });
+        for (const i of existing) itemSlugToId.set(i.slug, i.id);
+      }
+
+      for (const item of p.items ?? []) {
+        const itemType = (item.type as import('@prisma/client').BandRpgItemType | undefined) ?? 'collectible';
+        if (mode === 'update') {
+          const upserted = await tx.bandRpgItem.upsert({
+            where: { slug: item.slug },
+            update: { name: item.name, adventureId: advId },
+            create: {
+              slug: item.slug, name: item.name, adventureId: advId,
+              type: itemType, rarity: item.rarity ?? 'common',
+              scoreValue: item.scoreValue ?? 0, isVisible: item.isVisible ?? true,
+              ...(item.description !== undefined ? { description: item.description } : {}),
+              ...(item.iconUrl !== undefined ? { iconUrl: item.iconUrl } : {}),
+              ...(item.spriteUrl !== undefined ? { spriteUrl: item.spriteUrl } : {}),
+            },
+          });
+          itemSlugToId.set(item.slug, upserted.id);
+        } else {
+          const created = await tx.bandRpgItem.create({
+            data: {
+              slug: item.slug, name: item.name, adventureId: advId,
+              type: itemType, rarity: item.rarity ?? 'common',
+              scoreValue: item.scoreValue ?? 0, isVisible: item.isVisible ?? true,
+              ...(item.description !== undefined ? { description: item.description } : {}),
+              ...(item.iconUrl !== undefined ? { iconUrl: item.iconUrl } : {}),
+              ...(item.spriteUrl !== undefined ? { spriteUrl: item.spriteUrl } : {}),
+            },
+          });
+          itemSlugToId.set(item.slug, created.id);
+        }
+      }
+
+      // Helper: resolve targetSlug/targetName → targetId in conditions/actions
+      function resolveRef(
+        cond: Record<string, unknown>,
+        levelSlugToId: Map<string, string>,
+        questSlugToId: Map<string, string>,
+      ): Record<string, unknown> {
+        const out = { ...cond };
+        if (typeof out['targetSlug'] === 'string') {
+          const slug = out['targetSlug'];
+          const t = out['type'];
+          let resolved: string | undefined;
+          if (t === 'item_owned' || t === 'grant_item') resolved = itemSlugToId.get(slug);
+          else if (t === 'quest_complete' || t === 'quest_active') resolved = questSlugToId.get(slug);
+          else if (t === 'reveal_exit') resolved = slug;
+          if (resolved) { out['targetId'] = resolved; delete out['targetSlug']; }
+        }
+        return out;
+      }
+
+      // Step 7: Create levels
+      const levelSlugToId = new Map<string, string>();
+      const questSlugToId = new Map<string, string>(); // populated in step 8
+
+      const levelImportData: Array<{
+        levelId: string; levelSlug: string;
+        npcs: ImportNpc[]; objectives: ImportObjective[];
+        beats: ImportBeat[]; doors: ImportDoor[];
+        switches: ImportSwitch[]; puzzles: ImportPuzzle[];
+      }> = [];
+
+      for (const level of p.levels ?? []) {
+        let levelId: string;
+        if (mode === 'update') {
+          const upserted = await tx.bandRpgLevel.upsert({
+            where: { slug: level.slug },
+            update: {
+              name: level.name, adventureId: advId,
+              spawnX: level.spawnX ?? 0, spawnY: level.spawnY ?? 0,
+              mapData: (level.mapData ?? {}) as Prisma.InputJsonValue,
+            },
+            create: {
+              slug: level.slug, name: level.name, adventureId: advId,
+              spawnX: level.spawnX ?? 0, spawnY: level.spawnY ?? 0,
+              mapData: (level.mapData ?? {}) as Prisma.InputJsonValue,
+              order: level.order ?? 0, isPublished: level.isPublished ?? false,
+              ...(level.description !== undefined ? { description: level.description } : {}),
+              ...(level.background !== undefined ? { background: level.background } : {}),
+            },
+          });
+          levelId = upserted.id;
+        } else {
+          const created = await tx.bandRpgLevel.create({
+            data: {
+              slug: level.slug, name: level.name, adventureId: advId,
+              spawnX: level.spawnX ?? 0, spawnY: level.spawnY ?? 0,
+              mapData: (level.mapData ?? {}) as Prisma.InputJsonValue,
+              order: level.order ?? 0, isPublished: level.isPublished ?? false,
+              ...(level.description !== undefined ? { description: level.description } : {}),
+              ...(level.background !== undefined ? { background: level.background } : {}),
+            },
+          });
+          levelId = created.id;
+        }
+        levelSlugToId.set(level.slug, levelId);
+        levelImportData.push({
+          levelId, levelSlug: level.slug,
+          npcs: level.npcs ?? [], objectives: level.objectives ?? [],
+          beats: level.beats ?? [], doors: level.doors ?? [],
+          switches: level.switches ?? [], puzzles: level.puzzles ?? [],
+        });
+      }
+
+      // Step 8: Create quests (giver IDs patched in step 9 after NPCs exist)
+      for (const quest of p.quests ?? []) {
+        if (mode === 'update') {
+          const upserted = await tx.bandRpgQuest.upsert({
+            where: { slug: quest.slug },
+            update: { name: quest.name, adventureId: advId, reward: (quest.reward ?? {}) as Prisma.InputJsonValue },
+            create: {
+              slug: quest.slug, name: quest.name, adventureId: advId,
+              reward: (quest.reward ?? {}) as Prisma.InputJsonValue,
+              isOptional: quest.isOptional ?? false, order: quest.order ?? 0,
+              ...(quest.description !== undefined ? { description: quest.description } : {}),
+            },
+          });
+          questSlugToId.set(quest.slug, upserted.id);
+        } else {
+          const created = await tx.bandRpgQuest.create({
+            data: {
+              slug: quest.slug, name: quest.name, adventureId: advId,
+              reward: (quest.reward ?? {}) as Prisma.InputJsonValue,
+              isOptional: quest.isOptional ?? false, order: quest.order ?? 0,
+              ...(quest.description !== undefined ? { description: quest.description } : {}),
+            },
+          });
+          questSlugToId.set(quest.slug, created.id);
+        }
+      }
+
+      // Step 9: Create level-scoped entities (objectives, NPCs, beats, doors, switches, puzzles)
+      const npcNameToId = new Map<string, string>(); // "levelSlug:npcName" → id
+
+      for (const lv of levelImportData) {
+        // Objectives
+        const objNameToId = new Map<string, string>();
+        const objectivesToCreate = lv.objectives.map(o => ({
+          levelId: lv.levelId, name: o.name,
+          type: o.type as import('@prisma/client').BandRpgObjectiveType,
+          condition: (o.condition ?? {}) as Prisma.InputJsonValue,
+          reward: (o.reward ?? {}) as Prisma.InputJsonValue,
+          isOptional: o.isOptional ?? false, order: o.order ?? 0,
+          ...(o.description !== undefined ? { description: o.description } : {}),
+          ...(o.target !== undefined ? { target: o.target } : {}),
+          ...(o.dialogueText !== undefined ? { dialogueText: o.dialogueText } : {}),
+        }));
+        const createdObjs = await tx.bandRpgObjective.createManyAndReturn({ data: objectivesToCreate });
+        for (let i = 0; i < createdObjs.length; i++) {
+          objNameToId.set(lv.objectives[i]!.name, createdObjs[i]!.id);
+        }
+        for (const obj of lv.objectives) {
+          if (obj.prerequisiteName) {
+            const prereqId = objNameToId.get(obj.prerequisiteName);
+            const objId = objNameToId.get(obj.name);
+            if (prereqId && objId) {
+              await tx.bandRpgObjective.update({ where: { id: objId }, data: { prerequisiteId: prereqId } });
+            }
           }
         }
-      }
 
-      // NPCs
-      for (const npc of lv.npcs) {
-        const visibilityCondition = npc.visibilityCondition
-          ? resolveRef(npc.visibilityCondition, levelSlugToId, questSlugToId) as Prisma.InputJsonValue
-          : undefined;
-        const created = await prisma.bandRpgNpc.create({
-          data: {
-            levelId: lv.levelId, name: npc.name,
-            positionX: npc.positionX ?? 0, positionY: npc.positionY ?? 0,
-            defaultDialogue: (npc.defaultDialogue ?? []) as Prisma.InputJsonValue,
-            ...(npc.role !== undefined ? { role: npc.role } : {}),
-            ...(npc.faction !== undefined ? { faction: npc.faction } : {}),
-            ...(npc.portraitUrl !== undefined ? { portraitUrl: npc.portraitUrl } : {}),
-            ...(visibilityCondition !== undefined ? { visibilityCondition } : {}),
-          },
-        });
-        npcNameToId.set(`${lv.levelSlug}:${npc.name}`, created.id);
-      }
-
-      // Story beats
-      const beatsByOrder = new Map<number, string>();
-      for (const beat of lv.beats) {
-        const arcId = beat.arcSlug ? arcSlugToId.get(beat.arcSlug) : undefined;
-        const created = await prisma.bandRpgStoryBeat.create({
-          data: {
-            levelId: lv.levelId, type: beat.type as import('@prisma/client').BandRpgBeatType,
-            content: (beat.content ?? {}) as Prisma.InputJsonValue,
-            unlockCondition: (beat.unlockCondition ?? {}) as Prisma.InputJsonValue,
-            order: beat.order ?? 0,
-            ...(arcId ? { arcId } : {}),
-          },
-        });
-        if (beat.order !== undefined) beatsByOrder.set(beat.order, created.id);
-      }
-
-      // Doors
-      const doorNameToId = new Map<string, string>();
-      for (const door of lv.doors) {
-        const lockCondition = resolveRef(
-          door.lockCondition ?? {}, levelSlugToId, questSlugToId,
-        ) as Prisma.InputJsonValue;
-        const created = await prisma.bandRpgDoor.create({
-          data: {
-            levelId: lv.levelId, name: door.name, tileX: door.tileX, tileY: door.tileY,
-            type: (door.type as import('@prisma/client').BandRpgDoorType) ?? 'key_door',
-            lockCondition, openedByDefault: door.openedByDefault ?? false,
-            ...(door.label !== undefined ? { label: door.label } : {}),
-          },
-        });
-        doorNameToId.set(door.name, created.id);
-      }
-
-      // Switches
-      const switchNameToId = new Map<string, string>();
-      for (const sw of lv.switches) {
-        // Resolve effect targetId from name references
-        const effect = (sw.effect ?? {}) as Record<string, unknown>;
-        let resolvedEffect = resolveRef(effect, levelSlugToId, questSlugToId);
-        if (resolvedEffect['targetId'] === undefined && typeof effect['targetName'] === 'string') {
-          const refName = effect['targetName'] as string;
-          const targetId = doorNameToId.get(refName);
-          if (targetId) { resolvedEffect = { ...resolvedEffect, targetId }; delete resolvedEffect['targetName']; }
+        // NPCs
+        for (const npc of lv.npcs) {
+          const visibilityCondition = npc.visibilityCondition
+            ? resolveRef(npc.visibilityCondition, levelSlugToId, questSlugToId) as Prisma.InputJsonValue
+            : undefined;
+          const created = await tx.bandRpgNpc.create({
+            data: {
+              levelId: lv.levelId, name: npc.name,
+              positionX: npc.positionX ?? 0, positionY: npc.positionY ?? 0,
+              defaultDialogue: (npc.defaultDialogue ?? []) as Prisma.InputJsonValue,
+              ...(npc.role !== undefined ? { role: npc.role } : {}),
+              ...(npc.faction !== undefined ? { faction: npc.faction } : {}),
+              ...(npc.portraitUrl !== undefined ? { portraitUrl: npc.portraitUrl } : {}),
+              ...(visibilityCondition !== undefined ? { visibilityCondition } : {}),
+            },
+          });
+          npcNameToId.set(`${lv.levelSlug}:${npc.name}`, created.id);
         }
-        const created = await prisma.bandRpgSwitch.create({
-          data: {
-            levelId: lv.levelId, name: sw.name, tileX: sw.tileX, tileY: sw.tileY,
-            type: (sw.type as import('@prisma/client').BandRpgSwitchType) ?? 'switch',
-            effect: resolvedEffect as Prisma.InputJsonValue,
-            ...(sw.label !== undefined ? { label: sw.label } : {}),
-          },
-        });
-        switchNameToId.set(sw.name, created.id);
-      }
 
-      // Puzzles (resolve cross-refs in trigger/condition/action)
-      for (const puzzle of lv.puzzles) {
-        function resolvePuzzleRef(obj: Record<string, unknown>): Record<string, unknown> {
+        // Story beats
+        for (const beat of lv.beats) {
+          const arcId = beat.arcSlug ? arcSlugToId.get(beat.arcSlug) : undefined;
+          await tx.bandRpgStoryBeat.create({
+            data: {
+              levelId: lv.levelId, type: beat.type as import('@prisma/client').BandRpgBeatType,
+              content: (beat.content ?? {}) as Prisma.InputJsonValue,
+              unlockCondition: (beat.unlockCondition ?? {}) as Prisma.InputJsonValue,
+              order: beat.order ?? 0,
+              ...(arcId ? { arcId } : {}),
+            },
+          });
+        }
+
+        // Doors (must come before switches so doorNameToId is populated for switch effects)
+        const doorNameToId = new Map<string, string>();
+        for (const door of lv.doors) {
+          const lockCondition = resolveRef(
+            door.lockCondition ?? {}, levelSlugToId, questSlugToId,
+          ) as Prisma.InputJsonValue;
+          const created = await tx.bandRpgDoor.create({
+            data: {
+              levelId: lv.levelId, name: door.name, tileX: door.tileX, tileY: door.tileY,
+              type: (door.type as import('@prisma/client').BandRpgDoorType) ?? 'key_door',
+              lockCondition, openedByDefault: door.openedByDefault ?? false,
+              ...(door.label !== undefined ? { label: door.label } : {}),
+            },
+          });
+          doorNameToId.set(door.name, created.id);
+        }
+
+        // Switches
+        const switchNameToId = new Map<string, string>();
+        for (const sw of lv.switches) {
+          const effect = (sw.effect ?? {}) as Record<string, unknown>;
+          let resolvedEffect = resolveRef(effect, levelSlugToId, questSlugToId);
+          if (resolvedEffect['targetId'] === undefined && typeof effect['targetName'] === 'string') {
+            const targetId = doorNameToId.get(effect['targetName'] as string);
+            if (targetId) { resolvedEffect = { ...resolvedEffect, targetId }; delete resolvedEffect['targetName']; }
+          }
+          const created = await tx.bandRpgSwitch.create({
+            data: {
+              levelId: lv.levelId, name: sw.name, tileX: sw.tileX, tileY: sw.tileY,
+              type: (sw.type as import('@prisma/client').BandRpgSwitchType) ?? 'switch',
+              effect: resolvedEffect as Prisma.InputJsonValue,
+              ...(sw.label !== undefined ? { label: sw.label } : {}),
+            },
+          });
+          switchNameToId.set(sw.name, created.id);
+        }
+
+        // Puzzles — resolve all cross-refs in trigger/condition/action
+        const resolvePuzzleRef = (obj: Record<string, unknown>): Record<string, unknown> => {
           let out = resolveRef(obj, levelSlugToId, questSlugToId);
           if (typeof out['targetName'] === 'string') {
             const refName = out['targetName'] as string;
             const t = out['type'];
             let resolved: string | undefined;
-            if (t === 'open_door' || t === 'close_door') resolved = doorNameToId.get(refName);
+            if (t === 'open_door' || t === 'close_door' || t === 'door_open') resolved = doorNameToId.get(refName);
             else if (t === 'switch_activated') resolved = switchNameToId.get(refName);
-            else if (t === 'door_open') resolved = doorNameToId.get(refName);
             if (resolved) { out = { ...out, targetId: resolved }; delete out['targetName']; }
           }
           return out;
+        };
+
+        for (const puzzle of lv.puzzles) {
+          await tx.bandRpgPuzzle.create({
+            data: {
+              levelId: lv.levelId, name: puzzle.name, order: puzzle.order ?? 0,
+              trigger: (puzzle.trigger ? resolvePuzzleRef({ ...puzzle.trigger }) : {}) as Prisma.InputJsonValue,
+              condition: (puzzle.condition ? resolvePuzzleRef({ ...puzzle.condition }) : {}) as Prisma.InputJsonValue,
+              action: (puzzle.action ? resolvePuzzleRef({ ...puzzle.action }) : {}) as Prisma.InputJsonValue,
+            },
+          });
         }
 
-        const trigger = puzzle.trigger ? resolvePuzzleRef({ ...puzzle.trigger }) : {};
-        const condition = puzzle.condition ? resolvePuzzleRef({ ...puzzle.condition }) : {};
-        const action = puzzle.action ? resolvePuzzleRef({ ...puzzle.action }) : {};
+        // Patch quest giverIds now that NPCs for this level are created
+        for (const quest of p.quests ?? []) {
+          if (quest.giverNpcName && quest.giverNpcLevelSlug === lv.levelSlug) {
+            const npcId = npcNameToId.get(`${lv.levelSlug}:${quest.giverNpcName}`);
+            const questId = questSlugToId.get(quest.slug);
+            if (npcId && questId) {
+              await tx.bandRpgQuest.update({ where: { id: questId }, data: { giverId: npcId } });
+            }
+          }
+        }
+      }
 
-        await prisma.bandRpgPuzzle.create({
+      // Step 10: Create timeline events
+      for (const t of p.timeline ?? []) {
+        let refId: string | undefined;
+        if (t.refSlug) {
+          refId = levelSlugToId.get(t.refSlug)
+            ?? questSlugToId.get(t.refSlug)
+            ?? [...arcSlugToId.entries()].find(([k]) => k === t.refSlug)?.[1];
+        }
+        await tx.bandRpgTimelineEvent.create({
           data: {
-            levelId: lv.levelId, name: puzzle.name, order: puzzle.order ?? 0,
-            trigger: trigger as Prisma.InputJsonValue,
-            condition: condition as Prisma.InputJsonValue,
-            action: action as Prisma.InputJsonValue,
+            title: t.title, type: t.type, order: t.order ?? 0,
+            isRequired: t.isRequired ?? true,
+            ...(refId !== undefined ? { refId } : {}),
           },
         });
       }
 
-      // Patch quest giverIds now that NPCs are created
-      for (const quest of p.quests ?? []) {
-        if (quest.giverNpcName && quest.giverNpcLevelSlug === lv.levelSlug) {
-          const npcId = npcNameToId.get(`${lv.levelSlug}:${quest.giverNpcName}`);
-          const questId = questSlugToId.get(quest.slug);
-          if (npcId && questId) {
-            await prisma.bandRpgQuest.update({ where: { id: questId }, data: { giverId: npcId } });
-          }
-        }
-      }
-    }
+      return advId;
+    }, { timeout: 30_000 }); // 30s for large adventures
 
-    // Step 10: Update quest objectiveIds lists by matching objective names
-    for (const quest of p.quests ?? []) {
-      const questId = questSlugToId.get(quest.slug);
-      if (!questId) continue;
-      // objectiveIds in the import format might already be DB IDs or names
-      // For now, keep as-is — they'll be empty for fresh imports
-    }
-
-    // Step 11: Create timeline events
-    for (const t of p.timeline ?? []) {
-      let refId: string | undefined;
-      if (t.refSlug) {
-        refId = levelSlugToId.get(t.refSlug) ?? questSlugToId.get(t.refSlug)
-               ?? [...arcSlugToId.entries()].find(([k]) => k === t.refSlug)?.[1];
-      }
-      await prisma.bandRpgTimelineEvent.create({
-        data: {
-          title: t.title, type: t.type, order: t.order ?? 0,
-          isRequired: t.isRequired ?? true,
-          ...(refId !== undefined ? { refId } : {}),
-        },
-      });
-    }
-
-    res.json({
-      ok: true,
-      adventureId,
-      imported: validation.preview,
-    }); return;
+    res.json({ ok: true, adventureId, imported: validation.preview }); return;
   } catch (err) { next(err); return; }
 });

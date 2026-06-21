@@ -27,8 +27,8 @@
       "slug": "tla-rusty-reel",
       "name": "Rusty Reel",
       "description": "A corroded tape reel, its label worn beyond reading. The magnetic oxide has degraded, but the format is unmistakable — two-inch, 24-track.",
-      "type": "artifact",
-      "rarity": "uncommon",
+      "type": "lore_item",
+      "rarity": "rare",
       "scoreValue": 40,
       "isVisible": true
     },
@@ -54,7 +54,7 @@
       "slug": "tla-chamber-fuse",
       "name": "Chamber Fuse",
       "description": "A glass fuse recovered from the Ænima Chamber's damaged electrical panel. Collectible; documents the flood damage.",
-      "type": "artifact",
+      "type": "collectible",
       "rarity": "common",
       "scoreValue": 20,
       "isVisible": true
@@ -63,7 +63,7 @@
       "slug": "tla-flooded-tape",
       "name": "Flooded Tape",
       "description": "A waterlogged reel recovered from the lower shelves of the Ænima Chamber. The casing is cracked but the contents — session annotation cards from the Ænima period — may be salvageable.",
-      "type": "artifact",
+      "type": "lore_item",
       "rarity": "rare",
       "scoreValue": 50,
       "isVisible": true
