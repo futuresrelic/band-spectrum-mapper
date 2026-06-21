@@ -4,6 +4,29 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.6 (continued) — Tool Adventure: The Lost Archive (2026-06-21)
+
+### Added
+
+**Importable Adventure — "Tool — The Lost Archive":**
+- `docs/tool-lost-archive.json` — complete 30-minute intermediate adventure
+- Slug: `tool-lost-archive`, difficulty: intermediate, featured: true
+- 4 levels: The Archive Entrance, The Undertow Vault, The Ænima Chamber, The Spiral Gate
+- 9 items: `tla-archive-key`, `tla-rusty-reel`, `tla-undertow-seal`, `tla-recovered-vinyl-undertow`, `tla-chamber-fuse`, `tla-flooded-tape`, `tla-recovered-vinyl-aenima`, `tla-aenima-seal`, `tla-spiral-seal`
+- 4 quests (one per level), each with a unique fictional NPC quest giver: The Curator, Vault Keeper, Chamber Witness, The Archivist
+- 2 narrative arcs: "The Descent" and "The Recovery"
+- 3 key-door progressions (archive-key → undertow-vault, undertow-seal → aenima-chamber, aenima-seal → spiral-gate)
+- 1 alternative lever mechanism in Undertow Vault (can bypass the key door)
+- 9 world-state puzzles, 10 conditional story beats
+- 8-entry timeline covering all 4 levels and 4 quests
+- All cross-references validated: zero orphan items, zero broken exits, all quest givers resolve to correct levels
+- No copyrighted lyrics — Tool albums referenced by title only; all NPC dialogue is original fictional content
+- All fictional NPCs — no real Tool members depicted
+- Health score 100/100 (9/9 checks pass): levels ✓, spawns ✓, quest givers valid ✓, timeline refs valid ✓, exits internal ✓, item refs valid ✓, quests actionable ✓, name+desc ✓, cover+author ✓
+- Import via Admin → Band RPG → Adventures → Import tab
+
+---
+
 ## Phase Z.6 — Polish, Onboarding & First Adventure (2026-06-21)
 
 ### Added

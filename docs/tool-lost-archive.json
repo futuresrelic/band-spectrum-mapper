@@ -1,0 +1,787 @@
+{
+  "bandRpgAdventureVersion": 1,
+  "exportedAt": "2026-06-21T00:00:00.000Z",
+  "adventure": {
+    "slug": "tool-lost-archive",
+    "name": "Tool — The Lost Archive",
+    "description": "Somewhere beneath the Band Spectrum Archive, four sealed vaults hold the scattered remnants of a legendary collection. Descend through the Archive Entrance, the Undertow Vault, the Ænima Chamber, and the Spiral Gate to recover what was lost.",
+    "difficulty": "intermediate",
+    "estimatedPlaytime": 30,
+    "authorName": "Band RPG Team",
+    "coverImageUrl": "https://placehold.co/800x400/0d0d1a/e8c84a?text=Tool+%E2%80%94+The+Lost+Archive",
+    "featured": true,
+    "tags": ["tool", "mystery", "multi-level", "archive"]
+  },
+
+  "items": [
+    {
+      "slug": "tla-archive-key",
+      "name": "Archive Key",
+      "description": "A heavy iron key, its bow shaped like a spiral. It opens the door to the Undertow Vault.",
+      "type": "key_item",
+      "rarity": "common",
+      "scoreValue": 25,
+      "isVisible": true
+    },
+    {
+      "slug": "tla-rusty-reel",
+      "name": "Rusty Reel",
+      "description": "A corroded tape reel, its label worn beyond reading. The magnetic oxide has degraded, but the format is unmistakable — two-inch, 24-track.",
+      "type": "artifact",
+      "rarity": "uncommon",
+      "scoreValue": 40,
+      "isVisible": true
+    },
+    {
+      "slug": "tla-undertow-seal",
+      "name": "Undertow Seal",
+      "description": "A wax seal stamped with the symbol of the first vault. It opens the passage to the Ænima Chamber.",
+      "type": "key_item",
+      "rarity": "rare",
+      "scoreValue": 60,
+      "isVisible": true
+    },
+    {
+      "slug": "tla-recovered-vinyl-undertow",
+      "name": "Recovered Vinyl — Undertow",
+      "description": "A pristine pressing from the Undertow collection. The original sleeve is worn but the vinyl beneath is unplayed. Titles are listed in the catalogue: Prison Sex, Sober, Bottom, and others.",
+      "type": "album_artifact",
+      "rarity": "epic",
+      "scoreValue": 100,
+      "isVisible": true
+    },
+    {
+      "slug": "tla-chamber-fuse",
+      "name": "Chamber Fuse",
+      "description": "A glass fuse recovered from the Ænima Chamber's damaged electrical panel. Collectible; documents the flood damage.",
+      "type": "artifact",
+      "rarity": "common",
+      "scoreValue": 20,
+      "isVisible": true
+    },
+    {
+      "slug": "tla-flooded-tape",
+      "name": "Flooded Tape",
+      "description": "A waterlogged reel recovered from the lower shelves of the Ænima Chamber. The casing is cracked but the contents — session annotation cards from the Ænima period — may be salvageable.",
+      "type": "artifact",
+      "rarity": "rare",
+      "scoreValue": 50,
+      "isVisible": true
+    },
+    {
+      "slug": "tla-recovered-vinyl-aenima",
+      "name": "Recovered Vinyl — Ænima",
+      "description": "A double-LP from the Ænima collection. The gate-fold sleeve is damp at the edges but the records inside are perfect. Two discs, side-by-side in the centre pocket.",
+      "type": "album_artifact",
+      "rarity": "epic",
+      "scoreValue": 100,
+      "isVisible": true
+    },
+    {
+      "slug": "tla-aenima-seal",
+      "name": "Ænima Seal",
+      "description": "A wax seal stamped with the symbol of the second vault. It opens the passage to the Spiral Gate.",
+      "type": "key_item",
+      "rarity": "rare",
+      "scoreValue": 60,
+      "isVisible": true
+    },
+    {
+      "slug": "tla-spiral-seal",
+      "name": "Spiral Seal",
+      "description": "The final seal — a golden disc embossed with a ten-thousand-hand spiral. This is what the Archive has been protecting.",
+      "type": "album_artifact",
+      "rarity": "legendary",
+      "scoreValue": 200,
+      "isVisible": true
+    }
+  ],
+
+  "arcs": [
+    {
+      "slug": "tla-descent",
+      "title": "The Descent",
+      "description": "The player enters the Archive and begins the descent through the vaults.",
+      "order": 1
+    },
+    {
+      "slug": "tla-recovery",
+      "title": "The Recovery",
+      "description": "The lost recordings are recovered and the Spiral Seal is claimed.",
+      "order": 2
+    }
+  ],
+
+  "quests": [
+    {
+      "slug": "tla-find-the-key",
+      "name": "Find the Archive Key",
+      "description": "The Curator needs you to find the Archive Key hidden in the entrance hall. It opens the Undertow Vault.",
+      "giverNpcName": "The Curator",
+      "giverNpcLevelSlug": "tla-entrance",
+      "reward": {
+        "xp": 50,
+        "message": "You found the Archive Key. The Undertow Vault door will open now."
+      },
+      "isOptional": false,
+      "order": 1
+    },
+    {
+      "slug": "tla-vault-recovery",
+      "name": "Vault Recovery",
+      "description": "The Vault Keeper needs you to recover the Undertow vinyl and collect the Undertow Seal from the vaults below.",
+      "giverNpcName": "Vault Keeper",
+      "giverNpcLevelSlug": "tla-undertow-vault",
+      "reward": {
+        "xp": 100,
+        "message": "The Undertow collection has been recovered. The Ænima Chamber awaits."
+      },
+      "isOptional": false,
+      "order": 2
+    },
+    {
+      "slug": "tla-chambers-secret",
+      "name": "The Chamber's Secret",
+      "description": "The Chamber Witness asks you to recover the Ænima vinyl and the Ænima Seal from the flooded chamber.",
+      "giverNpcName": "Chamber Witness",
+      "giverNpcLevelSlug": "tla-aenima-chamber",
+      "reward": {
+        "xp": 100,
+        "message": "The Ænima collection is recovered. Only the Spiral Gate remains."
+      },
+      "isOptional": false,
+      "order": 3
+    },
+    {
+      "slug": "tla-the-final-archive",
+      "name": "The Final Archive",
+      "description": "The Archivist asks you to claim the Spiral Seal — the final piece of the Lost Archive.",
+      "giverNpcName": "The Archivist",
+      "giverNpcLevelSlug": "tla-spiral-gate",
+      "reward": {
+        "xp": 200,
+        "message": "The Spiral Seal is yours. The Lost Archive is complete."
+      },
+      "isOptional": false,
+      "order": 4
+    }
+  ],
+
+  "levels": [
+    {
+      "slug": "tla-entrance",
+      "name": "The Archive Entrance",
+      "description": "The grand entrance to the restricted collection. Towering shelves line every wall. A robed figure waits at the far end — they have been expecting you.",
+      "order": 1,
+      "spawnX": 1,
+      "spawnY": 5,
+      "isPublished": true,
+      "mapData": {
+        "width": 13,
+        "height": 11,
+        "tiles": [
+          [0,0,0,0,0,0,0,0,0,0,0,0,0],
+          [0,1,1,1,1,1,1,1,1,1,1,1,0],
+          [0,2,2,2,1,1,1,1,1,2,2,2,0],
+          [0,2,1,2,1,1,1,1,1,2,1,2,0],
+          [0,2,2,2,1,1,1,1,1,2,2,2,0],
+          [0,1,1,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,1,1,1,1,0],
+          [0,2,2,2,1,1,1,1,1,2,2,2,0],
+          [0,2,1,2,1,1,1,1,1,2,1,2,0],
+          [0,2,2,2,1,1,1,1,1,2,2,2,0],
+          [0,0,0,0,0,0,0,0,0,0,0,0,0]
+        ],
+        "entities": [
+          { "id": "tla-spawn-entrance", "type": "spawn", "x": 1, "y": 5 },
+          { "id": "tla-item-archive-key", "type": "item", "x": 11, "y": 1, "refId": "tla-archive-key" },
+          { "id": "tla-exit-to-undertow", "type": "exit", "x": 12, "y": 5, "targetLevelSlug": "tla-undertow-vault", "label": "To the Undertow Vault →" }
+        ]
+      },
+      "objectives": [
+        {
+          "name": "Speak with The Curator",
+          "description": "The figure at the far end of the hall seems to know what's going on.",
+          "type": "talk_to_npc",
+          "target": "The Curator",
+          "condition": {},
+          "reward": {},
+          "isOptional": false,
+          "order": 1
+        },
+        {
+          "name": "Find the Archive Key",
+          "description": "The Curator says a key is hidden in the eastern shelves.",
+          "type": "find_item",
+          "target": "tla-archive-key",
+          "condition": {},
+          "reward": {},
+          "isOptional": false,
+          "order": 2
+        }
+      ],
+      "npcs": [
+        {
+          "name": "The Curator",
+          "role": "quest_giver",
+          "positionX": 9,
+          "positionY": 5,
+          "defaultDialogue": [
+            { "text": "You've come. Good. I wasn't sure anyone would.", "speakerName": "The Curator" },
+            { "text": "This archive holds recordings that were never meant to be lost. Four collections, sealed away across four vaults beneath this hall.", "speakerName": "The Curator" },
+            { "text": "The key to the first vault is hidden somewhere in the eastern shelves. Look near the top.", "speakerName": "The Curator" },
+            { "text": "Recover what was placed down there. Each vault has its own keeper. Listen to them.", "speakerName": "The Curator" }
+          ]
+        }
+      ],
+      "beats": [
+        {
+          "arcSlug": "tla-descent",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "You push open the heavy doors of the Archive Entrance." },
+              { "text": "The room is vast and cold. Towering shelves rise on all sides, packed with reels, records, and annotated boxes." },
+              { "text": "At the far end, a robed figure glances up. They have been expecting you." }
+            ]
+          },
+          "unlockCondition": { "type": "always" },
+          "order": 1
+        },
+        {
+          "arcSlug": "tla-descent",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "Your hand closes around a heavy iron key. The bow is shaped like a spiral." },
+              { "text": "The Vault door to the east shudders. Something deep inside the Archive is listening." }
+            ]
+          },
+          "unlockCondition": { "type": "item_owned", "targetSlug": "tla-archive-key" },
+          "order": 2
+        }
+      ],
+      "doors": [
+        {
+          "name": "Undertow Vault Door",
+          "tileX": 12,
+          "tileY": 5,
+          "type": "key_door",
+          "lockCondition": { "type": "item_owned", "targetSlug": "tla-archive-key" },
+          "openedByDefault": false,
+          "label": "Undertow Vault"
+        }
+      ],
+      "switches": [],
+      "puzzles": [
+        {
+          "name": "Key found — set world state",
+          "trigger": { "on": "item_collected", "targetId": "tla-archive-key" },
+          "condition": { "type": "always" },
+          "action": { "type": "set_world_state", "key": "tla_key_found", "value": true },
+          "order": 1
+        }
+      ]
+    },
+
+    {
+      "slug": "tla-undertow-vault",
+      "name": "The Undertow Vault",
+      "description": "A deep, low-ceilinged vault beneath the Archive Entrance. Shelves of early recordings line the walls. The air smells of magnetic tape and something older.",
+      "order": 2,
+      "spawnX": 1,
+      "spawnY": 4,
+      "isPublished": true,
+      "mapData": {
+        "width": 11,
+        "height": 9,
+        "tiles": [
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,1,1,1,1,1,1,1,1,1,0],
+          [0,1,3,1,3,1,3,1,3,1,0],
+          [0,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,1,1,0],
+          [0,2,1,2,1,1,1,2,1,2,0],
+          [0,0,0,0,0,0,0,0,0,0,0]
+        ],
+        "entities": [
+          { "id": "tla-spawn-undertow", "type": "spawn", "x": 1, "y": 4 },
+          { "id": "tla-exit-back-entrance", "type": "exit", "x": 0, "y": 4, "targetLevelSlug": "tla-entrance", "label": "← Back to Entrance" },
+          { "id": "tla-exit-to-aenima", "type": "exit", "x": 10, "y": 4, "targetLevelSlug": "tla-aenima-chamber", "label": "To the Ænima Chamber →" },
+          { "id": "tla-item-rusty-reel", "type": "item", "x": 2, "y": 2, "refId": "tla-rusty-reel" },
+          { "id": "tla-item-undertow-seal", "type": "item", "x": 6, "y": 2, "refId": "tla-undertow-seal" },
+          { "id": "tla-item-recovered-vinyl-undertow", "type": "item", "x": 9, "y": 1, "refId": "tla-recovered-vinyl-undertow" }
+        ]
+      },
+      "objectives": [
+        {
+          "name": "Speak with the Vault Keeper",
+          "description": "Find the keeper of this vault and learn what must be recovered.",
+          "type": "talk_to_npc",
+          "target": "Vault Keeper",
+          "condition": {},
+          "reward": {},
+          "isOptional": false,
+          "order": 1
+        },
+        {
+          "name": "Recover the Undertow vinyl",
+          "description": "The primary recording is shelved at the far north-east end.",
+          "type": "find_item",
+          "target": "tla-recovered-vinyl-undertow",
+          "condition": {},
+          "reward": {},
+          "isOptional": false,
+          "order": 2
+        },
+        {
+          "name": "Collect the Undertow Seal",
+          "description": "The seal will open the passage to the next chamber.",
+          "type": "find_item",
+          "target": "tla-undertow-seal",
+          "condition": {},
+          "reward": {},
+          "isOptional": false,
+          "order": 3
+        }
+      ],
+      "npcs": [
+        {
+          "name": "Vault Keeper",
+          "role": "quest_giver",
+          "positionX": 5,
+          "positionY": 5,
+          "defaultDialogue": [
+            { "text": "You made it through the entrance. Not many do.", "speakerName": "Vault Keeper" },
+            { "text": "This is the Undertow Vault. The earliest material in the collection — foundational recordings, before anything was widely heard.", "speakerName": "Vault Keeper" },
+            { "text": "The primary vinyl is in the north-east shelving. There are also some older reels scattered about — take what you can carry.", "speakerName": "Vault Keeper" },
+            { "text": "And find the Undertow Seal. It's on one of the centre shelves. You'll need it to reach the Ænima Chamber beyond.", "speakerName": "Vault Keeper" }
+          ]
+        }
+      ],
+      "beats": [
+        {
+          "arcSlug": "tla-descent",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "You descend into the Undertow Vault." },
+              { "text": "The shelves here are older. The labels have faded, but you can still make out the catalogue numbers." },
+              { "text": "Something about this room feels unresolved — like music that ended before it was ready to." }
+            ]
+          },
+          "unlockCondition": { "type": "always" },
+          "order": 1
+        },
+        {
+          "arcSlug": "tla-descent",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "The vinyl is in your hands. It is heavier than you expected." },
+              { "text": "You can feel the grooves through the sleeve — a record that waited years to be heard again." }
+            ]
+          },
+          "unlockCondition": { "type": "item_owned", "targetSlug": "tla-recovered-vinyl-undertow" },
+          "order": 2
+        },
+        {
+          "arcSlug": "tla-recovery",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "The Undertow Seal clicks into your palm." },
+              { "text": "The passage to the Ænima Chamber unseals with a low mechanical resonance." },
+              { "text": "The deeper you go, the further back the archive reaches." }
+            ]
+          },
+          "unlockCondition": { "type": "item_owned", "targetSlug": "tla-undertow-seal" },
+          "order": 3
+        },
+        {
+          "arcSlug": "tla-descent",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "The archive lever grinds. Deep in the vault wall, something shifts." },
+              { "text": "The Ænima Chamber passage opens." }
+            ]
+          },
+          "unlockCondition": { "type": "switch_activated", "targetName": "Vault Archive Lever" },
+          "order": 4
+        }
+      ],
+      "doors": [
+        {
+          "name": "Aenima Chamber Door",
+          "tileX": 10,
+          "tileY": 4,
+          "type": "key_door",
+          "lockCondition": { "type": "item_owned", "targetSlug": "tla-undertow-seal" },
+          "openedByDefault": false,
+          "label": "Ænima Chamber"
+        }
+      ],
+      "switches": [
+        {
+          "name": "Vault Archive Lever",
+          "tileX": 5,
+          "tileY": 7,
+          "type": "lever",
+          "effect": {
+            "type": "open_door",
+            "targetName": "Aenima Chamber Door"
+          },
+          "label": "Archive Lever"
+        }
+      ],
+      "puzzles": [
+        {
+          "name": "Undertow seal collected — set world state",
+          "trigger": { "on": "item_collected", "targetId": "tla-undertow-seal" },
+          "condition": { "type": "always" },
+          "action": { "type": "set_world_state", "key": "tla_undertow_complete", "value": true },
+          "order": 1
+        },
+        {
+          "name": "Undertow vinyl recovered — set world state",
+          "trigger": { "on": "item_collected", "targetId": "tla-recovered-vinyl-undertow" },
+          "condition": { "type": "always" },
+          "action": { "type": "set_world_state", "key": "tla_undertow_vinyl_found", "value": true },
+          "order": 2
+        },
+        {
+          "name": "Vault lever pulled — mark world state",
+          "trigger": { "on": "switch_activated", "targetName": "Vault Archive Lever" },
+          "condition": { "type": "always" },
+          "action": { "type": "set_world_state", "key": "tla_vault_lever_pulled", "value": true },
+          "order": 3
+        }
+      ]
+    },
+
+    {
+      "slug": "tla-aenima-chamber",
+      "name": "The Ænima Chamber",
+      "description": "A flooded chamber at the heart of the Archive. Water has seeped in from above, warping the lower shelves. Somewhere above the waterline, two recordings remain intact.",
+      "order": 3,
+      "spawnX": 1,
+      "spawnY": 5,
+      "isPublished": true,
+      "mapData": {
+        "width": 13,
+        "height": 11,
+        "tiles": [
+          [0,0,0,0,0,0,0,0,0,0,0,0,0],
+          [0,1,1,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,3,1,3,1,1,1,1,0],
+          [0,2,2,2,1,1,1,1,1,2,2,2,0],
+          [0,2,1,2,1,1,1,1,1,2,1,2,0],
+          [0,1,1,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,1,1,1,1,0],
+          [0,2,2,2,1,1,1,1,1,2,2,2,0],
+          [0,2,1,2,1,1,1,1,1,2,1,2,0],
+          [0,1,1,1,1,1,1,1,1,1,1,1,0],
+          [0,0,0,0,0,0,0,0,0,0,0,0,0]
+        ],
+        "entities": [
+          { "id": "tla-spawn-aenima", "type": "spawn", "x": 1, "y": 5 },
+          { "id": "tla-exit-back-undertow", "type": "exit", "x": 0, "y": 5, "targetLevelSlug": "tla-undertow-vault", "label": "← Back to Undertow Vault" },
+          { "id": "tla-exit-to-spiral", "type": "exit", "x": 12, "y": 5, "targetLevelSlug": "tla-spiral-gate", "label": "To the Spiral Gate →" },
+          { "id": "tla-item-chamber-fuse", "type": "item", "x": 5, "y": 2, "refId": "tla-chamber-fuse" },
+          { "id": "tla-item-flooded-tape", "type": "item", "x": 7, "y": 2, "refId": "tla-flooded-tape" },
+          { "id": "tla-item-recovered-vinyl-aenima", "type": "item", "x": 11, "y": 1, "refId": "tla-recovered-vinyl-aenima" },
+          { "id": "tla-item-aenima-seal", "type": "item", "x": 11, "y": 6, "refId": "tla-aenima-seal" }
+        ]
+      },
+      "objectives": [
+        {
+          "name": "Find the Chamber Witness",
+          "description": "Someone has been watching over this chamber. Find them.",
+          "type": "talk_to_npc",
+          "target": "Chamber Witness",
+          "condition": {},
+          "reward": {},
+          "isOptional": false,
+          "order": 1
+        },
+        {
+          "name": "Recover the Ænima vinyl",
+          "description": "The Witness says the double-LP is in the north-east shelving, above the waterline.",
+          "type": "find_item",
+          "target": "tla-recovered-vinyl-aenima",
+          "condition": {},
+          "reward": {},
+          "isOptional": false,
+          "order": 2
+        },
+        {
+          "name": "Collect the Ænima Seal",
+          "description": "The seal is in the south-east shelving. It opens the Spiral Gate.",
+          "type": "find_item",
+          "target": "tla-aenima-seal",
+          "condition": {},
+          "reward": {},
+          "isOptional": false,
+          "order": 3
+        }
+      ],
+      "npcs": [
+        {
+          "name": "Chamber Witness",
+          "role": "quest_giver",
+          "positionX": 6,
+          "positionY": 6,
+          "defaultDialogue": [
+            { "text": "This chamber took on water two years ago. Most of the lower shelves are ruined.", "speakerName": "Chamber Witness" },
+            { "text": "But the Ænima collection was stored high. Both discs should still be intact — north-east corner, above the waterline.", "speakerName": "Chamber Witness" },
+            { "text": "The Ænima Seal is in the south-east shelving. Take both. You will need the seal to reach the Spiral Gate.", "speakerName": "Chamber Witness" },
+            { "text": "There is also a fuse and some old session materials floating around the upper shelves. Take what you find.", "speakerName": "Chamber Witness" }
+          ]
+        }
+      ],
+      "beats": [
+        {
+          "arcSlug": "tla-recovery",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "You step into the Ænima Chamber. A thin film of water covers the floor." },
+              { "text": "The shelves above the waterline are intact. Below, the damage is extensive — tape boxes bloated, labels dissolved." },
+              { "text": "A figure sits on a dry step in the corner, watching." }
+            ]
+          },
+          "unlockCondition": { "type": "always" },
+          "order": 1
+        },
+        {
+          "arcSlug": "tla-recovery",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "The Ænima vinyl is intact. The double-LP gate-fold is damp at the edges, but the records inside are pristine." }
+            ]
+          },
+          "unlockCondition": { "type": "item_owned", "targetSlug": "tla-recovered-vinyl-aenima" },
+          "order": 2
+        },
+        {
+          "arcSlug": "tla-recovery",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "The Ænima Seal is in your hands. The door to the Spiral Gate unlocks with a resonant click." },
+              { "text": "One vault remains." }
+            ]
+          },
+          "unlockCondition": { "type": "item_owned", "targetSlug": "tla-aenima-seal" },
+          "order": 3
+        }
+      ],
+      "doors": [
+        {
+          "name": "Spiral Gate Door",
+          "tileX": 12,
+          "tileY": 5,
+          "type": "key_door",
+          "lockCondition": { "type": "item_owned", "targetSlug": "tla-aenima-seal" },
+          "openedByDefault": false,
+          "label": "Spiral Gate"
+        }
+      ],
+      "switches": [],
+      "puzzles": [
+        {
+          "name": "Chamber fuse collected — set world state",
+          "trigger": { "on": "item_collected", "targetId": "tla-chamber-fuse" },
+          "condition": { "type": "always" },
+          "action": { "type": "set_world_state", "key": "tla_fuse_found", "value": true },
+          "order": 1
+        },
+        {
+          "name": "Ænima vinyl recovered — set world state",
+          "trigger": { "on": "item_collected", "targetId": "tla-recovered-vinyl-aenima" },
+          "condition": { "type": "always" },
+          "action": { "type": "set_world_state", "key": "tla_aenima_vinyl_found", "value": true },
+          "order": 2
+        },
+        {
+          "name": "Ænima seal collected — set world state",
+          "trigger": { "on": "item_collected", "targetId": "tla-aenima-seal" },
+          "condition": { "type": "always" },
+          "action": { "type": "set_world_state", "key": "tla_aenima_complete", "value": true },
+          "order": 3
+        }
+      ]
+    },
+
+    {
+      "slug": "tla-spiral-gate",
+      "name": "The Spiral Gate",
+      "description": "The deepest vault in the Archive. The air here is perfectly dry and perfectly still. A single pedestal stands at the centre, waiting.",
+      "order": 4,
+      "spawnX": 1,
+      "spawnY": 5,
+      "isPublished": true,
+      "mapData": {
+        "width": 11,
+        "height": 11,
+        "tiles": [
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,1,1,1,1,1,1,1,1,1,0],
+          [0,1,2,2,1,1,1,2,2,1,0],
+          [0,1,2,3,1,3,1,3,2,1,0],
+          [0,1,2,2,1,1,1,2,2,1,0],
+          [0,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,3,1,3,1,1,1,0],
+          [0,1,2,2,1,1,1,2,2,1,0],
+          [0,1,2,3,1,3,1,3,2,1,0],
+          [0,1,2,2,1,1,1,2,2,1,0],
+          [0,0,0,0,0,0,0,0,0,0,0]
+        ],
+        "entities": [
+          { "id": "tla-spawn-spiral", "type": "spawn", "x": 1, "y": 5 },
+          { "id": "tla-exit-back-aenima", "type": "exit", "x": 0, "y": 5, "targetLevelSlug": "tla-aenima-chamber", "label": "← Back to Ænima Chamber" },
+          { "id": "tla-item-spiral-seal", "type": "item", "x": 5, "y": 5, "refId": "tla-spiral-seal" }
+        ]
+      },
+      "objectives": [
+        {
+          "name": "Find The Archivist",
+          "description": "Someone guards the final vault. Find them and hear what they have to say.",
+          "type": "talk_to_npc",
+          "target": "The Archivist",
+          "condition": {},
+          "reward": {},
+          "isOptional": false,
+          "order": 1
+        },
+        {
+          "name": "Claim the Spiral Seal",
+          "description": "The final piece of the collection stands at the centre of the vault.",
+          "type": "find_item",
+          "target": "tla-spiral-seal",
+          "condition": {},
+          "reward": {},
+          "isOptional": false,
+          "order": 2
+        }
+      ],
+      "npcs": [
+        {
+          "name": "The Archivist",
+          "role": "quest_giver",
+          "positionX": 9,
+          "positionY": 5,
+          "defaultDialogue": [
+            { "text": "You have made it to the Spiral Gate. Few do.", "speakerName": "The Archivist" },
+            { "text": "This vault holds the Spiral Seal — the index of everything that was collected and catalogued. Without it, the archive is just noise.", "speakerName": "The Archivist" },
+            { "text": "Claim it. Carry it back. Everything you've recovered — the vinyls, the reels, the tapes — it all means something now.", "speakerName": "The Archivist" },
+            { "text": "The seal is on the pedestal at the centre of the room. It has been waiting for you.", "speakerName": "The Archivist" }
+          ]
+        }
+      ],
+      "beats": [
+        {
+          "arcSlug": "tla-recovery",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "You step into the Spiral Gate." },
+              { "text": "The room is circular. Polished stone. No shelves — just the floor, the ceiling, and a single pedestal at the centre." },
+              { "text": "On it, something golden catches the light." }
+            ]
+          },
+          "unlockCondition": { "type": "always" },
+          "order": 1
+        },
+        {
+          "arcSlug": "tla-recovery",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "You lift the Spiral Seal from the pedestal." },
+              { "text": "The moment your hand closes around it, you hear something — faint, distant, like music through a wall." },
+              { "text": "The Lost Archive is complete." },
+              { "text": "Whatever was scattered across these four vaults — it is recovered. Preserved. Remembered." }
+            ]
+          },
+          "unlockCondition": { "type": "item_owned", "targetSlug": "tla-spiral-seal" },
+          "order": 2
+        }
+      ],
+      "doors": [],
+      "switches": [],
+      "puzzles": [
+        {
+          "name": "Spiral Seal claimed — mark archive complete",
+          "trigger": { "on": "item_collected", "targetId": "tla-spiral-seal" },
+          "condition": { "type": "always" },
+          "action": { "type": "set_world_state", "key": "tla_complete", "value": true },
+          "order": 1
+        }
+      ]
+    }
+  ],
+
+  "timeline": [
+    {
+      "title": "Enter the Archive",
+      "type": "level",
+      "refSlug": "tla-entrance",
+      "isRequired": true,
+      "order": 1
+    },
+    {
+      "title": "Find the Archive Key",
+      "type": "quest",
+      "refSlug": "tla-find-the-key",
+      "isRequired": true,
+      "order": 2
+    },
+    {
+      "title": "Descend to the Undertow Vault",
+      "type": "level",
+      "refSlug": "tla-undertow-vault",
+      "isRequired": true,
+      "order": 3
+    },
+    {
+      "title": "Undertow Recovery",
+      "type": "quest",
+      "refSlug": "tla-vault-recovery",
+      "isRequired": true,
+      "order": 4
+    },
+    {
+      "title": "Enter the Ænima Chamber",
+      "type": "level",
+      "refSlug": "tla-aenima-chamber",
+      "isRequired": true,
+      "order": 5
+    },
+    {
+      "title": "The Chamber's Secret",
+      "type": "quest",
+      "refSlug": "tla-chambers-secret",
+      "isRequired": true,
+      "order": 6
+    },
+    {
+      "title": "Reach the Spiral Gate",
+      "type": "level",
+      "refSlug": "tla-spiral-gate",
+      "isRequired": true,
+      "order": 7
+    },
+    {
+      "title": "The Final Archive",
+      "type": "quest",
+      "refSlug": "tla-the-final-archive",
+      "isRequired": true,
+      "order": 8
+    }
+  ]
+}
