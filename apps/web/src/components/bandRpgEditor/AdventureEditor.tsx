@@ -532,7 +532,25 @@ function ImportTab({ qc }: { qc: ReturnType<typeof useQueryClient> }) {
               ))}
             </ul>
           )}
-          {importResult.ok && importResult.imported && <ImportPreviewPanel preview={importResult.imported} />}
+          {importResult.ok && importResult.imported && (
+            <>
+              <ImportPreviewPanel preview={importResult.imported} />
+              <div className="flex flex-wrap gap-2 pt-2 border-t border-emerald-200">
+                <a
+                  href="/play/band-rpg/adventures"
+                  className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  Open in Adventure Browser →
+                </a>
+                <button
+                  onClick={() => void navigator.clipboard.writeText(`${window.location.origin}/play/band-rpg/adventures`)}
+                  className="text-xs border border-surface-300 text-surface-600 hover:bg-surface-100 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  Copy Player Link
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 

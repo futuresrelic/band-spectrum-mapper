@@ -412,8 +412,8 @@ function EmptyState({ icon, title, desc, action }: { icon: string; title: string
       <p className="text-gray-300 font-semibold">{title}</p>
       <p className="text-gray-500 text-sm max-w-xs">{desc}</p>
       {action ?? (
-        <Link to="/play/band-rpg" className="bg-amber-700 hover:bg-amber-600 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-colors">
-          Play Band RPG
+        <Link to="/play/band-rpg/adventures" className="bg-amber-700 hover:bg-amber-600 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+          Play Adventures
         </Link>
       )}
     </div>

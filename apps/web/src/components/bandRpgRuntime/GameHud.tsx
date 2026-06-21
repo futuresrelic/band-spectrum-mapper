@@ -18,6 +18,7 @@ const ITEM_TYPE_ICON: Record<string, string> = {
 
 interface Props {
   level: RuntimeLevel;
+  adventureName?: string | null;
   activeQuestIds: string[];
   completedQuests: string[];
   completedObjectives: string[];
@@ -28,7 +29,7 @@ interface Props {
 }
 
 export default function GameHud({
-  level, activeQuestIds, completedQuests, completedObjectives,
+  level, adventureName, activeQuestIds, completedQuests, completedObjectives,
   objectiveProgress, inventory, notification, unlockedLevelSlugs,
 }: Props) {
   const allQuests = level.quests;
@@ -42,8 +43,18 @@ export default function GameHud({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', color: 'white' }}>
 
+      {/* Adventure name — shown when playing an adventure */}
+      {adventureName && (
+        <div style={{ padding: '10px 12px 4px' }}>
+          <div style={{ color: '#4f46e5', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 2 }}>
+            Adventure
+          </div>
+          <div style={{ color: '#a5b4fc', fontSize: 12, fontWeight: 600, lineHeight: 1.3 }}>{adventureName}</div>
+        </div>
+      )}
+
       {/* Level name */}
-      <div style={{ padding: '12px 12px 8px' }}>
+      <div style={{ padding: adventureName ? '4px 12px 8px' : '12px 12px 8px' }}>
         <div style={{ color: '#64748b', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 2 }}>
           Location
         </div>

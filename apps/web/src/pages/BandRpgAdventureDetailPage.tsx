@@ -226,6 +226,35 @@ export default function BandRpgAdventureDetailPage() {
             )}
           </div>
 
+          {/* Admin shortcuts */}
+          {(user?.isAdmin ?? false) && (
+            <div className="rounded-xl border border-gray-800 bg-gray-900/30 p-4 space-y-2">
+              <div className="text-xs font-semibold text-gray-600 uppercase tracking-widest">Admin Shortcuts</div>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href="/admin/game"
+                  className="text-xs border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  Manage in Admin →
+                </a>
+                {firstLevelSlug && (
+                  <button
+                    onClick={handleStart}
+                    className="text-xs bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    Play First Level →
+                  </button>
+                )}
+                <button
+                  onClick={() => void navigator.clipboard.writeText(`${window.location.origin}/play/band-rpg/adventures`)}
+                  className="text-xs border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  Copy Player Link
+                </button>
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
     </Shell>

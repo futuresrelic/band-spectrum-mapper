@@ -63,12 +63,18 @@ export default function BandRpgCampaignPage() {
       {/* Title bar */}
       <div className="flex items-center gap-3 px-4 py-3 bg-black/50 border-b border-gray-800 shrink-0">
         <button onClick={() => navigate('/play/band-rpg')} className="text-gray-500 hover:text-gray-300 text-sm">←</button>
-        <span className="text-white font-semibold text-sm">Adventure Hub</span>
+        <span className="text-white font-semibold text-sm">Adventures</span>
         <button
           onClick={() => setShowOnboarding(true)}
           className="ml-1 w-5 h-5 rounded-full border border-gray-600 text-gray-500 hover:text-gray-300 hover:border-gray-400 text-xs font-bold flex items-center justify-center transition-colors"
           title="What is Band RPG?"
         >?</button>
+        <button
+          onClick={() => navigate('/play/band-rpg')}
+          className="ml-2 text-xs text-gray-600 hover:text-gray-400 transition-colors hidden sm:block"
+        >
+          Classic Archive Mode →
+        </button>
         {user && <span className="text-emerald-400 text-xs ml-auto">● {user.username ?? user.name ?? 'Player'}</span>}
       </div>
 

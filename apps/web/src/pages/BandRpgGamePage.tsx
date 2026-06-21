@@ -44,6 +44,14 @@ export default function BandRpgGamePage() {
     staleTime: 0,
   });
 
+  const { data: adventureDetail } = useQuery({
+    queryKey: ['adventure-for-hud', adventureId],
+    queryFn: () => adventureProgressApi.get(adventureId!),
+    enabled: !!adventureId && !!user,
+    staleTime: 300_000,
+  });
+  const adventureName = adventureDetail?.adventure?.name ?? null;
+
   const saveMutation = useMutation({
     mutationFn: (partial: Parameters<typeof bandRpgRuntimeApi.saveProgress>[0]) =>
       bandRpgRuntimeApi.saveProgress(partial),
@@ -183,8 +191,12 @@ export default function BandRpgGamePage() {
             onClick={() => navigate(adventureId ? `/play/band-rpg/adventures/${adventureId}` : '/play/band-rpg')}
             className="text-gray-500 hover:text-gray-300 text-sm"
           >←</button>
+          {adventureName && (
+            <span className="text-indigo-400/70 text-xs hidden sm:block">{adventureName}</span>
+          )}
+          {adventureName && <span className="text-gray-700 text-xs hidden sm:block">›</span>}
           <span className="text-white font-semibold text-sm">{level.name}</span>
-          <span className="text-gray-600 text-xs">/{level.slug}</span>
+          <span className="text-gray-700 text-xs hidden sm:block">/{level.slug}</span>
           {state.activeQuestIds.length > 0 && (
             <span className="text-blue-400 text-xs">⚡ {state.activeQuestIds.length} active</span>
           )}
@@ -258,6 +270,7 @@ export default function BandRpgGamePage() {
         <div style={{ width: 220, backgroundColor: 'rgba(0,0,0,0.75)', borderLeft: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
           <GameHud
             level={level}
+            adventureName={adventureName}
             activeQuestIds={state.activeQuestIds}
             completedQuests={state.completedQuests}
             completedObjectives={state.completedObjectives}
