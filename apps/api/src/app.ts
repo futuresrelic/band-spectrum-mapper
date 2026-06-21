@@ -70,6 +70,7 @@ import { itemEditorRouter } from './routes/itemEditorRoutes.js';
 import { timelineEditorRouter } from './routes/timelineEditorRoutes.js';
 import { worldEditorRouter } from './routes/worldEditorRoutes.js';
 import { adventureRouter } from './routes/adventureRoutes.js';
+import { adventureProgressRouter } from './routes/adventureProgressRoutes.js';
 import { runtimeRouter } from './routes/runtimeRoutes.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -259,6 +260,7 @@ export function createApp() {
   app.use('/api/band-rpg/editor/timeline', timelineEditorRouter);
   app.use('/api/band-rpg/editor/world', worldEditorRouter);   // Phase Z.3 — World Systems
   app.use('/api/band-rpg/adventures', adventureRouter);        // Phase Z.4 — Adventure Import/Export
+  app.use('/api/band-rpg/adventure-progress', adventureProgressRouter); // Phase Z.5 — Campaign Builder
 
   // Runtime Engine — Phase Z.1 (auth required)
   app.use('/api/band-rpg/runtime', runtimeRouter);

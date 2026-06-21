@@ -21,6 +21,21 @@ adventureRouter.get('/', async (_req, res, next): Promise<void> => {
   } catch (err) { next(err); return; }
 });
 
+// Get single adventure with full metadata (admin)
+adventureRouter.get('/:id/meta', async (req, res, next): Promise<void> => {
+  try {
+    const id = req.params['id']!;
+    const adventure = await prisma.bandRpgAdventure.findUnique({
+      where: { id },
+      include: {
+        _count: { select: { levels: true, quests: true, arcs: true, items: true, progress: true } },
+      },
+    });
+    if (!adventure) { res.status(404).json({ error: 'Not found' }); return; }
+    res.json(adventure); return;
+  } catch (err) { next(err); return; }
+});
+
 adventureRouter.post('/', async (req, res, next): Promise<void> => {
   try {
     const { slug, name, description, version, isPublished } = req.body as {
@@ -41,8 +56,14 @@ adventureRouter.post('/', async (req, res, next): Promise<void> => {
 adventureRouter.put('/:id', async (req, res, next): Promise<void> => {
   try {
     const id = req.params['id']!;
-    const { slug, name, description, version, isPublished } = req.body as {
-      slug?: string; name?: string; description?: string; version?: number; isPublished?: boolean;
+    const {
+      slug, name, description, version, isPublished,
+      featured, coverImageUrl, authorName, difficulty, estimatedPlaytime, tags,
+    } = req.body as {
+      slug?: string; name?: string; description?: string; version?: number;
+      isPublished?: boolean; featured?: boolean; coverImageUrl?: string;
+      authorName?: string; difficulty?: string; estimatedPlaytime?: number;
+      tags?: string[];
     };
     const adventure = await prisma.bandRpgAdventure.update({
       where: { id },
@@ -52,6 +73,12 @@ adventureRouter.put('/:id', async (req, res, next): Promise<void> => {
         ...(description !== undefined ? { description } : {}),
         ...(version !== undefined ? { version } : {}),
         ...(isPublished !== undefined ? { isPublished } : {}),
+        ...(featured !== undefined ? { featured } : {}),
+        ...(coverImageUrl !== undefined ? { coverImageUrl } : {}),
+        ...(authorName !== undefined ? { authorName } : {}),
+        ...(difficulty !== undefined ? { difficulty } : {}),
+        ...(estimatedPlaytime !== undefined ? { estimatedPlaytime } : {}),
+        ...(tags !== undefined ? { tags: tags as Prisma.InputJsonValue } : {}),
       },
     });
     res.json(adventure); return;

@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { adventureApi } from '../../api/adventureApi';
-import type { Adventure, ValidationResult, ImportPreview } from '../../api/adventureApi';
+import { adventureApi, adventureProgressApi } from '../../api/adventureApi';
+import type { Adventure, ValidationResult, ImportPreview, AdventureHealth } from '../../api/adventureApi';
 
 export default function AdventureEditor() {
   const qc = useQueryClient();
@@ -137,14 +137,23 @@ function AdventureCard({ adv, isEditing, onEdit, onDelete, qc }: {
   adv: Adventure; isEditing: boolean; onEdit: () => void; onDelete: () => void; qc: ReturnType<typeof useQueryClient>;
 }) {
   const [exporting, setExporting] = useState(false);
+  const [health, setHealth] = useState<AdventureHealth | null>(null);
+  const [loadingHealth, setLoadingHealth] = useState(false);
 
   const updateMut = useMutation({
-    mutationFn: (data: Partial<{ name: string; description: string }>) => adventureApi.update(adv.id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['adventures'] }),
+    mutationFn: (data: Parameters<typeof adventureApi.update>[1]) => adventureApi.update(adv.id, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['adventures'] }); onEdit(); },
   });
 
   const [editName, setEditName] = useState(adv.name);
   const [editDesc, setEditDesc] = useState(adv.description ?? '');
+  const [editAuthor, setEditAuthor] = useState(adv.authorName ?? '');
+  const [editCover, setEditCover] = useState(adv.coverImageUrl ?? '');
+  const [editDifficulty, setEditDifficulty] = useState(adv.difficulty ?? '');
+  const [editPlaytime, setEditPlaytime] = useState(String(adv.estimatedPlaytime ?? ''));
+  const [editTags, setEditTags] = useState((adv.tags ?? []).join(', '));
+  const [editPublished, setEditPublished] = useState(adv.isPublished);
+  const [editFeatured, setEditFeatured] = useState(adv.featured ?? false);
 
   const handleExport = async () => {
     setExporting(true);
@@ -164,6 +173,18 @@ function AdventureCard({ adv, isEditing, onEdit, onDelete, qc }: {
     }
   };
 
+  const handleHealth = async () => {
+    setLoadingHealth(true);
+    try {
+      const result = await adventureProgressApi.health(adv.id);
+      setHealth(result);
+    } catch {
+      alert('Health check failed');
+    } finally {
+      setLoadingHealth(false);
+    }
+  };
+
   const c = adv._count;
 
   return (
@@ -173,46 +194,138 @@ function AdventureCard({ adv, isEditing, onEdit, onDelete, qc }: {
           className="space-y-3"
           onSubmit={e => {
             e.preventDefault();
-            updateMut.mutate({ name: editName, description: editDesc || undefined });
-            onEdit();
+            const tags = editTags.split(',').map(t => t.trim()).filter(Boolean);
+            const playTime = editPlaytime ? parseInt(editPlaytime, 10) : undefined;
+            updateMut.mutate({
+              name: editName,
+              ...(editDesc ? { description: editDesc } : {}),
+              ...(editAuthor ? { authorName: editAuthor } : {}),
+              ...(editCover ? { coverImageUrl: editCover } : {}),
+              ...(editDifficulty ? { difficulty: editDifficulty } : {}),
+              ...(playTime ? { estimatedPlaytime: playTime } : {}),
+              tags,
+              isPublished: editPublished,
+              featured: editFeatured,
+            });
           }}
         >
           <div className="grid grid-cols-2 gap-3">
-            <input value={editName} onChange={e => setEditName(e.target.value)} required className="text-sm border border-surface-300 rounded-lg px-3 py-1.5" />
-            <input value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Description" className="text-sm border border-surface-300 rounded-lg px-3 py-1.5" />
+            <div>
+              <label className="block text-xs font-medium text-surface-600 mb-1">Name *</label>
+              <input value={editName} onChange={e => setEditName(e.target.value)} required className="w-full text-sm border border-surface-300 rounded-lg px-3 py-1.5" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-surface-600 mb-1">Author</label>
+              <input value={editAuthor} onChange={e => setEditAuthor(e.target.value)} placeholder="Creator name" className="w-full text-sm border border-surface-300 rounded-lg px-3 py-1.5" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-surface-600 mb-1">Description</label>
+              <input value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Short description" className="w-full text-sm border border-surface-300 rounded-lg px-3 py-1.5" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-surface-600 mb-1">Cover Image URL</label>
+              <input value={editCover} onChange={e => setEditCover(e.target.value)} placeholder="https://…" className="w-full text-sm border border-surface-300 rounded-lg px-3 py-1.5" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-surface-600 mb-1">Difficulty</label>
+              <select value={editDifficulty} onChange={e => setEditDifficulty(e.target.value)} className="w-full text-sm border border-surface-300 rounded-lg px-3 py-1.5">
+                <option value="">—</option>
+                <option value="beginner">Beginner</option>
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+                <option value="expert">Expert</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-surface-600 mb-1">Est. Playtime (min)</label>
+              <input type="number" value={editPlaytime} onChange={e => setEditPlaytime(e.target.value)} placeholder="30" min="1" className="w-full text-sm border border-surface-300 rounded-lg px-3 py-1.5" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-surface-600 mb-1">Tags (comma-separated)</label>
+              <input value={editTags} onChange={e => setEditTags(e.target.value)} placeholder="music, exploration, puzzle" className="w-full text-sm border border-surface-300 rounded-lg px-3 py-1.5" />
+            </div>
+          </div>
+          <div className="flex gap-4 text-sm">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={editPublished} onChange={e => setEditPublished(e.target.checked)} />
+              <span className="text-surface-700">Published</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={editFeatured} onChange={e => setEditFeatured(e.target.checked)} />
+              <span className="text-surface-700">Featured</span>
+            </label>
           </div>
           <div className="flex gap-2">
-            <button type="submit" disabled={updateMut.isPending} className="text-xs bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 disabled:opacity-50">Save</button>
+            <button type="submit" disabled={updateMut.isPending} className="text-xs bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 disabled:opacity-50">
+              {updateMut.isPending ? 'Saving…' : 'Save'}
+            </button>
             <button type="button" onClick={onEdit} className="text-xs border border-surface-300 px-3 py-1 rounded hover:bg-surface-50">Cancel</button>
           </div>
         </form>
       ) : (
-        <div className="flex items-start gap-4">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="font-semibold text-surface-900">{adv.name}</span>
-              <span className="text-xs font-mono text-surface-400 bg-surface-100 px-2 py-0.5 rounded">/{adv.slug}</span>
-              {adv.isPublished && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Published</span>}
-            </div>
-            {adv.description && <p className="text-sm text-surface-500 mb-2">{adv.description}</p>}
-            {c && (
-              <div className="flex gap-3 text-xs text-surface-400">
-                <span>📍 {c.levels} levels</span>
-                <span>📜 {c.quests} quests</span>
-                <span>📖 {c.arcs} arcs</span>
-                <span>🎒 {c.items} items</span>
-              </div>
+        <div className="space-y-3">
+          <div className="flex items-start gap-4">
+            {adv.coverImageUrl && (
+              <img src={adv.coverImageUrl} alt={adv.name} className="w-16 h-16 rounded-lg object-cover shrink-0" />
             )}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span className="font-semibold text-surface-900">{adv.name}</span>
+                <span className="text-xs font-mono text-surface-400 bg-surface-100 px-2 py-0.5 rounded">/{adv.slug}</span>
+                {adv.isPublished && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Published</span>}
+                {(adv.featured ?? false) && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Featured</span>}
+                {adv.difficulty && <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full capitalize">{adv.difficulty}</span>}
+              </div>
+              {adv.authorName && <p className="text-xs text-surface-500 mb-1">by {adv.authorName}{adv.estimatedPlaytime ? ` · ${adv.estimatedPlaytime}min` : ''}</p>}
+              {adv.description && <p className="text-sm text-surface-500 mb-2">{adv.description}</p>}
+              {c && (
+                <div className="flex gap-3 text-xs text-surface-400">
+                  <span>📍 {c.levels} levels</span>
+                  <span>📜 {c.quests} quests</span>
+                  <span>📖 {c.arcs} arcs</span>
+                  <span>🎒 {c.items} items</span>
+                  {(c.progress ?? 0) > 0 && <span>👤 {c.progress} players</span>}
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 shrink-0 flex-wrap justify-end">
+              <button onClick={handleExport} disabled={exporting} className="text-xs border border-surface-300 bg-surface-50 hover:bg-surface-100 px-3 py-1.5 rounded-lg disabled:opacity-50">
+                {exporting ? 'Exporting…' : '⬇ Export'}
+              </button>
+              <button onClick={handleHealth} disabled={loadingHealth} className="text-xs border border-surface-300 bg-surface-50 hover:bg-surface-100 px-3 py-1.5 rounded-lg disabled:opacity-50">
+                {loadingHealth ? 'Checking…' : '🏥 Health'}
+              </button>
+              <button onClick={onEdit} className="text-xs border border-surface-300 px-3 py-1.5 rounded-lg hover:bg-surface-50">Edit</button>
+              <button onClick={onDelete} className="text-xs border border-red-200 text-red-600 px-3 py-1.5 rounded-lg hover:bg-red-50">Delete</button>
+            </div>
           </div>
-          <div className="flex gap-2 shrink-0">
-            <button onClick={handleExport} disabled={exporting} className="text-xs border border-surface-300 bg-surface-50 hover:bg-surface-100 px-3 py-1.5 rounded-lg disabled:opacity-50">
-              {exporting ? 'Exporting…' : '⬇ Export JSON'}
-            </button>
-            <button onClick={onEdit} className="text-xs border border-surface-300 px-3 py-1.5 rounded-lg hover:bg-surface-50">Edit</button>
-            <button onClick={onDelete} className="text-xs border border-red-200 text-red-600 px-3 py-1.5 rounded-lg hover:bg-red-50">Delete</button>
-          </div>
+          {health && <HealthPanel health={health} onClose={() => setHealth(null)} />}
         </div>
       )}
+    </div>
+  );
+}
+
+function HealthPanel({ health, onClose }: { health: AdventureHealth; onClose: () => void }) {
+  const colour = health.score >= 80 ? 'emerald' : health.score >= 50 ? 'amber' : 'red';
+  return (
+    <div className={`rounded-xl border p-4 bg-${colour}-50 border-${colour}-200`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className={`text-2xl font-bold text-${colour}-700`}>{health.score}/100</span>
+          <span className={`text-sm text-${colour}-600`}>Health Score</span>
+        </div>
+        <button onClick={onClose} className="text-surface-400 hover:text-surface-600 text-lg">×</button>
+      </div>
+      <div className="space-y-1.5">
+        {health.checks.map(check => (
+          <div key={check.name} className="flex items-center gap-2 text-sm">
+            <span>{check.passed ? '✓' : '✗'}</span>
+            <span className={check.passed ? 'text-surface-700' : 'text-red-700'}>{check.name}</span>
+            <span className="text-surface-400 text-xs">({check.weight}pts)</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

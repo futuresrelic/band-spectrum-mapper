@@ -665,3 +665,63 @@ const visibleExits = level.exits.filter(e => isExitVisible(e, worldSnap));
 ```
 
 NPC conditions are stored on the `BandRpgNpc` DB row (`visibilityCondition`). Item and exit conditions are stored in the MapEntity JSON blob (`condition` field) because items and exits are placed via the map data rather than having global definitions with placement-independent conditions.
+
+---
+
+## Phase Z.5 — Campaign Builder & Adventure Browser
+
+### Adventure as a Content Container
+
+`BandRpgAdventure` groups levels, quests, arcs, and items under a single publishable unit. The grouping is optional — existing content without an `adventureId` continues to work.
+
+**Extended fields (Z.5):** `featured Bool`, `coverImageUrl String?`, `authorName String?`, `difficulty String?`, `estimatedPlaytime Int?`, `tags Json`.
+
+### Adventure Progress Tracking
+
+`BandRpgAdventureProgress` is a per-user per-adventure record (`@@unique([userId, adventureId])`). It is created lazily on first visit via `upsert` with empty `create` defaults. It is never deleted on adventure update/replace — only on explicit restart or user cascade.
+
+`completionPct` is calculated server-side as:
+```
+(questsCompleted / totalQuests) * 50 + (levelsDiscovered.length / totalLevels) * 50
+```
+
+### Adventure Progress API (`/api/band-rpg/adventure-progress`)
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `GET /browse` | None | Published adventures + optional userId progress overlay |
+| `GET /my` | Required | User's started adventures ordered by lastPlayedAt |
+| `GET /:adventureId` | Required | Get-or-create progress; returns `firstLevelSlug` |
+| `POST /:adventureId/sync` | Required | Game engine calls this on every save |
+| `POST /:adventureId/restart` | Required | Delete + recreate fresh progress |
+| `GET /:adventureId/health` | None | 6-check content health score (0–100) |
+
+### Campaign Browser Flow
+
+```
+/play/band-rpg/adventures        (BandRpgCampaignPage — browse + my adventures)
+  ↓ click adventure card
+/play/band-rpg/adventures/:id    (BandRpgAdventureDetailPage — start/continue/restart)
+  ↓ click Start/Continue (navigates with ?adventureId=xxx)
+/play/band-rpg/game/:levelSlug?adventureId=xxx  (BandRpgGamePage — gameplay)
+  ↓ on save
+POST /api/band-rpg/adventure-progress/:id/sync
+  ↓ if isCompleted
+CompletionReport overlay (full-screen modal with stats)
+```
+
+### Health Check
+
+`GET /:adventureId/health` checks 6 criteria:
+
+| Check | Weight |
+|---|---|
+| Has at least one level | 20 |
+| All levels have a spawn point in mapData.entities | 20 |
+| Quest giver NPCs live in levels owned by this adventure | 20 |
+| All timeline events reference valid levels/quests | 20 |
+| Adventure has name + description | 10 |
+| Adventure has coverImageUrl + authorName | 10 |
+
+Score 0–100; shown inline in the admin Adventures tab via the `🏥 Health` button.
+

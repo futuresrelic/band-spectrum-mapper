@@ -91,6 +91,8 @@ import BandRpgPublicCuratorPage from './pages/BandRpgPublicCuratorPage';
 import BandRpgPublicFestivalPage from './pages/BandRpgPublicFestivalPage';
 import BandRpgPublicTourPage from './pages/BandRpgPublicTourPage';
 import BandRpgGamePage from './pages/BandRpgGamePage';
+import BandRpgCampaignPage from './pages/BandRpgCampaignPage';
+import BandRpgAdventureDetailPage from './pages/BandRpgAdventureDetailPage';
 import CommunityPage from './pages/CommunityPage';
 import AdminBandRpgPage from './pages/AdminBandRpgPage';
 
@@ -182,6 +184,8 @@ export default function App() {
         <Route path="/play/minesweeper" element={<MinesweeperPage />} />
         <Route path="/play/band-rpg" element={<BandRpgPage />} />
         <Route path="/play/band-rpg/collection" element={<BandRpgCollectionPage />} />
+        <Route path="/play/band-rpg/adventures" element={<BandRpgCampaignPage />} />
+        <Route path="/play/band-rpg/adventures/:id" element={<BandRpgAdventureDetailPage />} />
         <Route path="/play/band-rpg/game/:slug" element={<BandRpgGamePage />} />
 
         {/* ── ADMIN: full app, isAdmin required ── */}

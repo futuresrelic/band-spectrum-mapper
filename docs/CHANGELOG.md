@@ -4,6 +4,63 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.5 — Campaign Builder & Adventure Browser (2026-06-21)
+
+### Added
+
+**Adventure Metadata expansion:**
+- `BandRpgAdventure` model extended: `featured`, `coverImageUrl`, `authorName`, `difficulty`, `estimatedPlaytime`, `tags`
+- Difficulty levels: `beginner`, `intermediate`, `advanced`, `expert`
+- `estimatedPlaytime` stored in minutes
+
+**Adventure Progress (`BandRpgAdventureProgress`):**
+- New model: `userId`, `adventureId`, `startedAt`, `completedAt`, `lastPlayedAt`, `completionPct`, `questsCompleted`, `itemsCollected`, `levelsDiscovered`, `isCompleted`
+- `@@unique([userId, adventureId])` — one progress record per player per adventure
+- `User.bandRpgAdventureProgress` back-relation added
+
+**Adventure Progress API (`/api/band-rpg/adventure-progress`):**
+- `GET /browse` — public; published adventures with optional per-user progress overlay; filters: `userId`, `featured`, `difficulty`
+- `GET /my` — auth required; all adventures the user has started, ordered by `lastPlayedAt`
+- `GET /:adventureId` — auth required; get-or-create progress record; returns adventure + `firstLevelSlug`
+- `POST /:adventureId/sync` — auth required; update progress from game engine; auto-calculates `completionPct`
+- `POST /:adventureId/restart` — auth required; resets progress to zero
+- `GET /:adventureId/health` — public; 6-check content health score (0–100)
+
+**Adventure Browser (`/play/band-rpg/adventures`):**
+- `BandRpgCampaignPage` — player-facing hub with two tabs: Browse Adventures / My Adventures
+- Browse: featured row, difficulty filter chips, adventure cards with cover image + progress bar
+- My Adventures: Active (in-progress) and Completed sections
+- Responsive 2-column grid layout; dark theme
+
+**Adventure Detail Page (`/play/band-rpg/adventures/:id`):**
+- `BandRpgAdventureDetailPage` — full adventure detail: cover, metadata, stats, tags, progress
+- Start / Continue / Revisit / Restart actions
+- Restart confirmation modal (prevents accidental progress loss)
+- Back-navigation to Campaign Hub
+
+**Completion Report (`CompletionReport.tsx`):**
+- Full-screen overlay shown when an adventure is completed
+- Displays: completion %, quests/levels/items counts, play time
+- Animated progress bar; links to Adventure Hub or "Keep Exploring"
+
+**Game page adventure integration (`BandRpgGamePage.tsx`):**
+- Reads `?adventureId=xxx` from URL search params
+- Syncs adventure progress on every save (levelsDiscovered, questsCompleted, itemsCollected)
+- Shows CompletionReport overlay when server marks adventure complete
+- Back button navigates to adventure detail page (not hub) when in adventure context
+
+**Admin Adventures tab expanded (`AdventureEditor.tsx`):**
+- Edit form expanded: name, author, description, cover image URL, difficulty, playtime, tags, published, featured
+- Adventure cards show: cover thumbnail, author/playtime, featured/difficulty badges, player count
+- Health check button (`🏥 Health`) shows 6-check score panel inline per adventure
+- `_count.progress` shows player count on each adventure card
+
+### Routes added
+- `/play/band-rpg/adventures` → `BandRpgCampaignPage`
+- `/play/band-rpg/adventures/:id` → `BandRpgAdventureDetailPage`
+
+---
+
 ## Phase Z.4 — Engine Audit + Adventure Import/Export (2026-06-21)
 
 ### Added

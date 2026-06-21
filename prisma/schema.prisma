@@ -459,8 +459,9 @@ model User {
   bandRpgChallengeAttempts BandRpgChallengeAttempt[]
   bandRpgCuratorProfile    BandRpgCuratorProfile?
   bandRpgFavorites     BandRpgFavorite[]
-  bandRpgFollowing     BandRpgCuratorFollow[] @relation("BandRpgFollower")
-  bandRpgFollowers     BandRpgCuratorFollow[] @relation("BandRpgFollowee")
+  bandRpgFollowing         BandRpgCuratorFollow[]       @relation("BandRpgFollower")
+  bandRpgFollowers         BandRpgCuratorFollow[]       @relation("BandRpgFollowee")
+  bandRpgAdventureProgress BandRpgAdventureProgress[]   @relation("UserAdventureProgress")
 
   @@map("users")
 }
@@ -2223,19 +2224,48 @@ model BandRpgCuratorFollow {
 // ── Phase Z.4: Adventure Scoping ──────────────────────────────────────────────
 
 model BandRpgAdventure {
-  id          String   @id @default(cuid())
-  slug        String   @unique
-  name        String
-  description String?
-  version     Int      @default(1)
-  isPublished Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String   @id @default(cuid())
+  slug             String   @unique
+  name             String
+  description      String?
+  version          Int      @default(1)
+  isPublished      Boolean  @default(false)
+  featured         Boolean  @default(false)
+  coverImageUrl    String?
+  authorName       String?
+  difficulty       String?  // beginner | intermediate | advanced | expert
+  estimatedPlaytime Int?    // minutes
+  tags             Json     @default("[]")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  levels BandRpgLevel[]
-  quests BandRpgQuest[]
-  arcs   BandRpgStoryArc[]
-  items  BandRpgItem[]   @relation("AdventureItems")
+  levels   BandRpgLevel[]
+  quests   BandRpgQuest[]
+  arcs     BandRpgStoryArc[]
+  items    BandRpgItem[]                @relation("AdventureItems")
+  progress BandRpgAdventureProgress[]
 
   @@map("band_rpg_adventures")
+}
+
+// ── Phase Z.5: Adventure Progress ─────────────────────────────────────────────
+
+model BandRpgAdventureProgress {
+  id               String    @id @default(cuid())
+  userId           String
+  adventureId      String
+  startedAt        DateTime  @default(now())
+  completedAt      DateTime?
+  lastPlayedAt     DateTime  @default(now())
+  completionPct    Float     @default(0)
+  questsCompleted  Int       @default(0)
+  itemsCollected   Int       @default(0)
+  levelsDiscovered Json      @default("[]")
+  isCompleted      Boolean   @default(false)
+
+  user      User             @relation("UserAdventureProgress", fields: [userId], references: [id], onDelete: Cascade)
+  adventure BandRpgAdventure @relation(fields: [adventureId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, adventureId])
+  @@map("band_rpg_adventure_progress")
 }

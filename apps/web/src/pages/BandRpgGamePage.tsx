@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import SiteHeader from '../components/layout/SiteHeader';
@@ -8,11 +8,14 @@ import GameHud from '../components/bandRpgRuntime/GameHud';
 import DebugPanel from '../components/bandRpgRuntime/DebugPanel';
 import CheatPanel from '../components/bandRpgRuntime/CheatPanel';
 import MobileControls from '../components/bandRpgRuntime/MobileControls';
+import CompletionReport from '../components/bandRpgRuntime/CompletionReport';
 import { useGameEngine } from '../components/bandRpgRuntime/useGameEngine';
 import { bandRpgRuntimeApi } from '../api/bandRpgRuntime';
+import { adventureProgressApi } from '../api/adventureApi';
 import { useAuth } from '../contexts/AuthContext';
 import { isNpcVisible, isItemSpawned, isExitVisible } from '../components/bandRpgRuntime/WorldEngine';
 import type { GameState } from '../components/bandRpgRuntime/useGameEngine';
+import type { Adventure, AdventureProgress } from '../api/adventureApi';
 
 export default function BandRpgGamePage() {
   const { slug: slugParam } = useParams<{ slug: string }>();
@@ -21,6 +24,11 @@ export default function BandRpgGamePage() {
   const { user } = useAuth();
 
   const slug = slugParam ?? searchParams.get('slug') ?? '';
+  const adventureId = searchParams.get('adventureId') ?? null;
+
+  const [showCompletion, setShowCompletion] = useState(false);
+  const [completionAdventure, setCompletionAdventure] = useState<Adventure | null>(null);
+  const [completionProgress, setCompletionProgress] = useState<AdventureProgress | null>(null);
 
   const { data: level, isLoading: levelLoading, isError: levelError } = useQuery({
     queryKey: ['runtime-level', slug],
@@ -41,9 +49,25 @@ export default function BandRpgGamePage() {
       bandRpgRuntimeApi.saveProgress(partial),
   });
 
+  const progressSyncMutation = useMutation({
+    mutationFn: (data: Parameters<typeof adventureProgressApi.sync>[1]) =>
+      adventureProgressApi.sync(adventureId!, data),
+    onSuccess: ({ progress }) => {
+      if (progress.isCompleted && !showCompletion) {
+        // Fetch the full adventure data to show completion report
+        void adventureProgressApi.get(adventureId!).then(({ adventure, progress: freshProgress }) => {
+          setCompletionAdventure(adventure);
+          setCompletionProgress(freshProgress);
+          setShowCompletion(true);
+        });
+      }
+    },
+  });
+
   const handleLevelTransition = useCallback((targetSlug: string) => {
-    navigate(`/play/band-rpg/game/${encodeURIComponent(targetSlug)}`);
-  }, [navigate]);
+    const params = adventureId ? `?adventureId=${encodeURIComponent(adventureId)}` : '';
+    navigate(`/play/band-rpg/game/${encodeURIComponent(targetSlug)}${params}`);
+  }, [navigate, adventureId]);
 
   const handleSave = useCallback((gameState: GameState, levelSlug: string) => {
     saveMutation.mutate({
@@ -59,7 +83,16 @@ export default function BandRpgGamePage() {
       activatedSwitches: gameState.activatedSwitches,
       worldState: gameState.worldState,
     });
-  }, [saveMutation]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Sync adventure progress if in an adventure context
+    if (adventureId) {
+      progressSyncMutation.mutate({
+        levelsDiscovered: gameState.unlockedLevelSlugs,
+        questsCompleted: gameState.completedQuests.length,
+        itemsCollected: gameState.inventory.length,
+        isCompleted: false, // Game itself doesn't know if adventure is done; server calculates
+      });
+    }
+  }, [saveMutation, progressSyncMutation, adventureId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isAdmin = user?.isAdmin ?? false;
 
@@ -134,12 +167,22 @@ export default function BandRpgGamePage() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden" style={{ backgroundColor: '#0f172a' }}>
+      {showCompletion && completionAdventure && completionProgress && (
+        <CompletionReport
+          adventure={completionAdventure}
+          progress={completionProgress}
+          onDismiss={() => setShowCompletion(false)}
+        />
+      )}
       <SiteHeader theme="dark" active="games" />
 
       {/* Title bar */}
       <div className="flex items-center justify-between px-4 py-2 bg-black/60 border-b border-gray-800 shrink-0">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/play/band-rpg')} className="text-gray-500 hover:text-gray-300 text-sm">←</button>
+          <button
+            onClick={() => navigate(adventureId ? `/play/band-rpg/adventures/${adventureId}` : '/play/band-rpg')}
+            className="text-gray-500 hover:text-gray-300 text-sm"
+          >←</button>
           <span className="text-white font-semibold text-sm">{level.name}</span>
           <span className="text-gray-600 text-xs">/{level.slug}</span>
           {state.activeQuestIds.length > 0 && (

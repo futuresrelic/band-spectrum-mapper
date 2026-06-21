@@ -1,4 +1,5 @@
 const BASE = '/api/band-rpg/adventures';
+const PROGRESS_BASE = '/api/band-rpg/adventure-progress';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -9,9 +10,48 @@ export interface Adventure {
   description: string | null;
   version: number;
   isPublished: boolean;
+  featured: boolean;
+  coverImageUrl: string | null;
+  authorName: string | null;
+  difficulty: string | null;
+  estimatedPlaytime: number | null;
+  tags: string[];
   createdAt: string;
   updatedAt: string;
-  _count?: { levels: number; quests: number; arcs: number; items: number };
+  _count?: { levels: number; quests: number; arcs: number; items: number; progress?: number };
+}
+
+export interface AdventureProgress {
+  id: string;
+  userId: string;
+  adventureId: string;
+  startedAt: string;
+  completedAt: string | null;
+  lastPlayedAt: string;
+  completionPct: number;
+  questsCompleted: number;
+  itemsCollected: number;
+  levelsDiscovered: string[];
+  isCompleted: boolean;
+}
+
+export interface AdventureWithProgress {
+  adventure: Adventure;
+  progress: AdventureProgress | null;
+}
+
+export interface BrowseAdventure extends Adventure {
+  progress: Pick<AdventureProgress, 'completionPct' | 'isCompleted' | 'startedAt' | 'lastPlayedAt'> | null;
+}
+
+export interface HealthCheck {
+  name: string;
+  passed: boolean;
+  weight: number;
+}
+export interface AdventureHealth {
+  score: number;
+  checks: HealthCheck[];
 }
 
 export interface AdventureExport {
@@ -44,13 +84,15 @@ export interface ImportResult {
   errors?: ValidationError[];
 }
 
-// ── API client ────────────────────────────────────────────────────────────────
+// ── API helper ─────────────────────────────────────────────────────────────────
 
 async function api<T>(url: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(url, { credentials: 'include', ...opts });
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<T>;
 }
+
+// ── Adventure admin API ───────────────────────────────────────────────────────
 
 export const adventureApi = {
   list: () => api<Adventure[]>(BASE),
@@ -62,7 +104,11 @@ export const adventureApi = {
       body: JSON.stringify(data),
     }),
 
-  update: (id: string, data: Partial<{ slug: string; name: string; description: string; isPublished: boolean }>) =>
+  update: (id: string, data: Partial<{
+    slug: string; name: string; description: string; isPublished: boolean;
+    featured: boolean; coverImageUrl: string; authorName: string;
+    difficulty: string; estimatedPlaytime: number; tags: string[];
+  }>) =>
     api<Adventure>(`${BASE}/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -98,4 +144,42 @@ export const adventureApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ payload, mode }),
     }),
+};
+
+// ── Adventure progress (player-facing) API ────────────────────────────────────
+
+export const adventureProgressApi = {
+  browse: (opts: { userId?: string; featured?: boolean; difficulty?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.userId) params.set('userId', opts.userId);
+    if (opts.featured) params.set('featured', 'true');
+    if (opts.difficulty) params.set('difficulty', opts.difficulty);
+    const qs = params.toString();
+    return api<{ adventures: BrowseAdventure[] }>(`${PROGRESS_BASE}/browse${qs ? `?${qs}` : ''}`);
+  },
+
+  my: () => api<{ adventures: AdventureWithProgress[] }>(`${PROGRESS_BASE}/my`),
+
+  get: (adventureId: string) =>
+    api<{ adventure: Adventure; progress: AdventureProgress; firstLevelSlug: string | null }>(`${PROGRESS_BASE}/${adventureId}`),
+
+  sync: (adventureId: string, data: {
+    levelsDiscovered: string[];
+    questsCompleted: number;
+    itemsCollected: number;
+    isCompleted: boolean;
+  }) =>
+    api<{ progress: AdventureProgress }>(`${PROGRESS_BASE}/${adventureId}/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  restart: (adventureId: string) =>
+    api<{ progress: AdventureProgress }>(`${PROGRESS_BASE}/${adventureId}/restart`, {
+      method: 'POST',
+    }),
+
+  health: (adventureId: string) =>
+    api<AdventureHealth>(`${PROGRESS_BASE}/${adventureId}/health`),
 };
