@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { bandRpgEditorApi, type EditorLevel, type MapData, type TileType, type MapEntity } from '../../api/bandRpgEditor';
 import { bandsApi } from '../../api/bands';
@@ -576,6 +577,7 @@ type DetailTab = 'details' | 'map' | 'objectives' | 'npcs';
 function LevelDetail({ levelId, onBack }: { levelId: string; onBack: () => void }) {
   const [detailTab, setDetailTab] = useState<DetailTab>('details');
   const [isEditing, setEditing] = useState(false);
+  const navigate = useNavigate();
 
   const { data: level, isLoading } = useQuery({
     queryKey: ['editor-level', levelId],
@@ -641,12 +643,20 @@ function LevelDetail({ levelId, onBack }: { levelId: string; onBack: () => void 
                 </div>
               </div>
               {level.description && <p className="text-sm text-surface-600">{level.description}</p>}
-              <button
-                onClick={() => setEditing(true)}
-                className="bg-surface-100 hover:bg-surface-200 text-surface-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-              >
-                Edit Details
-              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setEditing(true)}
+                  className="bg-surface-100 hover:bg-surface-200 text-surface-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                >
+                  Edit Details
+                </button>
+                <button
+                  onClick={() => navigate(`/play/band-rpg/game/${encodeURIComponent(level.slug)}`)}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+                >
+                  ▶ Play This Level
+                </button>
+              </div>
             </div>
           )}
         </div>
