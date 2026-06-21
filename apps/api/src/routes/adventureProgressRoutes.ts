@@ -19,13 +19,16 @@ adventureProgressRouter.get('/browse', async (req, res, next): Promise<void> => 
     if (featured === 'true') where.featured = true;
     if (difficulty) where.difficulty = difficulty;
 
-    const adventures = await prisma.bandRpgAdventure.findMany({
-      where,
-      orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
-      include: {
-        _count: { select: { levels: true, quests: true } },
-      },
-    });
+    const [adventures, totalInDb, totalPublished] = await Promise.all([
+      prisma.bandRpgAdventure.findMany({
+        where,
+        orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
+        include: { _count: { select: { levels: true, quests: true } } },
+      }),
+      prisma.bandRpgAdventure.count(),
+      prisma.bandRpgAdventure.count({ where: { isPublished: true } }),
+    ]);
+    console.log(`[browse] db_total=${totalInDb} published=${totalPublished} returned=${adventures.length}`);
 
     // Optionally overlay progress for a specific user
     let progressMap = new Map<string, {

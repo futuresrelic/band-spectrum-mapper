@@ -308,6 +308,7 @@ interface ImportPayload {
     slug: string;
     name: string;
     description?: string;
+    isPublished?: boolean;
     featured?: boolean;
     authorName?: string;
     coverImageUrl?: string;
@@ -568,9 +569,11 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
         }
       }
 
-      // Step 4: Create or upsert adventure — apply all metadata fields from the JSON
+      // Step 4: Create or upsert adventure — apply all metadata fields from the JSON.
+      // isPublished defaults to true on import so adventures appear in the browse endpoint immediately.
       const adventureMeta = {
         name: p.adventure.name,
+        isPublished: p.adventure.isPublished ?? true,
         ...(p.adventure.description !== undefined ? { description: p.adventure.description } : {}),
         ...(p.adventure.featured !== undefined ? { featured: p.adventure.featured } : {}),
         ...(p.adventure.authorName !== undefined ? { authorName: p.adventure.authorName } : {}),

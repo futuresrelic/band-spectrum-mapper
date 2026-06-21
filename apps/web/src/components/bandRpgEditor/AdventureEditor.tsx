@@ -6,21 +6,25 @@ import AdventureWizard from './AdventureWizard';
 
 export default function AdventureEditor() {
   const qc = useQueryClient();
-  const [tab, setTab] = useState<'adventures' | 'import'>('adventures');
+  const [tab, setTab] = useState<'adventures' | 'import' | 'debug'>('adventures');
   const [showCreate, setShowCreate] = useState(false);
 
   return (
     <div className="space-y-6">
       <div className="flex gap-2 border-b border-surface-200 pb-0">
-        {(['adventures', 'import'] as const).map(t => (
+        {([
+          ['adventures', '🗂 Adventures'],
+          ['import', '📦 Import / Export'],
+          ['debug', '🔍 Debug'],
+        ] as const).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium capitalize border-b-2 -mb-px transition-colors ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === t ? 'border-indigo-500 text-indigo-700' : 'border-transparent text-surface-500 hover:text-surface-700'
             }`}
           >
-            {t === 'adventures' ? '🗂 Adventures' : '📦 Import / Export'}
+            {label}
           </button>
         ))}
       </div>
@@ -29,6 +33,7 @@ export default function AdventureEditor() {
         <AdventuresTab showCreate={showCreate} setShowCreate={setShowCreate} qc={qc} />
       )}
       {tab === 'import' && <ImportTab qc={qc} />}
+      {tab === 'debug' && <DebugTab />}
     </div>
   );
 }
@@ -123,6 +128,24 @@ function AdventuresTab({ showCreate, setShowCreate, qc }: { showCreate: boolean;
           <p className="text-surface-400 text-sm">No adventures yet. Create one or import a JSON package.</p>
         </div>
       )}
+
+      {adventures.length > 0 && (() => {
+        const publishedCount = adventures.filter(a => a.isPublished).length;
+        const hiddenCount = adventures.length - publishedCount;
+        return (
+          <div className={`rounded-lg border px-4 py-2.5 text-sm flex items-center gap-3 ${hiddenCount > 0 ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
+            <span className={hiddenCount > 0 ? 'text-amber-800' : 'text-emerald-800'}>
+              {adventures.length} adventure{adventures.length !== 1 ? 's' : ''} total —{' '}
+              <strong>{publishedCount} published</strong> (visible in Browse){hiddenCount > 0 ? `, ${hiddenCount} hidden (not published)` : ''}
+            </span>
+            {hiddenCount > 0 && (
+              <span className="text-xs text-amber-700 bg-amber-100 border border-amber-200 rounded px-2 py-0.5">
+                Hidden adventures do not appear in /play/band-rpg/adventures
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {adventures.map(adv => (
         <AdventureCard
@@ -282,7 +305,10 @@ function AdventureCard({ adv, isEditing, onEdit, onDelete, qc }: {
               <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <span className="font-semibold text-surface-900">{adv.name}</span>
                 <span className="text-xs font-mono text-surface-400 bg-surface-100 px-2 py-0.5 rounded">/{adv.slug}</span>
-                {adv.isPublished && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Published</span>}
+                {adv.isPublished
+                  ? <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Published</span>
+                  : <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Hidden — not visible in Browse</span>
+                }
                 {(adv.featured ?? false) && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Featured</span>}
                 {adv.difficulty && <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full capitalize">{adv.difficulty}</span>}
               </div>
@@ -299,6 +325,15 @@ function AdventureCard({ adv, isEditing, onEdit, onDelete, qc }: {
               )}
             </div>
             <div className="flex gap-2 shrink-0 flex-wrap justify-end">
+              {!adv.isPublished && (
+                <button
+                  onClick={() => updateMut.mutate({ isPublished: true })}
+                  disabled={updateMut.isPending}
+                  className="text-xs border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg disabled:opacity-50 font-medium"
+                >
+                  {updateMut.isPending ? 'Publishing…' : '⚠ Publish Now'}
+                </button>
+              )}
               <button onClick={handleExport} disabled={exporting} className="text-xs border border-surface-300 bg-surface-50 hover:bg-surface-100 px-3 py-1.5 rounded-lg disabled:opacity-50">
                 {exporting ? 'Exporting…' : '⬇ Export'}
               </button>
@@ -607,6 +642,96 @@ function ImportTab({ qc }: { qc: ReturnType<typeof useQueryClient> }) {
           <div><strong>Cross-references:</strong> use <code>targetSlug</code> (items/quests) or <code>targetName</code> (doors/switches/NPCs) in conditions and actions</div>
           <div><strong>Version field:</strong> <code>bandRpgAdventureVersion: 1</code> — always include</div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Debug tab ─────────────────────────────────────────────────────────────────
+
+function DebugTab() {
+  const { data: adventures = [], isLoading } = useQuery({
+    queryKey: ['adventures'],
+    queryFn: () => adventureApi.list(),
+    staleTime: 30_000,
+  });
+
+  const { data: browseData, isLoading: browseLoading } = useQuery({
+    queryKey: ['adventures-browse-debug'],
+    queryFn: () => adventureProgressApi.browse({}),
+    staleTime: 10_000,
+  });
+
+  const publishedSlugs = new Set((browseData?.adventures ?? []).map(a => a.slug));
+
+  if (isLoading || browseLoading) return <div className="text-surface-500 text-sm">Loading…</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-surface-200 bg-white p-5">
+        <h3 className="font-semibold text-surface-900 mb-1">Adventure Visibility Debug</h3>
+        <p className="text-xs text-surface-500 mb-4">
+          Admin list (all adventures) vs. Browse endpoint (published only, visible to players at /play/band-rpg/adventures).
+        </p>
+        <div className="flex gap-4 mb-4 text-sm">
+          <div className="bg-surface-100 rounded-lg px-4 py-2">
+            <div className="text-2xl font-bold text-surface-900">{adventures.length}</div>
+            <div className="text-xs text-surface-500">Admin list (total)</div>
+          </div>
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2">
+            <div className="text-2xl font-bold text-emerald-700">{publishedSlugs.size}</div>
+            <div className="text-xs text-emerald-600">Browse endpoint (published)</div>
+          </div>
+          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2">
+            <div className="text-2xl font-bold text-red-700">{adventures.length - publishedSlugs.size}</div>
+            <div className="text-xs text-red-600">Hidden (not published)</div>
+          </div>
+        </div>
+
+        {adventures.length === 0 ? (
+          <p className="text-surface-400 text-sm">No adventures in database.</p>
+        ) : (
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="border-b border-surface-200 text-left text-xs text-surface-500 uppercase tracking-wide">
+                <th className="pb-2 pr-4">Slug</th>
+                <th className="pb-2 pr-4">Name</th>
+                <th className="pb-2 pr-4">Published</th>
+                <th className="pb-2 pr-4">Featured</th>
+                <th className="pb-2">Appears in Browse?</th>
+              </tr>
+            </thead>
+            <tbody>
+              {adventures.map(adv => {
+                const inBrowse = publishedSlugs.has(adv.slug);
+                return (
+                  <tr key={adv.id} className="border-b border-surface-100 hover:bg-surface-50">
+                    <td className="py-2 pr-4 font-mono text-xs text-surface-500">{adv.slug}</td>
+                    <td className="py-2 pr-4 font-medium text-surface-900">{adv.name}</td>
+                    <td className="py-2 pr-4">
+                      {adv.isPublished
+                        ? <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Yes</span>
+                        : <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">No</span>
+                      }
+                    </td>
+                    <td className="py-2 pr-4">
+                      {(adv.featured ?? false)
+                        ? <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Yes</span>
+                        : <span className="text-xs text-surface-400">—</span>
+                      }
+                    </td>
+                    <td className="py-2">
+                      {inBrowse
+                        ? <span className="text-xs font-semibold text-emerald-700">YES</span>
+                        : <span className="text-xs font-semibold text-red-700">NO{!adv.isPublished ? ' — not published' : ''}</span>
+                      }
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
