@@ -4,6 +4,66 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.3 — World Systems & Puzzle Framework (2026-06-21)
+
+### Added
+
+**Key/Door System:**
+- `BandRpgDoor` model with types: `key_door`, `quest_door`, `story_door`, `switch_door`, `free`
+- Doors placed at tile coordinates block movement when locked; E key to attempt interaction
+- `lockCondition` (WorldCondition JSON) evaluated against live WorldSnapshot each frame
+- Visual indicators: red emoji + [E] Try hint (locked); blue emoji (open); per-type door icon
+
+**Switch System:**
+- `BandRpgSwitch` model with types: `switch`, `lever`, `button`, `pressure_plate`
+- Adjacent E interaction activates switch, fires `effect` (PuzzleAction JSON) and puzzle trigger chain
+- Per-type visual icons; amber (inactive) vs green (activated) rendering in TileRenderer
+
+**Puzzle/Trigger Framework:**
+- `BandRpgPuzzle` model: ordered Trigger → Condition → Action chains per level
+- Trigger types: `item_collected`, `quest_complete`, `quest_start`, `story_beat_seen`, `switch_activated`, `npc_talked`, `level_enter`
+- Condition types: `item_owned`, `quest_active`, `quest_complete`, `story_beat_seen`, `switch_activated`, `door_open`, `world_state`, `always`, `never`
+- Action types: `open_door`, `close_door`, `trigger_beat`, `reveal_exit`, `set_world_state`, `grant_item`
+- `findTriggeredPuzzles` pure function evaluates all puzzles on every relevant state change
+
+**World State persistence:**
+- `openedDoors`, `activatedSwitches`, `worldState` added to `BandRpgPlayerProgress` (DB) and `SaveState` (runtime)
+- Loaded on level start, persisted on every auto-save tick
+
+**Conditional Entities:**
+- NPCs: `visibilityCondition Json?` DB field — evaluated via `isNpcVisible(npc, snap)` in game page
+- Items: `spawnCondition` in MapEntity JSON — evaluated via `isItemSpawned(item, snap)`
+- Exits: `condition` in MapEntity JSON — evaluated via `isExitVisible(exit, snap)`
+- All conditions evaluated against `WorldSnapshot` (inventory, quests, beats, switches, doors, world state keys)
+
+**WorldEngine.ts** — new pure-function module (zero React, fully testable):
+- `evaluateCondition`, `isDoorOpen`, `canOpenDoor`, `doorBlockedMessage`
+- `matchesPuzzleTrigger`, `findTriggeredPuzzles`, `evaluatePuzzleAction`
+- `isNpcVisible`, `isItemSpawned`, `isExitVisible`
+- `FutureWorldFoundation` type stubs: enemies, bosses, companions, abilities, stealth, combat
+
+**WorldEditor admin tab** (`/admin/band-rpg` → World tab):
+- Level selector + sub-tabs: Doors / Switches / Puzzles
+- CRUD for all three entity types with structured JSON editors
+- `ConditionEditor` sub-component: type dropdown + targetId + key/value for `world_state`
+- `ActionEditor` sub-component: type dropdown + targetId + key/value for `set_world_state`
+- Full CRUD API: `GET/POST /editor/world/levels/:id/doors`, `/switches`, `/puzzles` + PUT/DELETE per entity
+
+**Visual Debug & Cheat:**
+- DebugPanel: door count / open count, switch count / activated count, puzzle count, world state key count; activated switch list; world state key-value dump
+- CheatPanel: Open button per locked door; Fire button per inactive switch; state summary row for doors/switches
+
+**API routes:** `worldEditorRouter` mounted at `/api/band-rpg/editor/world` (requireAuth + requireAdmin)
+
+### Technical notes
+- `BandRpgDoor`, `BandRpgSwitch`, `BandRpgPuzzle` use `@@map` table names via Prisma; migration auto-applies on Railway via `db push`
+- `WorldSnapshot` is a minimal read-only projection of `GameState` — prevents closure capture of full mutable state in pure evaluators
+- `applyPuzzleTrigger` is a helper that calls `findTriggeredPuzzles` and returns updated GameState after applying each matched puzzle's action
+- Strict TypeScript: all Prisma mutations use `UncheckedCreateInput`/`UncheckedUpdateInput`; JSON fields cast as `Prisma.InputJsonValue`; route params use non-null assertion `req.params['key']!`
+- `isNpcVisible` / `isItemSpawned` / `isExitVisible` exported from WorldEngine and used in `BandRpgGamePage.tsx` (not inside the reducer) to avoid filtering inside TileRenderer
+
+---
+
 ## Phase Y.3 — Community Appreciation + Avatar System 2.0 (2026-06-20)
 
 ### Added

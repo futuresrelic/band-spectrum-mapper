@@ -576,3 +576,92 @@ All Cinema user customisation data for the admin account is stored server-side i
 | `nodeOverridesJson` | `Record<string, NodeOverride>` — per-node colour/size overrides |
 
 **Sync strategy:** On mount, the frontend fetches `GET /api/cinema/data`. Server data is authoritative — if the server has data it is applied to state and written to localStorage as a cache. If the server row is empty (first use of this feature), local data is pushed up. After each user edit, a 2-second debounced PUT request saves the changed data type to the server. All server calls fail silently — localStorage always works as an offline fallback.
+
+---
+
+## Band RPG — World Systems & Puzzle Framework (Phase Z.3)
+
+### New DB Models
+
+| Model | Purpose |
+|---|---|
+| `BandRpgDoor` | Tile-blocking door entity with lock condition and type |
+| `BandRpgSwitch` | Interactive switch entity with activation effect |
+| `BandRpgPuzzle` | Trigger → Condition → Action chain authored by creators |
+
+All three models belong to a `BandRpgLevel` via `levelId` foreign key.
+
+**`BandRpgDoor`** — `BandRpgDoorType`: `key_door`, `quest_door`, `story_door`, `switch_door`, `free`
+- `lockCondition Json` — WorldCondition evaluated to decide if the door is passable
+- `openedByDefault Boolean` — pre-opened doors (decorative or story-revealed)
+
+**`BandRpgSwitch`** — `BandRpgSwitchType`: `switch`, `lever`, `button`, `pressure_plate`
+- `effect Json` — PuzzleAction executed immediately on activation
+
+**`BandRpgPuzzle`** — ordered sequence per level
+- `trigger Json` — PuzzleTrigger specifying the event and optional target entity
+- `condition Json` — WorldCondition guard (must pass before action fires)
+- `action Json` — PuzzleAction to execute
+
+**Extended `BandRpgNpc`:** `visibilityCondition Json?` — evaluated per frame to show/hide NPC
+
+**Extended `BandRpgPlayerProgress`:** `openedDoors Json`, `activatedSwitches Json`, `worldState Json` — persisted world interaction state
+
+### WorldEngine Module
+
+`apps/web/src/components/bandRpgRuntime/WorldEngine.ts` is a pure-function module with zero React dependencies:
+
+```
+WorldSnapshot  ──► evaluateCondition(condition, snap)  ──► boolean
+WorldSnapshot  ──► isDoorOpen(door, snap)               ──► boolean
+WorldSnapshot  ──► canOpenDoor(door, snap)              ──► boolean
+PuzzleEvent    ──► findTriggeredPuzzles(event, puzzles, snap) ──► RuntimePuzzle[]
+PuzzleAction   ──► evaluatePuzzleAction(action)         ──► PuzzleActionResult
+RuntimeNpc     ──► isNpcVisible(npc, snap)              ──► boolean
+RuntimeItem    ──► isItemSpawned(item, snap)            ──► boolean
+RuntimeExit    ──► isExitVisible(exit, snap)            ──► boolean
+```
+
+`WorldSnapshot` is a minimal projection of `GameState` containing only the fields needed for condition evaluation — it prevents closure capture of the full mutable reducer state in pure functions.
+
+### Puzzle Evaluation Flow
+
+```
+GameState change (move, collect, quest, etc.)
+  ↓
+applyPuzzleTrigger(state, { type, targetId }, level)
+  ↓
+findTriggeredPuzzles(event, level.puzzles, worldSnapshot)
+  ↓ (for each matched puzzle)
+evaluatePuzzleAction(puzzle.action)  →  PuzzleActionResult
+  ↓
+dispatch(APPLY_PUZZLE_ACTION, result)
+  ↓
+Reducer: open door / activate beat / reveal exit / set world state / grant item
+```
+
+### Admin Editor Routes
+
+`worldEditorRouter` mounted at `/api/band-rpg/editor/world`:
+
+| Method | Path | Action |
+|---|---|---|
+| GET | `/levels/:id/doors` | List doors for level |
+| POST | `/levels/:id/doors` | Create door |
+| PUT | `/levels/:id/doors/:doorId` | Update door |
+| DELETE | `/levels/:id/doors/:doorId` | Delete door |
+| GET/POST/PUT/DELETE | `/levels/:id/switches` | CRUD for switches |
+| GET/POST/PUT/DELETE | `/levels/:id/puzzles` | CRUD for puzzles |
+
+### Conditional Entity Filtering
+
+All filtering happens in `BandRpgGamePage.tsx` before entities reach the renderer:
+
+```typescript
+const worldSnap = getWorldSnapshot();
+const visibleNpcs  = level.npcs.filter(n => isNpcVisible(n, worldSnap));
+const visibleItems = level.items.filter(i => isItemSpawned(i, worldSnap));
+const visibleExits = level.exits.filter(e => isExitVisible(e, worldSnap));
+```
+
+NPC conditions are stored on the `BandRpgNpc` DB row (`visibilityCondition`). Item and exit conditions are stored in the MapEntity JSON blob (`condition` field) because items and exits are placed via the map data rather than having global definitions with placement-independent conditions.
