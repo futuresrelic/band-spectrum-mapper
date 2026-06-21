@@ -499,7 +499,7 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
     // Step 1: structural + enum validation (no DB writes)
     const validation = validatePayload(payload);
     if (!validation.valid) {
-      res.status(422).json({ ok: false, errors: validation.errors, preview: validation.preview }); return;
+      res.status(422).json({ ok: false, error: 'Adventure validation failed', errors: validation.errors, preview: validation.preview }); return;
     }
     const p = payload as ImportPayload;
 
@@ -527,7 +527,7 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
         for (const e of ex) dbErrors.push({ path: 'arcs', message: `Arc slug "${e.slug}" already exists.` });
       }
       if (dbErrors.length > 0) {
-        res.status(422).json({ ok: false, errors: dbErrors, preview: validation.preview }); return;
+        res.status(422).json({ ok: false, error: 'Adventure validation failed', errors: dbErrors, preview: validation.preview }); return;
       }
     }
 

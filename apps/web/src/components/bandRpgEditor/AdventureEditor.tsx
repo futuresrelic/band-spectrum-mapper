@@ -400,17 +400,22 @@ function ImportTab({ qc }: { qc: ReturnType<typeof useQueryClient> }) {
       setImportResult(result);
       if (result.ok) qc.invalidateQueries({ queryKey: ['adventures'] });
     } catch (e) {
-      const err = e as Error & { status?: number };
+      const err = e as Error & { status?: number; body?: Record<string, unknown> };
       const isAuth = err.status === 401 || err.status === 403;
-      setImportResult({
-        ok: false,
-        errors: [{
-          path: isAuth ? 'auth' : 'server',
-          message: isAuth
-            ? 'Authentication required. Please sign in as admin and try again.'
-            : (err.message ?? 'Server error. Please try again.'),
-        }],
-      });
+      if (isAuth) {
+        setImportResult({ ok: false, errors: [{ path: 'auth', message: 'Authentication required. Please sign in as admin and try again.' }] });
+      } else {
+        // Surface server-provided validation errors from the 422 response body
+        const rawErrors = err.body?.['errors'];
+        const serverErrors: { path: string; message: string }[] | null =
+          Array.isArray(rawErrors) && rawErrors.length > 0
+            ? (rawErrors as { path: string; message: string }[])
+            : null;
+        setImportResult({
+          ok: false,
+          errors: serverErrors ?? [{ path: 'server', message: err.message ?? 'Server error. Please try again.' }],
+        });
+      }
     } finally {
       setImporting(false);
     }
@@ -509,12 +514,21 @@ function ImportTab({ qc }: { qc: ReturnType<typeof useQueryClient> }) {
       {importResult && (
         <div className={`rounded-xl border p-5 space-y-3 ${importResult.ok ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'}`}>
           <h3 className={`font-semibold ${importResult.ok ? 'text-emerald-900' : 'text-red-900'}`}>
-            {importResult.ok ? '✓ Import successful' : '✗ Import failed'}
+            {importResult.ok
+              ? '✓ Import successful'
+              : `✗ Import failed${importResult.errors?.length ? ` — ${importResult.errors.length} issue${importResult.errors.length !== 1 ? 's' : ''}` : ''}`}
           </h3>
-          {importResult.errors && (
+          {!importResult.ok && validation?.valid && (
+            <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              Validation passed, but the server rejected the import. See details below.
+            </p>
+          )}
+          {importResult.errors && importResult.errors.length > 0 && (
             <ul className="space-y-1">
               {importResult.errors.map((e, i) => (
-                <li key={i} className="text-sm text-red-700"><span className="font-mono text-red-500">{e.path}</span>: {e.message}</li>
+                <li key={i} className="text-sm text-red-700">
+                  <span className="font-mono text-red-500">{e.path}</span>: {e.message}
+                </li>
               ))}
             </ul>
           )}
