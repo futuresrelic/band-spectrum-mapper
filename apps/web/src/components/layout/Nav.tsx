@@ -75,6 +75,7 @@ const adminSections: NavSection[] = [
   {
     heading: 'Content Admin',
     links: [
+      { to: '/admin/band-rpg',       label: 'Band RPG Creator' },
       { to: '/admin/bootlegs',       label: 'Bootleg Importer' },
       { to: '/admin/knowledge',      label: 'AI Knowledge Feed' },
       { to: '/admin/data-grid',      label: 'Data Grid' },

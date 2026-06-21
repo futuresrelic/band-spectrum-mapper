@@ -1,7 +1,15 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { bandRpgApi } from '../api/bandRpg';
+import { bandRpgEditorApi } from '../api/bandRpgEditor';
 import { bandsApi } from '../api/bands';
+import LevelEditor from '../components/bandRpgEditor/LevelEditor';
+import QuestEditor from '../components/bandRpgEditor/QuestEditor';
+import StoryEditor from '../components/bandRpgEditor/StoryEditor';
+import NpcEditor from '../components/bandRpgEditor/NpcEditor';
+import ItemEditor from '../components/bandRpgEditor/ItemEditor';
+import TimelineEditor from '../components/bandRpgEditor/TimelineEditor';
+import LeaderboardTab from '../components/bandRpgEditor/LeaderboardTab';
 
 type Tab =
   | 'overview'
@@ -45,16 +53,30 @@ function ComingSoonPlaceholder({ title, desc }: { title: string; desc: string })
 }
 
 function OverviewTab() {
+  const { data: counts } = useQuery({
+    queryKey: ['band-rpg-editor-counts'],
+    queryFn: async () => {
+      const [levels, quests, items] = await Promise.all([
+        bandRpgEditorApi.listLevels(),
+        bandRpgEditorApi.listQuests(),
+        bandRpgEditorApi.listItems(),
+      ]);
+      const totalObjectives = levels.reduce((sum, l) => sum + (l._count?.objectives ?? 0), 0);
+      return { levels: levels.length, quests: quests.length, objectives: totalObjectives, items: items.length };
+    },
+    staleTime: 30_000,
+  });
+
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-surface-200 bg-white p-6">
         <h2 className="font-semibold text-surface-900 mb-4">Band RPG — Game Status</h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: 'Levels', value: '0', color: 'text-indigo-600' },
-            { label: 'Quests', value: '0', color: 'text-emerald-600' },
-            { label: 'Objectives', value: '0', color: 'text-amber-600' },
-            { label: 'Items', value: '0', color: 'text-rose-600' },
+            { label: 'Levels',     value: counts?.levels     ?? '—', color: 'text-indigo-600' },
+            { label: 'Quests',     value: counts?.quests     ?? '—', color: 'text-emerald-600' },
+            { label: 'Objectives', value: counts?.objectives ?? '—', color: 'text-amber-600' },
+            { label: 'Items',      value: counts?.items      ?? '—', color: 'text-rose-600' },
           ].map(({ label, value, color }) => (
             <div key={label} className="rounded-lg bg-surface-50 border border-surface-200 p-4 text-center">
               <div className={`text-3xl font-bold mb-1 ${color}`}>{value}</div>
@@ -64,22 +86,21 @@ function OverviewTab() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
-        <h3 className="font-semibold text-amber-900 mb-2">Phase A — Skeleton Active</h3>
-        <p className="text-sm text-amber-800 leading-relaxed mb-4">
-          Band RPG is in Phase A: the database models, admin scaffold, and game route are live.
-          Editors for levels, quests, storyline, and gameplay will be built in Phase B and beyond.
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-6">
+        <h3 className="font-semibold text-emerald-900 mb-2">Phase Z.0 — Creator Toolkit Active</h3>
+        <p className="text-sm text-emerald-800 leading-relaxed mb-4">
+          The Creator Toolkit is live. Build levels, quests, storylines, NPCs, items, and timelines — no code required.
         </p>
-        <div className="space-y-2 text-sm text-amber-800">
+        <div className="space-y-2 text-sm text-emerald-800">
           {[
             { done: true,  label: 'Database models (BandRpgLevel, BandRpgObjective, BandRpgQuest, etc.)' },
             { done: true,  label: 'Admin scaffold with tab navigation' },
             { done: true,  label: 'Public game route at /play/band-rpg' },
             { done: true,  label: 'Game added to games directory and leaderboard system' },
+            { done: true,  label: 'Phase Z.0: Creator Toolkit — Level, Quest, Story, NPC, Item editors' },
             { done: false, label: 'Phase B: Playable level + Vinyl Runner character reuse + basic collision' },
-            { done: false, label: 'Phase C: Level editor, objectives editor, items editor, save/load from DB' },
-            { done: false, label: 'Phase D: Quest system, storyline editor, timeline, dialogue' },
-            { done: false, label: 'Phase E: Cross-game objectives, leaderboard polish, mobile controls' },
+            { done: false, label: 'Phase C: In-editor playtest mode (requires Phase B game engine)' },
+            { done: false, label: 'Phase D: Quest system runtime, dialogue UI, inventory, save/load' },
           ].map(({ done, label }) => (
             <div key={label} className="flex items-start gap-2">
               <span className="mt-0.5 flex-shrink-0">{done ? '✅' : '⬜'}</span>
@@ -88,6 +109,56 @@ function OverviewTab() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ObjectivesTab() {
+  const { data: levels = [] } = useQuery({
+    queryKey: ['editor-levels'],
+    queryFn: () => bandRpgEditorApi.listLevels(),
+    staleTime: 60_000,
+  });
+
+  const [levelId, setLevelId] = useState('');
+  const activeLevelId = levelId || (levels[0]?.id ?? '');
+
+  if (levels.length === 0) {
+    return (
+      <div className="rounded-xl border border-surface-200 bg-surface-50 p-10 text-center">
+        <p className="text-surface-400 text-sm">Create a level first to manage objectives. Go to the Levels tab.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-surface-500">Objectives are managed inside each level. Select a level to open its full editor.</p>
+      <select
+        className="border border-surface-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 min-w-56"
+        value={levelId}
+        onChange={e => setLevelId(e.target.value)}
+      >
+        {levels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+      </select>
+      {activeLevelId && (
+        <div className="rounded-xl border border-surface-200 bg-white p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-surface-900">
+              {levels.find(l => l.id === activeLevelId)?.name ?? ''} — Objectives
+            </h3>
+            <a
+              href={`/admin/band-rpg`}
+              className="text-xs text-indigo-600 hover:text-indigo-800 underline"
+            >
+              Open Level Editor →
+            </a>
+          </div>
+          <p className="text-sm text-surface-500">
+            Open the Level Editor above and navigate to the Objectives tab for this level to add, edit, and reorder objectives.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -291,7 +362,6 @@ function LiveDataTab() {
 
   return (
     <div className="space-y-6">
-      {/* Intro */}
       <div className="rounded-xl border border-surface-200 bg-white p-6">
         <h2 className="font-semibold text-surface-900 mb-1">Live Intelligence — Setlist.fm</h2>
         <p className="text-sm text-surface-500 mb-5 leading-relaxed">
@@ -318,7 +388,6 @@ function LiveDataTab() {
         </div>
       </div>
 
-      {/* Current status */}
       {selectedBandId && status !== undefined && (
         <div className="rounded-xl border border-surface-200 bg-white p-6">
           <h3 className="font-semibold text-surface-900 mb-3">
@@ -369,7 +438,6 @@ function LiveDataTab() {
         </div>
       )}
 
-      {/* Search & link */}
       {selectedBandId && (
         <div className="rounded-xl border border-surface-200 bg-white p-6">
           <h3 className="font-semibold text-surface-900 mb-1">Link Setlist.fm Artist</h3>
@@ -431,7 +499,6 @@ function LiveDataTab() {
         </div>
       )}
 
-      {/* Fetch */}
       {selectedBandId && status?.setlistFmMbid && (
         <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-6">
           <h3 className="font-semibold text-indigo-900 mb-1">Fetch Live Performance Data</h3>
@@ -473,19 +540,6 @@ function LiveDataTab() {
 export default function AdminBandRpgPage() {
   const [tab, setTab] = useState<Tab>('overview');
 
-  const PLACEHOLDER_CONTENT: Partial<Record<Tab, { title: string; desc: string }>> = {
-    levels:      { title: 'Level Editor', desc: 'Create and edit tile-based RPG maps. Assign backgrounds, collision zones, spawn points, NPC placements, objective markers, and trigger zones. Save/load levels from the database.' },
-    objectives:  { title: 'Objectives Editor', desc: 'Define objectives: find items, talk to NPCs, reach locations, trigger song/album/band nodes, solve clues, play linked mini-games, or hit score thresholds in other BSM games.' },
-    quests:      { title: 'Quests Editor', desc: 'Combine objectives into quests. Define quest givers, required sequences, branching paths, rewards, unlock conditions, and story beat triggers.' },
-    storyline:   { title: 'Storyline Editor', desc: 'Write the RPG narrative: story arcs, chapters, dialogue scenes, narration boxes, choice prompts, branching paths, and cutscene text. No code required.' },
-    timeline:    { title: 'Timeline Editor', desc: 'Organize game progression: chapters, levels, quests, story beats, boss moments, linked songs/albums/bands, and required completion order.' },
-    characters:  { title: 'Characters & NPCs', desc: 'Assign Vinyl Runner character assets to Band RPG. Create NPCs from existing band members, set dialogue portraits, factions, and default dialogue lines.' },
-    items:       { title: 'Items & Collectibles', desc: 'Manage the item system: collectibles, key items, quest items, power-ups, lore items, album artifacts, song artifacts, and cosmetic unlocks.' },
-    graphics:    { title: 'Graphics & Theme', desc: 'Edit the main palette, background colors, UI panel colors, dialogue box style, sprite scale, tile size, player movement speed, camera behavior, and marker colors.' },
-    settings:    { title: 'Game Settings', desc: 'Configure lives, health system, timer, score multipliers, movement speed, controls, quest log, minimap, inventory, dialogue speed, difficulty, and save progress options.' },
-    leaderboard: { title: 'Leaderboard', desc: 'View and manage Band RPG scores: total score, completion percentage, fastest run, quests completed, items collected, levels cleared, and player rankings.' },
-  };
-
   return (
     <div className="p-6 max-w-5xl">
       <div className="mb-6">
@@ -516,15 +570,42 @@ export default function AdminBandRpgPage() {
       </div>
 
       {/* Tab content */}
-      {tab === 'overview' && <OverviewTab />}
-      {tab === 'testing'  && <TestingTab />}
-      {tab === 'live'     && <LiveDataTab />}
-      {tab !== 'overview' && tab !== 'testing' && tab !== 'live' && PLACEHOLDER_CONTENT[tab] && (
+      {tab === 'overview'    && <OverviewTab />}
+      {tab === 'levels'      && <LevelEditor />}
+      {tab === 'objectives'  && <ObjectivesTab />}
+      {tab === 'quests'      && <QuestEditor />}
+      {tab === 'storyline'   && <StoryEditor />}
+      {tab === 'timeline'    && <TimelineEditor />}
+      {tab === 'characters'  && (
+        <div className="space-y-6">
+          <NpcEditor />
+          <div className="rounded-xl border border-surface-200 bg-surface-50 p-5">
+            <h3 className="font-semibold text-surface-800 mb-1">Avatar System 2.0</h3>
+            <p className="text-sm text-surface-500 mb-3">
+              Manage character portraits, reference images, and AI-generated sprites in Vinyl Runner Skins.
+            </p>
+            <a href="/admin/platformer" className="text-sm font-medium text-indigo-600 hover:text-indigo-800 underline">
+              Open Vinyl Runner — Skins &amp; Config →
+            </a>
+          </div>
+        </div>
+      )}
+      {tab === 'items'       && <ItemEditor />}
+      {tab === 'graphics'    && (
         <ComingSoonPlaceholder
-          title={PLACEHOLDER_CONTENT[tab]!.title}
-          desc={PLACEHOLDER_CONTENT[tab]!.desc}
+          title="Graphics & Theme"
+          desc="Background and atmosphere settings are configured per-level in the Level Editor's Map tab. Global palette settings coming in a future update."
         />
       )}
+      {tab === 'settings'    && (
+        <ComingSoonPlaceholder
+          title="Game Settings"
+          desc="Configure lives, health system, timer, score multipliers, movement speed, controls, quest log, minimap, inventory, dialogue speed, difficulty, and save progress options."
+        />
+      )}
+      {tab === 'leaderboard' && <LeaderboardTab />}
+      {tab === 'testing'     && <TestingTab />}
+      {tab === 'live'        && <LiveDataTab />}
     </div>
   );
 }

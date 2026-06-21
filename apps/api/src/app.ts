@@ -63,6 +63,11 @@ import { curatorRouter } from './routes/curatorRoutes.js';
 import { bandRpgPublicRouter } from './routes/bandRpgPublicRoutes.js';
 import { communityRouter } from './routes/communityRoutes.js';
 import { appreciationRouter } from './routes/appreciationRoutes.js';
+import { levelEditorRouter } from './routes/levelEditorRoutes.js';
+import { questEditorRouter } from './routes/questEditorRoutes.js';
+import { storyEditorRouter } from './routes/storyEditorRoutes.js';
+import { itemEditorRouter } from './routes/itemEditorRoutes.js';
+import { timelineEditorRouter } from './routes/timelineEditorRoutes.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -242,6 +247,13 @@ export function createApp() {
 
   // Community Appreciation — Phase Y.3 (auth required)
   app.use('/api/band-rpg/appreciation', appreciationRouter);
+
+  // Creator Toolkit — Phase Z.0 (admin only — enforced in each router)
+  app.use('/api/band-rpg/editor/levels', levelEditorRouter);
+  app.use('/api/band-rpg/editor/quests', questEditorRouter);
+  app.use('/api/band-rpg/editor/story', storyEditorRouter);
+  app.use('/api/band-rpg/editor/items', itemEditorRouter);
+  app.use('/api/band-rpg/editor/timeline', timelineEditorRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.
