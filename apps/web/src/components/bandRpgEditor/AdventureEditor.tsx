@@ -353,12 +353,31 @@ function ImportTab({ qc }: { qc: ReturnType<typeof useQueryClient> }) {
   const handleValidate = async () => {
     setValidation(null);
     setImportResult(null);
+
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(jsonText);
+      parsed = JSON.parse(jsonText);
+    } catch (e) {
+      setValidation({ valid: false, errors: [{ path: 'json', message: `Invalid JSON syntax — ${String(e)}` }], preview: null });
+      return;
+    }
+
+    try {
       const result = await adventureApi.validate(parsed);
       setValidation(result);
     } catch (e) {
-      setValidation({ valid: false, errors: [{ path: 'json', message: `Invalid JSON: ${String(e)}` }], preview: null });
+      const err = e as Error & { status?: number };
+      const isAuth = err.status === 401 || err.status === 403;
+      setValidation({
+        valid: false,
+        errors: [{
+          path: isAuth ? 'auth' : 'server',
+          message: isAuth
+            ? 'Authentication required. Please sign in as admin and try again.'
+            : (err.message ?? 'Server error. Please try again.'),
+        }],
+        preview: null,
+      });
     }
   };
 
@@ -366,13 +385,32 @@ function ImportTab({ qc }: { qc: ReturnType<typeof useQueryClient> }) {
     if (!jsonText) return;
     setImporting(true);
     setImportResult(null);
+
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(jsonText);
+      parsed = JSON.parse(jsonText);
+    } catch (e) {
+      setImportResult({ ok: false, errors: [{ path: 'json', message: `Invalid JSON syntax — ${String(e)}` }] });
+      setImporting(false);
+      return;
+    }
+
+    try {
       const result = await adventureApi.import(parsed, mode);
       setImportResult(result);
       if (result.ok) qc.invalidateQueries({ queryKey: ['adventures'] });
     } catch (e) {
-      setImportResult({ ok: false, errors: [{ path: 'network', message: String(e) }] });
+      const err = e as Error & { status?: number };
+      const isAuth = err.status === 401 || err.status === 403;
+      setImportResult({
+        ok: false,
+        errors: [{
+          path: isAuth ? 'auth' : 'server',
+          message: isAuth
+            ? 'Authentication required. Please sign in as admin and try again.'
+            : (err.message ?? 'Server error. Please try again.'),
+        }],
+      });
     } finally {
       setImporting(false);
     }
