@@ -348,6 +348,8 @@ function ImportTab({ qc }: { qc: ReturnType<typeof useQueryClient> }) {
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ ok: boolean; adventureId?: string; imported?: ImportPreview; errors?: { path: string; message: string }[] } | null>(null);
+  const [cleaningUp, setCleaningUp] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<{ total: number; deleted: Record<string, number> } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleValidate = async () => {
@@ -483,7 +485,7 @@ function ImportTab({ qc }: { qc: ReturnType<typeof useQueryClient> }) {
           </button>
           <button
             onClick={handleImport}
-            disabled={!jsonText.trim() || importing || (validation !== null && !validation.valid)}
+            disabled={!jsonText.trim() || importing || (validation !== null && !validation.valid && mode === 'create')}
             className="text-sm bg-indigo-600 text-white px-4 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-40"
           >
             {importing ? 'Importing…' : `⬆ Import (${mode})`}
@@ -553,6 +555,44 @@ function ImportTab({ qc }: { qc: ReturnType<typeof useQueryClient> }) {
           )}
         </div>
       )}
+
+      {/* Orphan cleanup */}
+      <div className="rounded-xl border border-surface-200 bg-surface-50 p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-surface-700">🧹 Cleanup Orphaned Import Data</h3>
+        <p className="text-xs text-surface-500">
+          Deletes all adventure content (arcs, items, quests, levels, NPCs, etc.) that is not linked to any adventure.
+          This removes remnants from failed imports. Safe to run at any time — only unlinked records are removed.
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={async () => {
+              setCleaningUp(true);
+              setCleanupResult(null);
+              try {
+                const r = await adventureApi.cleanupOrphans();
+                setCleanupResult({ total: r.total, deleted: r.deleted });
+              } catch {
+                setCleanupResult({ total: -1, deleted: {} });
+              } finally {
+                setCleaningUp(false);
+              }
+            }}
+            disabled={cleaningUp}
+            className="text-sm border border-red-200 text-red-600 hover:bg-red-50 px-4 py-1.5 rounded-lg disabled:opacity-40"
+          >
+            {cleaningUp ? 'Cleaning…' : 'Run Orphan Cleanup'}
+          </button>
+          {cleanupResult && (
+            <span className={`text-xs ${cleanupResult.total < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+              {cleanupResult.total < 0
+                ? 'Cleanup failed — check server logs.'
+                : cleanupResult.total === 0
+                  ? 'Nothing to clean up.'
+                  : `Deleted ${cleanupResult.total} orphaned records: ${Object.entries(cleanupResult.deleted).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k}`).join(', ')}.`}
+            </span>
+          )}
+        </div>
+      </div>
 
       {/* Sample template reference */}
       <div className="rounded-xl border border-surface-200 bg-surface-50 p-5">

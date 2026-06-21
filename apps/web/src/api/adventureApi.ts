@@ -115,6 +115,9 @@ export const adventureApi = {
 
   import: (payload: unknown, mode: 'create' | 'update' | 'replace' = 'create') =>
     httpApi.post<ImportResult>(`${BASE}/import`, { payload, mode }),
+
+  cleanupOrphans: () =>
+    httpApi.post<{ ok: boolean; total: number; deleted: Record<string, number> }>(`${BASE}/cleanup-orphans`, {}),
 };
 
 // ── Readiness API (admin) ────────────────────────────────────────────────────

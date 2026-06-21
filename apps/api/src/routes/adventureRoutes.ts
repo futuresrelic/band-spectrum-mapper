@@ -452,37 +452,22 @@ adventureRouter.post('/validate', async (req, res, next): Promise<void> => {
     if (!result.valid) { res.json(result); return; }
     const p = req.body as ImportPayload;
 
-    // Check DB for existing slugs
+    // Check DB for globally-unique slug conflicts.
+    // Adventure slugs and Level slugs are globally unique (adventures are identified by slug,
+    // levels are URL-navigable). Quest/arc/item slugs are per-adventure (@@unique([adventureId, slug]))
+    // so they cannot conflict across adventures and are not checked here.
     const dbErrors: ValidationError[] = [];
     const adventureSlug = p.adventure.slug;
 
     const existingAdventure = await prisma.bandRpgAdventure.findUnique({ where: { slug: adventureSlug }, select: { id: true } });
     if (existingAdventure) {
-      dbErrors.push({ path: 'adventure.slug', message: `Adventure with slug "${adventureSlug}" already exists in database` });
+      dbErrors.push({ path: 'adventure.slug', message: `Adventure with slug "${adventureSlug}" already exists in database. Use mode=update or mode=replace to overwrite.` });
     }
 
     const levelSlugs = (p.levels ?? []).map(l => l.slug);
     if (levelSlugs.length > 0) {
       const existing = await prisma.bandRpgLevel.findMany({ where: { slug: { in: levelSlugs } }, select: { slug: true } });
       for (const e of existing) dbErrors.push({ path: 'levels', message: `Level slug "${e.slug}" already exists in database` });
-    }
-
-    const questSlugs = (p.quests ?? []).map(q => q.slug);
-    if (questSlugs.length > 0) {
-      const existing = await prisma.bandRpgQuest.findMany({ where: { slug: { in: questSlugs } }, select: { slug: true } });
-      for (const e of existing) dbErrors.push({ path: 'quests', message: `Quest slug "${e.slug}" already exists in database` });
-    }
-
-    const itemSlugs = (p.items ?? []).map(i => i.slug);
-    if (itemSlugs.length > 0) {
-      const existing = await prisma.bandRpgItem.findMany({ where: { slug: { in: itemSlugs } }, select: { slug: true } });
-      for (const e of existing) dbErrors.push({ path: 'items', message: `Item slug "${e.slug}" already exists in database` });
-    }
-
-    const arcSlugs = (p.arcs ?? []).map(a => a.slug);
-    if (arcSlugs.length > 0) {
-      const existing = await prisma.bandRpgStoryArc.findMany({ where: { slug: { in: arcSlugs } }, select: { slug: true } });
-      for (const e of existing) dbErrors.push({ path: 'arcs', message: `Arc slug "${e.slug}" already exists in database` });
     }
 
     const allErrors = [...result.errors, ...dbErrors];
@@ -503,28 +488,19 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
     }
     const p = payload as ImportPayload;
 
-    // Step 2: DB existence checks for create mode (reads only — outside transaction)
+    // Step 2: DB existence checks for create mode (globally-unique fields only).
+    // Quest/arc/item slugs are per-adventure (@@unique([adventureId, slug])) and cannot
+    // conflict across adventures, so only adventure.slug and level slugs are checked here.
     if (mode === 'create') {
       const dbErrors: ValidationError[] = [];
+      const existingAdv = await prisma.bandRpgAdventure.findUnique({ where: { slug: p.adventure.slug } });
+      if (existingAdv) {
+        dbErrors.push({ path: 'adventure.slug', message: `Adventure with slug "${p.adventure.slug}" already exists. Use mode=update or mode=replace.` });
+      }
       const levelSlugs = (p.levels ?? []).map(l => l.slug);
       if (levelSlugs.length > 0) {
         const ex = await prisma.bandRpgLevel.findMany({ where: { slug: { in: levelSlugs } }, select: { slug: true } });
-        for (const e of ex) dbErrors.push({ path: 'levels', message: `Level slug "${e.slug}" already exists. Use mode=update to upsert.` });
-      }
-      const questSlugs = (p.quests ?? []).map(q => q.slug);
-      if (questSlugs.length > 0) {
-        const ex = await prisma.bandRpgQuest.findMany({ where: { slug: { in: questSlugs } }, select: { slug: true } });
-        for (const e of ex) dbErrors.push({ path: 'quests', message: `Quest slug "${e.slug}" already exists.` });
-      }
-      const itemSlugs = (p.items ?? []).map(i => i.slug);
-      if (itemSlugs.length > 0) {
-        const ex = await prisma.bandRpgItem.findMany({ where: { slug: { in: itemSlugs } }, select: { slug: true } });
-        for (const e of ex) dbErrors.push({ path: 'items', message: `Item slug "${e.slug}" already exists.` });
-      }
-      const arcSlugs = (p.arcs ?? []).map(a => a.slug);
-      if (arcSlugs.length > 0) {
-        const ex = await prisma.bandRpgStoryArc.findMany({ where: { slug: { in: arcSlugs } }, select: { slug: true } });
-        for (const e of ex) dbErrors.push({ path: 'arcs', message: `Arc slug "${e.slug}" already exists.` });
+        for (const e of ex) dbErrors.push({ path: 'levels', message: `Level slug "${e.slug}" already exists. Choose a different slug or use mode=replace.` });
       }
       if (dbErrors.length > 0) {
         res.status(422).json({ ok: false, error: 'Adventure validation failed', errors: dbErrors, preview: validation.preview }); return;
@@ -535,7 +511,43 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
     // If anything throws, the entire import is rolled back — no partial data left behind.
     const adventureId = await prisma.$transaction(async (tx) => {
 
-      // Step 3: For replace mode, delete all existing adventure content first
+      // Step 3a: Clean up orphaned content (adventureId = null) matching incoming slugs.
+      // Handles remnants from failed imports that predate atomic transaction support.
+      // Level slugs are globally unique so orphaned levels must be removed before creating new ones.
+      const incomingLevelSlugs = (p.levels ?? []).map(l => l.slug);
+      if (incomingLevelSlugs.length > 0) {
+        const orphanLevels = await tx.bandRpgLevel.findMany({
+          where: { slug: { in: incomingLevelSlugs }, adventureId: null },
+          select: { id: true },
+        });
+        if (orphanLevels.length > 0) {
+          const orphanIds = orphanLevels.map(l => l.id);
+          await tx.bandRpgPuzzle.deleteMany({ where: { levelId: { in: orphanIds } } });
+          await tx.bandRpgDoor.deleteMany({ where: { levelId: { in: orphanIds } } });
+          await tx.bandRpgSwitch.deleteMany({ where: { levelId: { in: orphanIds } } });
+          await tx.bandRpgNpc.deleteMany({ where: { levelId: { in: orphanIds } } });
+          await tx.bandRpgObjective.deleteMany({ where: { levelId: { in: orphanIds } } });
+          await tx.bandRpgStoryBeat.deleteMany({ where: { levelId: { in: orphanIds } } });
+          await tx.bandRpgLevel.deleteMany({ where: { id: { in: orphanIds } } });
+        }
+      }
+      // Arc/item/quest slugs are now per-adventure (@@unique([adventureId, slug])) so orphaned
+      // rows (adventureId = null) don't cause unique conflicts anymore. Clean them up anyway
+      // for data hygiene.
+      const incomingArcSlugs = (p.arcs ?? []).map(a => a.slug);
+      if (incomingArcSlugs.length > 0) {
+        await tx.bandRpgStoryArc.deleteMany({ where: { slug: { in: incomingArcSlugs }, adventureId: null } });
+      }
+      const incomingItemSlugs = (p.items ?? []).map(i => i.slug);
+      if (incomingItemSlugs.length > 0) {
+        await tx.bandRpgItem.deleteMany({ where: { slug: { in: incomingItemSlugs }, adventureId: null } });
+      }
+      const incomingQuestSlugs = (p.quests ?? []).map(q => q.slug);
+      if (incomingQuestSlugs.length > 0) {
+        await tx.bandRpgQuest.deleteMany({ where: { slug: { in: incomingQuestSlugs }, adventureId: null } });
+      }
+
+      // Step 3b: For replace mode, delete all existing adventure content first
       if (mode === 'replace') {
         const existing = await tx.bandRpgAdventure.findUnique({ where: { slug: p.adventure.slug } });
         if (existing) {
@@ -588,7 +600,7 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
       for (const arc of p.arcs ?? []) {
         if (mode === 'update') {
           const upserted = await tx.bandRpgStoryArc.upsert({
-            where: { slug: arc.slug },
+            where: { adventureId_slug: { adventureId: advId, slug: arc.slug } },
             update: { title: arc.title, adventureId: advId },
             create: {
               slug: arc.slug, title: arc.title, adventureId: advId, order: arc.order ?? 0,
@@ -629,7 +641,7 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
         const itemType = (item.type as import('@prisma/client').BandRpgItemType | undefined) ?? 'collectible';
         if (mode === 'update') {
           const upserted = await tx.bandRpgItem.upsert({
-            where: { slug: item.slug },
+            where: { adventureId_slug: { adventureId: advId, slug: item.slug } },
             update: { name: item.name, adventureId: advId },
             create: {
               slug: item.slug, name: item.name, adventureId: advId,
@@ -732,7 +744,7 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
       for (const quest of p.quests ?? []) {
         if (mode === 'update') {
           const upserted = await tx.bandRpgQuest.upsert({
-            where: { slug: quest.slug },
+            where: { adventureId_slug: { adventureId: advId, slug: quest.slug } },
             update: { name: quest.name, adventureId: advId, reward: (quest.reward ?? {}) as Prisma.InputJsonValue },
             create: {
               slug: quest.slug, name: quest.name, adventureId: advId,
@@ -913,5 +925,40 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
     }, { timeout: 30_000 }); // 30s for large adventures
 
     res.json({ ok: true, adventureId, imported: validation.preview }); return;
+  } catch (err) { next(err); return; }
+});
+
+// ── POST /cleanup-orphans — delete all adventure content not linked to any adventure ─────────────
+
+adventureRouter.post('/cleanup-orphans', async (_req, res, next): Promise<void> => {
+  try {
+    // Find all orphaned levels (adventureId = null)
+    const orphanLevels = await prisma.bandRpgLevel.findMany({
+      where: { adventureId: null },
+      select: { id: true },
+    });
+    const orphanLevelIds = orphanLevels.map(l => l.id);
+
+    const deleted: Record<string, number> = {
+      puzzles: 0, doors: 0, switches: 0, npcs: 0, objectives: 0,
+      beats: 0, levels: 0, quests: 0, arcs: 0, items: 0,
+    };
+
+    if (orphanLevelIds.length > 0) {
+      deleted['puzzles']    = (await prisma.bandRpgPuzzle.deleteMany({ where: { levelId: { in: orphanLevelIds } } })).count;
+      deleted['doors']      = (await prisma.bandRpgDoor.deleteMany({ where: { levelId: { in: orphanLevelIds } } })).count;
+      deleted['switches']   = (await prisma.bandRpgSwitch.deleteMany({ where: { levelId: { in: orphanLevelIds } } })).count;
+      deleted['npcs']       = (await prisma.bandRpgNpc.deleteMany({ where: { levelId: { in: orphanLevelIds } } })).count;
+      deleted['objectives'] = (await prisma.bandRpgObjective.deleteMany({ where: { levelId: { in: orphanLevelIds } } })).count;
+      deleted['beats']      = (await prisma.bandRpgStoryBeat.deleteMany({ where: { levelId: { in: orphanLevelIds } } })).count;
+      deleted['levels']     = (await prisma.bandRpgLevel.deleteMany({ where: { adventureId: null } })).count;
+    }
+
+    deleted['quests'] = (await prisma.bandRpgQuest.deleteMany({ where: { adventureId: null } })).count;
+    deleted['arcs']   = (await prisma.bandRpgStoryArc.deleteMany({ where: { adventureId: null } })).count;
+    deleted['items']  = (await prisma.bandRpgItem.deleteMany({ where: { adventureId: null } })).count;
+
+    const total = Object.values(deleted).reduce((s, n) => s + n, 0);
+    res.json({ ok: true, total, deleted }); return;
   } catch (err) { next(err); return; }
 });

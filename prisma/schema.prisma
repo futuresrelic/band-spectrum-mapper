@@ -1602,7 +1602,7 @@ model BandRpgObjective {
 
 model BandRpgQuest {
   id           String   @id @default(cuid())
-  slug         String   @unique
+  slug         String   // unique per adventure — see @@unique below
   name         String
   description  String?
   adventureId  String?  // Phase Z.4 — optional adventure grouping
@@ -1620,12 +1620,13 @@ model BandRpgQuest {
 
   adventure BandRpgAdventure? @relation(fields: [adventureId], references: [id], onDelete: SetNull)
 
+  @@unique([adventureId, slug])
   @@map("band_rpg_quests")
 }
 
 model BandRpgStoryArc {
   id          String   @id @default(cuid())
-  slug        String   @unique
+  slug        String   // unique per adventure — see @@unique below
   title       String
   description String?
   adventureId String?  // Phase Z.4 — optional adventure grouping
@@ -1636,6 +1637,7 @@ model BandRpgStoryArc {
   adventure BandRpgAdventure? @relation(fields: [adventureId], references: [id], onDelete: SetNull)
   beats     BandRpgStoryBeat[]
 
+  @@unique([adventureId, slug])
   @@map("band_rpg_story_arcs")
 }
 
@@ -1716,7 +1718,7 @@ enum BandRpgItemType {
 
 model BandRpgItem {
   id          String          @id @default(cuid())
-  slug        String          @unique
+  slug        String          // unique per adventure — see @@unique below
   name        String
   description String?
   type        BandRpgItemType
@@ -1735,6 +1737,7 @@ model BandRpgItem {
   adventure BandRpgAdventure? @relation("AdventureItems", fields: [adventureId], references: [id], onDelete: SetNull)
   levels    BandRpgLevel[]    @relation("LevelItems")
 
+  @@unique([adventureId, slug])
   @@map("band_rpg_items")
 }
 
