@@ -13,6 +13,7 @@ import LeaderboardTab from '../components/bandRpgEditor/LeaderboardTab';
 import WorldEditor from '../components/bandRpgEditor/WorldEditor';
 import AdventureEditor from '../components/bandRpgEditor/AdventureEditor';
 import PlaytestChecklist from '../components/bandRpgEditor/PlaytestChecklist';
+import ReadinessDashboard from '../components/bandRpgEditor/ReadinessDashboard';
 
 type Tab =
   | 'overview'
@@ -30,7 +31,8 @@ type Tab =
   | 'leaderboard'
   | 'playtest'
   | 'testing'
-  | 'live';
+  | 'live'
+  | 'readiness';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'overview',    label: 'Overview',    icon: '🗺️'  },
@@ -49,6 +51,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'playtest',    label: 'Playtest',    icon: '✅'  },
   { id: 'testing',     label: 'Testing',     icon: '🧪'  },
   { id: 'live',        label: 'Live Data',   icon: '🌐'  },
+  { id: 'readiness',   label: 'v1 Launch',   icon: '🚀'  },
 ];
 
 function ComingSoonPlaceholder({ title, desc }: { title: string; desc: string }) {
@@ -618,6 +621,7 @@ export default function AdminBandRpgPage() {
       {tab === 'leaderboard' && <LeaderboardTab />}
       {tab === 'testing'     && <TestingTab />}
       {tab === 'live'        && <LiveDataTab />}
+      {tab === 'readiness'   && <ReadinessDashboard />}
     </div>
   );
 }

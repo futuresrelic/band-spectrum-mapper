@@ -146,6 +146,30 @@ export const adventureApi = {
     }),
 };
 
+// ── Readiness API (admin) ────────────────────────────────────────────────────
+
+export interface ReadinessCheck { item: string; passed: boolean; }
+export interface AdventureHealthSummary { id: string; name: string; slug: string; score: number; checks: { name: string; passed: boolean }[]; }
+export interface ReadinessReport {
+  summary: {
+    adventures: { total: number; published: number; featured: number };
+    levels: { total: number; published: number };
+    quests: { total: number };
+    npcs: { total: number };
+    items: { total: number };
+    players: { total: number; progressRecords: number };
+    averageHealthScore: number;
+    readinessPct: number;
+  };
+  readinessChecks: ReadinessCheck[];
+  adventureHealth: AdventureHealthSummary[];
+  issues: string[];
+}
+
+export const readinessApi = {
+  get: () => api<ReadinessReport>('/api/band-rpg/readiness'),
+};
+
 // ── Adventure progress (player-facing) API ────────────────────────────────────
 
 export const adventureProgressApi = {

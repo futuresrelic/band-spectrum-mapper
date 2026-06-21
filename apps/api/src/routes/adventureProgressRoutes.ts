@@ -337,13 +337,12 @@ adventureProgressRouter.post('/:adventureId/restart', requireAuth, async (req, r
   } catch (err) { next(err); return; }
 });
 
-// ── GET /:adventureId/health — content health score (no auth) ─────────────────
+// ── GET /:adventureId/health — expanded 9-check health score (no auth) ────────
 
 adventureProgressRouter.get('/:adventureId/health', async (req, res, next): Promise<void> => {
   try {
     const adventureId = req.params['adventureId']!;
 
-    // Load the adventure with the data needed for all checks
     const adventure = await prisma.bandRpgAdventure.findUnique({
       where: { id: adventureId },
       include: {
@@ -351,10 +350,14 @@ adventureProgressRouter.get('/:adventureId/health', async (req, res, next): Prom
           include: {
             objectives: true,
             npcs: true,
+            doors: true,
+            switches: true,
+            puzzles: true,
           },
         },
         quests: true,
-        _count: { select: { levels: true, quests: true } },
+        items: true,
+        _count: { select: { levels: true, quests: true, items: true } },
       },
     });
 
@@ -362,56 +365,71 @@ adventureProgressRouter.get('/:adventureId/health', async (req, res, next): Prom
       res.status(404).json({ error: 'Adventure not found' }); return;
     }
 
-    // Load timeline events that reference this adventure's content
     const adventureLevelIds = new Set(adventure.levels.map(l => l.id));
     const adventureQuestIds = new Set(adventure.quests.map(q => q.id));
+    const adventureItemSlugs = new Set(adventure.items.map(i => i.slug));
 
+    interface MapEntity { type: string; x?: number; y?: number; refId?: string; targetLevelSlug?: string; }
+    interface MapData { entities?: MapEntity[]; }
+
+    // ── 1: Has at least one level (15) ───────────────────────────────────────
+    const hasLevels = adventure._count.levels > 0;
+
+    // ── 2: All levels have a spawn point (15) ────────────────────────────────
+    const allLevelsHaveSpawn = adventure.levels.length > 0 && adventure.levels.every(l => {
+      const md = l.mapData as unknown as MapData | null;
+      return (md?.entities ?? []).some(e => e.type === 'spawn');
+    });
+
+    // ── 3: Quest giver NPCs are in this adventure's levels (10) ─────────────
+    const adventureNpcIds = new Set(adventure.levels.flatMap(l => l.npcs.map(n => n.id)));
+    const questsWithGiver = adventure.quests.filter(q => q.giverId !== null);
+    const allQuestGiversValid = questsWithGiver.every(q => !q.giverId || adventureNpcIds.has(q.giverId));
+
+    // ── 4: All timeline entries reference valid adventure content (10) ───────
     const allTimeline = await prisma.bandRpgTimelineEvent.findMany();
     const relevantTimeline = allTimeline.filter(t =>
       t.refId !== null && (adventureLevelIds.has(t.refId) || adventureQuestIds.has(t.refId))
     );
+    const allTimelineRefsValid = relevantTimeline.every(t =>
+      !t.refId || adventureLevelIds.has(t.refId) || adventureQuestIds.has(t.refId)
+    );
 
-    // ── Check 1: Has at least one level (weight 20) ───────────────────────────
-    const hasLevels = adventure._count.levels > 0;
-
-    // ── Check 2: Each level has a spawn point in mapData.entities (weight 20) ─
-    interface MapEntity { type: string; x: number; y: number; }
-    interface MapData { entities?: MapEntity[]; }
-
-    const allLevelsHaveSpawn = adventure.levels.length > 0 && adventure.levels.every(l => {
-      const mapData = l.mapData as unknown as MapData | null;
-      const entities = mapData?.entities ?? [];
-      return entities.some(e => e.type === 'spawn');
+    // ── 5: Level exits link to levels that exist in this adventure (10) ──────
+    const levelSlugs = new Set(adventure.levels.map(l => l.slug));
+    const exitsValid = adventure.levels.every(l => {
+      const md = l.mapData as unknown as MapData | null;
+      const exits = (md?.entities ?? []).filter(e => e.type === 'exit');
+      return exits.every(ex => !ex.targetLevelSlug || levelSlugs.has(ex.targetLevelSlug));
     });
 
-    // ── Check 3: All quest giverNpcIds point to NPCs in this adventure's levels (weight 20)
-    const adventureNpcIds = new Set(adventure.levels.flatMap(l => l.npcs.map(n => n.id)));
-    const questsWithGiver = adventure.quests.filter(q => q.giverId !== null);
-    const allQuestGiversValid = questsWithGiver.length === 0 || questsWithGiver.every(q => {
-      if (!q.giverId) return true;
-      return adventureNpcIds.has(q.giverId);
+    // ── 6: No item entities reference slugs not in adventure items (10) ──────
+    const itemEntitySlugsValid = adventure.levels.every(l => {
+      const md = l.mapData as unknown as MapData | null;
+      const itemEntities = (md?.entities ?? []).filter(e => e.type === 'item');
+      return itemEntities.every(ie => !ie.refId || adventureItemSlugs.has(ie.refId));
     });
 
-    // ── Check 4: All timeline entries point to valid levels/quests in this adventure (weight 20)
-    const allTimelineRefsValid = relevantTimeline.length === 0 || relevantTimeline.every(t => {
-      if (!t.refId) return true;
-      return adventureLevelIds.has(t.refId) || adventureQuestIds.has(t.refId);
-    });
+    // ── 7: All quests have a giver NPC OR the adventure has level objectives (10)
+    const hasAnyObjectives = adventure.levels.some(l => l.objectives.length > 0);
+    const allQuestsActionable = adventure.quests.every(q => q.giverId !== null) || hasAnyObjectives;
 
-    // ── Check 5: Adventure has a name and description (weight 10) ─────────────
+    // ── 8: Adventure has a name and description (10) ──────────────────────────
     const hasNameAndDescription = Boolean(adventure.name?.trim()) && Boolean(adventure.description?.trim());
 
-    // ── Check 6: Adventure has coverImageUrl and authorName (weight 10) ────────
+    // ── 9: Adventure has cover image and author name (10) ────────────────────
     const hasCoverAndAuthor = Boolean(adventure.coverImageUrl?.trim()) && Boolean(adventure.authorName?.trim());
 
-    // ── Tally score ───────────────────────────────────────────────────────────
     const checks: Array<{ name: string; passed: boolean; weight: number }> = [
-      { name: 'Has at least one level',                                          passed: hasLevels,                weight: 20 },
-      { name: 'Each level has a spawn point in mapData.entities',                passed: allLevelsHaveSpawn,       weight: 20 },
-      { name: 'All quest giver NPCs belong to levels in this adventure',         passed: allQuestGiversValid,      weight: 20 },
-      { name: 'All timeline entries reference valid levels or quests',           passed: allTimelineRefsValid,     weight: 20 },
-      { name: 'Adventure has a name and description',                            passed: hasNameAndDescription,    weight: 10 },
-      { name: 'Adventure has a cover image and author name',                     passed: hasCoverAndAuthor,        weight: 10 },
+      { name: 'Has at least one level',                                           passed: hasLevels,                weight: 15 },
+      { name: 'All levels have a spawn point',                                    passed: allLevelsHaveSpawn,       weight: 15 },
+      { name: 'Quest giver NPCs belong to levels in this adventure',              passed: allQuestGiversValid,      weight: 10 },
+      { name: 'Timeline entries reference valid adventure content',               passed: allTimelineRefsValid,     weight: 10 },
+      { name: 'Level exits link to levels inside this adventure',                 passed: exitsValid,               weight: 10 },
+      { name: 'Map item entities reference known items',                          passed: itemEntitySlugsValid,     weight: 10 },
+      { name: 'All quests have objectives or a giver NPC',                       passed: allQuestsActionable,      weight: 10 },
+      { name: 'Adventure has a name and description',                             passed: hasNameAndDescription,    weight: 10 },
+      { name: 'Adventure has a cover image and author name',                      passed: hasCoverAndAuthor,        weight: 10 },
     ];
 
     const score = checks.reduce((sum, c) => sum + (c.passed ? c.weight : 0), 0);

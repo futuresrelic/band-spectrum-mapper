@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adventureApi, adventureProgressApi } from '../../api/adventureApi';
 import type { Adventure, ValidationResult, ImportPreview, AdventureHealth } from '../../api/adventureApi';
+import AdventureWizard from './AdventureWizard';
 
 export default function AdventureEditor() {
   const qc = useQueryClient();
@@ -35,6 +36,7 @@ export default function AdventureEditor() {
 // ── Adventures list tab ───────────────────────────────────────────────────────
 
 function AdventuresTab({ showCreate, setShowCreate, qc }: { showCreate: boolean; setShowCreate: (v: boolean) => void; qc: ReturnType<typeof useQueryClient> }) {
+  const [showWizard, setShowWizard] = useState(false);
   const { data: adventures = [], isLoading } = useQuery({
     queryKey: ['adventures'],
     queryFn: () => adventureApi.list(),
@@ -60,12 +62,19 @@ function AdventuresTab({ showCreate, setShowCreate, qc }: { showCreate: boolean;
   if (isLoading) return <div className="text-surface-500 text-sm">Loading adventures…</div>;
 
   return (
-    <div className="space-y-4">
+    <>
+      {showWizard && <AdventureWizard onClose={() => setShowWizard(false)} />}
+      <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="font-semibold text-surface-900">Adventures</h2>
-        <button onClick={() => setShowCreate(!showCreate)} className="text-sm bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700">
-          + New Adventure
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowWizard(true)} className="text-sm border border-indigo-300 text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-50">
+            ✨ Quick Start
+          </button>
+          <button onClick={() => setShowCreate(!showCreate)} className="text-sm bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700">
+            + New Adventure
+          </button>
+        </div>
       </div>
 
       {showCreate && (
@@ -129,7 +138,8 @@ function AdventuresTab({ showCreate, setShowCreate, qc }: { showCreate: boolean;
           qc={qc}
         />
       ))}
-    </div>
+      </div>
+    </>
   );
 }
 

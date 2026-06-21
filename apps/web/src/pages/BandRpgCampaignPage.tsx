@@ -5,6 +5,8 @@ import SiteHeader from '../components/layout/SiteHeader';
 import { useAuth } from '../contexts/AuthContext';
 import { adventureProgressApi } from '../api/adventureApi';
 import type { BrowseAdventure } from '../api/adventureApi';
+import OnboardingModal, { hasCompletedOnboarding } from '../components/bandRpg/OnboardingModal';
+import RecommendationsPanel from '../components/bandRpg/RecommendationsPanel';
 
 type HubTab = 'browse' | 'my-adventures';
 
@@ -27,6 +29,7 @@ export default function BandRpgCampaignPage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<HubTab>('browse');
   const [difficultyFilter, setDifficultyFilter] = useState('');
+  const [showOnboarding, setShowOnboarding] = useState(!hasCompletedOnboarding());
 
   const { data: browseData, isLoading: browseLoading } = useQuery({
     queryKey: ['adventures-browse', user?.userId, difficultyFilter],
@@ -54,12 +57,18 @@ export default function BandRpgCampaignPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-950 text-white">
+      {showOnboarding && <OnboardingModal onClose={() => setShowOnboarding(false)} />}
       <SiteHeader theme="dark" active="games" />
 
       {/* Title bar */}
       <div className="flex items-center gap-3 px-4 py-3 bg-black/50 border-b border-gray-800 shrink-0">
         <button onClick={() => navigate('/play/band-rpg')} className="text-gray-500 hover:text-gray-300 text-sm">←</button>
         <span className="text-white font-semibold text-sm">Adventure Hub</span>
+        <button
+          onClick={() => setShowOnboarding(true)}
+          className="ml-1 w-5 h-5 rounded-full border border-gray-600 text-gray-500 hover:text-gray-300 hover:border-gray-400 text-xs font-bold flex items-center justify-center transition-colors"
+          title="What is Band RPG?"
+        >?</button>
         {user && <span className="text-emerald-400 text-xs ml-auto">● {user.username ?? user.name ?? 'Player'}</span>}
       </div>
 
@@ -144,14 +153,12 @@ export default function BandRpgCampaignPage() {
               {myLoading && <LoadingGrid />}
 
               {!myLoading && myAdventures.length === 0 && (
-                <div className="text-center py-16 text-gray-500">
-                  <p className="text-lg mb-2">No adventures started yet.</p>
-                  <button
-                    onClick={() => setTab('browse')}
-                    className="text-sm text-indigo-400 hover:text-indigo-300"
-                  >
-                    Browse Adventures →
-                  </button>
+                <div className="space-y-6">
+                  <div className="text-center py-8 text-gray-500">
+                    <p className="text-lg mb-1">No adventures started yet.</p>
+                    <p className="text-sm text-gray-600 mb-4">Try one of these to get started.</p>
+                  </div>
+                  <RecommendationsPanel userId={user?.userId} />
                 </div>
               )}
 

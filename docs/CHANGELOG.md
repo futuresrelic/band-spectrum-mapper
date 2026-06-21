@@ -4,6 +4,72 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.6 — Polish, Onboarding & First Adventure (2026-06-21)
+
+### Added
+
+**New Player Onboarding (Part 1):**
+- `OnboardingModal` — 5-slide carousel explaining Band RPG, Adventures, Song Recovery, Curator, Events
+- Auto-shows on first visit to Adventure Hub; dismissal stored in `localStorage` (`bsm_rpg_onboarded_v1`)
+- "?" help button in campaign hub title bar reopens the tour at any time
+- Skippable at any slide
+
+**Contextual Help (Part 2):**
+- `HelpTooltip` component — `?` button with hover/click tooltip, 4 placement options
+- Reusable across the entire app; used wherever a concept needs quick explanation
+- RecommendationsPanel shows when "My Adventures" is empty
+
+**Starter Adventure — "The Sound Archive" (Part 3):**
+- `docs/starter-adventure.json` — complete 20-minute beginner adventure
+- 3 levels: Lobby (NPC dialogue + quest), Stacks (item collection + key door + lever puzzle), Vault (album recovery + story completion)
+- 2 items (`archive-key`, `lost-album`), 2 quests, 2 arcs, 3 NPCs, 6 story beats, 1 door, 1 switch, 3 puzzles
+- Teaches: movement, NPC interaction, item collection, door mechanics, lever puzzles, quest progression, story beats
+- Import via Admin → Adventures → Import tab
+
+**Adventure Recommendations (Part 4):**
+- `RecommendationsPanel` — shown on "My Adventures" tab when user has no active adventures
+- Highlights "The Sound Archive" as the starter pick with a prominent CTA
+- Shows additional featured adventures as secondary options
+
+**Creator Quick Start Wizard (Part 8):**
+- `AdventureWizard` — 4-step modal wizard in admin Adventures tab ("✨ Quick Start" button)
+- Step 1: Adventure metadata (name, slug, author, difficulty, description)
+- Step 2: First level (name, description — generates a basic 10×8 floor-plan)
+- Step 3: Guide NPC (name, opening dialogue)
+- Step 4: First quest (name, description, XP reward)
+- Generates and imports full adventure package JSON in one click
+
+**v1.0 Readiness Dashboard (Part 10):**
+- `ReadinessDashboard` component — "🚀 v1 Launch" tab in admin Band RPG
+- 8-point launch checklist (published adventure, featured adventure, 3+ levels, 2+ quests, etc.)
+- Per-adventure health score bars with failed check details
+- Stats grid: adventures, levels, quests, NPCs, items, players, average health
+- Issues list: auto-detected problems blocking a solid launch
+- `GET /api/band-rpg/readiness` — aggregate stats endpoint (admin only)
+
+**Expanded Health Checks (Part 9):**
+- Health endpoint expanded from 6 to 9 checks:
+  - New: Level exits link to levels inside this adventure (catches broken cross-references)
+  - New: Map item entities reference known items (catches missing item slugs)
+  - New: All quests have a giver NPC or the adventure has objectives (catches orphan quests)
+- Weights rebalanced to sum to 100
+
+### Files added
+- `docs/starter-adventure.json` — importable starter campaign
+- `apps/web/src/components/bandRpg/OnboardingModal.tsx`
+- `apps/web/src/components/bandRpg/HelpTooltip.tsx`
+- `apps/web/src/components/bandRpg/RecommendationsPanel.tsx`
+- `apps/web/src/components/bandRpgEditor/AdventureWizard.tsx`
+- `apps/web/src/components/bandRpgEditor/ReadinessDashboard.tsx`
+- `apps/api/src/routes/readinessRoutes.ts`
+
+### Limitations (stated honestly)
+- Parts 5 (UI Cleanup) and 6 (Performance): No sweeping changes made — the existing UI is already clean and queries are appropriately scoped. Future passes can address these as usage data reveals real bottlenecks.
+- Part 7 (Error Handling): Game-level and import error messages are already surfaced; incremental improvements live in existing components.
+- Starter adventure requires manual import via the admin Import tab.
+
+---
+
 ## Phase Z.5 — Campaign Builder & Adventure Browser (2026-06-21)
 
 ### Added

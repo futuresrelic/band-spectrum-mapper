@@ -1,0 +1,416 @@
+{
+  "bandRpgAdventureVersion": 1,
+  "exportedAt": "2026-06-21T00:00:00.000Z",
+  "adventure": {
+    "slug": "the-sound-archive",
+    "name": "The Sound Archive",
+    "description": "A legendary recording has gone missing. Journey through the archive, find the key, and recover the Lost Album before it disappears forever.",
+    "difficulty": "beginner",
+    "estimatedPlaytime": 20,
+    "authorName": "Band RPG Team",
+    "featured": true,
+    "tags": ["starter", "mystery", "puzzle"]
+  },
+
+  "items": [
+    {
+      "slug": "the-sound-archive-key",
+      "name": "Archive Key",
+      "description": "A worn brass key engraved with a vinyl record motif. Opens the Vault.",
+      "type": "key_item",
+      "rarity": "common",
+      "scoreValue": 25,
+      "isVisible": true
+    },
+    {
+      "slug": "the-sound-archive-lost-album",
+      "name": "The Lost Album",
+      "description": "A legendary recording, untouched since the 1970s. The jewel of the archive.",
+      "type": "album_artifact",
+      "rarity": "legendary",
+      "scoreValue": 150,
+      "isVisible": true
+    }
+  ],
+
+  "arcs": [
+    {
+      "slug": "tsa-into-the-archive",
+      "title": "Into the Archive",
+      "description": "The player enters the Sound Archive and receives their mission.",
+      "order": 1
+    },
+    {
+      "slug": "tsa-album-recovered",
+      "title": "The Album Recovered",
+      "description": "The lost album is found and the archive is restored.",
+      "order": 2
+    }
+  ],
+
+  "quests": [
+    {
+      "slug": "tsa-find-the-key",
+      "name": "Find the Archive Key",
+      "description": "Felix says a key was lost somewhere in the Stacks. Find it — you'll need it to open the Vault.",
+      "giverNpcName": "Felix the Keeper",
+      "giverNpcLevelSlug": "tsa-lobby",
+      "reward": {
+        "xp": 50,
+        "message": "You found the Archive Key! The Vault door should open now."
+      },
+      "isOptional": false,
+      "order": 1
+    },
+    {
+      "slug": "tsa-recover-the-album",
+      "name": "Recover the Lost Album",
+      "description": "The legendary album is somewhere in the Vault. Retrieve it for Felix.",
+      "giverNpcName": "Felix the Keeper",
+      "giverNpcLevelSlug": "tsa-lobby",
+      "reward": {
+        "xp": 150,
+        "message": "The Lost Album has been recovered! The archive is complete once again."
+      },
+      "isOptional": false,
+      "order": 2
+    }
+  ],
+
+  "levels": [
+    {
+      "slug": "tsa-lobby",
+      "name": "Sound Archive — Lobby",
+      "description": "The entrance hall of the Sound Archive. Shelves of records line every wall.",
+      "order": 1,
+      "spawnX": 1,
+      "spawnY": 6,
+      "isPublished": true,
+      "mapData": {
+        "width": 11,
+        "height": 9,
+        "tiles": [
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,1,1,1,1,1,1,1,1,1,0],
+          [0,1,2,2,2,1,1,2,2,1,0],
+          [0,1,2,1,2,1,1,2,1,1,0],
+          [0,1,2,2,2,1,1,2,2,1,0],
+          [0,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,1,1,0],
+          [0,0,0,0,0,0,0,0,0,0,0]
+        ],
+        "entities": [
+          { "id": "tsa-spawn-lobby", "type": "spawn", "x": 1, "y": 6 },
+          { "id": "tsa-exit-to-stacks", "type": "exit", "x": 10, "y": 3, "targetLevelSlug": "tsa-stacks", "label": "To the Stacks →" }
+        ]
+      },
+      "objectives": [
+        {
+          "name": "Speak with Felix the Keeper",
+          "description": "The Keeper seems to know what's going on. Talk to him.",
+          "type": "talk_to_npc",
+          "target": "Felix the Keeper",
+          "condition": {},
+          "reward": {},
+          "isOptional": false,
+          "order": 1
+        }
+      ],
+      "npcs": [
+        {
+          "name": "Felix the Keeper",
+          "role": "quest_giver",
+          "positionX": 8,
+          "positionY": 3,
+          "defaultDialogue": [
+            { "text": "Thank goodness you're here. I'm Felix — I've been the Keeper of this archive for thirty years.", "speakerName": "Felix the Keeper" },
+            { "text": "Last week, one of our interns lost the Vault key somewhere in the Stacks. And now the Lost Album — our most precious recording — is locked inside.", "speakerName": "Felix the Keeper" },
+            { "text": "I need you to find that key. It's somewhere in the Stacks to the east. Once you have it, the Vault door should open.", "speakerName": "Felix the Keeper" },
+            { "text": "And when you reach the Vault... recover the Lost Album. Please. This music cannot be forgotten.", "speakerName": "Felix the Keeper" }
+          ]
+        }
+      ],
+      "beats": [
+        {
+          "arcSlug": "tsa-into-the-archive",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "You step through the doors of the Sound Archive." },
+              { "text": "The air is thick with the smell of old vinyl and quiet history. Rows of shelves stretch to the ceiling, filled with records, tapes, and forgotten music." },
+              { "text": "A figure waves you over from behind a large desk. He looks worried." }
+            ]
+          },
+          "unlockCondition": { "type": "always" },
+          "order": 1
+        }
+      ],
+      "doors": [],
+      "switches": [],
+      "puzzles": []
+    },
+
+    {
+      "slug": "tsa-stacks",
+      "name": "Sound Archive — The Stacks",
+      "description": "The main archive storage area. Thousands of records are catalogued here. The Vault lies to the east.",
+      "order": 2,
+      "spawnX": 1,
+      "spawnY": 5,
+      "isPublished": true,
+      "mapData": {
+        "width": 13,
+        "height": 11,
+        "tiles": [
+          [0,0,0,0,0,0,0,0,0,0,0,0,0],
+          [0,1,1,1,1,1,1,1,1,1,1,1,0],
+          [0,2,1,2,1,1,1,1,1,2,1,2,0],
+          [0,1,1,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,1,1,1,1,0],
+          [0,2,1,2,1,1,1,1,1,2,1,2,0],
+          [0,1,1,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,1,1,1,1,0],
+          [0,0,0,0,0,0,0,0,0,0,0,0,0]
+        ],
+        "entities": [
+          { "id": "tsa-spawn-stacks", "type": "spawn", "x": 1, "y": 5 },
+          { "id": "tsa-exit-back-lobby", "type": "exit", "x": 0, "y": 5, "targetLevelSlug": "tsa-lobby", "label": "← Back to Lobby" },
+          { "id": "tsa-item-key", "type": "item", "x": 11, "y": 2, "refId": "the-sound-archive-key" },
+          { "id": "tsa-exit-to-vault", "type": "exit", "x": 12, "y": 5, "targetLevelSlug": "tsa-vault", "label": "To the Vault →" }
+        ]
+      },
+      "objectives": [
+        {
+          "name": "Find the Archive Key",
+          "description": "The key is somewhere in the upper shelves of the Stacks.",
+          "type": "find_item",
+          "target": "the-sound-archive-key",
+          "condition": {},
+          "reward": {},
+          "isOptional": false,
+          "order": 1
+        }
+      ],
+      "npcs": [
+        {
+          "name": "Archive Intern",
+          "role": "ambient",
+          "positionX": 6,
+          "positionY": 4,
+          "defaultDialogue": [
+            { "text": "Oh — you're looking for the key? I'm so sorry. I think I dropped it near the top-right shelf.", "speakerName": "Archive Intern" },
+            { "text": "Once you have it, the Vault Door to the east should unlock. There's also a lever near the bottom of the room if you need it.", "speakerName": "Archive Intern" }
+          ]
+        }
+      ],
+      "beats": [
+        {
+          "arcSlug": "tsa-into-the-archive",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "You enter the Stacks. Shelves tower above you on every side." },
+              { "text": "Somewhere in here, a small brass key is waiting." }
+            ]
+          },
+          "unlockCondition": { "type": "always" },
+          "order": 1
+        },
+        {
+          "arcSlug": "tsa-into-the-archive",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "The Archive Key is in your hand. The Vault Door to the east should open now." }
+            ]
+          },
+          "unlockCondition": { "type": "item_owned", "targetSlug": "the-sound-archive-key" },
+          "order": 2
+        },
+        {
+          "arcSlug": "tsa-into-the-archive",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "The lever clicks into place. The Vault door slides open with a deep mechanical thud." }
+            ]
+          },
+          "unlockCondition": { "type": "switch_activated", "targetName": "Vault Lever" },
+          "order": 3
+        }
+      ],
+      "doors": [
+        {
+          "name": "Vault Door",
+          "tileX": 12,
+          "tileY": 5,
+          "type": "key_door",
+          "lockCondition": { "type": "item_owned", "targetSlug": "the-sound-archive-key" },
+          "openedByDefault": false,
+          "label": "Vault"
+        }
+      ],
+      "switches": [
+        {
+          "name": "Vault Lever",
+          "tileX": 11,
+          "tileY": 9,
+          "type": "lever",
+          "effect": {
+            "type": "open_door",
+            "targetName": "Vault Door"
+          },
+          "label": "Lever"
+        }
+      ],
+      "puzzles": [
+        {
+          "name": "Key collected → set world state",
+          "trigger": { "on": "item_collected", "targetId": "the-sound-archive-key" },
+          "condition": { "type": "always" },
+          "action": { "type": "set_world_state", "key": "tsa_key_found", "value": true },
+          "order": 1
+        },
+        {
+          "name": "Lever pulled → open Vault Door",
+          "trigger": { "on": "switch_activated", "targetName": "Vault Lever" },
+          "condition": { "type": "always" },
+          "action": { "type": "open_door", "targetName": "Vault Door" },
+          "order": 2
+        }
+      ]
+    },
+
+    {
+      "slug": "tsa-vault",
+      "name": "Sound Archive — The Vault",
+      "description": "A secure room at the heart of the archive. This is where the rarest recordings are kept.",
+      "order": 3,
+      "spawnX": 1,
+      "spawnY": 4,
+      "isPublished": false,
+      "mapData": {
+        "width": 9,
+        "height": 8,
+        "tiles": [
+          [0,0,0,0,0,0,0,0,0],
+          [0,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,0],
+          [0,1,1,1,1,1,1,1,0],
+          [0,0,0,0,0,0,0,0,0]
+        ],
+        "entities": [
+          { "id": "tsa-spawn-vault", "type": "spawn", "x": 1, "y": 4 },
+          { "id": "tsa-item-album", "type": "item", "x": 7, "y": 2, "refId": "the-sound-archive-lost-album" },
+          { "id": "tsa-exit-back-stacks", "type": "exit", "x": 0, "y": 4, "targetLevelSlug": "tsa-stacks", "label": "← Back to Stacks" }
+        ]
+      },
+      "objectives": [
+        {
+          "name": "Recover the Lost Album",
+          "description": "The album is somewhere in the Vault. Retrieve it.",
+          "type": "find_item",
+          "target": "the-sound-archive-lost-album",
+          "condition": {},
+          "reward": {},
+          "isOptional": false,
+          "order": 1
+        }
+      ],
+      "npcs": [
+        {
+          "name": "The Archivist",
+          "role": "ambient",
+          "positionX": 4,
+          "positionY": 3,
+          "defaultDialogue": [
+            { "text": "This room hasn't been opened in years. I didn't think anyone remembered it was here.", "speakerName": "The Archivist" },
+            { "text": "The Lost Album is on the far shelf. Handle it carefully — it's irreplaceable.", "speakerName": "The Archivist" }
+          ]
+        }
+      ],
+      "beats": [
+        {
+          "arcSlug": "tsa-into-the-archive",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "You step into the Vault. The shelves here are sparse — this room holds only the most precious recordings." },
+              { "text": "And there, on the far shelf, you see it: a record sleeve unlike any other." }
+            ]
+          },
+          "unlockCondition": { "type": "always" },
+          "order": 1
+        },
+        {
+          "arcSlug": "tsa-album-recovered",
+          "type": "narration",
+          "content": {
+            "lines": [
+              { "text": "You lift the Lost Album from its shelf. The cover is worn but the vinyl inside is perfect." },
+              { "text": "Felix's voice crackles over the intercom: 'You found it. After all these years...'"},
+              { "text": "'Thank you. The Sound Archive will endure. The music lives on.'" }
+            ]
+          },
+          "unlockCondition": { "type": "item_owned", "targetSlug": "the-sound-archive-lost-album" },
+          "order": 2
+        }
+      ],
+      "doors": [],
+      "switches": [],
+      "puzzles": [
+        {
+          "name": "Album collected → mark adventure complete state",
+          "trigger": { "on": "item_collected", "targetId": "the-sound-archive-lost-album" },
+          "condition": { "type": "always" },
+          "action": { "type": "set_world_state", "key": "tsa_complete", "value": true },
+          "order": 1
+        }
+      ]
+    }
+  ],
+
+  "timeline": [
+    {
+      "title": "Arrive at the Archive",
+      "type": "level",
+      "refSlug": "tsa-lobby",
+      "isRequired": true,
+      "order": 1
+    },
+    {
+      "title": "Find the Archive Key",
+      "type": "quest",
+      "refSlug": "tsa-find-the-key",
+      "isRequired": true,
+      "order": 2
+    },
+    {
+      "title": "Search the Stacks",
+      "type": "level",
+      "refSlug": "tsa-stacks",
+      "isRequired": true,
+      "order": 3
+    },
+    {
+      "title": "Recover the Lost Album",
+      "type": "quest",
+      "refSlug": "tsa-recover-the-album",
+      "isRequired": true,
+      "order": 4
+    },
+    {
+      "title": "Enter the Vault",
+      "type": "level",
+      "refSlug": "tsa-vault",
+      "isRequired": false,
+      "order": 5
+    }
+  ]
+}
