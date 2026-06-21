@@ -3,10 +3,21 @@ import type { MapData } from './bandRpgEditor';
 
 // ── Runtime entity types ──────────────────────────────────────────────────────
 
+export interface DialogueChoiceAction {
+  type: 'accept_quest' | 'complete_quest' | 'give_item' | 'close';
+  targetId?: string;
+}
+
+export interface DialogueChoice {
+  text: string;
+  action?: DialogueChoiceAction;
+}
+
 export interface DialogueLine {
   text: string;
   speakerName?: string;
   portraitUrl?: string;
+  choices?: DialogueChoice[];
 }
 
 export interface RuntimeNpc {
@@ -47,6 +58,9 @@ export interface RuntimeQuest {
   objectiveIds: string[];
   reward: Record<string, unknown>;
   unlocksLevelId: string | null;
+  unlocksQuestId: string | null;
+  storyBeatId: string | null;
+  isOptional: boolean;
 }
 
 export interface RuntimeBeat {
@@ -66,6 +80,7 @@ export interface RuntimeObjective {
   description: string | null;
   type: string;
   target: string | null;
+  condition: Record<string, unknown>;
   isOptional: boolean;
   order: number;
 }
@@ -99,6 +114,9 @@ export interface SaveState {
   completedQuests: string[];
   inventory: InventoryEntry[];
   unlockedStoryBeats: string[];
+  activeQuestIds: string[];
+  objectiveProgress: Record<string, number>;
+  unlockedLevelSlugs: string[];
 }
 
 // ── API client ────────────────────────────────────────────────────────────────

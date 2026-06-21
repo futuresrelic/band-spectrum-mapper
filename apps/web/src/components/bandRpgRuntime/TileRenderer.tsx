@@ -48,11 +48,12 @@ interface Props {
   playerX: number;
   playerY: number;
   collectedEntityIds: Set<string>;
+  unlockedLevelSlugs?: string[];
   onCellClick?: (x: number, y: number) => void;
 }
 
 export default function TileRenderer({
-  level, playerX, playerY, collectedEntityIds, onCellClick,
+  level, playerX, playerY, collectedEntityIds, unlockedLevelSlugs = [], onCellClick,
 }: Props) {
   const { mapData, npcs, items, exits } = level;
   const { cx, cy } = useMemo(
@@ -108,27 +109,30 @@ export default function TileRenderer({
         </div>
 
         {/* Exit markers */}
-        {exits.map((exit, i) => (
-          <div
-            key={i}
-            style={{
-              position: 'absolute',
-              left: exit.tileX * CELL,
-              top: exit.tileY * CELL,
-              width: CELL,
-              height: CELL,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: 'rgba(59,130,246,0.3)',
-              border: '2px solid #3b82f6',
-              boxSizing: 'border-box',
-              borderRadius: 2,
-            }}
-          >
-            <span style={{ fontSize: 14, lineHeight: 1 }}>🚪</span>
-          </div>
-        ))}
+        {exits.map((exit, i) => {
+          const isLocked = unlockedLevelSlugs.length > 0 && !unlockedLevelSlugs.includes(exit.targetLevelSlug);
+          return (
+            <div
+              key={i}
+              style={{
+                position: 'absolute',
+                left: exit.tileX * CELL,
+                top: exit.tileY * CELL,
+                width: CELL,
+                height: CELL,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: isLocked ? 'rgba(75,85,99,0.3)' : 'rgba(59,130,246,0.3)',
+                border: `2px solid ${isLocked ? '#4b5563' : '#3b82f6'}`,
+                boxSizing: 'border-box',
+                borderRadius: 2,
+              }}
+            >
+              <span style={{ fontSize: 14, lineHeight: 1 }}>{isLocked ? '🔒' : '🚪'}</span>
+            </div>
+          );
+        })}
 
         {/* Items */}
         {items

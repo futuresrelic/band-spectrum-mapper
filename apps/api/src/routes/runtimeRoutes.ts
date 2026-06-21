@@ -154,6 +154,9 @@ runtimeRouter.get('/save', requireAuth, async (req, res, next): Promise<void> =>
         completedQuests: [],
         inventory: [],
         unlockedStoryBeats: [],
+        activeQuestIds: [],
+        objectiveProgress: {},
+        unlockedLevelSlugs: [],
       });
       return;
     }
@@ -173,6 +176,9 @@ runtimeRouter.get('/save', requireAuth, async (req, res, next): Promise<void> =>
       completedQuests: (progress.completedQuests as string[]) ?? [],
       inventory: (progress.inventory as object[]) ?? [],
       unlockedStoryBeats: (progress.unlockedStoryBeats as string[]) ?? [],
+      activeQuestIds: (progress.activeQuestIds as string[]) ?? [],
+      objectiveProgress: (progress.objectiveProgress as Record<string, number>) ?? {},
+      unlockedLevelSlugs: (progress.unlockedLevelSlugs as string[]) ?? [],
     });
     return;
   } catch (err) { next(err); return; }
@@ -186,12 +192,16 @@ runtimeRouter.post('/save', requireAuth, async (req, res, next): Promise<void> =
     const {
       currentLevelSlug, completedObjectives, completedQuests,
       inventory, unlockedStoryBeats,
+      activeQuestIds, objectiveProgress, unlockedLevelSlugs,
     } = req.body as {
       currentLevelSlug?: string | null;
       completedObjectives?: string[];
       completedQuests?: string[];
       inventory?: Array<{ itemId: string; quantity: number }>;
       unlockedStoryBeats?: string[];
+      activeQuestIds?: string[];
+      objectiveProgress?: Record<string, number>;
+      unlockedLevelSlugs?: string[];
     };
 
     // Resolve level slug → id
@@ -216,6 +226,9 @@ runtimeRouter.post('/save', requireAuth, async (req, res, next): Promise<void> =
     if (completedQuests !== undefined) updateData.completedQuests = completedQuests as Prisma.InputJsonValue;
     if (inventory !== undefined) updateData.inventory = inventory as Prisma.InputJsonValue;
     if (unlockedStoryBeats !== undefined) updateData.unlockedStoryBeats = unlockedStoryBeats as Prisma.InputJsonValue;
+    if (activeQuestIds !== undefined) updateData.activeQuestIds = activeQuestIds as Prisma.InputJsonValue;
+    if (objectiveProgress !== undefined) updateData.objectiveProgress = objectiveProgress as Prisma.InputJsonValue;
+    if (unlockedLevelSlugs !== undefined) updateData.unlockedLevelSlugs = unlockedLevelSlugs as Prisma.InputJsonValue;
 
     const createData: Prisma.BandRpgPlayerProgressUncheckedCreateInput = {
       userId,
@@ -226,6 +239,9 @@ runtimeRouter.post('/save', requireAuth, async (req, res, next): Promise<void> =
     if (completedQuests !== undefined) createData.completedQuests = completedQuests as Prisma.InputJsonValue;
     if (inventory !== undefined) createData.inventory = inventory as Prisma.InputJsonValue;
     if (unlockedStoryBeats !== undefined) createData.unlockedStoryBeats = unlockedStoryBeats as Prisma.InputJsonValue;
+    if (activeQuestIds !== undefined) createData.activeQuestIds = activeQuestIds as Prisma.InputJsonValue;
+    if (objectiveProgress !== undefined) createData.objectiveProgress = objectiveProgress as Prisma.InputJsonValue;
+    if (unlockedLevelSlugs !== undefined) createData.unlockedLevelSlugs = unlockedLevelSlugs as Prisma.InputJsonValue;
 
     await prisma.bandRpgPlayerProgress.upsert({
       where: { userId },

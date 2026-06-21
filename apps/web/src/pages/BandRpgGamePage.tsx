@@ -6,6 +6,7 @@ import TileRenderer from '../components/bandRpgRuntime/TileRenderer';
 import DialogueBox from '../components/bandRpgRuntime/DialogueBox';
 import GameHud from '../components/bandRpgRuntime/GameHud';
 import DebugPanel from '../components/bandRpgRuntime/DebugPanel';
+import CheatPanel from '../components/bandRpgRuntime/CheatPanel';
 import { useGameEngine } from '../components/bandRpgRuntime/useGameEngine';
 import { bandRpgRuntimeApi } from '../api/bandRpgRuntime';
 import { useAuth } from '../contexts/AuthContext';
@@ -17,7 +18,6 @@ export default function BandRpgGamePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  // Support ?slug= for test mode (from level editor "Play This Level")
   const slug = slugParam ?? searchParams.get('slug') ?? '';
 
   const { data: level, isLoading: levelLoading, isError: levelError } = useQuery({
@@ -35,8 +35,8 @@ export default function BandRpgGamePage() {
   });
 
   const saveMutation = useMutation({
-    mutationFn: (state: Partial<typeof save>) =>
-      bandRpgRuntimeApi.saveProgress(state ?? {}),
+    mutationFn: (partial: Parameters<typeof bandRpgRuntimeApi.saveProgress>[0]) =>
+      bandRpgRuntimeApi.saveProgress(partial),
   });
 
   const handleLevelTransition = useCallback((targetSlug: string) => {
@@ -50,12 +50,19 @@ export default function BandRpgGamePage() {
       completedQuests: gameState.completedQuests,
       inventory: gameState.inventory,
       unlockedStoryBeats: gameState.unlockedBeats,
+      activeQuestIds: gameState.activeQuestIds,
+      objectiveProgress: gameState.objectiveProgress,
+      unlockedLevelSlugs: gameState.unlockedLevelSlugs,
     });
-  }, [saveMutation]);
+  }, [saveMutation]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isAdmin = user?.isAdmin ?? false;
 
-  const { state, advanceDialogue, closeDialogue } = useGameEngine(
+  const {
+    state,
+    handleNextLine, handleChoose, handleCloseDlg, handleCloseCheat,
+    cheatCompleteQuest, cheatGrantItem, cheatUnlockLevel, cheatTeleport,
+  } = useGameEngine(
     level ?? null,
     save ?? null,
     handleLevelTransition,
@@ -63,52 +70,42 @@ export default function BandRpgGamePage() {
     isAdmin,
   );
 
-  // Focus the game area so keyboard events work immediately
+  // Focus so keyboard events fire immediately
   useEffect(() => {
-    const el = document.getElementById('band-rpg-game-container');
-    el?.focus();
+    document.getElementById('band-rpg-game-container')?.focus();
   }, [level]);
 
   if (!slug) {
     return (
-      <div className="h-screen flex flex-col bg-gray-950 text-white">
-        <SiteHeader theme="dark" active="games" />
+      <Shell>
         <div className="flex-1 flex items-center justify-center flex-col gap-4">
           <p className="text-gray-400">No level specified.</p>
-          <button onClick={() => navigate('/play/band-rpg')} className="text-indigo-400 hover:text-indigo-300 text-sm">
-            ← Back to Band RPG
-          </button>
+          <button onClick={() => navigate('/play/band-rpg')} className="text-indigo-400 hover:text-indigo-300 text-sm">← Band RPG</button>
         </div>
-      </div>
+      </Shell>
     );
   }
 
   if (levelLoading || saveLoading) {
     return (
-      <div className="h-screen flex flex-col bg-gray-950 text-white">
-        <SiteHeader theme="dark" active="games" />
+      <Shell>
         <div className="flex-1 flex items-center justify-center">
           <p className="text-gray-400 animate-pulse">Loading level…</p>
         </div>
-      </div>
+      </Shell>
     );
   }
 
   if (levelError || !level) {
     return (
-      <div className="h-screen flex flex-col bg-gray-950 text-white">
-        <SiteHeader theme="dark" active="games" />
+      <Shell>
         <div className="flex-1 flex items-center justify-center flex-col gap-4">
           <p className="text-red-400">Level not found: <code>{slug}</code></p>
-          <button onClick={() => navigate('/play/band-rpg')} className="text-indigo-400 hover:text-indigo-300 text-sm">
-            ← Back to Band RPG
-          </button>
+          <button onClick={() => navigate('/play/band-rpg')} className="text-indigo-400 hover:text-indigo-300 text-sm">← Band RPG</button>
         </div>
-      </div>
+      </Shell>
     );
   }
-
-  const levelBg = level.background ?? '#0f172a';
 
   return (
     <div className="h-screen flex flex-col overflow-hidden" style={{ backgroundColor: '#0f172a' }}>
@@ -117,22 +114,16 @@ export default function BandRpgGamePage() {
       {/* Title bar */}
       <div className="flex items-center justify-between px-4 py-2 bg-black/60 border-b border-gray-800 shrink-0">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate('/play/band-rpg')}
-            className="text-gray-500 hover:text-gray-300 text-sm transition-colors"
-          >
-            ←
-          </button>
+          <button onClick={() => navigate('/play/band-rpg')} className="text-gray-500 hover:text-gray-300 text-sm">←</button>
           <span className="text-white font-semibold text-sm">{level.name}</span>
           <span className="text-gray-600 text-xs">/{level.slug}</span>
+          {state.activeQuestIds.length > 0 && (
+            <span className="text-blue-400 text-xs">⚡ {state.activeQuestIds.length} active</span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {user && <span className="text-emerald-400 text-xs">● {user.username ?? user.name ?? 'Player'}</span>}
-          {isAdmin && (
-            <span className="text-green-500 text-xs opacity-60">
-              Admin · F3 debug
-            </span>
-          )}
+          {isAdmin && <span className="text-green-500 text-xs opacity-50">F3 debug · F4 cheat</span>}
           {saveMutation.isPending && <span className="text-gray-500 text-xs">Saving…</span>}
         </div>
       </div>
@@ -142,9 +133,9 @@ export default function BandRpgGamePage() {
         id="band-rpg-game-container"
         className="flex-1 flex overflow-hidden outline-none"
         tabIndex={0}
-        style={{ backgroundColor: levelBg }}
+        style={{ backgroundColor: level.background ?? '#0f172a' }}
       >
-        {/* Main viewport */}
+        {/* Viewport */}
         <div className="flex-1 flex items-center justify-center relative" style={{ minWidth: 0 }}>
           <div style={{ position: 'relative' }}>
             <TileRenderer
@@ -152,46 +143,64 @@ export default function BandRpgGamePage() {
               playerX={state.playerX}
               playerY={state.playerY}
               collectedEntityIds={state.collectedEntityIds}
+              unlockedLevelSlugs={state.unlockedLevelSlugs}
             />
 
-            {/* Dialogue box overlaid on viewport */}
-            {state.activeNpc && (
+            {/* Dialogue / Beat overlay */}
+            {state.dialogueMode !== 'none' && (
               <DialogueBox
-                npc={state.activeNpc}
-                dialogueIndex={state.dialogueIndex}
-                onNext={advanceDialogue}
-                onClose={closeDialogue}
+                lines={state.dialogueLines}
+                index={state.dialogueIndex}
+                mode={state.dialogueMode}
+                onNext={handleNextLine}
+                onClose={handleCloseDlg}
+                onChoose={handleChoose}
               />
             )}
 
-            {/* Debug panel */}
+            {/* Debug overlay */}
             {state.showDebug && isAdmin && (
               <DebugPanel state={state} level={level} />
+            )}
+
+            {/* Cheat panel */}
+            {state.showCheatPanel && isAdmin && (
+              <CheatPanel
+                state={state}
+                level={level}
+                onCompleteQuest={cheatCompleteQuest}
+                onGrantItem={cheatGrantItem}
+                onUnlockLevel={cheatUnlockLevel}
+                onTeleport={cheatTeleport}
+                onClose={handleCloseCheat}
+              />
             )}
           </div>
         </div>
 
         {/* HUD sidebar */}
-        <div
-          style={{
-            width: 220,
-            backgroundColor: 'rgba(0,0,0,0.7)',
-            borderLeft: '1px solid rgba(255,255,255,0.06)',
-            flexShrink: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            color: 'white',
-          }}
-        >
+        <div style={{ width: 220, backgroundColor: 'rgba(0,0,0,0.75)', borderLeft: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
           <GameHud
             level={level}
+            activeQuestIds={state.activeQuestIds}
             completedQuests={state.completedQuests}
             completedObjectives={state.completedObjectives}
+            objectiveProgress={state.objectiveProgress}
             inventory={state.inventory}
             notification={state.notification}
+            unlockedLevelSlugs={state.unlockedLevelSlugs}
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="h-screen flex flex-col bg-gray-950 text-white">
+      <SiteHeader theme="dark" active="games" />
+      {children}
     </div>
   );
 }
