@@ -167,6 +167,69 @@ export interface EditorTimelineEvent {
   isRequired: boolean;
 }
 
+// ── Phase Z.3 — World System types ───────────────────────────────────────────
+
+export type WorldConditionType =
+  | 'item_owned' | 'quest_active' | 'quest_complete' | 'story_beat_seen'
+  | 'switch_activated' | 'door_open' | 'world_state' | 'always' | 'never';
+
+export interface WorldCondition {
+  type: WorldConditionType;
+  targetId?: string;
+  key?: string;
+  value?: unknown;
+}
+
+export type DoorType = 'key_door' | 'quest_door' | 'story_door' | 'switch_door' | 'free';
+export type SwitchType = 'switch' | 'lever' | 'button' | 'pressure_plate';
+
+export type PuzzleTriggerType =
+  | 'item_collected' | 'quest_complete' | 'quest_start' | 'story_beat_seen'
+  | 'switch_activated' | 'npc_talked' | 'level_enter' | 'always';
+
+export type PuzzleActionType =
+  | 'open_door' | 'close_door' | 'trigger_beat' | 'reveal_exit'
+  | 'set_world_state' | 'grant_item';
+
+export interface EditorDoor {
+  id: string;
+  levelId: string;
+  name: string;
+  tileX: number;
+  tileY: number;
+  type: DoorType;
+  lockCondition: Record<string, unknown>;
+  openedByDefault: boolean;
+  label: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EditorSwitch {
+  id: string;
+  levelId: string;
+  name: string;
+  tileX: number;
+  tileY: number;
+  type: SwitchType;
+  effect: Record<string, unknown>;
+  label: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EditorPuzzle {
+  id: string;
+  levelId: string;
+  name: string;
+  trigger: Record<string, unknown>;
+  condition: Record<string, unknown>;
+  action: Record<string, unknown>;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── API Client ────────────────────────────────────────────────────────────────
 
 const BASE = '/api/band-rpg/editor';
@@ -225,4 +288,20 @@ export const bandRpgEditorApi = {
   updateTimelineEvent:  (id: string, data: Partial<EditorTimelineEvent>) => api.put<EditorTimelineEvent>(`${BASE}/timeline/${id}`, data),
   deleteTimelineEvent:  (id: string)                            => api.delete<void>(`${BASE}/timeline/${id}`),
   reorderTimeline:      (orderedIds: string[])                  => api.put<{ ok: boolean }>(`${BASE}/timeline/reorder`, { orderedIds }),
+
+  // World Systems — Phase Z.3
+  listDoors:    (levelId: string)                         => api.get<EditorDoor[]>(`${BASE}/world/levels/${levelId}/doors`),
+  createDoor:   (levelId: string, data: Partial<EditorDoor>) => api.post<EditorDoor>(`${BASE}/world/levels/${levelId}/doors`, data),
+  updateDoor:   (levelId: string, doorId: string, data: Partial<EditorDoor>) => api.put<EditorDoor>(`${BASE}/world/levels/${levelId}/doors/${doorId}`, data),
+  deleteDoor:   (levelId: string, doorId: string)         => api.delete<void>(`${BASE}/world/levels/${levelId}/doors/${doorId}`),
+
+  listSwitches:   (levelId: string)                           => api.get<EditorSwitch[]>(`${BASE}/world/levels/${levelId}/switches`),
+  createSwitch:   (levelId: string, data: Partial<EditorSwitch>) => api.post<EditorSwitch>(`${BASE}/world/levels/${levelId}/switches`, data),
+  updateSwitch:   (levelId: string, switchId: string, data: Partial<EditorSwitch>) => api.put<EditorSwitch>(`${BASE}/world/levels/${levelId}/switches/${switchId}`, data),
+  deleteSwitch:   (levelId: string, switchId: string)         => api.delete<void>(`${BASE}/world/levels/${levelId}/switches/${switchId}`),
+
+  listPuzzles:   (levelId: string)                            => api.get<EditorPuzzle[]>(`${BASE}/world/levels/${levelId}/puzzles`),
+  createPuzzle:  (levelId: string, data: Partial<EditorPuzzle>) => api.post<EditorPuzzle>(`${BASE}/world/levels/${levelId}/puzzles`, data),
+  updatePuzzle:  (levelId: string, puzzleId: string, data: Partial<EditorPuzzle>) => api.put<EditorPuzzle>(`${BASE}/world/levels/${levelId}/puzzles/${puzzleId}`, data),
+  deletePuzzle:  (levelId: string, puzzleId: string)          => api.delete<void>(`${BASE}/world/levels/${levelId}/puzzles/${puzzleId}`),
 };

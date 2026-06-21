@@ -22,6 +22,10 @@ export default function DebugPanel({ state, level }: Props) {
     ['Unlocked levels', `${state.unlockedLevelSlugs.length}`],
     ['Beats shown', `${state.unlockedBeats.length} / ${level.beats.length} total`],
     ['Pending beats', `${state.pendingBeats.length}`],
+    ['Doors', `${level.doors.length} / ${state.openedDoors.length} open`],
+    ['Switches', `${level.switches.length} / ${state.activatedSwitches.length} on`],
+    ['Puzzles', `${level.puzzles.length}`],
+    ['World keys', `${Object.keys(state.worldState).length}`],
   ];
 
   return (
@@ -70,6 +74,25 @@ export default function DebugPanel({ state, level }: Props) {
             const q = level.quests.find(q2 => q2.id === id);
             return <div key={id} style={{ color: '#d1fae5', fontSize: 10 }}>{q?.name ?? id}</div>;
           })}
+        </div>
+      )}
+
+      {state.activatedSwitches.length > 0 && (
+        <div style={{ marginTop: 6, paddingTop: 5, borderTop: '1px solid rgba(34,197,94,0.2)' }}>
+          <div style={{ color: '#6b7280', fontSize: 9, marginBottom: 3 }}>ACTIVATED SWITCHES</div>
+          {state.activatedSwitches.map(id => {
+            const sw = level.switches.find(s => s.id === id);
+            return <div key={id} style={{ color: '#d1fae5', fontSize: 10 }}>{sw?.name ?? id}</div>;
+          })}
+        </div>
+      )}
+
+      {Object.keys(state.worldState).length > 0 && (
+        <div style={{ marginTop: 6, paddingTop: 5, borderTop: '1px solid rgba(34,197,94,0.2)' }}>
+          <div style={{ color: '#6b7280', fontSize: 9, marginBottom: 3 }}>WORLD STATE</div>
+          {Object.entries(state.worldState).map(([k, v]) => (
+            <div key={k} style={{ color: '#d1fae5', fontSize: 10 }}>{k}: {String(v)}</div>
+          ))}
         </div>
       )}
     </div>

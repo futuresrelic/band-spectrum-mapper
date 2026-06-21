@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
-import type { RuntimeLevel, RuntimeNpc } from '../../api/bandRpgRuntime';
+import type { RuntimeLevel, RuntimeNpc, RuntimeDoor, RuntimeSwitch } from '../../api/bandRpgRuntime';
 import { isAdjacent } from './useGameEngine';
+import { SWITCH_ICON, DOOR_ICON } from './WorldEngine';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -49,13 +50,19 @@ interface Props {
   playerY: number;
   collectedEntityIds: Set<string>;
   unlockedLevelSlugs?: string[];
+  openedDoors?: string[];
+  activatedSwitches?: string[];
+  visibleNpcs?: RuntimeNpc[];   // pre-filtered by world conditions
   onCellClick?: (x: number, y: number) => void;
 }
 
 export default function TileRenderer({
-  level, playerX, playerY, collectedEntityIds, unlockedLevelSlugs = [], onCellClick,
+  level, playerX, playerY, collectedEntityIds,
+  unlockedLevelSlugs = [], openedDoors = [], activatedSwitches = [],
+  visibleNpcs, onCellClick,
 }: Props) {
-  const { mapData, npcs, items, exits } = level;
+  const { mapData, items, exits } = level;
+  const npcs = visibleNpcs ?? level.npcs;
   const { cx, cy } = useMemo(
     () => computeCamera(playerX, playerY, mapData.width, mapData.height),
     [playerX, playerY, mapData.width, mapData.height],
@@ -173,6 +180,26 @@ export default function TileRenderer({
               </div>
             );
           })}
+
+        {/* Doors */}
+        {level.doors.map(door => (
+          <DoorSprite
+            key={door.id}
+            door={door}
+            isOpen={openedDoors.includes(door.id) || door.openedByDefault}
+            adjacent={isAdjacent(playerX, playerY, door.tileX, door.tileY)}
+          />
+        ))}
+
+        {/* Switches */}
+        {level.switches.map(sw => (
+          <SwitchSprite
+            key={sw.id}
+            sw={sw}
+            isActive={activatedSwitches.includes(sw.id)}
+            adjacent={isAdjacent(playerX, playerY, sw.tileX, sw.tileY)}
+          />
+        ))}
 
         {/* NPCs */}
         {npcs.map(npc => {
@@ -297,6 +324,107 @@ function NpcSprite({ npc, adjacent }: { npc: RuntimeNpc; adjacent: boolean }) {
           }}
         >
           [E] Talk
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Door sprite ───────────────────────────────────────────────────────────────
+
+function DoorSprite({ door, isOpen, adjacent }: { door: RuntimeDoor; isOpen: boolean; adjacent: boolean }) {
+  const icon = isOpen ? '🚪' : (DOOR_ICON[door.type] ?? '🔒');
+  const bg = isOpen ? 'rgba(59,130,246,0.2)' : 'rgba(239,68,68,0.25)';
+  const border = isOpen ? '#3b82f6' : '#ef4444';
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: door.tileX * CELL,
+        top: door.tileY * CELL,
+        width: CELL, height: CELL,
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        backgroundColor: bg,
+        border: `2px solid ${border}`,
+        boxSizing: 'border-box',
+        zIndex: 8,
+      }}
+    >
+      <span style={{ fontSize: 14 }}>{icon}</span>
+      {adjacent && !isOpen && (
+        <div
+          style={{
+            position: 'absolute', top: -16, left: '50%',
+            transform: 'translateX(-50%)',
+            backgroundColor: 'rgba(239,68,68,0.15)', color: '#fca5a5',
+            fontSize: 9, padding: '1px 4px', borderRadius: 3,
+            whiteSpace: 'nowrap', border: '1px solid rgba(239,68,68,0.4)',
+          }}
+        >
+          [E] Try
+        </div>
+      )}
+      {door.label && (
+        <div style={{
+          position: 'absolute', bottom: CELL + 2, left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: 'rgba(0,0,0,0.8)', color: '#fca5a5',
+          fontSize: 9, fontWeight: 600, padding: '1px 4px', borderRadius: 3,
+          whiteSpace: 'nowrap', pointerEvents: 'none',
+        }}>
+          {door.label}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Switch sprite ─────────────────────────────────────────────────────────────
+
+function SwitchSprite({ sw, isActive, adjacent }: { sw: RuntimeSwitch; isActive: boolean; adjacent: boolean }) {
+  const icon = SWITCH_ICON[sw.type] ?? '🔘';
+  const bg = isActive ? 'rgba(34,197,94,0.25)' : 'rgba(251,191,36,0.2)';
+  const border = isActive ? '#22c55e' : '#fbbf24';
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: sw.tileX * CELL,
+        top: sw.tileY * CELL,
+        width: CELL, height: CELL,
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        backgroundColor: bg,
+        border: `2px solid ${border}`,
+        boxSizing: 'border-box',
+        zIndex: 8,
+        borderRadius: sw.type === 'button' ? '50%' : 2,
+      }}
+    >
+      <span style={{ fontSize: 14 }}>{icon}</span>
+      {adjacent && !isActive && (
+        <div
+          style={{
+            position: 'absolute', top: -16, left: '50%',
+            transform: 'translateX(-50%)',
+            backgroundColor: 'rgba(251,191,36,0.15)', color: '#fde68a',
+            fontSize: 9, padding: '1px 4px', borderRadius: 3,
+            whiteSpace: 'nowrap', border: '1px solid rgba(251,191,36,0.4)',
+          }}
+        >
+          [E] Use
+        </div>
+      )}
+      {sw.label && (
+        <div style={{
+          position: 'absolute', bottom: CELL + 2, left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: 'rgba(0,0,0,0.8)', color: '#fde68a',
+          fontSize: 9, fontWeight: 600, padding: '1px 4px', borderRadius: 3,
+          whiteSpace: 'nowrap', pointerEvents: 'none',
+        }}>
+          {sw.label}
         </div>
       )}
     </div>

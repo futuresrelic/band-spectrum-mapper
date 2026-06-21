@@ -6,6 +6,12 @@ import {
   buildNpcDialogue,
 } from './QuestEngine';
 import type { QuestReward, ObjectiveEvent, TriggerEvent } from './QuestEngine';
+import {
+  isDoorOpen, canOpenDoor, doorBlockedMessage,
+  findTriggeredPuzzles, evaluatePuzzleAction,
+  isNpcVisible,
+} from './WorldEngine';
+import type { WorldSnapshot, PuzzleEvent } from './WorldEngine';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -33,6 +39,11 @@ export interface GameState {
   // Beat queue
   pendingBeats: RuntimeBeat[];
 
+  // World systems (Phase Z.3)
+  openedDoors: string[];
+  activatedSwitches: string[];
+  worldState: Record<string, unknown>;
+
   // UI
   showDebug: boolean;
   showCheatPanel: boolean;
@@ -58,7 +69,12 @@ type GameAction =
   | { type: 'CHEAT_GRANT_ITEM'; itemId: string; itemName: string }
   | { type: 'CHEAT_UNLOCK_LEVEL'; levelSlug: string }
   | { type: 'CHEAT_TELEPORT'; x: number; y: number }
-  | { type: 'TICK_NOTIFICATION' };
+  | { type: 'TICK_NOTIFICATION' }
+  | { type: 'INTERACT_DOOR'; doorId: string; level: RuntimeLevel }
+  | { type: 'ACTIVATE_SWITCH'; switchId: string; level: RuntimeLevel }
+  | { type: 'APPLY_PUZZLE_ACTION'; result: import('./WorldEngine').PuzzleActionResult; level: RuntimeLevel }
+  | { type: 'CHEAT_OPEN_DOOR'; doorId: string }
+  | { type: 'CHEAT_ACTIVATE_SWITCH'; switchId: string; level: RuntimeLevel };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -79,6 +95,34 @@ function addToInventory(inv: InventoryEntry[], itemId: string): InventoryEntry[]
 
 function findAdjacentNpc(px: number, py: number, npcs: RuntimeNpc[]): RuntimeNpc | null {
   return npcs.find(n => isAdjacent(px, py, n.tileX, n.tileY)) ?? null;
+}
+
+// Build a WorldSnapshot for condition evaluation
+function toWorldSnapshot(s: GameState): WorldSnapshot {
+  return {
+    inventory: s.inventory,
+    activeQuestIds: s.activeQuestIds,
+    completedQuests: s.completedQuests,
+    unlockedBeats: s.unlockedBeats,
+    activatedSwitches: s.activatedSwitches,
+    openedDoors: s.openedDoors,
+    worldState: s.worldState,
+  };
+}
+
+// Apply triggered puzzles to state
+function applyPuzzleTrigger(
+  state: GameState,
+  event: PuzzleEvent,
+  level: RuntimeLevel,
+): GameState {
+  const snap = toWorldSnapshot(state);
+  const triggered = findTriggeredPuzzles(event, level.puzzles, snap);
+  let s = state;
+  for (const puzzle of triggered) {
+    s = reducer(s, { type: 'APPLY_PUZZLE_ACTION', result: evaluatePuzzleAction(puzzle.action), level });
+  }
+  return s;
 }
 
 // Apply an objective event against all active quest objectives, returning updated state
@@ -168,6 +212,9 @@ function reducer(state: GameState, action: GameAction): GameState {
       const activeQuestIds = save?.activeQuestIds ?? [];
       const objectiveProgress = save?.objectiveProgress ?? {};
       const unlockedLevelSlugs = save?.unlockedLevelSlugs ?? [];
+      const openedDoors = save?.openedDoors ?? [];
+      const activatedSwitches = save?.activatedSwitches ?? [];
+      const worldState = save?.worldState ?? {};
 
       // Find beats to trigger on level enter
       const enterBeats = findTriggeredBeats(
@@ -192,6 +239,9 @@ function reducer(state: GameState, action: GameAction): GameState {
         objectiveProgress,
         unlockedLevelSlugs,
         pendingBeats: enterBeats,
+        openedDoors,
+        activatedSwitches,
+        worldState,
         notification: null,
         notificationTimer: 0,
       };
@@ -203,6 +253,12 @@ function reducer(state: GameState, action: GameAction): GameState {
       const newX = state.playerX + dx;
       const newY = state.playerY + dy;
       if (!canMoveTo(level, newX, newY)) return state;
+
+      // Block on closed doors
+      const doorAtTile = level.doors.find(d => d.tileX === newX && d.tileY === newY);
+      if (doorAtTile && !isDoorOpen(doorAtTile, toWorldSnapshot(state))) {
+        return state; // impassable closed door — player interacts via E to open
+      }
 
       let s: GameState = { ...state, playerX: newX, playerY: newY };
 
@@ -319,7 +375,7 @@ function reducer(state: GameState, action: GameAction): GameState {
       const { questId, level } = action;
       if (state.activeQuestIds.includes(questId) || state.completedQuests.includes(questId)) return state;
       const triggered = findTriggeredBeats({ type: 'quest_start', targetId: questId }, level.beats, state.unlockedBeats);
-      return {
+      let s: GameState = {
         ...state,
         activeQuestIds: [...state.activeQuestIds, questId],
         dialogueMode: 'none',
@@ -330,6 +386,8 @@ function reducer(state: GameState, action: GameAction): GameState {
         notificationTimer: 150,
         pendingBeats: [...state.pendingBeats, ...triggered],
       };
+      s = applyPuzzleTrigger(s, { type: 'quest_start', targetId: questId }, level);
+      return s;
     }
 
     case 'COMPLETE_QUEST': {
@@ -359,6 +417,8 @@ function reducer(state: GameState, action: GameAction): GameState {
       }
       // Check complete_quest objectives for any active quests
       s = applyObjectiveEvent(s, { type: 'complete_quest', questId }, level);
+      // Fire puzzle triggers on quest complete
+      s = applyPuzzleTrigger(s, { type: 'quest_complete', targetId: questId }, level);
       return s;
     }
 
@@ -404,6 +464,88 @@ function reducer(state: GameState, action: GameAction): GameState {
       const t = state.notificationTimer - 1;
       return { ...state, notificationTimer: t, notification: t <= 0 ? null : state.notification };
     }
+
+    case 'CHEAT_OPEN_DOOR':
+      if (state.openedDoors.includes(action.doorId)) return state;
+      return {
+        ...state,
+        openedDoors: [...state.openedDoors, action.doorId],
+        notification: '[CHEAT] Door opened',
+        notificationTimer: 120,
+      };
+
+    case 'CHEAT_ACTIVATE_SWITCH': {
+      const { switchId, level } = action;
+      return reducer(state, { type: 'ACTIVATE_SWITCH', switchId, level });
+    }
+
+    case 'INTERACT_DOOR': {
+      const { doorId, level } = action;
+      const door = level.doors.find(d => d.id === doorId);
+      if (!door) return state;
+      if (isDoorOpen(door, toWorldSnapshot(state))) return state;
+      if (canOpenDoor(door, toWorldSnapshot(state))) {
+        let s: GameState = {
+          ...state,
+          openedDoors: [...state.openedDoors, doorId],
+          notification: `${door.label ?? door.name} opened!`,
+          notificationTimer: 120,
+        };
+        s = applyPuzzleTrigger(s, { type: 'switch_activated', targetId: doorId }, level);
+        return s;
+      }
+      return {
+        ...state,
+        notification: doorBlockedMessage(door),
+        notificationTimer: 150,
+      };
+    }
+
+    case 'ACTIVATE_SWITCH': {
+      const { switchId, level } = action;
+      const sw = level.switches.find(s => s.id === switchId);
+      if (!sw) return state;
+      if (state.activatedSwitches.includes(switchId)) return state; // already on
+      let s: GameState = {
+        ...state,
+        activatedSwitches: [...state.activatedSwitches, switchId],
+        notification: `${sw.label ?? sw.name} activated!`,
+        notificationTimer: 120,
+      };
+      // Apply the switch's own effect
+      const immediateResult = evaluatePuzzleAction(sw.effect);
+      s = reducer(s, { type: 'APPLY_PUZZLE_ACTION', result: immediateResult, level });
+      // Fire puzzle triggers for switch activation
+      s = applyPuzzleTrigger(s, { type: 'switch_activated', targetId: switchId }, level);
+      return s;
+    }
+
+    case 'APPLY_PUZZLE_ACTION': {
+      const { result, level } = action;
+      let s = state;
+      if (result.openDoorId && !s.openedDoors.includes(result.openDoorId)) {
+        s = { ...s, openedDoors: [...s.openedDoors, result.openDoorId] };
+      }
+      if (result.closeDoorId) {
+        s = { ...s, openedDoors: s.openedDoors.filter(id => id !== result.closeDoorId) };
+      }
+      if (result.unlockLevelSlug && !s.unlockedLevelSlugs.includes(result.unlockLevelSlug)) {
+        s = { ...s, unlockedLevelSlugs: [...s.unlockedLevelSlugs, result.unlockLevelSlug] };
+      }
+      if (result.worldStateKey !== undefined) {
+        s = { ...s, worldState: { ...s.worldState, [result.worldStateKey]: result.worldStateValue } };
+      }
+      if (result.grantItemId) {
+        s = { ...s, inventory: addToInventory(s.inventory, result.grantItemId) };
+      }
+      if (result.activateBeatId) {
+        const beat = level.beats.find(b => b.id === result.activateBeatId);
+        if (beat && !s.unlockedBeats.includes(beat.id)) {
+          s = { ...s, pendingBeats: [...s.pendingBeats, beat] };
+        }
+      }
+      return s;
+    }
   }
 }
 
@@ -413,6 +555,7 @@ function makeEmptyLevel(): RuntimeLevel {
     mapData: { width: 1, height: 1, tiles: [[1]], entities: [] },
     spawnX: 0, spawnY: 0,
     npcs: [], items: [], exits: [], quests: [], beats: [], objectives: [],
+    doors: [], switches: [], puzzles: [],
   };
 }
 
@@ -434,6 +577,9 @@ function initState(level: RuntimeLevel, save: SaveState | null): GameState {
     objectiveProgress: save?.objectiveProgress ?? {},
     unlockedLevelSlugs: save?.unlockedLevelSlugs ?? [],
     pendingBeats: enterBeats,
+    openedDoors: save?.openedDoors ?? [],
+    activatedSwitches: save?.activatedSwitches ?? [],
+    worldState: save?.worldState ?? {},
     showDebug: false,
     showCheatPanel: false,
     notification: null,
@@ -447,6 +593,7 @@ export interface GameEngineControls {
   state: GameState;
   getAdjacentNpc: () => RuntimeNpc | null;
   isLevelLocked: (slug: string) => boolean;
+  getWorldSnapshot: () => WorldSnapshot;
   handleNextLine: () => void;
   handleChoose: (action: import('../../api/bandRpgRuntime').DialogueChoiceAction) => void;
   handleCloseDlg: () => void;
@@ -455,6 +602,8 @@ export interface GameEngineControls {
   cheatGrantItem: (itemId: string, itemName: string) => void;
   cheatUnlockLevel: (levelSlug: string) => void;
   cheatTeleport: (x: number, y: number) => void;
+  cheatOpenDoor: (doorId: string) => void;
+  cheatActivateSwitch: (switchId: string) => void;
 }
 
 export function useGameEngine(
@@ -543,7 +692,25 @@ export function useGameEngine(
 
       if (e.key === 'e' || e.key === 'E' || e.key === 'Enter') {
         e.preventDefault();
-        const adj = findAdjacentNpc(s.playerX, s.playerY, lv.npcs);
+        const snap = toWorldSnapshot(s);
+
+        // Check adjacent door first
+        const adjDoor = lv.doors.find(d => isAdjacent(s.playerX, s.playerY, d.tileX, d.tileY));
+        if (adjDoor) {
+          dispatch({ type: 'INTERACT_DOOR', doorId: adjDoor.id, level: lv });
+          return;
+        }
+
+        // Check adjacent switch
+        const adjSwitch = lv.switches.find(sw => isAdjacent(s.playerX, s.playerY, sw.tileX, sw.tileY));
+        if (adjSwitch) {
+          dispatch({ type: 'ACTIVATE_SWITCH', switchId: adjSwitch.id, level: lv });
+          return;
+        }
+
+        // NPC — filter by visibility condition
+        const visibleNpcs = lv.npcs.filter(n => isNpcVisible(n, snap));
+        const adj = findAdjacentNpc(s.playerX, s.playerY, visibleNpcs);
         if (adj) {
           const lines = buildNpcDialogue(
             adj.id, adj.name, adj.portraitUrl, adj.dialogue,
@@ -566,11 +733,12 @@ export function useGameEngine(
     const key = JSON.stringify([
       state.completedObjectives, state.completedQuests,
       state.activeQuestIds, state.inventory.length, state.unlockedLevelSlugs,
+      state.openedDoors, state.activatedSwitches,
     ]);
     if (key === prevKey.current) return;
     prevKey.current = key;
     onSave(state, level.slug);
-  }, [state.completedObjectives, state.completedQuests, state.activeQuestIds, state.inventory, state.unlockedLevelSlugs, level, onSave]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.completedObjectives, state.completedQuests, state.activeQuestIds, state.inventory, state.unlockedLevelSlugs, state.openedDoors, state.activatedSwitches, level, onSave]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getAdjacentNpc = useCallback((): RuntimeNpc | null => {
     if (!level) return null;
@@ -617,10 +785,21 @@ export function useGameEngine(
     dispatch({ type: 'TOGGLE_CHEAT_PANEL' });
   }, []);
 
+  const getWorldSnapshot = useCallback((): WorldSnapshot => toWorldSnapshot(stateRef.current), []);
+
+  const cheatOpenDoor = useCallback((doorId: string) => {
+    dispatch({ type: 'CHEAT_OPEN_DOOR', doorId });
+  }, []);
+
+  const cheatActivateSwitch = useCallback((switchId: string) => {
+    if (level) dispatch({ type: 'CHEAT_ACTIVATE_SWITCH', switchId, level });
+  }, [level]);
+
   return {
-    state, getAdjacentNpc, isLevelLocked,
+    state, getAdjacentNpc, isLevelLocked, getWorldSnapshot,
     handleNextLine, handleChoose, handleCloseDlg, handleCloseCheat,
     cheatCompleteQuest, cheatGrantItem, cheatUnlockLevel, cheatTeleport,
+    cheatOpenDoor, cheatActivateSwitch,
   };
 }
 

@@ -1,6 +1,75 @@
 import { api } from '../lib/api';
 import type { MapData } from './bandRpgEditor';
 
+// ── Phase Z.3 — World System types ───────────────────────────────────────────
+
+export type WorldConditionType =
+  | 'item_owned' | 'quest_active' | 'quest_complete' | 'story_beat_seen'
+  | 'switch_activated' | 'door_open' | 'world_state' | 'always' | 'never';
+
+export interface WorldCondition {
+  type: WorldConditionType;
+  targetId?: string;   // doorId / switchId / questId / beatId / itemId
+  key?: string;        // worldState key (for world_state type)
+  value?: unknown;     // worldState expected value
+}
+
+export type PuzzleTriggerType =
+  | 'item_collected' | 'quest_complete' | 'quest_start' | 'story_beat_seen'
+  | 'switch_activated' | 'npc_talked' | 'level_enter' | 'always';
+
+export interface PuzzleTrigger {
+  on: PuzzleTriggerType;
+  targetId?: string;
+}
+
+export type PuzzleActionType =
+  | 'open_door' | 'close_door' | 'trigger_beat' | 'reveal_exit'
+  | 'set_world_state' | 'grant_item';
+
+export interface PuzzleAction {
+  type: PuzzleActionType;
+  targetId?: string;  // doorId / beatId / levelSlug / itemId
+  key?: string;       // for set_world_state
+  value?: unknown;    // for set_world_state
+}
+
+export type DoorType = 'key_door' | 'quest_door' | 'story_door' | 'switch_door' | 'free';
+export type SwitchType = 'switch' | 'lever' | 'button' | 'pressure_plate';
+
+export interface RuntimeDoor {
+  id: string;
+  levelId: string;
+  name: string;
+  tileX: number;
+  tileY: number;
+  type: DoorType;
+  lockCondition: WorldCondition;
+  openedByDefault: boolean;
+  label: string | null;
+}
+
+export interface RuntimeSwitch {
+  id: string;
+  levelId: string;
+  name: string;
+  tileX: number;
+  tileY: number;
+  type: SwitchType;
+  effect: PuzzleAction;
+  label: string | null;
+}
+
+export interface RuntimePuzzle {
+  id: string;
+  levelId: string;
+  name: string;
+  trigger: PuzzleTrigger;
+  condition: WorldCondition;
+  action: PuzzleAction;
+  order: number;
+}
+
 // ── Runtime entity types ──────────────────────────────────────────────────────
 
 export interface DialogueChoiceAction {
@@ -28,6 +97,7 @@ export interface RuntimeNpc {
   dialogue: DialogueLine[];
   tileX: number;
   tileY: number;
+  visibilityCondition: WorldCondition | null;
 }
 
 export interface RuntimeItem {
@@ -40,6 +110,7 @@ export interface RuntimeItem {
   iconUrl: string | null;
   tileX: number;
   tileY: number;
+  spawnCondition: WorldCondition | null;
 }
 
 export interface RuntimeExit {
@@ -47,6 +118,7 @@ export interface RuntimeExit {
   tileY: number;
   targetLevelSlug: string;
   label?: string;
+  condition: WorldCondition | null;
 }
 
 export interface RuntimeQuest {
@@ -99,6 +171,9 @@ export interface RuntimeLevel {
   quests: RuntimeQuest[];
   beats: RuntimeBeat[];
   objectives: RuntimeObjective[];
+  doors: RuntimeDoor[];
+  switches: RuntimeSwitch[];
+  puzzles: RuntimePuzzle[];
 }
 
 // ── Save state ────────────────────────────────────────────────────────────────
@@ -117,6 +192,9 @@ export interface SaveState {
   activeQuestIds: string[];
   objectiveProgress: Record<string, number>;
   unlockedLevelSlugs: string[];
+  openedDoors: string[];
+  activatedSwitches: string[];
+  worldState: Record<string, unknown>;
 }
 
 // ── API client ────────────────────────────────────────────────────────────────

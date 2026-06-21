@@ -1478,9 +1478,84 @@ model BandRpgLevel {
   npcs       BandRpgNpc[]
   items      BandRpgItem[]      @relation("LevelItems")
   beats      BandRpgStoryBeat[]
+  doors      BandRpgDoor[]
+  switches   BandRpgSwitch[]
+  puzzles    BandRpgPuzzle[]
   playerProgress BandRpgPlayerProgress[]
 
   @@map("band_rpg_levels")
+}
+
+// ── Phase Z.3: World Systems ──────────────────────────────────────────────────
+
+enum BandRpgDoorType {
+  key_door
+  quest_door
+  story_door
+  switch_door
+  free
+
+  @@map("band_rpg_door_type")
+}
+
+enum BandRpgSwitchType {
+  switch
+  lever
+  button
+  pressure_plate
+
+  @@map("band_rpg_switch_type")
+}
+
+model BandRpgDoor {
+  id              String          @id @default(cuid())
+  levelId         String
+  name            String
+  tileX           Int
+  tileY           Int
+  type            BandRpgDoorType @default(key_door)
+  lockCondition   Json            @default("{}") // { type: WorldConditionType, targetId?: string }
+  openedByDefault Boolean         @default(false)
+  label           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  level BandRpgLevel @relation(fields: [levelId], references: [id], onDelete: Cascade)
+
+  @@map("band_rpg_doors")
+}
+
+model BandRpgSwitch {
+  id        String            @id @default(cuid())
+  levelId   String
+  name      String
+  tileX     Int
+  tileY     Int
+  type      BandRpgSwitchType @default(switch)
+  effect    Json              @default("{}") // { type: PuzzleActionType, targetId?: string, value? }
+  label     String?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  level BandRpgLevel @relation(fields: [levelId], references: [id], onDelete: Cascade)
+
+  @@map("band_rpg_switches")
+}
+
+model BandRpgPuzzle {
+  id        String   @id @default(cuid())
+  levelId   String
+  name      String
+  trigger   Json     // { on: PuzzleTriggerType, targetId?: string }
+  condition Json     @default("{}") // optional WorldCondition — extra gate before action fires
+  action    Json     // { type: PuzzleActionType, targetId?: string, value? }
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  level BandRpgLevel @relation(fields: [levelId], references: [id], onDelete: Cascade)
+
+  @@map("band_rpg_puzzles")
 }
 
 enum BandRpgObjectiveType {
@@ -1608,9 +1683,10 @@ model BandRpgNpc {
   defaultDialogue Json   @default("[]") // [{text, speakerName, portraitUrl}]
   positionX      Int      @default(0)
   positionY      Int      @default(0)
-  bandMemberId   String?  // Optional BandMember reference
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  bandMemberId        String?  // Optional BandMember reference
+  visibilityCondition Json?    // { type: WorldConditionType, targetId?: string } — hide NPC until met
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   level BandRpgLevel @relation(fields: [levelId], references: [id], onDelete: Cascade)
 
@@ -1665,6 +1741,9 @@ model BandRpgPlayerProgress {
   activeQuestIds       Json     @default("[]")   // Phase Z.2 — [questId, ...]
   objectiveProgress    Json     @default("{}")   // Phase Z.2 — {objectiveId: count}
   unlockedLevelSlugs   Json     @default("[]")   // Phase Z.2 — [levelSlug, ...]
+  openedDoors          Json     @default("[]")   // Phase Z.3 — [doorId, ...]
+  activatedSwitches    Json     @default("[]")   // Phase Z.3 — [switchId, ...]
+  worldState           Json     @default("{}")   // Phase Z.3 — { key: value }
   score                Int      @default(0)
   completionPct        Float    @default(0)
   totalRuns            Int      @default(0)

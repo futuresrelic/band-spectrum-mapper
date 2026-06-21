@@ -15,6 +15,7 @@ interface MapEntity {
   refId?: string;
   targetLevelSlug?: string;
   label?: string;
+  condition?: Record<string, unknown>; // Phase Z.3 — WorldCondition for exits/items
 }
 
 interface MapData {
@@ -40,6 +41,9 @@ runtimeRouter.get('/level/:slug', requireAuth, async (req, res, next): Promise<v
       include: {
         npcs: true,
         objectives: { orderBy: { order: 'asc' } },
+        doors:    { orderBy: [{ tileY: 'asc' }, { tileX: 'asc' }] },
+        switches: { orderBy: [{ tileY: 'asc' }, { tileX: 'asc' }] },
+        puzzles:  { orderBy: { order: 'asc' } },
       },
     });
     if (!level) { res.status(404).json({ error: 'Level not found' }); return; }
@@ -64,6 +68,7 @@ runtimeRouter.get('/level/:slug', requireAuth, async (req, res, next): Promise<v
         portraitUrl: npc.portraitUrl,
         dialogue: (npc.defaultDialogue as unknown as DialogueLine[]) ?? [],
         tileX: e.x, tileY: e.y,
+        visibilityCondition: npc.visibilityCondition ?? null,
       });
     }
 
@@ -75,6 +80,7 @@ runtimeRouter.get('/level/:slug', requireAuth, async (req, res, next): Promise<v
         portraitUrl: npc.portraitUrl,
         dialogue: (npc.defaultDialogue as unknown as DialogueLine[]) ?? [],
         tileX: npc.positionX, tileY: npc.positionY,
+        visibilityCondition: npc.visibilityCondition ?? null,
       });
     }
 
@@ -98,13 +104,19 @@ runtimeRouter.get('/level/:slug', requireAuth, async (req, res, next): Promise<v
         name: item.name, description: item.description,
         rarity: item.rarity, scoreValue: item.scoreValue,
         iconUrl: item.iconUrl, tileX: e.x, tileY: e.y,
+        spawnCondition: e.condition ?? null,  // Phase Z.3 — from map entity
       });
     }
 
     // ── Resolve exits ────────────────────────────────────────────────────────
     const runtimeExits = entities
       .filter(e => e.type === 'exit' && e.targetLevelSlug)
-      .map(e => ({ tileX: e.x, tileY: e.y, targetLevelSlug: e.targetLevelSlug!, label: e.label }));
+      .map(e => ({
+        tileX: e.x, tileY: e.y,
+        targetLevelSlug: e.targetLevelSlug!,
+        label: e.label,
+        condition: e.condition ?? null,  // Phase Z.3 — hide until condition met
+      }));
 
     // ── Spawn position ───────────────────────────────────────────────────────
     const spawnEntity = entities.find(e => e.type === 'spawn');
@@ -135,6 +147,9 @@ runtimeRouter.get('/level/:slug', requireAuth, async (req, res, next): Promise<v
       exits: runtimeExits,
       quests, beats,
       objectives: level.objectives,
+      doors: level.doors,
+      switches: level.switches,
+      puzzles: level.puzzles,
     });
     return;
   } catch (err) { next(err); return; }
@@ -157,6 +172,9 @@ runtimeRouter.get('/save', requireAuth, async (req, res, next): Promise<void> =>
         activeQuestIds: [],
         objectiveProgress: {},
         unlockedLevelSlugs: [],
+        openedDoors: [],
+        activatedSwitches: [],
+        worldState: {},
       });
       return;
     }
@@ -179,6 +197,9 @@ runtimeRouter.get('/save', requireAuth, async (req, res, next): Promise<void> =>
       activeQuestIds: (progress.activeQuestIds as string[]) ?? [],
       objectiveProgress: (progress.objectiveProgress as Record<string, number>) ?? {},
       unlockedLevelSlugs: (progress.unlockedLevelSlugs as string[]) ?? [],
+      openedDoors: (progress.openedDoors as string[]) ?? [],
+      activatedSwitches: (progress.activatedSwitches as string[]) ?? [],
+      worldState: (progress.worldState as Record<string, unknown>) ?? {},
     });
     return;
   } catch (err) { next(err); return; }
@@ -193,6 +214,7 @@ runtimeRouter.post('/save', requireAuth, async (req, res, next): Promise<void> =
       currentLevelSlug, completedObjectives, completedQuests,
       inventory, unlockedStoryBeats,
       activeQuestIds, objectiveProgress, unlockedLevelSlugs,
+      openedDoors, activatedSwitches, worldState,
     } = req.body as {
       currentLevelSlug?: string | null;
       completedObjectives?: string[];
@@ -202,6 +224,9 @@ runtimeRouter.post('/save', requireAuth, async (req, res, next): Promise<void> =
       activeQuestIds?: string[];
       objectiveProgress?: Record<string, number>;
       unlockedLevelSlugs?: string[];
+      openedDoors?: string[];
+      activatedSwitches?: string[];
+      worldState?: Record<string, unknown>;
     };
 
     // Resolve level slug → id
@@ -229,6 +254,9 @@ runtimeRouter.post('/save', requireAuth, async (req, res, next): Promise<void> =
     if (activeQuestIds !== undefined) updateData.activeQuestIds = activeQuestIds as Prisma.InputJsonValue;
     if (objectiveProgress !== undefined) updateData.objectiveProgress = objectiveProgress as Prisma.InputJsonValue;
     if (unlockedLevelSlugs !== undefined) updateData.unlockedLevelSlugs = unlockedLevelSlugs as Prisma.InputJsonValue;
+    if (openedDoors !== undefined) updateData.openedDoors = openedDoors as Prisma.InputJsonValue;
+    if (activatedSwitches !== undefined) updateData.activatedSwitches = activatedSwitches as Prisma.InputJsonValue;
+    if (worldState !== undefined) updateData.worldState = worldState as Prisma.InputJsonValue;
 
     const createData: Prisma.BandRpgPlayerProgressUncheckedCreateInput = {
       userId,
@@ -242,6 +270,9 @@ runtimeRouter.post('/save', requireAuth, async (req, res, next): Promise<void> =
     if (activeQuestIds !== undefined) createData.activeQuestIds = activeQuestIds as Prisma.InputJsonValue;
     if (objectiveProgress !== undefined) createData.objectiveProgress = objectiveProgress as Prisma.InputJsonValue;
     if (unlockedLevelSlugs !== undefined) createData.unlockedLevelSlugs = unlockedLevelSlugs as Prisma.InputJsonValue;
+    if (openedDoors !== undefined) createData.openedDoors = openedDoors as Prisma.InputJsonValue;
+    if (activatedSwitches !== undefined) createData.activatedSwitches = activatedSwitches as Prisma.InputJsonValue;
+    if (worldState !== undefined) createData.worldState = worldState as Prisma.InputJsonValue;
 
     await prisma.bandRpgPlayerProgress.upsert({
       where: { userId },

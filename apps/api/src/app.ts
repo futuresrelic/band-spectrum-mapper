@@ -68,6 +68,7 @@ import { questEditorRouter } from './routes/questEditorRoutes.js';
 import { storyEditorRouter } from './routes/storyEditorRoutes.js';
 import { itemEditorRouter } from './routes/itemEditorRoutes.js';
 import { timelineEditorRouter } from './routes/timelineEditorRoutes.js';
+import { worldEditorRouter } from './routes/worldEditorRoutes.js';
 import { runtimeRouter } from './routes/runtimeRoutes.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -255,6 +256,7 @@ export function createApp() {
   app.use('/api/band-rpg/editor/story', storyEditorRouter);
   app.use('/api/band-rpg/editor/items', itemEditorRouter);
   app.use('/api/band-rpg/editor/timeline', timelineEditorRouter);
+  app.use('/api/band-rpg/editor/world', worldEditorRouter);   // Phase Z.3 — World Systems
 
   // Runtime Engine — Phase Z.1 (auth required)
   app.use('/api/band-rpg/runtime', runtimeRouter);

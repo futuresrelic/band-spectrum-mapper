@@ -10,6 +10,7 @@ import NpcEditor from '../components/bandRpgEditor/NpcEditor';
 import ItemEditor from '../components/bandRpgEditor/ItemEditor';
 import TimelineEditor from '../components/bandRpgEditor/TimelineEditor';
 import LeaderboardTab from '../components/bandRpgEditor/LeaderboardTab';
+import WorldEditor from '../components/bandRpgEditor/WorldEditor';
 
 type Tab =
   | 'overview'
@@ -20,6 +21,7 @@ type Tab =
   | 'timeline'
   | 'characters'
   | 'items'
+  | 'world'
   | 'graphics'
   | 'settings'
   | 'leaderboard'
@@ -35,6 +37,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'timeline',    label: 'Timeline',    icon: '⏱️'  },
   { id: 'characters',  label: 'Characters',  icon: '🎭'  },
   { id: 'items',       label: 'Items',       icon: '🎒'  },
+  { id: 'world',       label: 'World',       icon: '🧩'  },
   { id: 'graphics',    label: 'Graphics',    icon: '🎨'  },
   { id: 'settings',    label: 'Settings',    icon: '⚙️'  },
   { id: 'leaderboard', label: 'Leaderboard', icon: '🏆'  },
@@ -591,6 +594,7 @@ export default function AdminBandRpgPage() {
         </div>
       )}
       {tab === 'items'       && <ItemEditor />}
+      {tab === 'world'       && <WorldEditor />}
       {tab === 'graphics'    && (
         <ComingSoonPlaceholder
           title="Graphics & Theme"

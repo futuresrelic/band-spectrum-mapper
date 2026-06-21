@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import SiteHeader from '../components/layout/SiteHeader';
@@ -10,6 +10,7 @@ import CheatPanel from '../components/bandRpgRuntime/CheatPanel';
 import { useGameEngine } from '../components/bandRpgRuntime/useGameEngine';
 import { bandRpgRuntimeApi } from '../api/bandRpgRuntime';
 import { useAuth } from '../contexts/AuthContext';
+import { isNpcVisible, isItemSpawned, isExitVisible } from '../components/bandRpgRuntime/WorldEngine';
 import type { GameState } from '../components/bandRpgRuntime/useGameEngine';
 
 export default function BandRpgGamePage() {
@@ -53,15 +54,19 @@ export default function BandRpgGamePage() {
       activeQuestIds: gameState.activeQuestIds,
       objectiveProgress: gameState.objectiveProgress,
       unlockedLevelSlugs: gameState.unlockedLevelSlugs,
+      openedDoors: gameState.openedDoors,
+      activatedSwitches: gameState.activatedSwitches,
+      worldState: gameState.worldState,
     });
   }, [saveMutation]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isAdmin = user?.isAdmin ?? false;
 
   const {
-    state,
+    state, getWorldSnapshot,
     handleNextLine, handleChoose, handleCloseDlg, handleCloseCheat,
     cheatCompleteQuest, cheatGrantItem, cheatUnlockLevel, cheatTeleport,
+    cheatOpenDoor, cheatActivateSwitch,
   } = useGameEngine(
     level ?? null,
     save ?? null,
@@ -74,6 +79,24 @@ export default function BandRpgGamePage() {
   useEffect(() => {
     document.getElementById('band-rpg-game-container')?.focus();
   }, [level]);
+
+  // Filter entities by world conditions
+  const worldSnap = getWorldSnapshot();
+  const visibleNpcs = useMemo(
+    () => level?.npcs.filter(n => isNpcVisible(n, worldSnap)) ?? [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [level?.npcs, state.activatedSwitches, state.completedQuests, state.unlockedBeats, state.openedDoors],
+  );
+  const visibleItems = useMemo(
+    () => level?.items.filter(i => isItemSpawned(i, worldSnap)) ?? [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [level?.items, state.activatedSwitches, state.completedQuests, state.unlockedBeats],
+  );
+  const visibleExits = useMemo(
+    () => level?.exits.filter(e => isExitVisible(e, worldSnap)) ?? [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [level?.exits, state.activatedSwitches, state.completedQuests, state.unlockedBeats, state.unlockedLevelSlugs],
+  );
 
   if (!slug) {
     return (
@@ -139,11 +162,14 @@ export default function BandRpgGamePage() {
         <div className="flex-1 flex items-center justify-center relative" style={{ minWidth: 0 }}>
           <div style={{ position: 'relative' }}>
             <TileRenderer
-              level={level}
+              level={{ ...level, items: visibleItems, exits: visibleExits }}
               playerX={state.playerX}
               playerY={state.playerY}
               collectedEntityIds={state.collectedEntityIds}
               unlockedLevelSlugs={state.unlockedLevelSlugs}
+              openedDoors={state.openedDoors}
+              activatedSwitches={state.activatedSwitches}
+              visibleNpcs={visibleNpcs}
             />
 
             {/* Dialogue / Beat overlay */}
@@ -172,6 +198,8 @@ export default function BandRpgGamePage() {
                 onGrantItem={cheatGrantItem}
                 onUnlockLevel={cheatUnlockLevel}
                 onTeleport={cheatTeleport}
+                onOpenDoor={cheatOpenDoor}
+                onActivateSwitch={cheatActivateSwitch}
                 onClose={handleCloseCheat}
               />
             )}

@@ -9,10 +9,12 @@ interface Props {
   onGrantItem: (itemId: string, itemName: string) => void;
   onUnlockLevel: (slug: string) => void;
   onTeleport: (x: number, y: number) => void;
+  onOpenDoor: (doorId: string) => void;
+  onActivateSwitch: (switchId: string) => void;
   onClose: () => void;
 }
 
-export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem, onUnlockLevel, onTeleport, onClose }: Props) {
+export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem, onUnlockLevel, onTeleport, onOpenDoor, onActivateSwitch, onClose }: Props) {
   const [itemId, setItemId] = useState('');
   const [itemName, setItemName] = useState('');
   const [levelSlug, setLevelSlug] = useState('');
@@ -149,6 +151,44 @@ export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem,
         </div>
       </Section>
 
+      {/* Doors */}
+      {level.doors.length > 0 && (
+        <Section label="Doors">
+          {level.doors.map(door => {
+            const isOpen = state.openedDoors.includes(door.id) || door.openedByDefault;
+            return (
+              <div key={door.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ color: isOpen ? '#4b5563' : '#d1fae5', fontSize: 11, flex: 1 }}>
+                  {isOpen ? '🔓' : '🔒'} {door.name}
+                </span>
+                {!isOpen && (
+                  <button onClick={() => onOpenDoor(door.id)} style={{ ...btnStyle, marginLeft: 8 }}>Open</button>
+                )}
+              </div>
+            );
+          })}
+        </Section>
+      )}
+
+      {/* Switches */}
+      {level.switches.length > 0 && (
+        <Section label="Switches">
+          {level.switches.map(sw => {
+            const isOn = state.activatedSwitches.includes(sw.id);
+            return (
+              <div key={sw.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ color: isOn ? '#4b5563' : '#d1fae5', fontSize: 11, flex: 1 }}>
+                  {isOn ? '✅' : '🔘'} {sw.name}
+                </span>
+                {!isOn && (
+                  <button onClick={() => onActivateSwitch(sw.id)} style={{ ...btnStyle, marginLeft: 8 }}>Fire</button>
+                )}
+              </div>
+            );
+          })}
+        </Section>
+      )}
+
       {/* State summary */}
       <Section label="State">
         <div style={{ color: '#4b5563', lineHeight: 1.7 }}>
@@ -158,6 +198,8 @@ export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem,
           <div>Inventory: {state.inventory.length} items</div>
           <div>Unlocked levels: {state.unlockedLevelSlugs.length}</div>
           <div>Beats shown: {state.unlockedBeats.length}</div>
+          <div>Doors open: {state.openedDoors.length}</div>
+          <div>Switches on: {state.activatedSwitches.length}</div>
         </div>
       </Section>
     </div>
