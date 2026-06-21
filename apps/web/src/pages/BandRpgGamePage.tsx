@@ -17,6 +17,30 @@ import { isNpcVisible, isItemSpawned, isExitVisible } from '../components/bandRp
 import type { GameState } from '../components/bandRpgRuntime/useGameEngine';
 import type { Adventure, AdventureProgress } from '../api/adventureApi';
 
+// ── Viewport detection ────────────────────────────────────────────────────────
+
+function useViewport() {
+  const [state, setState] = useState(() => ({
+    w: typeof window !== 'undefined' ? window.innerWidth : 1024,
+    h: typeof window !== 'undefined' ? window.innerHeight : 768,
+    touch: typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches,
+  }));
+
+  useEffect(() => {
+    const update = () => setState({
+      w: window.innerWidth,
+      h: window.innerHeight,
+      touch: window.matchMedia('(pointer: coarse)').matches,
+    });
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  return state;
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
 export default function BandRpgGamePage() {
   const { slug: slugParam } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
@@ -29,6 +53,17 @@ export default function BandRpgGamePage() {
   const [showCompletion, setShowCompletion] = useState(false);
   const [completionAdventure, setCompletionAdventure] = useState<Adventure | null>(null);
   const [completionProgress, setCompletionProgress] = useState<AdventureProgress | null>(null);
+  const [hudOpen, setHudOpen] = useState(false);
+
+  const vp = useViewport();
+  // Mobile = touch device OR narrow screen. Compact = short landscape (typical Android/iOS landscape).
+  const isMobile = vp.touch || vp.w < 768;
+  const isCompact = isMobile && vp.h < 500;
+
+  // Dialogue clearance above mobile controls.
+  // Normal mobile D-pad: 3×44 + 2×4 = 140px + 16px edge = 156px. Add 12px gap → 168px.
+  // Compact D-pad:       3×38 + 2×3 = 120px + 8px edge  = 128px. Add 8px gap  → 136px.
+  const mobileDialogueBottom = isCompact ? 136 : 168;
 
   const { data: level, isLoading: levelLoading, isError: levelError } = useQuery({
     queryKey: ['runtime-level', slug],
@@ -62,7 +97,6 @@ export default function BandRpgGamePage() {
       adventureProgressApi.sync(adventureId!, data),
     onSuccess: ({ progress }) => {
       if (progress.isCompleted && !showCompletion) {
-        // Fetch the full adventure data to show completion report
         void adventureProgressApi.get(adventureId!).then(({ adventure, progress: freshProgress }) => {
           setCompletionAdventure(adventure);
           setCompletionProgress(freshProgress);
@@ -91,13 +125,12 @@ export default function BandRpgGamePage() {
       activatedSwitches: gameState.activatedSwitches,
       worldState: gameState.worldState,
     });
-    // Sync adventure progress if in an adventure context
     if (adventureId) {
       progressSyncMutation.mutate({
         levelsDiscovered: gameState.unlockedLevelSlugs,
         questsCompleted: gameState.completedQuests.length,
         itemsCollected: gameState.inventory.length,
-        isCompleted: false, // Game itself doesn't know if adventure is done; server calculates
+        isCompleted: false,
       });
     }
   }, [saveMutation, progressSyncMutation, adventureId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -118,12 +151,10 @@ export default function BandRpgGamePage() {
     isAdmin,
   );
 
-  // Focus so keyboard events fire immediately
   useEffect(() => {
     document.getElementById('band-rpg-game-container')?.focus();
   }, [level]);
 
-  // Filter entities by world conditions
   const worldSnap = getWorldSnapshot();
   const visibleNpcs = useMemo(
     () => level?.npcs.filter(n => isNpcVisible(n, worldSnap)) ?? [],
@@ -173,8 +204,23 @@ export default function BandRpgGamePage() {
     );
   }
 
+  const hudProps = {
+    level,
+    adventureName,
+    activeQuestIds: state.activeQuestIds,
+    completedQuests: state.completedQuests,
+    completedObjectives: state.completedObjectives,
+    objectiveProgress: state.objectiveProgress,
+    inventory: state.inventory,
+    notification: state.notification,
+    unlockedLevelSlugs: state.unlockedLevelSlugs,
+  };
+
   return (
-    <div className="h-screen flex flex-col overflow-hidden" style={{ backgroundColor: '#0f172a' }}>
+    <div
+      className="flex flex-col overflow-hidden"
+      style={{ height: '100dvh', backgroundColor: '#0f172a' }}
+    >
       {showCompletion && completionAdventure && completionProgress && (
         <CompletionReport
           adventure={completionAdventure}
@@ -182,28 +228,31 @@ export default function BandRpgGamePage() {
           onDismiss={() => setShowCompletion(false)}
         />
       )}
+
       <SiteHeader theme="dark" active="games" />
 
-      {/* Title bar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-black/60 border-b border-gray-800 shrink-0">
-        <div className="flex items-center gap-3">
+      {/* Title bar — compact on short landscape screens */}
+      <div
+        className={`flex items-center justify-between px-3 bg-black/60 border-b border-gray-800 shrink-0 ${isCompact ? 'py-1' : 'py-2'}`}
+      >
+        <div className="flex items-center gap-2 min-w-0">
           <button
             onClick={() => navigate(adventureId ? `/play/band-rpg/adventures/${adventureId}` : '/play/band-rpg')}
-            className="text-gray-500 hover:text-gray-300 text-sm"
+            className="text-gray-500 hover:text-gray-300 text-sm shrink-0"
           >←</button>
           {adventureName && (
-            <span className="text-indigo-400/70 text-xs hidden sm:block">{adventureName}</span>
+            <span className="text-indigo-400/70 text-xs hidden sm:block truncate max-w-[120px]">{adventureName}</span>
           )}
           {adventureName && <span className="text-gray-700 text-xs hidden sm:block">›</span>}
-          <span className="text-white font-semibold text-sm">{level.name}</span>
-          <span className="text-gray-700 text-xs hidden sm:block">/{level.slug}</span>
+          <span className="text-white font-semibold text-sm truncate">{level.name}</span>
+          {!isCompact && <span className="text-gray-700 text-xs hidden sm:block shrink-0">/{level.slug}</span>}
           {state.activeQuestIds.length > 0 && (
-            <span className="text-blue-400 text-xs">⚡ {state.activeQuestIds.length} active</span>
+            <span className="text-blue-400 text-xs shrink-0">⚡ {state.activeQuestIds.length}</span>
           )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 shrink-0">
           {user && <span className="text-emerald-400 text-xs">● {user.username ?? user.name ?? 'Player'}</span>}
-          {isAdmin && <span className="text-green-500 text-xs opacity-50">F3 debug · F4 cheat</span>}
+          {isAdmin && !isCompact && <span className="text-green-500 text-xs opacity-50">F3 · F4</span>}
           {saveMutation.isPending && <span className="text-gray-500 text-xs">Saving…</span>}
         </div>
       </div>
@@ -215,71 +264,166 @@ export default function BandRpgGamePage() {
         tabIndex={0}
         style={{ backgroundColor: level.background ?? '#0f172a' }}
       >
-        {/* Viewport */}
-        <div className="flex-1 flex items-center justify-center relative" style={{ minWidth: 0 }}>
-          <div style={{ position: 'relative' }}>
-            <TileRenderer
-              level={{ ...level, items: visibleItems, exits: visibleExits }}
-              playerX={state.playerX}
-              playerY={state.playerY}
-              collectedEntityIds={state.collectedEntityIds}
-              unlockedLevelSlugs={state.unlockedLevelSlugs}
-              openedDoors={state.openedDoors}
-              activatedSwitches={state.activatedSwitches}
-              visibleNpcs={visibleNpcs}
-            />
+        {/* ── Canvas + overlay ──────────────────────────────────────────── */}
+        <div className="flex-1 relative overflow-hidden" style={{ minWidth: 0 }}>
 
-            {/* Mobile D-pad — shown on touch devices */}
-            <MobileControls onMove={handleMove} onInteract={handleInteract} />
+          {/* Canvas — centred; camera keeps player in the middle of the 640×480 map */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div style={{ position: 'relative' }}>
+              <TileRenderer
+                level={{ ...level, items: visibleItems, exits: visibleExits }}
+                playerX={state.playerX}
+                playerY={state.playerY}
+                collectedEntityIds={state.collectedEntityIds}
+                unlockedLevelSlugs={state.unlockedLevelSlugs}
+                openedDoors={state.openedDoors}
+                activatedSwitches={state.activatedSwitches}
+                visibleNpcs={visibleNpcs}
+              />
 
-            {/* Dialogue / Beat overlay */}
+              {/* Admin panels — positioned relative to canvas */}
+              {state.showDebug && isAdmin && (
+                <DebugPanel state={state} level={level} />
+              )}
+              {state.showCheatPanel && isAdmin && (
+                <CheatPanel
+                  state={state}
+                  level={level}
+                  onCompleteQuest={cheatCompleteQuest}
+                  onGrantItem={cheatGrantItem}
+                  onUnlockLevel={cheatUnlockLevel}
+                  onTeleport={cheatTeleport}
+                  onOpenDoor={cheatOpenDoor}
+                  onActivateSwitch={cheatActivateSwitch}
+                  onClose={handleCloseCheat}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Overlay — covers the full canvas area; dialogue + controls live here */}
+          <div style={{ position: 'absolute', inset: 0, zIndex: 50, pointerEvents: 'none' }}>
+
+            {/* Dialogue box — above controls on mobile, at bottom on desktop */}
             {state.dialogueMode !== 'none' && (
-              <DialogueBox
-                lines={state.dialogueLines}
-                index={state.dialogueIndex}
-                mode={state.dialogueMode}
-                onNext={handleNextLine}
-                onClose={handleCloseDlg}
-                onChoose={handleChoose}
+              <div style={{
+                pointerEvents: 'auto',
+                position: 'absolute',
+                bottom: isMobile
+                  ? `calc(env(safe-area-inset-bottom, 0px) + ${mobileDialogueBottom}px)`
+                  : 0,
+                left: 0,
+                right: 0,
+                padding: '0 12px 12px',
+              }}>
+                <DialogueBox
+                  lines={state.dialogueLines}
+                  index={state.dialogueIndex}
+                  mode={state.dialogueMode}
+                  onNext={handleNextLine}
+                  onClose={handleCloseDlg}
+                  onChoose={handleChoose}
+                />
+              </div>
+            )}
+
+            {/* Mobile controls — D-pad bottom-left, [E] bottom-right */}
+            {isMobile && (
+              <MobileControls
+                onMove={handleMove}
+                onInteract={handleInteract}
+                compact={isCompact}
               />
             )}
 
-            {/* Debug overlay */}
-            {state.showDebug && isAdmin && (
-              <DebugPanel state={state} level={level} />
+            {/* Mobile HUD toggle button — top-right */}
+            {isMobile && !hudOpen && (
+              <button
+                onClick={() => setHudOpen(true)}
+                style={{
+                  pointerEvents: 'auto',
+                  position: 'absolute',
+                  top: `calc(env(safe-area-inset-top, 0px) + 8px)`,
+                  right: `calc(env(safe-area-inset-right, 0px) + 8px)`,
+                  backgroundColor: 'rgba(0,0,0,0.65)',
+                  border: '1px solid rgba(99,102,241,0.45)',
+                  borderRadius: 8,
+                  padding: '4px 10px',
+                  color: '#a5b4fc',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  maxWidth: 160,
+                }}
+              >
+                <span>📋</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {state.activeQuestIds.length > 0
+                    ? `⚡${state.activeQuestIds.length} · ${level.name}`
+                    : level.name
+                  }
+                </span>
+              </button>
             )}
 
-            {/* Cheat panel */}
-            {state.showCheatPanel && isAdmin && (
-              <CheatPanel
-                state={state}
-                level={level}
-                onCompleteQuest={cheatCompleteQuest}
-                onGrantItem={cheatGrantItem}
-                onUnlockLevel={cheatUnlockLevel}
-                onTeleport={cheatTeleport}
-                onOpenDoor={cheatOpenDoor}
-                onActivateSwitch={cheatActivateSwitch}
-                onClose={handleCloseCheat}
-              />
+            {/* Mobile HUD drawer — slides over canvas */}
+            {isMobile && hudOpen && (
+              <div
+                style={{
+                  pointerEvents: 'auto',
+                  position: 'absolute',
+                  inset: 0,
+                  backgroundColor: 'rgba(0,0,0,0.93)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  zIndex: 10,
+                }}
+              >
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 14px',
+                  borderBottom: '1px solid rgba(255,255,255,0.08)',
+                  flexShrink: 0,
+                }}>
+                  <span style={{ color: '#a5b4fc', fontSize: 13, fontWeight: 600 }}>
+                    {adventureName ?? level.name}
+                  </span>
+                  <button
+                    onClick={() => setHudOpen(false)}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: '#64748b', fontSize: 20, lineHeight: 1,
+                      padding: '0 4px',
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto' }}>
+                  <GameHud {...hudProps} />
+                </div>
+              </div>
             )}
           </div>
         </div>
 
-        {/* HUD sidebar */}
-        <div style={{ width: 220, backgroundColor: 'rgba(0,0,0,0.75)', borderLeft: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
-          <GameHud
-            level={level}
-            adventureName={adventureName}
-            activeQuestIds={state.activeQuestIds}
-            completedQuests={state.completedQuests}
-            completedObjectives={state.completedObjectives}
-            objectiveProgress={state.objectiveProgress}
-            inventory={state.inventory}
-            notification={state.notification}
-            unlockedLevelSlugs={state.unlockedLevelSlugs}
-          />
-        </div>
+        {/* ── Desktop HUD sidebar (hidden on mobile) ────────────────────── */}
+        {!isMobile && (
+          <div style={{
+            width: 220,
+            backgroundColor: 'rgba(0,0,0,0.75)',
+            borderLeft: '1px solid rgba(255,255,255,0.05)',
+            flexShrink: 0,
+            overflowY: 'auto',
+          }}>
+            <GameHud {...hudProps} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -287,7 +431,7 @@ export default function BandRpgGamePage() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="h-screen flex flex-col bg-gray-950 text-white">
+    <div className="flex flex-col bg-gray-950 text-white" style={{ height: '100dvh' }}>
       <SiteHeader theme="dark" active="games" />
       {children}
     </div>
