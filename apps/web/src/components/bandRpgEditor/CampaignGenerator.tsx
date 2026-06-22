@@ -32,6 +32,15 @@ function saveDraft(draft: Partial<Draft>) {
   } catch { /* ignore storage errors */ }
 }
 
+// ── Repair history ────────────────────────────────────────────────────────────
+
+interface RepairHistoryEntry {
+  attempt: number;
+  type: 'full' | 'reachability';
+  passed: boolean;
+  errorSummary: string;
+}
+
 // ── Step indicator ────────────────────────────────────────────────────────────
 
 type Step = 'settings' | 'blueprint' | 'json' | 'validate' | 'import';
@@ -101,7 +110,6 @@ function DiagnosticsPanel() {
 
       {open && (
         <div className="p-4 space-y-3 bg-white text-xs">
-          {/* Client-side auth state */}
           <div>
             <p className="font-semibold text-surface-700 mb-1.5">Browser auth state</p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono">
@@ -118,10 +126,9 @@ function DiagnosticsPanel() {
 
           <hr className="border-surface-200" />
 
-          {/* Server ping */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <p className="font-semibold text-surface-700">Server ping: POST /api/band-rpg/campaign/ping</p>
+              <p className="font-semibold text-surface-700">Server ping: GET /api/band-rpg/campaign/ping</p>
               <button
                 onClick={() => { void refetch(); }}
                 disabled={isFetching}
@@ -179,10 +186,10 @@ function BandPicker({ value, bandId, onChange }: {
   bandId: string | undefined;
   onChange: (name: string, id: string | undefined) => void;
 }) {
-  const [open, setOpen]         = useState(false);
-  const [query, setQuery]       = useState('');
-  const [mode, setMode]         = useState<'picker' | 'custom'>(bandId ? 'picker' : 'picker');
-  const containerRef            = useRef<HTMLDivElement>(null);
+  const [open, setOpen]   = useState(false);
+  const [query, setQuery] = useState('');
+  const [mode, setMode]   = useState<'picker' | 'custom'>('picker');
+  const containerRef      = useRef<HTMLDivElement>(null);
 
   const { data: bands = [], isLoading } = useQuery<BandWithCounts[]>({
     queryKey: ['bands-list'],
@@ -190,7 +197,6 @@ function BandPicker({ value, bandId, onChange }: {
     staleTime: 5 * 60_000,
   });
 
-  // Close on outside click
   useEffect(() => {
     function handle(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -243,20 +249,13 @@ function BandPicker({ value, bandId, onChange }: {
 
   return (
     <div ref={containerRef} className="relative space-y-1">
-      {/* Selected display or search input */}
       {selected && !open ? (
         <div className="flex items-center gap-2 border border-surface-300 rounded-lg px-3 py-2 bg-indigo-50">
           <span className="flex-1 text-sm font-medium text-surface-900">{selected.name}</span>
           <span className="text-xs text-surface-400">
             {selected._count.albums} album{selected._count.albums !== 1 ? 's' : ''} · {selected._count.songs} song{selected._count.songs !== 1 ? 's' : ''}
           </span>
-          <button
-            type="button"
-            onClick={clearBand}
-            className="text-surface-400 hover:text-red-500 text-sm leading-none"
-          >
-            ✕
-          </button>
+          <button type="button" onClick={clearBand} className="text-surface-400 hover:text-red-500 text-sm leading-none">✕</button>
         </div>
       ) : (
         <div className="flex items-center border border-surface-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-indigo-400">
@@ -271,12 +270,9 @@ function BandPicker({ value, bandId, onChange }: {
         </div>
       )}
 
-      {/* Dropdown */}
       {open && (
         <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-surface-300 rounded-lg shadow-lg max-h-56 overflow-y-auto">
-          {isLoading && (
-            <div className="px-3 py-2 text-xs text-surface-400">Loading…</div>
-          )}
+          {isLoading && <div className="px-3 py-2 text-xs text-surface-400">Loading…</div>}
           {!isLoading && filtered.length === 0 && (
             <div className="px-3 py-2 text-xs text-surface-400">No bands match "{query}"</div>
           )}
@@ -345,7 +341,11 @@ function SettingsForm({ settings, onChange, onGenerate, isLoading }: {
           <BandPicker
             value={settings.bandName}
             bandId={settings.bandId}
-            onChange={(name, id) => onChange({ ...settings, bandName: name, ...(id !== undefined ? { bandId: id } : { bandId: undefined }) })}
+            onChange={(name, id) => {
+              const { bandId: _rm, ...base } = { ...settings, bandName: name };
+              const next = id !== undefined ? { ...base, bandId: id } : base;
+              onChange(next as CampaignSettings);
+            }}
           />
         </div>
         <div className="col-span-2 sm:col-span-1">
@@ -459,9 +459,7 @@ function BlueprintStep({ blueprint, onChange, onGenerateJson, onBack, isLoading 
 }) {
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-surface-600">Review and edit the blueprint before generating JSON. You can add or remove details freely.</p>
-      </div>
+      <p className="text-sm text-surface-600">Review and edit the blueprint before generating JSON. You can add or remove details freely.</p>
       <textarea
         value={blueprint}
         onChange={e => onChange(e.target.value)}
@@ -535,23 +533,38 @@ function JsonEditorStep({ jsonText, onChange, onValidate, onBack, isLoading }: {
 
 // ── Validation step ───────────────────────────────────────────────────────────
 
-function ValidationStep({ result, onRepair, onProceed, onBack, isRepairLoading, repairAttempt }: {
+const REACHABILITY_KEYWORDS = ['unreachable', 'sealed', 'no exit entity', 'not reachable from the starting level', 'no spawn entity', 'non-walkable tile'];
+
+function isReachabilityError(msg: string): boolean {
+  return REACHABILITY_KEYWORDS.some(kw => msg.includes(kw));
+}
+
+function ValidationStep({ result, onRepair, onRepairReachability, onProceed, onBack, isRepairLoading, isRepairReachabilityLoading, repairAttempt, repairHistory }: {
   result: ValidationResult;
   onRepair: () => void;
+  onRepairReachability: () => void;
   onProceed: () => void;
   onBack: () => void;
   isRepairLoading: boolean;
+  isRepairReachabilityLoading: boolean;
   repairAttempt: number;
+  repairHistory: RepairHistoryEntry[];
 }) {
-  const MAX_REPAIRS = 3;
+  const MAX_REPAIRS = 6;
+  const [copiedReach, setCopiedReach] = useState(false);
 
-  // Separate reachability errors (BFS failures) from structural errors
-  const reachabilityErrors = result.errors.filter(e =>
-    e.message.includes('unreachable') || e.message.includes('sealed') ||
-    e.message.includes('no exit entity') || e.message.includes('not reachable from the starting level') ||
-    e.message.includes('no spawn entity') || e.message.includes('non-walkable tile')
-  );
-  const structuralErrors = result.errors.filter(e => !reachabilityErrors.includes(e));
+  const reachabilityErrors = result.errors.filter(e => isReachabilityError(e.message));
+  const structuralErrors   = result.errors.filter(e => !isReachabilityError(e.message));
+  const anyLoading = isRepairLoading || isRepairReachabilityLoading;
+
+  function copyReachabilityErrors() {
+    const text = `Reachability errors (${reachabilityErrors.length}):\n` +
+      reachabilityErrors.map(e => (e.path ? `[${e.path}] ` : '') + e.message).join('\n');
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopiedReach(true);
+      setTimeout(() => setCopiedReach(false), 2000);
+    });
+  }
 
   return (
     <div className="space-y-4">
@@ -574,13 +587,21 @@ function ValidationStep({ result, onRepair, onProceed, onBack, isRepairLoading, 
         <div className="space-y-3">
           {reachabilityErrors.length > 0 && (
             <div className="bg-orange-50 border border-orange-300 rounded-lg p-4">
-              <div className="flex items-center gap-2 text-orange-900 font-semibold mb-2 text-sm">
-                <span className="text-xl">🗺</span>
-                Reachability errors — import blocked ({reachabilityErrors.length})
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 text-orange-900 font-semibold text-sm">
+                  <span>🗺</span>
+                  Reachability errors — import blocked ({reachabilityErrors.length})
+                </div>
+                <button
+                  onClick={copyReachabilityErrors}
+                  className="text-xs px-2 py-0.5 rounded border border-orange-300 text-orange-700 hover:bg-orange-100 transition-colors shrink-0"
+                >
+                  {copiedReach ? '✓ Copied!' : '📋 Copy'}
+                </button>
               </div>
               <p className="text-xs text-orange-800 mb-3">
                 BFS flood-fill from spawn found entities that cannot be reached in normal gameplay.
-                Auto-Repair will attempt to fix these by moving entities or carving corridors.
+                Use <strong>Repair Reachability</strong> for a focused map fix, or <strong>Repair All</strong> to fix everything at once.
               </p>
               <ul className="space-y-1.5">
                 {reachabilityErrors.map((e, i) => (
@@ -596,7 +617,7 @@ function ValidationStep({ result, onRepair, onProceed, onBack, isRepairLoading, 
           {structuralErrors.length > 0 && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
               <div className="flex items-center gap-2 text-red-800 font-medium mb-2 text-sm">
-                <span className="text-xl">❌</span>
+                <span>❌</span>
                 {structuralErrors.length} structural error{structuralErrors.length !== 1 ? 's' : ''}
               </div>
               <ul className="space-y-1">
@@ -611,17 +632,52 @@ function ValidationStep({ result, onRepair, onProceed, onBack, isRepairLoading, 
         </div>
       )}
 
+      {repairHistory.length > 0 && (
+        <div className="border border-surface-200 rounded-lg p-3">
+          <p className="text-xs font-semibold text-surface-600 mb-2">Repair history</p>
+          <ul className="space-y-1">
+            {repairHistory.map((entry, i) => (
+              <li key={i} className="text-xs flex items-center gap-2">
+                <span>{entry.passed ? '✅' : '❌'}</span>
+                <span className="text-surface-500">Attempt {entry.attempt}</span>
+                <span className={`px-1.5 py-0.5 rounded font-medium ${entry.type === 'reachability' ? 'bg-orange-100 text-orange-700' : 'bg-surface-100 text-surface-600'}`}>
+                  {entry.type === 'reachability' ? 'map repair' : 'full repair'}
+                </span>
+                <span className="text-surface-600">{entry.errorSummary}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="flex gap-3 flex-wrap items-center">
         <button onClick={onBack} className="text-sm text-surface-500 hover:text-surface-700 px-4 py-2 border border-surface-300 rounded-lg">← Edit JSON</button>
+
         {!result.valid && repairAttempt < MAX_REPAIRS && (
-          <button
-            onClick={onRepair}
-            disabled={isRepairLoading}
-            className="bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors"
-          >
-            {isRepairLoading ? `✦ Auto-Repairing… (${repairAttempt}/${MAX_REPAIRS})` : `⚡ Auto-Repair (attempt ${repairAttempt + 1}/${MAX_REPAIRS})`}
-          </button>
+          <>
+            {reachabilityErrors.length > 0 && (
+              <button
+                onClick={onRepairReachability}
+                disabled={anyLoading}
+                className="bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors"
+              >
+                {isRepairReachabilityLoading
+                  ? `✦ Repairing Maps… (${repairAttempt + 1}/${MAX_REPAIRS})`
+                  : `🗺 Repair Reachability (${repairAttempt + 1}/${MAX_REPAIRS})`}
+              </button>
+            )}
+            <button
+              onClick={onRepair}
+              disabled={anyLoading}
+              className="bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              {isRepairLoading
+                ? `✦ Repairing All… (${repairAttempt + 1}/${MAX_REPAIRS})`
+                : `⚡ Repair All Issues (${repairAttempt + 1}/${MAX_REPAIRS})`}
+            </button>
+          </>
         )}
+
         {result.valid && (
           <button
             onClick={onProceed}
@@ -630,8 +686,9 @@ function ValidationStep({ result, onRepair, onProceed, onBack, isRepairLoading, 
             ✦ Proceed to Import →
           </button>
         )}
+
         {!result.valid && repairAttempt >= MAX_REPAIRS && (
-          <p className="text-sm text-surface-500">Max repair attempts reached. Edit JSON manually then re-validate.</p>
+          <p className="text-sm text-surface-500">Max repair attempts reached ({MAX_REPAIRS}). Edit JSON manually then re-validate.</p>
         )}
       </div>
     </div>
@@ -639,6 +696,15 @@ function ValidationStep({ result, onRepair, onProceed, onBack, isRepairLoading, 
 }
 
 // ── Import step ───────────────────────────────────────────────────────────────
+
+interface ImportErrorDetails {
+  message: string;
+  status?: number;
+  body?: unknown;
+  preValidatePassed: boolean;
+  mode: string;
+  slug?: string;
+}
 
 function ImportStep({ jsonText, onBack, onImported }: {
   jsonText: string;
@@ -648,10 +714,38 @@ function ImportStep({ jsonText, onBack, onImported }: {
   const [mode, setMode] = useState<'create' | 'update' | 'replace'>('create');
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [published, setPublished] = useState(false);
+  const [preValidateErrors, setPreValidateErrors] = useState<Array<{ path: string; message: string }> | null>(null);
+  const [importErrorDetails, setImportErrorDetails] = useState<ImportErrorDetails | null>(null);
+  const [copied, setCopied] = useState<'payload' | 'error' | null>(null);
+  const preValidatePassedRef = useRef(false);
+
+  function copyToClipboard(text: string, which: 'payload' | 'error') {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(which);
+      setTimeout(() => setCopied(null), 2000);
+    });
+  }
+
+  function getAdventureSlug(): string | undefined {
+    try {
+      return (JSON.parse(jsonText) as { adventure?: { slug?: string } }).adventure?.slug ?? undefined;
+    } catch { return undefined; }
+  }
 
   const importMut = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const payload = JSON.parse(jsonText) as unknown;
+      preValidatePassedRef.current = false;
+      setPreValidateErrors(null);
+      setImportErrorDetails(null);
+
+      const validation = await adventureApi.validate(payload);
+      if (!validation.valid) {
+        setPreValidateErrors(validation.errors as Array<{ path: string; message: string }>);
+        throw new Error('pre-validate-failed');
+      }
+      preValidatePassedRef.current = true;
+
       return adventureApi.import(payload, mode);
     },
     onSuccess: (result) => {
@@ -661,31 +755,34 @@ function ImportStep({ jsonText, onBack, onImported }: {
         onImported(result);
       }
     },
+    onError: (e) => {
+      if (e instanceof Error && e.message === 'pre-validate-failed') return;
+
+      const err = e as Error & { status?: number; body?: unknown };
+      const body = err.body;
+      const slug = getAdventureSlug();
+
+      let message = err.message;
+      if (body && typeof body === 'object') {
+        const b = body as { error?: string };
+        if (b.error) message = b.error;
+      }
+
+      setImportErrorDetails({
+        message,
+        ...(err.status !== undefined ? { status: err.status } : {}),
+        ...(body !== undefined ? { body } : {}),
+        preValidatePassed: preValidatePassedRef.current,
+        mode,
+        ...(slug !== undefined ? { slug } : {}),
+      });
+    },
   });
 
   const publishMut = useMutation({
     mutationFn: () => adventureApi.update(importResult!.adventureId!, { isPublished: true }),
     onSuccess: () => setPublished(true),
   });
-
-  function importErrorMessage(): string {
-    if (!importMut.isError) return '';
-    const err = importMut.error;
-    if (err instanceof Error) {
-      const body = (err as Error & { body?: unknown }).body;
-      if (body && typeof body === 'object') {
-        const b = body as { error?: string; errors?: Array<{ path?: string; message: string }> };
-        const lines: string[] = [];
-        if (b.error) lines.push(b.error);
-        if (Array.isArray(b.errors) && b.errors.length > 0) {
-          for (const e of b.errors) lines.push(e.path ? `[${e.path}] ${e.message}` : e.message);
-        }
-        if (lines.length) return lines.join('\n');
-      }
-      return err.message;
-    }
-    return 'Unknown error';
-  }
 
   let preview: Record<string, number> | null = null;
   try {
@@ -758,7 +855,7 @@ function ImportStep({ jsonText, onBack, onImported }: {
           </Link>
 
           <a
-            href={`/admin/band-rpg`}
+            href="/admin/band-rpg"
             className="block w-full py-2 rounded-lg border border-surface-300 hover:bg-surface-50 text-surface-500 text-xs font-medium text-center transition-colors"
           >
             ⚙ Open in Admin (Adventures tab)
@@ -801,10 +898,72 @@ function ImportStep({ jsonText, onBack, onImported }: {
         </div>
       </div>
 
-      {importMut.isError && (
-        <div className="bg-red-50 border border-red-200 rounded p-3 space-y-1">
-          <p className="text-sm font-semibold text-red-700">Import failed</p>
-          <pre className="text-xs text-red-700 whitespace-pre-wrap font-mono">{importErrorMessage()}</pre>
+      {/* Pre-validation failure (before import was attempted) */}
+      {preValidateErrors && preValidateErrors.length > 0 && (
+        <div className="bg-orange-50 border border-orange-300 rounded-lg p-4 space-y-2">
+          <p className="text-sm font-semibold text-orange-800">Pre-import validation failed — import blocked</p>
+          <p className="text-xs text-orange-700">The adventure failed a final validation check before import. Go back and repair these errors first.</p>
+          <ul className="space-y-1 mt-2">
+            {preValidateErrors.map((e, i) => (
+              <li key={i} className="text-xs text-orange-800 bg-orange-100/60 rounded px-2 py-1.5 font-mono">
+                {e.path && <span className="font-semibold">[{e.path}]</span>}{' '}{e.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Import failure with full diagnostics */}
+      {importErrorDetails && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
+          <p className="text-sm font-semibold text-red-800">
+            {importErrorDetails.preValidatePassed
+              ? 'Validation passed, but database import failed'
+              : 'Import failed'}
+          </p>
+
+          <div className="text-xs font-mono bg-red-100/60 rounded p-2 space-y-0.5 text-red-700">
+            {importErrorDetails.status !== undefined && (
+              <div><span className="font-bold">HTTP {importErrorDetails.status}</span></div>
+            )}
+            <div>Endpoint: POST /api/band-rpg/adventures/import</div>
+            <div>Mode: {importErrorDetails.mode}</div>
+            {importErrorDetails.slug && <div>Slug: {importErrorDetails.slug}</div>}
+          </div>
+
+          <div className="text-xs text-red-800 space-y-1">
+            <p className="font-semibold">Error message:</p>
+            <p className="whitespace-pre-wrap font-mono bg-red-100/40 rounded p-2">{importErrorDetails.message}</p>
+            {(() => {
+              if (!importErrorDetails.body || typeof importErrorDetails.body !== 'object') return null;
+              const b = importErrorDetails.body as { errors?: Array<{ path?: string; message: string }> };
+              if (!Array.isArray(b.errors) || b.errors.length === 0) return null;
+              return (
+                <ul className="space-y-0.5 mt-1">
+                  {b.errors.map((e, i) => (
+                    <li key={i} className="font-mono bg-red-100/40 rounded px-2 py-1">
+                      {e.path ? `[${e.path}] ` : ''}{e.message}
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()}
+          </div>
+
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => copyToClipboard(jsonText, 'payload')}
+              className="text-xs px-2.5 py-1 rounded border border-red-300 text-red-700 hover:bg-red-100 transition-colors"
+            >
+              {copied === 'payload' ? '✓ Copied!' : '📋 Copy Import Payload'}
+            </button>
+            <button
+              onClick={() => copyToClipboard(JSON.stringify(importErrorDetails, null, 2), 'error')}
+              className="text-xs px-2.5 py-1 rounded border border-red-300 text-red-700 hover:bg-red-100 transition-colors"
+            >
+              {copied === 'error' ? '✓ Copied!' : '📋 Copy Error Details'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -815,7 +974,9 @@ function ImportStep({ jsonText, onBack, onImported }: {
           disabled={importMut.isPending}
           className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-medium transition-colors"
         >
-          {importMut.isPending ? '✦ Importing…' : '✦ Import Adventure'}
+          {importMut.isPending
+            ? (preValidatePassedRef.current ? '✦ Importing…' : '✦ Pre-validating…')
+            : '✦ Import Adventure'}
         </button>
       </div>
     </div>
@@ -827,15 +988,15 @@ function ImportStep({ jsonText, onBack, onImported }: {
 export default function CampaignGenerator() {
   const draft = loadDraft();
 
-  const [step, setStep] = useState<Step>('settings');
-  const [settings, setSettings] = useState<CampaignSettings>({ ...DEFAULT_SETTINGS, ...draft?.settings });
-  const [blueprint, setBlueprint] = useState(draft?.blueprint ?? '');
-  const [jsonText, setJsonText] = useState(draft?.jsonText ?? '');
+  const [step, setStep]                     = useState<Step>('settings');
+  const [settings, setSettings]             = useState<CampaignSettings>({ ...DEFAULT_SETTINGS, ...draft?.settings });
+  const [blueprint, setBlueprint]           = useState(draft?.blueprint ?? '');
+  const [jsonText, setJsonText]             = useState(draft?.jsonText ?? '');
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
-  const [repairAttempt, setRepairAttempt] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [repairAttempt, setRepairAttempt]   = useState(0);
+  const [repairHistory, setRepairHistory]   = useState<RepairHistoryEntry[]>([]);
+  const [error, setError]                   = useState<string | null>(null);
 
-  // Persist draft on key state changes
   useEffect(() => { saveDraft({ settings }); }, [settings]);
   useEffect(() => { if (blueprint) saveDraft({ blueprint }); }, [blueprint]);
   useEffect(() => { if (jsonText) saveDraft({ jsonText }); }, [jsonText]);
@@ -865,6 +1026,7 @@ export default function CampaignGenerator() {
       setJsonText(JSON.stringify(json, null, 2));
       setValidationResult(null);
       setRepairAttempt(0);
+      setRepairHistory([]);
       setError(null);
       setStep('json');
     },
@@ -875,11 +1037,22 @@ export default function CampaignGenerator() {
     mutationFn: () => adventureApi.validate(JSON.parse(jsonText) as unknown),
     onSuccess: (result) => {
       setValidationResult(result);
+      setRepairHistory([]);
       setError(null);
       setStep('validate');
     },
     onError: (e) => setError(e instanceof Error ? e.message : 'Validation request failed'),
   });
+
+  function recordRepair(attempt: number, type: 'full' | 'reachability', result: ValidationResult) {
+    const errCount = result.errors.length;
+    setRepairHistory(h => [...h, {
+      attempt,
+      type,
+      passed: result.valid,
+      errorSummary: result.valid ? 'all checks passed' : `${errCount} error${errCount !== 1 ? 's' : ''} remain`,
+    }]);
+  }
 
   const repairMut = useMutation({
     mutationFn: () => {
@@ -887,11 +1060,11 @@ export default function CampaignGenerator() {
       return campaignGeneratorApi.repair(JSON.parse(jsonText) as unknown, errors, repairAttempt + 1);
     },
     onSuccess: ({ json }) => {
-      const newText = JSON.stringify(json, null, 2);
-      setJsonText(newText);
-      setRepairAttempt(r => r + 1);
-      // Re-validate after repair
+      setJsonText(JSON.stringify(json, null, 2));
+      const next = repairAttempt + 1;
+      setRepairAttempt(next);
       adventureApi.validate(json).then(result => {
+        recordRepair(next, 'full', result);
         setValidationResult(result);
         setError(null);
       }).catch(e => setError(e instanceof Error ? e.message : 'Revalidation failed'));
@@ -899,7 +1072,32 @@ export default function CampaignGenerator() {
     onError: (e) => setError(e instanceof Error ? e.message : 'Repair failed'),
   });
 
-  const isLoading = blueprintMut.isPending || generateMut.isPending || validateMut.isPending || repairMut.isPending;
+  const repairReachabilityMut = useMutation({
+    mutationFn: () => {
+      const reachErrors = (validationResult?.errors ?? [])
+        .filter(e => isReachabilityError(e.message))
+        .map(e => ({ path: e.path, message: e.message }));
+      return campaignGeneratorApi.repairReachability(
+        JSON.parse(jsonText) as unknown,
+        reachErrors,
+        repairAttempt + 1,
+      );
+    },
+    onSuccess: ({ json }) => {
+      setJsonText(JSON.stringify(json, null, 2));
+      const next = repairAttempt + 1;
+      setRepairAttempt(next);
+      adventureApi.validate(json).then(result => {
+        recordRepair(next, 'reachability', result);
+        setValidationResult(result);
+        setError(null);
+      }).catch(e => setError(e instanceof Error ? e.message : 'Revalidation failed'));
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : 'Reachability repair failed'),
+  });
+
+  const isLoading = blueprintMut.isPending || generateMut.isPending || validateMut.isPending
+    || repairMut.isPending || repairReachabilityMut.isPending;
 
   return (
     <div className="space-y-4">
@@ -918,6 +1116,7 @@ export default function CampaignGenerator() {
                 setSettings({ ...DEFAULT_SETTINGS });
                 setValidationResult(null);
                 setRepairAttempt(0);
+                setRepairHistory([]);
                 setStep('settings');
               }
             }}
@@ -972,10 +1171,13 @@ export default function CampaignGenerator() {
         <ValidationStep
           result={validationResult}
           onRepair={() => repairMut.mutate()}
+          onRepairReachability={() => repairReachabilityMut.mutate()}
           onProceed={() => setStep('import')}
           onBack={() => setStep('json')}
           isRepairLoading={repairMut.isPending}
+          isRepairReachabilityLoading={repairReachabilityMut.isPending}
           repairAttempt={repairAttempt}
+          repairHistory={repairHistory}
         />
       )}
 
