@@ -74,10 +74,20 @@ export interface ImportPreview {
   beatCount: number; doorCount: number; switchCount: number;
   puzzleCount: number; timelineCount: number;
 }
+export interface GameplayScore {
+  total: number;
+  exploration: number;
+  puzzles: number;
+  items: number;
+  variety: number;
+  progression: number;
+  details: string[];
+}
 export interface ValidationResult {
   valid: boolean;
   errors: ValidationError[];
   preview: ImportPreview | null;
+  gameplay?: GameplayScore;
 }
 export interface ImportResult {
   ok: boolean;

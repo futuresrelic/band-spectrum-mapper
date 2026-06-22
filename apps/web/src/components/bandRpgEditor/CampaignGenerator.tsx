@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { campaignGeneratorApi, adventureApi } from '../../api/adventureApi';
-import type { CampaignSettings, ValidationResult, CampaignPingResult, ImportResult } from '../../api/adventureApi';
+import type { CampaignSettings, ValidationResult, CampaignPingResult, ImportResult, GameplayScore } from '../../api/adventureApi';
 import { useAuth } from '../../contexts/AuthContext';
 import { bandsApi } from '../../api/bands';
 import type { BandWithCounts } from '@band-spectrum-mapper/shared';
@@ -531,6 +531,65 @@ function JsonEditorStep({ jsonText, onChange, onValidate, onBack, isLoading }: {
   );
 }
 
+// ── Gameplay score panel ──────────────────────────────────────────────────────
+
+function GameplayScorePanel({ score }: { score: GameplayScore }) {
+  const pass = score.total >= 60;
+  const panelCls = pass
+    ? 'bg-emerald-50 border-emerald-200'
+    : 'bg-amber-50 border-amber-300';
+  const headCls  = pass ? 'text-emerald-800' : 'text-amber-900';
+  const subCls   = pass ? 'text-emerald-700' : 'text-amber-800';
+  const barBg    = pass ? 'bg-emerald-100' : 'bg-amber-100';
+  const barFill  = pass ? 'bg-emerald-500' : 'bg-amber-500';
+  const badgeCls = pass
+    ? 'bg-emerald-100 text-emerald-700'
+    : 'bg-red-100 text-red-700';
+
+  const dims = [
+    { label: 'Exploration', value: score.exploration },
+    { label: 'Puzzles',     value: score.puzzles },
+    { label: 'Items',       value: score.items },
+    { label: 'Variety',     value: score.variety },
+    { label: 'Progression', value: score.progression },
+  ];
+
+  return (
+    <div className={`border rounded-lg p-3 ${panelCls}`}>
+      <div className="flex items-center justify-between mb-2.5">
+        <span className={`text-sm font-semibold ${headCls}`}>
+          Gameplay Quality: {score.total}/100
+        </span>
+        <span className={`text-xs px-2 py-0.5 rounded font-semibold ${badgeCls}`}>
+          {pass ? '✓ PASS' : `✗ FAIL (need 60)`}
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {dims.map(({ label, value }) => (
+          <div key={label} className="flex items-center gap-2">
+            <span className={`w-[84px] text-xs shrink-0 ${subCls}`}>{label}</span>
+            <div className={`flex-1 h-1.5 rounded-full overflow-hidden ${barBg}`}>
+              <div
+                className={`h-full rounded-full transition-all ${barFill}`}
+                style={{ width: `${(value / 20) * 100}%` }}
+              />
+            </div>
+            <span className={`text-xs w-8 text-right shrink-0 ${subCls}`}>{value}/20</span>
+          </div>
+        ))}
+      </div>
+      {score.details.length > 0 && (
+        <details className="mt-2">
+          <summary className={`text-xs cursor-pointer select-none ${subCls}`}>Level details ▸</summary>
+          <ul className={`mt-1 space-y-0.5 text-xs font-mono ${subCls}`}>
+            {score.details.map((d, i) => <li key={i}>{d}</li>)}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
 // ── Validation step ───────────────────────────────────────────────────────────
 
 const REACHABILITY_KEYWORDS = ['unreachable', 'sealed', 'no exit entity', 'not reachable from the starting level', 'no spawn entity', 'non-walkable tile'];
@@ -554,7 +613,10 @@ function ValidationStep({ result, onRepair, onRepairReachability, onProceed, onB
   const [copiedReach, setCopiedReach] = useState(false);
 
   const reachabilityErrors = result.errors.filter(e => isReachabilityError(e.message));
-  const structuralErrors   = result.errors.filter(e => !isReachabilityError(e.message));
+  const gameplayErrors     = result.errors.filter(e => e.path.startsWith('gameplay.'));
+  const structuralErrors   = result.errors.filter(e =>
+    !isReachabilityError(e.message) && !e.path.startsWith('gameplay.')
+  );
   const anyLoading = isRepairLoading || isRepairReachabilityLoading;
 
   function copyReachabilityErrors() {
@@ -568,10 +630,15 @@ function ValidationStep({ result, onRepair, onRepairReachability, onProceed, onB
 
   return (
     <div className="space-y-4">
+      {/* Gameplay score — shown in both valid and invalid states */}
+      {result.gameplay && (
+        <GameplayScorePanel score={result.gameplay} />
+      )}
+
       {result.valid ? (
         <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
           <div className="flex items-center gap-2 text-emerald-800 font-medium mb-3">
-            <span className="text-xl">✅</span> Adventure is valid and fully reachable
+            <span className="text-xl">✅</span> Adventure is valid and ready to import
           </div>
           {result.preview && (
             <div className="grid grid-cols-3 gap-2 text-xs text-emerald-700">
@@ -607,6 +674,27 @@ function ValidationStep({ result, onRepair, onRepairReachability, onProceed, onB
                 {reachabilityErrors.map((e, i) => (
                   <li key={i} className="text-xs text-orange-800 bg-orange-100/60 rounded px-2 py-1.5">
                     {e.path && <span className="font-mono font-medium text-orange-900">[{e.path}]</span>}{' '}
+                    {e.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {gameplayErrors.length > 0 && (
+            <div className="bg-amber-50 border border-amber-300 rounded-lg p-4">
+              <div className="flex items-center gap-2 text-amber-900 font-semibold text-sm mb-2">
+                <span>🎮</span>
+                Gameplay quality too low — import blocked
+              </div>
+              <p className="text-xs text-amber-800 mb-3">
+                Score is below 60/100. Use <strong>Repair All</strong> to ask GPT to improve maps,
+                add items, and add puzzle mechanics. You can also edit the JSON manually.
+              </p>
+              <ul className="space-y-1.5">
+                {gameplayErrors.map((e, i) => (
+                  <li key={i} className="text-xs text-amber-800 bg-amber-100/60 rounded px-2 py-1.5">
+                    {e.path && <span className="font-mono font-medium text-amber-900">[{e.path}]</span>}{' '}
                     {e.message}
                   </li>
                 ))}

@@ -336,15 +336,44 @@ ${blueprint}
 
 ## MAP LAYOUT RULES — READ CAREFULLY (BFS validator will reject sealed rooms)
 EVERY entity (NPC, item, switch, exit) must connect to spawn via floor tiles (1/2/3).
-PREFERRED layout: open floor plan, walls only on outer border:
-  0 0 0 0 0 0 0 0 0
-  0 1 1 1 1 1 1 1 0
-  0 1 1 1 1 1 1 1 0
-  0 1 1 1 1 1 1 1 0
-  0 0 0 0 1 0 0 0 0  ← exit on border at (4,4)
+Maps MUST be at least 11×11. PREFERRED layout for a 13×13 map with corridors:
+  0 0 0 0 0 0 0 0 0 0 0 0 0
+  0 1 1 1 0 1 1 1 1 1 1 1 0
+  0 1 0 1 0 1 0 0 0 0 1 0 0
+  0 1 0 1 1 1 0 1 1 0 1 0 0
+  0 1 0 0 0 0 0 1 0 0 1 0 0
+  0 1 1 1 1 0 0 1 1 1 1 0 0
+  0 0 0 0 1 0 0 0 0 0 0 0 0  ← exit on border at col 4
 Place NPCs, items, switches on interior floor tiles. Place exits on border tiles.
 If you want a chamber, connect it with a corridor (never a fully-walled inner room).
-DO NOT put any entity inside a region of all-0 tiles with no floor path out.`;
+DO NOT put any entity inside a region of all-0 tiles with no floor path out.
+
+## GAMEPLAY REQUIREMENTS — MANDATORY (scored 0-100; must reach 60 to import)
+This adventure is graded on five dimensions. You MUST meet minimum thresholds in each:
+
+EXPLORATION (target ≥12/20): Each level needs interior walls and branching corridors.
+- Maps should be 12×12 or larger with inner walls creating rooms and dead-end corridors.
+- Spawn to exit should require walking ≥10 tiles (not a straight shot across an empty room).
+- Include 2+ side rooms with dead ends so the player has things to discover.
+
+PUZZLES (target ≥12/20): Include items + locked doors in at least one level.
+- At least one level: place item entity (type:"item") + locked door (type:"key_door", openedByDefault:false).
+- lockCondition: {"type":"item_owned","targetSlug":"<item-slug>"} links the item to the door.
+- Add switches (type:"switch", effect:{type:"open_door"}) as extra puzzle mechanics.
+
+ITEMS (target ≥10/20): Place 3+ collectible items across the adventure.
+- Add 3+ items to the top-level items[] array (type:"collectible" or "key_item").
+- Place each as a map entity in the appropriate level: {id:"item-1",type:"item",x:4,y:4,refId:"<item-slug>"}.
+
+VARIETY (target ≥10/20): Different level types — NOT all "talk to NPC → walk to exit".
+- Level 1: Exploration level — complex map, items to discover, corridors to navigate.
+- Level 2: Puzzle level — locked door requiring a key item found elsewhere in the level.
+- Level 3+: Story/climax — NPC confrontation, narrative payoff, adventure completion exit.
+
+PROGRESSION (target ≥8/20): Escalating challenge across levels.
+- Later levels should have more locked doors and longer paths than earlier levels.
+- Include 2+ quests with objectives beyond talk_to_npc (e.g. find_item, activate_switch).
+- Final level MUST have the __adventure_complete__ exit.`;
 
     const response = await client.chat.completions.create({
       model: MODEL,
@@ -418,6 +447,23 @@ To fix reachability errors:
 ## Campaign connectivity rules (for "not reachable from the starting level" errors)
 - Every level must have at least one exit entity whose targetLevelSlug points to the next level's slug.
 - Check each level's mapData.entities for type="exit" and ensure targetLevelSlug is set correctly.
+
+## Gameplay quality rules (for gameplay.* errors — scored 0-100, need 60 to import)
+gameplay.variety: All levels are boring "NPC → exit". Add puzzle levels:
+  - Key Hunt: add item to items[], place {type:"item"} entity in map, add key_door with lockCondition:{type:"item_owned",targetSlug:"<slug>"}.
+  - Switch Puzzle: add switch to switches[], place {type:"switch"} entity, set effect:{type:"open_door",targetName:"<door-name>"}.
+gameplay.puzzles: Add items[] and locked doors. Min: 1 key_door (openedByDefault:false) + 1 item entity that unlocks it.
+gameplay.items: Add 3+ items to items[] array and place {type:"item",x,y,refId:"<slug>"} entities in mapData.entities.
+gameplay.exploration: Expand maps to 12×12+. Add interior walls for corridors. Ensure spawn-to-exit path is ≥10 tiles.
+  Example 12×12 map with corridors and a side room:
+    [0,0,0,0,0,0,0,0,0,0,0,0]
+    [0,1,1,1,1,1,0,1,1,1,1,0]
+    [0,1,0,0,0,1,0,1,0,0,1,0]
+    [0,1,0,1,1,1,1,1,0,1,1,0]
+    [0,1,0,1,0,0,0,0,0,1,0,0]
+    [0,1,1,1,0,1,1,1,1,1,0,0]
+    [0,0,0,0,0,1,0,0,0,0,0,0]
+    ... exit on row 6 col 5 (border tile, adjacent floor at 5,5)
 
 ## Validation Errors (fix these)
 ${errorList}

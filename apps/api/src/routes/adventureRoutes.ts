@@ -4,6 +4,8 @@ import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { validateReachability } from '../services/reachabilityValidator.js';
+import { validateGameplay } from '../services/gameplayValidator.js';
+import type { GameplayScore } from '../services/gameplayValidator.js';
 
 export const adventureRouter = Router();
 adventureRouter.use(requireAuth, requireAdmin);
@@ -337,7 +339,7 @@ interface ImportTimeline { title: string; type: string; refSlug?: string; isRequ
 interface ImportLevel { slug: string; name: string; description?: string; order?: number; spawnX?: number; spawnY?: number; background?: string; mapData?: unknown; isPublished?: boolean; objectives?: ImportObjective[]; npcs?: ImportNpc[]; beats?: ImportBeat[]; doors?: ImportDoor[]; switches?: ImportSwitch[]; puzzles?: ImportPuzzle[]; }
 
 interface ValidationError { path: string; message: string; }
-interface ValidationResult { valid: boolean; errors: ValidationError[]; preview: ImportPreview | null; }
+interface ValidationResult { valid: boolean; errors: ValidationError[]; preview: ImportPreview | null; gameplay?: GameplayScore; }
 interface ImportPreview { levelCount: number; npcCount: number; objectiveCount: number; questCount: number; arcCount: number; itemCount: number; beatCount: number; doorCount: number; switchCount: number; puzzleCount: number; timelineCount: number; }
 
 // Valid enum values — must stay in sync with prisma/schema.prisma BandRpgItemType
@@ -514,8 +516,11 @@ function validatePayload(body: unknown): ValidationResult {
 
 adventureRouter.post('/validate', async (req, res, next): Promise<void> => {
   try {
-    const result = validatePayload(normalizePayload(req.body));
+    const normalized = normalizePayload(req.body);
+    const result = validatePayload(normalized);
 
+    // If structural validation fails, return immediately.
+    // Gameplay check requires a structurally valid payload.
     if (!result.valid) { res.json(result); return; }
     const p = req.body as ImportPayload;
 
@@ -537,8 +542,17 @@ adventureRouter.post('/validate', async (req, res, next): Promise<void> => {
       for (const e of existing) dbErrors.push({ path: 'levels', message: `Level slug "${e.slug}" already exists in database` });
     }
 
-    const allErrors = [...result.errors, ...dbErrors];
-    res.json({ valid: allErrors.length === 0, errors: allErrors, preview: result.preview }); return;
+    // Gameplay validation — only in /validate, never in /import (allows manual imports to bypass).
+    const gameplayResult = validateGameplay(normalized);
+
+    const allErrors = [...result.errors, ...dbErrors, ...gameplayResult.errors];
+    const response: ValidationResult = {
+      valid: allErrors.length === 0,
+      errors: allErrors,
+      preview: result.preview,
+      gameplay: gameplayResult.score,
+    };
+    res.json(response); return;
   } catch (err) { next(err); return; }
 });
 
