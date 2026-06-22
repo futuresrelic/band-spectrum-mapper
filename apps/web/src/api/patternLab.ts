@@ -64,6 +64,51 @@ export interface PatternLabScopes {
   albums: { id: string; title: string; year: number | null; band: { id: string; name: string } }[];
 }
 
+export interface PhraseContext {
+  songId: string;
+  songTitle: string;
+  band: string;
+  albumTitle: string | null;
+  context: string;
+  occurrences: number;
+}
+
+export interface PhraseSearchResult {
+  phrase: string;
+  normalizedPhrase: string;
+  totalOccurrences: number;
+  songCount: number;
+  albumCount: number;
+  matches: PhraseContext[];
+}
+
+export interface PhraseBridge {
+  phrase: string;
+  totalCount: number;
+  songCount: number;
+  albumCount: number;
+  bridgeStrength: number;
+  songs: SongRef[];
+  topContext: string | null;
+}
+
+export interface PhraseBridgesResult {
+  bridges: PhraseBridge[];
+  totalSongs: number;
+  phraseLength: number;
+}
+
+export interface PhraseDnaResult {
+  phrase: string;
+  totalOccurrences: number;
+  songCount: number;
+  albumCount: number;
+  bridgeStrength: number;
+  matches: PhraseContext[];
+  nearbyWords: string[];
+  bandNames: string[];
+}
+
 export const patternLabApi = {
   getScopes(): Promise<PatternLabScopes> {
     return api.get('/api/pattern-lab/scopes');
@@ -108,5 +153,45 @@ export const patternLabApi = {
 
   findConnectors(bandIds: string[]): Promise<UniversalConnectorsResult> {
     return api.get(`/api/pattern-lab/connectors?bandIds=${bandIds.join(',')}`);
+  },
+
+  phraseSearch(params: {
+    q: string;
+    bandIds?: string[];
+    albumIds?: string[];
+    limit?: number;
+  }): Promise<PhraseSearchResult> {
+    const qs = new URLSearchParams({ q: params.q });
+    if (params.bandIds?.length)  qs.set('bandIds',  params.bandIds.join(','));
+    if (params.albumIds?.length) qs.set('albumIds', params.albumIds.join(','));
+    if (params.limit)            qs.set('limit',    String(params.limit));
+    return api.get(`/api/pattern-lab/phrase-search?${qs}`);
+  },
+
+  phraseBridges(params: {
+    bandIds?: string[];
+    phraseLength?: number;
+    minSongCount?: number;
+    limit?: number;
+    excludeStopPhrases?: boolean;
+  }): Promise<PhraseBridgesResult> {
+    const qs = new URLSearchParams();
+    if (params.bandIds?.length)   qs.set('bandIds',           params.bandIds.join(','));
+    if (params.phraseLength)      qs.set('phraseLength',      String(params.phraseLength));
+    if (params.minSongCount)      qs.set('minSongCount',      String(params.minSongCount));
+    if (params.limit)             qs.set('limit',             String(params.limit));
+    if (params.excludeStopPhrases !== undefined) qs.set('excludeStopPhrases', String(params.excludeStopPhrases));
+    return api.get(`/api/pattern-lab/phrase-bridges?${qs}`);
+  },
+
+  phraseDna(params: {
+    phrase: string;
+    bandIds?: string[];
+    albumIds?: string[];
+  }): Promise<PhraseDnaResult> {
+    const qs = new URLSearchParams({ phrase: params.phrase });
+    if (params.bandIds?.length)  qs.set('bandIds',  params.bandIds.join(','));
+    if (params.albumIds?.length) qs.set('albumIds', params.albumIds.join(','));
+    return api.get(`/api/pattern-lab/phrase-dna?${qs}`);
   },
 };

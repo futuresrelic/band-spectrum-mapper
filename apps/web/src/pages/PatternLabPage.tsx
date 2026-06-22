@@ -11,6 +11,11 @@ import {
   type ArtistDnaResult,
   type UniversalConnectorsResult,
   type PatternLabScopes,
+  type PhraseContext,
+  type PhraseSearchResult,
+  type PhraseBridge,
+  type PhraseBridgesResult,
+  type PhraseDnaResult,
 } from '../api/patternLab';
 import { pushCinemaHandoff } from '../cinema/cinemaHandoff';
 
@@ -353,35 +358,437 @@ function RecurrenceTab({ scopes }: { scopes: PatternLabScopes }) {
 }
 
 // ---------------------------------------------------------------------------
-// Tab: Phrase Discovery
+// Phrase context renderer (highlights **phrase**)
 // ---------------------------------------------------------------------------
 
-function PhrasesTab({ scopes }: { scopes: PatternLabScopes }) {
+function ContextSnippet({ context }: { context: string }) {
+  // Split on **...**  markers and render highlighted sections
+  const parts = context.split(/(\*\*[^*]+\*\*)/);
+  return (
+    <span className="text-[11px] text-surface-400 leading-relaxed font-mono">
+      {parts.map((part, i) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+          return (
+            <span key={i} className="text-yellow-300 font-bold not-italic">
+              {part.slice(2, -2)}
+            </span>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phrase DNA inline panel
+// ---------------------------------------------------------------------------
+
+function PhraseDnaPanel({
+  phrase,
+  bandIds,
+  albumIds,
+  onClose,
+}: {
+  phrase: string;
+  bandIds?: string[];
+  albumIds?: string[];
+  onClose: () => void;
+}) {
+  const { data, isFetching, isError } = useQuery<PhraseDnaResult>({
+    queryKey: ['pl-phrase-dna', phrase, bandIds?.join(','), albumIds?.join(',')],
+    queryFn: () => patternLabApi.phraseDna({
+      phrase,
+      ...(bandIds?.length  ? { bandIds  } : {}),
+      ...(albumIds?.length ? { albumIds } : {}),
+    }),
+    staleTime: 5 * 60_000,
+  });
+
+  function copyDnaReport() {
+    if (!data) return;
+    const lines = [
+      `PHRASE DNA: "${data.phrase}"`,
+      `Songs: ${data.songCount}  Albums: ${data.albumCount}  Occurrences: ${data.totalOccurrences}  Bridge Strength: ${data.bridgeStrength}`,
+      `Bands: ${data.bandNames.join(', ')}`,
+      `Nearby words: ${data.nearbyWords.join(', ')}`,
+      '',
+      'MATCHES:',
+      ...data.matches.map((m) => `  ${m.band} — ${m.songTitle}${m.albumTitle ? ` (${m.albumTitle})` : ''} [×${m.occurrences}]\n    ${m.context.replace(/\*\*/g, '')}`),
+    ];
+    navigator.clipboard.writeText(lines.join('\n')).catch(() => undefined);
+  }
+
+  function copySocialCaption() {
+    if (!data) return;
+    const caption = `"${data.phrase}" appears in ${data.songCount} songs across ${data.albumCount} albums — bridge strength ${data.bridgeStrength}. Nearby themes: ${data.nearbyWords.slice(0, 5).join(', ')}.`;
+    navigator.clipboard.writeText(caption).catch(() => undefined);
+  }
+
+  return (
+    <div className="bg-surface-900/80 border border-indigo-800/40 rounded-lg p-4 mt-2 space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <span className="text-xs font-semibold text-indigo-300 uppercase tracking-wider">Phrase DNA</span>
+          <span className="ml-2 text-sm font-mono text-white">"{phrase}"</span>
+        </div>
+        <button onClick={onClose} className="text-surface-600 hover:text-surface-300 text-xs transition-colors shrink-0">✕ Close</button>
+      </div>
+
+      {isFetching && (
+        <div className="flex gap-1.5 py-2">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+          ))}
+        </div>
+      )}
+
+      {isError && <p className="text-red-400 text-xs">Failed to load phrase DNA.</p>}
+
+      {data && !isFetching && (
+        <>
+          {/* Stats */}
+          <div className="flex flex-wrap gap-4 text-[11px]">
+            <span className="text-surface-400">Songs: <span className="text-white font-semibold">{data.songCount}</span></span>
+            <span className="text-surface-400">Albums: <span className="text-white font-semibold">{data.albumCount}</span></span>
+            <span className="text-surface-400">Occurrences: <span className="text-white font-semibold">{data.totalOccurrences}</span></span>
+            <span className="text-surface-400">Bridge Strength: <span className="text-amber-400 font-semibold">{data.bridgeStrength}</span></span>
+          </div>
+
+          {/* Nearby words */}
+          {data.nearbyWords.length > 0 && (
+            <div>
+              <div className="text-[10px] text-surface-500 uppercase tracking-wider mb-1.5">Nearby words</div>
+              <div className="flex flex-wrap gap-1.5">
+                {data.nearbyWords.map((w) => (
+                  <span key={w} className="px-2 py-0.5 text-[11px] bg-surface-800 text-indigo-200 rounded-full border border-surface-700">
+                    {w}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Song matches */}
+          {data.matches.length > 0 && (
+            <div>
+              <div className="text-[10px] text-surface-500 uppercase tracking-wider mb-1.5">Song contexts</div>
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                {data.matches.slice(0, 20).map((m) => (
+                  <div key={m.songId} className="text-[11px] space-y-0.5">
+                    <div className="text-surface-300">
+                      <span className="text-surface-500">{m.band}</span>
+                      {' — '}{m.songTitle}
+                      {m.albumTitle && <span className="text-surface-600"> ({m.albumTitle})</span>}
+                      {m.occurrences > 1 && <span className="ml-1 text-indigo-400 text-[10px]">×{m.occurrences}</span>}
+                    </div>
+                    <div className="pl-2 border-l border-surface-700">
+                      <ContextSnippet context={m.context} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-2 pt-1 border-t border-surface-800">
+            <button
+              onClick={copyDnaReport}
+              className="px-3 py-1.5 text-[11px] bg-surface-800 hover:bg-surface-700 text-surface-300 rounded transition-colors"
+            >
+              📋 Copy DNA Report
+            </button>
+            <button
+              onClick={copySocialCaption}
+              className="px-3 py-1.5 text-[11px] bg-surface-800 hover:bg-surface-700 text-surface-300 rounded transition-colors"
+            >
+              📣 Copy Social Caption
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tab: Phrase Discovery (enhanced — Exact Search + Discovery sub-tabs)
+// ---------------------------------------------------------------------------
+
+// PhraseRow for discovery table (with DNA expansion)
+function PhraseRow({
+  p,
+  showBridgeStrength,
+  bandIds,
+}: {
+  p: PhraseOccurrence | PhraseBridge;
+  showBridgeStrength: boolean;
+  bandIds?: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [showDna, setShowDna] = useState(false);
+
+  const isBridge = 'bridgeStrength' in p;
+  const bridgeStrength = isBridge ? (p as PhraseBridge).bridgeStrength : null;
+
+  return (
+    <>
+      <tr className="border-b border-surface-800/60 hover:bg-surface-900/40 transition-colors">
+        <td className="py-2 px-3">
+          <button
+            onClick={() => setShowDna(!showDna)}
+            className="text-xs font-mono text-indigo-200 hover:text-indigo-100 transition-colors text-left"
+            title="Click to view Phrase DNA"
+          >
+            {p.phrase}
+          </button>
+        </td>
+        <td className="py-2 px-3 text-xs text-center text-white font-semibold">{p.songCount}</td>
+        <td className="py-2 px-3 text-xs text-center text-surface-400">{p.albumCount}</td>
+        <td className="py-2 px-3 text-xs text-center text-surface-600">{p.totalCount}</td>
+        {showBridgeStrength && (
+          <td className="py-2 px-3 text-xs text-center text-amber-400 font-semibold">
+            {bridgeStrength ?? '—'}
+          </td>
+        )}
+        <td className="py-2 px-3 text-xs text-right">
+          <button onClick={() => setOpen(!open)} className="text-surface-600 hover:text-surface-300 transition-colors">{open ? '▲' : '▼'}</button>
+        </td>
+      </tr>
+      {(open || showDna) && (
+        <tr className="bg-surface-900/60">
+          <td colSpan={showBridgeStrength ? 6 : 5} className="px-4 pb-3 pt-1.5">
+            {open && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1 mb-2">
+                {p.songs.map((s) => (
+                  <div key={s.id} className="text-[11px] text-surface-300">
+                    <span className="text-surface-500">{s.band}</span>
+                    {' — '}{s.title}
+                    {s.albumTitle && <span className="text-surface-600"> ({s.albumTitle})</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {showDna && (
+              <PhraseDnaPanel
+                phrase={p.phrase}
+                bandIds={bandIds}
+                onClose={() => setShowDna(false)}
+              />
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// Exact Search sub-tab
+function ExactSearchSubTab({ scopes }: { scopes: PatternLabScopes }) {
+  const [query, setQuery]       = useState('');
+  const [bandIds, setBandIds]   = useState<string[]>([]);
+  const [params, setParams]     = useState<null | { q: string; bandIds?: string[] }>(null);
+
+  const { data, isFetching, isError } = useQuery<PhraseSearchResult>({
+    queryKey: ['pl-phrase-search', params],
+    queryFn: () => patternLabApi.phraseSearch({ ...params!, limit: 100 }),
+    enabled: params !== null,
+    staleTime: 5 * 60_000,
+  });
+
+  const wordCount = query.trim().split(/\s+/).filter(Boolean).length;
+  const tooFewWords = query.trim().length > 0 && wordCount < 2;
+
+  function run() {
+    if (wordCount < 2) return;
+    setParams({
+      q: query.trim(),
+      ...(bandIds.length ? { bandIds } : {}),
+    });
+  }
+
+  function copyAllText() {
+    if (!data) return;
+    const lines = [
+      `Phrase Search: "${data.phrase}"`,
+      `${data.songCount} songs · ${data.totalOccurrences} occurrences`,
+      '',
+      ...data.matches.map((m) =>
+        `${m.band} — ${m.songTitle}${m.albumTitle ? ` (${m.albumTitle})` : ''} [×${m.occurrences}]\n  ${m.context.replace(/\*\*/g, '')}`,
+      ),
+    ];
+    navigator.clipboard.writeText(lines.join('\n')).catch(() => undefined);
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="bg-surface-900 border border-surface-800 rounded-xl p-5 space-y-4">
+        <h4 className="text-xs font-semibold text-white">🔍 Exact Phrase Search</h4>
+        <p className="text-[11px] text-surface-500">
+          Search for an exact phrase across all lyrics. Results show context snippets with the phrase highlighted.
+        </p>
+
+        <div>
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') run(); }}
+            placeholder="Type a phrase to search… e.g. drags down like"
+            className="w-full bg-surface-800 border border-surface-700 rounded px-3 py-2 text-sm text-white placeholder-surface-600 focus:outline-none focus:border-indigo-500"
+          />
+          {tooFewWords && (
+            <p className="text-amber-400 text-[11px] mt-1.5">
+              Use Word Search for single words. Phrase Finder is designed for 2+ word phrases.
+            </p>
+          )}
+        </div>
+
+        <div>
+          <div className="text-[10px] text-surface-500 uppercase tracking-wider mb-1.5">Artists (optional — searches all if none selected)</div>
+          <BandPicker scopes={scopes} selected={bandIds} setSelected={setBandIds} />
+        </div>
+
+        <button
+          onClick={run}
+          disabled={wordCount < 2 || isFetching}
+          className={`px-4 py-2 rounded text-xs font-semibold transition-colors ${wordCount >= 2 && !isFetching ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-surface-800 text-surface-600 cursor-not-allowed'}`}
+        >
+          {isFetching ? 'Searching…' : '🔍 Search'}
+        </button>
+      </div>
+
+      {isFetching && <Spinner />}
+      {isError && <p className="text-red-400 text-sm">Search failed. Check your phrase and try again.</p>}
+
+      {data && !isFetching && (
+        <div>
+          {data.songCount === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-surface-400 text-sm mb-1">No exact match found for "{data.phrase}".</p>
+              <p className="text-surface-600 text-xs">Try fewer words or switch to Discovery mode.</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs text-surface-500">
+                  <span className="text-white font-semibold">{data.songCount}</span> songs ·{' '}
+                  <span className="text-white font-semibold">{data.totalOccurrences}</span> occurrences
+                </span>
+                <div className="flex gap-2">
+                  <button onClick={copyAllText} className="px-2 py-1 text-[10px] bg-surface-800 hover:bg-surface-700 text-surface-300 rounded transition-colors">📋 Copy all</button>
+                  <button
+                    onClick={() => downloadCsv(
+                      data.matches.map((m) => ({ phrase: data.phrase, band: m.band, song: m.songTitle, album: m.albumTitle ?? '', occurrences: m.occurrences, context: m.context.replace(/\*\*/g, '') })),
+                      `phrase-search-${data.normalizedPhrase.replace(/\s+/g, '-')}.csv`,
+                    )}
+                    className="px-2 py-1 text-[10px] bg-surface-800 hover:bg-surface-700 text-surface-300 rounded transition-colors"
+                  >
+                    ⬇ CSV
+                  </button>
+                  <button
+                    onClick={() => downloadJson(data, `phrase-search-${data.normalizedPhrase.replace(/\s+/g, '-')}.json`)}
+                    className="px-2 py-1 text-[10px] bg-surface-800 hover:bg-surface-700 text-surface-300 rounded transition-colors"
+                  >
+                    ⬇ JSON
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {data.matches.map((m) => (
+                  <SearchMatchCard key={m.songId} match={m} />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SearchMatchCard({ match }: { match: PhraseContext }) {
+  return (
+    <div className="bg-surface-900 border border-surface-800 rounded-lg p-4">
+      <div className="flex items-start justify-between mb-2">
+        <div>
+          <span className="text-xs font-semibold text-white">{match.songTitle}</span>
+          <span className="text-[11px] text-surface-500 ml-2">{match.band}</span>
+          {match.albumTitle && <span className="text-[11px] text-surface-600 ml-1">· {match.albumTitle}</span>}
+        </div>
+        {match.occurrences > 1 && (
+          <span className="text-[10px] text-indigo-400 font-mono shrink-0 ml-2">×{match.occurrences}</span>
+        )}
+      </div>
+      <div className="pl-3 border-l-2 border-indigo-800/50">
+        <ContextSnippet context={match.context} />
+      </div>
+    </div>
+  );
+}
+
+// Discovery sub-tab
+function DiscoverySubTab({ scopes }: { scopes: PatternLabScopes }) {
   const navigate = useNavigate();
   const [bandIds, setBandIds]           = useState<string[]>([]);
   const [phraseLength, setPhraseLength] = useState(2);
   const [minSongCount, setMin]          = useState(2);
   const [limit, setLimit]               = useState(100);
-  const [params, setParams]             = useState<null | { bandIds: string[]; phraseLength: number; minSongCount: number; limit: number }>(null);
+  const [mode, setMode]                 = useState<'content' | 'all'>('content');
+  const [excludeStop, setExcludeStop]   = useState(true);
+  const [filter, setFilter]             = useState('');
 
-  const { data, isFetching } = useQuery<RecurringPhrasesResult>({
-    queryKey: ['pl-phrases', params],
-    queryFn: () => patternLabApi.findRecurringPhrases(params!),
-    enabled: params !== null,
+  // Content phrases (tokenized, stopwords removed)
+  const [contentParams, setContentParams] = useState<null | { bandIds: string[]; phraseLength: number; minSongCount: number; limit: number }>(null);
+  const { data: contentData, isFetching: contentFetching } = useQuery<RecurringPhrasesResult>({
+    queryKey: ['pl-phrases', contentParams],
+    queryFn: () => patternLabApi.findRecurringPhrases(contentParams!),
+    enabled: contentParams !== null && mode === 'content',
     staleTime: 5 * 60_000,
   });
 
-  const [filter, setFilter] = useState('');
+  // All phrases / bridges (raw text)
+  const [bridgeParams, setBridgeParams] = useState<null | { bandIds?: string[]; phraseLength: number; minSongCount: number; limit: number; excludeStopPhrases: boolean }>(null);
+  const { data: bridgeData, isFetching: bridgeFetching } = useQuery<PhraseBridgesResult>({
+    queryKey: ['pl-phrase-bridges', bridgeParams],
+    queryFn: () => patternLabApi.phraseBridges(bridgeParams!),
+    enabled: bridgeParams !== null && mode === 'all',
+    staleTime: 5 * 60_000,
+  });
+
+  const isFetching = mode === 'content' ? contentFetching : bridgeFetching;
+
+  const rawPhrases: Array<PhraseOccurrence | PhraseBridge> = useMemo(() => {
+    if (mode === 'content') return contentData?.phrases ?? [];
+    return bridgeData?.bridges ?? [];
+  }, [mode, contentData, bridgeData]);
+
   const visible = useMemo(
-    () => (filter ? (data?.phrases ?? []).filter((p) => p.phrase.includes(filter.toLowerCase())) : (data?.phrases ?? [])),
-    [data, filter],
+    () => filter ? rawPhrases.filter((p) => p.phrase.includes(filter.toLowerCase())) : rawPhrases,
+    [rawPhrases, filter],
   );
+
+  const totalSongs = mode === 'content' ? (contentData?.totalSongs ?? 0) : (bridgeData?.totalSongs ?? 0);
+
+  function run() {
+    if (!bandIds.length) return;
+    if (mode === 'content') {
+      setContentParams({ bandIds, phraseLength, minSongCount, limit });
+    } else {
+      setBridgeParams({ bandIds, phraseLength, minSongCount, limit, excludeStopPhrases: excludeStop });
+    }
+  }
 
   return (
     <div className="space-y-6">
       <div className="bg-surface-900 border border-surface-800 rounded-xl p-5 space-y-4">
-        <h3 className="text-sm font-semibold text-white">🗣 Phrase Discovery</h3>
-        <p className="text-[11px] text-surface-500">Find recurring multi-word sequences across songs. Uses content-word n-grams (stopwords removed).</p>
+        <h4 className="text-xs font-semibold text-white">🗣 Phrase Discovery</h4>
+        <p className="text-[11px] text-surface-500">
+          Discover recurring multi-word sequences. Content phrases strip stopwords first; All phrases scan raw text.
+          Click any phrase to view its DNA.
+        </p>
 
         <BandPicker scopes={scopes} selected={bandIds} setSelected={setBandIds} />
 
@@ -407,9 +814,44 @@ function PhrasesTab({ scopes }: { scopes: PatternLabScopes }) {
           </div>
         </div>
 
+        {/* Mode toggle */}
+        <div className="flex items-center gap-4 flex-wrap">
+          <div>
+            <div className="text-[10px] text-surface-500 mb-1.5">Mode</div>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setMode('content')}
+                className={`px-3 py-1.5 text-xs rounded transition-colors ${mode === 'content' ? 'bg-indigo-600 text-white' : 'bg-surface-800 text-surface-400 hover:bg-surface-700'}`}
+              >
+                Content phrases
+              </button>
+              <button
+                onClick={() => setMode('all')}
+                className={`px-3 py-1.5 text-xs rounded transition-colors ${mode === 'all' ? 'bg-indigo-600 text-white' : 'bg-surface-800 text-surface-400 hover:bg-surface-700'}`}
+              >
+                All phrases
+              </button>
+            </div>
+          </div>
+
+          {mode === 'all' && (
+            <label className="flex items-center gap-2 cursor-pointer group mt-4">
+              <input
+                type="checkbox"
+                checked={excludeStop}
+                onChange={(e) => setExcludeStop(e.target.checked)}
+                className="accent-indigo-500"
+              />
+              <span className="text-[11px] text-surface-400 group-hover:text-surface-200 transition-colors">
+                Exclude stop phrases (phrases where every word is a stopword)
+              </span>
+            </label>
+          )}
+        </div>
+
         <div className="flex items-center gap-3 flex-wrap">
           <button
-            onClick={() => { if (bandIds.length) setParams({ bandIds, phraseLength, minSongCount, limit }); }}
+            onClick={run}
             disabled={!bandIds.length || isFetching}
             className={`px-4 py-2 rounded text-xs font-semibold transition-colors ${bandIds.length && !isFetching ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-surface-800 text-surface-600 cursor-not-allowed'}`}
           >
@@ -431,11 +873,12 @@ function PhrasesTab({ scopes }: { scopes: PatternLabScopes }) {
 
       {isFetching && <Spinner />}
 
-      {data && !isFetching && (
+      {rawPhrases.length > 0 && !isFetching && (
         <div>
-          <div className="flex items-center gap-3 mb-3">
+          <div className="flex items-center gap-3 mb-3 flex-wrap">
             <span className="text-xs text-surface-500">
-              <span className="text-white font-semibold">{data.phrases.length}</span> phrases · {data.totalSongs} songs scanned
+              <span className="text-white font-semibold">{rawPhrases.length}</span> phrases · {totalSongs} songs scanned
+              <span className="ml-2 text-surface-600 text-[10px]">(click a phrase to open DNA panel)</span>
             </span>
             <input
               type="text"
@@ -445,74 +888,85 @@ function PhrasesTab({ scopes }: { scopes: PatternLabScopes }) {
               className="bg-surface-800 border border-surface-700 rounded px-2 py-1 text-xs text-white placeholder-surface-600 focus:outline-none focus:border-indigo-500 w-48"
             />
           </div>
-          {visible.length === 0
-            ? <p className="text-surface-500 text-sm text-center py-8">No recurring phrases found — try lowering "Min songs" or phrase length.</p>
-            : (
-              <div className="overflow-x-auto rounded-lg border border-surface-800">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="border-b border-surface-700 bg-surface-900">
-                      <th className="py-2 px-3 text-[10px] font-semibold text-surface-400 uppercase tracking-wider">Phrase</th>
-                      <th className="py-2 px-3 text-[10px] font-semibold text-surface-400 text-center">Songs</th>
-                      <th className="py-2 px-3 text-[10px] font-semibold text-surface-400 text-center">Albums</th>
-                      <th className="py-2 px-3 text-[10px] font-semibold text-surface-400 text-center">Raw count</th>
-                      <th className="py-2 px-3" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visible.slice(0, 200).map((p) => (
-                      <PhraseRow key={p.phrase} p={p} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
-          }
-          {data.phrases.length > 0 && (
-            <ExportBar
-              label="Export phrases"
-              onCsv={() => downloadCsv(
-                data.phrases.map((p) => ({ phrase: p.phrase, songs: p.songCount, albums: p.albumCount, rawCount: p.totalCount, songList: p.songs.map((s) => s.title).join('; ') })),
-                'recurring-phrases.csv',
-              )}
-              onJson={() => downloadJson(data, 'recurring-phrases.json')}
-            />
-          )}
+
+          <div className="overflow-x-auto rounded-lg border border-surface-800">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-surface-700 bg-surface-900">
+                  <th className="py-2 px-3 text-[10px] font-semibold text-surface-400 uppercase tracking-wider">Phrase</th>
+                  <th className="py-2 px-3 text-[10px] font-semibold text-surface-400 text-center">Songs</th>
+                  <th className="py-2 px-3 text-[10px] font-semibold text-surface-400 text-center">Albums</th>
+                  <th className="py-2 px-3 text-[10px] font-semibold text-surface-400 text-center">Count</th>
+                  {mode === 'all' && (
+                    <th className="py-2 px-3 text-[10px] font-semibold text-surface-400 text-center">Bridge Strength</th>
+                  )}
+                  <th className="py-2 px-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {visible.slice(0, 200).map((p) => (
+                  <PhraseRow key={p.phrase} p={p} showBridgeStrength={mode === 'all'} bandIds={bandIds.length ? bandIds : undefined} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <ExportBar
+            label="Export phrases"
+            onCsv={() => downloadCsv(
+              rawPhrases.map((p) => ({
+                phrase: p.phrase,
+                songs: p.songCount,
+                albums: p.albumCount,
+                count: p.totalCount,
+                ...('bridgeStrength' in p ? { bridgeStrength: (p as PhraseBridge).bridgeStrength } : {}),
+                songList: p.songs.map((s) => s.title).join('; '),
+              })),
+              mode === 'all' ? 'phrase-bridges.csv' : 'recurring-phrases.csv',
+            )}
+            onJson={() => downloadJson(
+              mode === 'all' ? bridgeData : contentData,
+              mode === 'all' ? 'phrase-bridges.json' : 'recurring-phrases.json',
+            )}
+          />
         </div>
+      )}
+
+      {!isFetching && rawPhrases.length === 0 && (contentParams !== null || bridgeParams !== null) && (
+        <p className="text-surface-500 text-sm text-center py-8">No recurring phrases found — try lowering "Min songs" or phrase length.</p>
       )}
     </div>
   );
 }
 
-function PhraseRow({ p }: { p: PhraseOccurrence }) {
-  const [open, setOpen] = useState(false);
+function PhrasesTab({ scopes }: { scopes: PatternLabScopes }) {
+  const [subTab, setSubTab] = useState<'search' | 'discovery'>('search');
+
   return (
-    <>
-      <tr className="border-b border-surface-800/60 hover:bg-surface-900/40 transition-colors">
-        <td className="py-2 px-3 text-xs font-mono text-indigo-200">{p.phrase}</td>
-        <td className="py-2 px-3 text-xs text-center text-white font-semibold">{p.songCount}</td>
-        <td className="py-2 px-3 text-xs text-center text-surface-400">{p.albumCount}</td>
-        <td className="py-2 px-3 text-xs text-center text-surface-600">{p.totalCount}</td>
-        <td className="py-2 px-3 text-xs text-right">
-          <button onClick={() => setOpen(!open)} className="text-surface-600 hover:text-surface-300 transition-colors">{open ? '▲' : '▼'}</button>
-        </td>
-      </tr>
-      {open && (
-        <tr className="bg-surface-900/60">
-          <td colSpan={5} className="px-4 pb-3 pt-1.5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1">
-              {p.songs.map((s) => (
-                <div key={s.id} className="text-[11px] text-surface-300">
-                  <span className="text-surface-500">{s.band}</span>
-                  {' — '}{s.title}
-                  {s.albumTitle && <span className="text-surface-600"> ({s.albumTitle})</span>}
-                </div>
-              ))}
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
+    <div className="space-y-4">
+      {/* Sub-tab bar */}
+      <div className="flex gap-1 border-b border-surface-800 pb-0">
+        {([
+          { id: 'search'    as const, label: '🔍 Exact Search' },
+          { id: 'discovery' as const, label: '🗣 Discovery'    },
+        ]).map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setSubTab(t.id)}
+            className={`px-3 py-2 text-xs font-semibold rounded-t transition-colors -mb-px border-b-2 ${
+              subTab === t.id
+                ? 'border-indigo-500 text-white bg-surface-900'
+                : 'border-transparent text-surface-400 hover:text-surface-200 hover:bg-surface-900/50'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {subTab === 'search'    && <ExactSearchSubTab scopes={scopes} />}
+      {subTab === 'discovery' && <DiscoverySubTab   scopes={scopes} />}
+    </div>
   );
 }
 
@@ -742,7 +1196,7 @@ function ArtistDnaTab({ scopes }: { scopes: PatternLabScopes }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {data.topPhrases.map((p) => <PhraseRow key={p.phrase} p={p} />)}
+                        {data.topPhrases.map((p) => <PhraseRow key={p.phrase} p={p} showBridgeStrength={false} />)}
                       </tbody>
                     </table>
                   </div>

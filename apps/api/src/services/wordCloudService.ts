@@ -34,7 +34,7 @@ export interface WordCloudData {
 // Stopwords (extend from DB custom_stopwords)
 // ---------------------------------------------------------------------------
 
-const BUILTIN_STOPWORDS = new Set([
+export const BUILTIN_STOPWORDS = new Set([
   // Articles, conjunctions, prepositions
   'the','a','an','and','or','but','in','on','at','to','for','of','with','by',
   'from','as','about','into','through','if','because','so','than',
