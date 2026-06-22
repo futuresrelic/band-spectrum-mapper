@@ -644,7 +644,8 @@
         "entities": [
           { "id": "tla-spawn-spiral", "type": "spawn", "x": 1, "y": 5 },
           { "id": "tla-exit-back-aenima", "type": "exit", "x": 0, "y": 5, "targetLevelSlug": "tla-aenima-chamber", "label": "← Back to Ænima Chamber" },
-          { "id": "tla-item-spiral-seal", "type": "item", "x": 5, "y": 5, "refId": "tla-spiral-seal" }
+          { "id": "tla-item-spiral-seal", "type": "item", "x": 5, "y": 5, "refId": "tla-spiral-seal" },
+          { "id": "tla-exit-complete", "type": "exit", "x": 10, "y": 5, "targetLevelSlug": "__adventure_complete__", "label": "✦ Complete the Archive" }
         ]
       },
       "objectives": [

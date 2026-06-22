@@ -83,6 +83,8 @@ function isTileCrossable(level: RuntimeLevel, x: number, y: number, snap: WorldS
   if (x < 0 || y < 0 || x >= level.mapData.width || y >= level.mapData.height) return false;
   const door = level.doors.find(d => d.tileX === x && d.tileY === y);
   if (door) return isDoorOpen(door, snap);
+  // Exit tiles are always crossable — they sit on wall-edge tiles by convention
+  if (level.exits.some(e => e.tileX === x && e.tileY === y)) return true;
   return (level.mapData.tiles[y]?.[x] ?? 0) === 1;
 }
 
@@ -686,7 +688,8 @@ export function useGameEngine(
         if (isTileCrossable(lv, newX, newY, toWorldSnapshot(s))) {
           const exit = lv.exits.find(ex => ex.tileX === newX && ex.tileY === newY);
           if (exit) {
-            const locked = s.unlockedLevelSlugs.length > 0 && !s.unlockedLevelSlugs.includes(exit.targetLevelSlug);
+            const isSpecial = exit.targetLevelSlug === '__adventure_complete__';
+            const locked = !isSpecial && s.unlockedLevelSlugs.length > 0 && !s.unlockedLevelSlugs.includes(exit.targetLevelSlug);
             if (!locked) onLevelTransition(exit.targetLevelSlug);
           }
         }
@@ -811,7 +814,8 @@ export function useGameEngine(
     if (isTileCrossable(lv, newX, newY, toWorldSnapshot(s))) {
       const exit = lv.exits.find(ex => ex.tileX === newX && ex.tileY === newY);
       if (exit) {
-        const locked = s.unlockedLevelSlugs.length > 0 && !s.unlockedLevelSlugs.includes(exit.targetLevelSlug);
+        const isSpecial = exit.targetLevelSlug === '__adventure_complete__';
+        const locked = !isSpecial && s.unlockedLevelSlugs.length > 0 && !s.unlockedLevelSlugs.includes(exit.targetLevelSlug);
         if (!locked) onLevelTransition(exit.targetLevelSlug);
       }
     }

@@ -671,7 +671,10 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
         }
       }
 
-      // Helper: resolve targetSlug/targetName → targetId in conditions/actions
+      // Helper: resolve targetSlug → targetId in conditions/actions.
+      // IMPORTANT: item conditions (item_owned, grant_item) keep targetSlug intact —
+      // the runtime uses item slug as canonical id (not DB CUID).
+      // Quest conditions resolve slug → CUID because runtime stores quest progress as CUIDs.
       function resolveRef(
         cond: Record<string, unknown>,
         levelSlugToId: Map<string, string>,
@@ -681,11 +684,12 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
         if (typeof out['targetSlug'] === 'string') {
           const slug = out['targetSlug'];
           const t = out['type'];
-          let resolved: string | undefined;
-          if (t === 'item_owned' || t === 'grant_item') resolved = itemSlugToId.get(slug);
-          else if (t === 'quest_complete' || t === 'quest_active') resolved = questSlugToId.get(slug);
-          else if (t === 'reveal_exit') resolved = slug;
-          if (resolved) { out['targetId'] = resolved; delete out['targetSlug']; }
+          if (t === 'quest_complete' || t === 'quest_active') {
+            const resolved = questSlugToId.get(slug);
+            if (resolved) { out['targetId'] = resolved; delete out['targetSlug']; }
+          }
+          // item_owned, grant_item, reveal_exit, switch_activated, door_open, story_beat_seen:
+          // leave targetSlug intact — runtime resolves via targetId ?? targetSlug
         }
         return out;
       }

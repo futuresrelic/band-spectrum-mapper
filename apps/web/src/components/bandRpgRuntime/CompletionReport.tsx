@@ -5,9 +5,10 @@ interface Props {
   adventure: Adventure;
   progress: AdventureProgress;
   onDismiss?: () => void;
+  onReplay?: () => void;
 }
 
-export default function CompletionReport({ adventure, progress, onDismiss }: Props) {
+export default function CompletionReport({ adventure, progress, onDismiss, onReplay }: Props) {
   const navigate = useNavigate();
 
   const levelCount = adventure._count?.levels ?? 0;
@@ -53,19 +54,29 @@ export default function CompletionReport({ adventure, progress, onDismiss }: Pro
         </div>
 
         {/* Actions */}
-        <div className="px-8 pb-8 flex gap-3">
-          <button
-            onClick={() => navigate('/play/band-rpg/adventures')}
-            className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
-          >
-            Adventure Hub
-          </button>
-          {onDismiss && (
+        <div className="px-8 pb-8 flex flex-col gap-2">
+          <div className="flex gap-3">
             <button
-              onClick={onDismiss}
-              className="flex-1 py-2.5 rounded-xl border border-white/20 hover:bg-white/10 text-white/70 text-sm font-medium transition-colors"
+              onClick={() => navigate('/play/band-rpg/adventures')}
+              className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
             >
-              Keep Exploring
+              Adventure Hub
+            </button>
+            {onDismiss && (
+              <button
+                onClick={onDismiss}
+                className="flex-1 py-2.5 rounded-xl border border-white/20 hover:bg-white/10 text-white/70 text-sm font-medium transition-colors"
+              >
+                Keep Exploring
+              </button>
+            )}
+          </div>
+          {onReplay && (
+            <button
+              onClick={onReplay}
+              className="w-full py-2 rounded-xl border border-indigo-500/30 hover:bg-indigo-500/10 text-indigo-400 text-xs font-medium transition-colors"
+            >
+              ↺ Replay Adventure
             </button>
           )}
         </div>

@@ -242,7 +242,8 @@ adventureProgressRouter.post('/:adventureId/sync', requireAuth, async (req, res,
     const resolvedQuestsCompleted = questsCompleted ?? existing.questsCompleted;
     const resolvedLevelsDiscovered = levelsDiscovered ?? (existing.levelsDiscovered as string[]);
     const resolvedItemsCollected = itemsCollected ?? existing.itemsCollected;
-    const resolvedIsCompleted = isCompleted ?? existing.isCompleted;
+    // Completion is sticky: once true it never reverts via sync (use /restart to reset)
+    const resolvedIsCompleted = existing.isCompleted || (isCompleted ?? false);
 
     // Completion percentage: 50% quest share + 50% levels share, capped at 100
     const questShare = totalQuests > 0 ? (resolvedQuestsCompleted / totalQuests) * 50 : 0;

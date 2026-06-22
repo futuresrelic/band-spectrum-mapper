@@ -67,6 +67,7 @@ export default function BandRpgGamePage() {
 
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = useState({ w: 640, h: 480 });
+  const gameStateRef = useRef<GameState | null>(null);
 
   useEffect(() => {
     const el = canvasContainerRef.current;
@@ -128,9 +129,28 @@ export default function BandRpgGamePage() {
   }, []);
 
   const handleLevelTransition = useCallback((targetSlug: string) => {
+    if (targetSlug === '__adventure_complete__') {
+      if (adventureId) {
+        const gs = gameStateRef.current;
+        progressSyncMutation.mutate({
+          levelsDiscovered: gs?.unlockedLevelSlugs ?? [],
+          questsCompleted: gs?.completedQuests.length ?? 0,
+          itemsCollected: gs?.inventory.length ?? 0,
+          isCompleted: true,
+        });
+      }
+      return;
+    }
     const params = adventureId ? `?adventureId=${encodeURIComponent(adventureId)}` : '';
     navigate(`/play/band-rpg/game/${encodeURIComponent(targetSlug)}${params}`);
-  }, [navigate, adventureId]);
+  }, [navigate, adventureId, progressSyncMutation]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleReplay = useCallback(async () => {
+    if (!adventureId) return;
+    await adventureProgressApi.restart(adventureId);
+    await bandRpgRuntimeApi.resetSave();
+    navigate(`/play/band-rpg/adventures/${encodeURIComponent(adventureId)}`);
+  }, [adventureId, navigate]);
 
   const handleSave = useCallback((gameState: GameState, levelSlug: string) => {
     saveMutation.mutate({
@@ -172,6 +192,9 @@ export default function BandRpgGamePage() {
     handleSave,
     isAdmin,
   );
+
+  // Keep ref in sync so handleLevelTransition can read current state without stale closure
+  gameStateRef.current = state;
 
   useEffect(() => {
     document.getElementById('band-rpg-game-container')?.focus();
@@ -248,6 +271,7 @@ export default function BandRpgGamePage() {
           adventure={completionAdventure}
           progress={completionProgress}
           onDismiss={() => setShowCompletion(false)}
+          onReplay={handleReplay}
         />
       )}
 
