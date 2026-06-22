@@ -1,14 +1,16 @@
 import type { RuntimeLevel } from '../../api/bandRpgRuntime';
 import type { GameState } from './useGameEngine';
-import { canOpenDoor, isDoorOpen } from './WorldEngine';
+import { canOpenDoor, isDoorOpen, describeConditionBlocker } from './WorldEngine';
 import type { WorldSnapshot } from './WorldEngine';
 
 interface Props {
   state: GameState;
   level: RuntimeLevel;
+  viewportW: number;
+  viewportH: number;
 }
 
-export default function DebugPanel({ state, level }: Props) {
+export default function DebugPanel({ state, level, viewportW, viewportH }: Props) {
   const snap: WorldSnapshot = {
     inventory: state.inventory,
     activeQuestIds: state.activeQuestIds,
@@ -23,6 +25,8 @@ export default function DebugPanel({ state, level }: Props) {
     ['Level', `${level.name} (${level.slug})`],
     ['Player', `tile (${state.playerX}, ${state.playerY})`],
     ['Map', `${level.mapData.width}×${level.mapData.height}`],
+    ['Viewport', `${viewportW}×${viewportH}px`],
+    ['World px', `${level.mapData.width * 32}×${level.mapData.height * 32}px`],
     ['Dialogue', `${state.dialogueMode} · line ${state.dialogueIndex}/${state.dialogueLines.length}`],
     ['NPCs', `${level.npcs.length}`],
     ['Items on map', `${level.items.length} / ${state.collectedEntityIds.size} collected`],
@@ -138,15 +142,13 @@ export default function DebugPanel({ state, level }: Props) {
             const open = isDoorOpen(door, snap);
             const canOpen = canOpenDoor(door, snap);
             const cond = door.lockCondition;
-            const condStr = cond
-              ? `${cond.type}=${cond.targetId ?? cond.targetSlug ?? '?'}`
-              : 'none';
             const tileVal = level.mapData.tiles[door.tileY]?.[door.tileX] ?? '?';
+            const blocker = (!open && !canOpen) ? describeConditionBlocker(cond, snap) : null;
             return (
               <div key={door.id} style={{ fontSize: 10, lineHeight: 1.6, color: open ? '#4b5563' : canOpen ? '#34d399' : '#f87171' }}>
                 {open ? '🔓 OPEN' : canOpen ? '✓ CAN OPEN' : '🔒 LOCKED'} {door.name} [{door.type}]
-                {!open && <span style={{ color: '#6b7280' }}> · {condStr}</span>}
                 <span style={{ color: '#374151' }}> · tile={tileVal} · {open ? 'PASSABLE' : 'BLOCKED'}</span>
+                {blocker && <div style={{ fontSize: 9, color: '#ef4444', paddingLeft: 12, lineHeight: 1.5 }}>↳ {blocker}</div>}
               </div>
             );
           })}

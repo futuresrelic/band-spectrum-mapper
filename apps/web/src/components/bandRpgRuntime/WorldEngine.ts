@@ -76,6 +76,63 @@ export function doorBlockedMessage(door: RuntimeDoor): string {
   }
 }
 
+export function describeConditionBlocker(
+  condition: import('../../api/bandRpgRuntime').WorldCondition | null | undefined,
+  snap: WorldSnapshot,
+): string {
+  if (!condition) return 'No condition — should be passable';
+  if (evaluateCondition(condition, snap)) return 'Condition already met';
+  const target = resolveTarget(condition);
+  switch (condition.type) {
+    case 'item_owned':      return `Missing item: ${target ?? '(no target set)'}`;
+    case 'quest_active':    return `Quest not active: ${target ?? '(no target set)'}`;
+    case 'quest_complete':  return `Quest not complete: ${target ?? '(no target set)'}`;
+    case 'story_beat_seen': return `Story beat not seen: ${target ?? '(no target set)'}`;
+    case 'switch_activated':return `Switch not activated: ${target ?? '(no target set)'}`;
+    case 'door_open':       return `Door not open: ${target ?? '(no target set)'}`;
+    case 'world_state':     return `World state: ${condition.key ?? '?'} ≠ ${String(condition.value ?? '')}`;
+    case 'never':           return 'Always blocked (condition type: never)';
+    default:                return `Unknown condition type: ${condition.type}`;
+  }
+}
+
+export function doorBlockedDetailMessage(door: import('../../api/bandRpgRuntime').RuntimeDoor, snap: WorldSnapshot): string {
+  return `${door.label ?? door.name}: ${describeConditionBlocker(door.lockCondition, snap)}`;
+}
+
+export interface ProgressionBlocker {
+  category: 'door' | 'exit';
+  entityName: string;
+  reason: string;
+}
+
+export function analyzeProgression(
+  doors: import('../../api/bandRpgRuntime').RuntimeDoor[],
+  exits: import('../../api/bandRpgRuntime').RuntimeExit[],
+  snap: WorldSnapshot,
+): ProgressionBlocker[] {
+  const blockers: ProgressionBlocker[] = [];
+  for (const door of doors) {
+    if (!isDoorOpen(door, snap) && !canOpenDoor(door, snap)) {
+      blockers.push({
+        category: 'door',
+        entityName: door.label ?? door.name,
+        reason: describeConditionBlocker(door.lockCondition, snap),
+      });
+    }
+  }
+  for (const exit of exits) {
+    if (exit.condition && !evaluateCondition(exit.condition, snap)) {
+      blockers.push({
+        category: 'exit',
+        entityName: exit.label ?? exit.targetLevelSlug,
+        reason: describeConditionBlocker(exit.condition, snap),
+      });
+    }
+  }
+  return blockers;
+}
+
 // ── Switch helpers ────────────────────────────────────────────────────────────
 
 export function isSwitchActivated(sw: RuntimeSwitch, snap: WorldSnapshot): boolean {

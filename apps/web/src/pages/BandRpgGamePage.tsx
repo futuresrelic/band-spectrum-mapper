@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import SiteHeader from '../components/layout/SiteHeader';
@@ -64,6 +64,22 @@ export default function BandRpgGamePage() {
   // Normal mobile D-pad: 3×44 + 2×4 = 140px + 16px edge = 156px. Add 12px gap → 168px.
   // Compact D-pad:       3×38 + 2×3 = 120px + 8px edge  = 128px. Add 8px gap  → 136px.
   const mobileDialogueBottom = isCompact ? 136 : 168;
+
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const [canvasSize, setCanvasSize] = useState({ w: 640, h: 480 });
+
+  useEffect(() => {
+    const el = canvasContainerRef.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) setCanvasSize({ w: Math.floor(r.width), h: Math.floor(r.height) });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const { data: level, isLoading: levelLoading, isError: levelError } = useQuery({
     queryKey: ['runtime-level', slug],
@@ -270,44 +286,42 @@ export default function BandRpgGamePage() {
         style={{ backgroundColor: level.background ?? '#0f172a' }}
       >
         {/* ── Canvas + overlay ──────────────────────────────────────────── */}
-        <div className="flex-1 relative overflow-hidden" style={{ minWidth: 0 }}>
+        <div ref={canvasContainerRef} className="flex-1 relative overflow-hidden" style={{ minWidth: 0 }}>
 
-          {/* Canvas — centred; camera keeps player in the middle of the 640×480 map */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div style={{ position: 'relative' }}>
-              <TileRenderer
-                level={{ ...level, items: visibleItems, exits: visibleExits }}
-                playerX={state.playerX}
-                playerY={state.playerY}
-                collectedEntityIds={state.collectedEntityIds}
-                unlockedLevelSlugs={state.unlockedLevelSlugs}
-                openedDoors={state.openedDoors}
-                activatedSwitches={state.activatedSwitches}
-                visibleNpcs={visibleNpcs}
-              />
+          {/* Canvas fills the entire game area — viewport derived from container size */}
+          <TileRenderer
+            level={{ ...level, items: visibleItems, exits: visibleExits }}
+            playerX={state.playerX}
+            playerY={state.playerY}
+            collectedEntityIds={state.collectedEntityIds}
+            unlockedLevelSlugs={state.unlockedLevelSlugs}
+            openedDoors={state.openedDoors}
+            activatedSwitches={state.activatedSwitches}
+            visibleNpcs={visibleNpcs}
+            viewportW={canvasSize.w}
+            viewportH={canvasSize.h}
+          />
 
-              {/* Admin panels — positioned relative to canvas */}
-              {state.showDebug && isAdmin && (
-                <DebugPanel state={state} level={level} />
-              )}
-              {state.showCheatPanel && isAdmin && (
-                <CheatPanel
-                  state={state}
-                  level={level}
-                  onCompleteQuest={cheatCompleteQuest}
-                  onGrantItem={cheatGrantItem}
-                  onUnlockLevel={cheatUnlockLevel}
-                  onTeleport={cheatTeleport}
-                  onOpenDoor={cheatOpenDoor}
-                  onActivateSwitch={cheatActivateSwitch}
-                  onResetSave={handleResetSave}
-                  onClose={handleCloseCheat}
-                />
-              )}
-            </div>
-          </div>
+          {/* Admin panels — positioned absolute within game area */}
+          {state.showDebug && isAdmin && (
+            <DebugPanel state={state} level={level} viewportW={canvasSize.w} viewportH={canvasSize.h} />
+          )}
+          {state.showCheatPanel && isAdmin && (
+            <CheatPanel
+              state={state}
+              level={level}
+              onCompleteQuest={cheatCompleteQuest}
+              onGrantItem={cheatGrantItem}
+              onUnlockLevel={cheatUnlockLevel}
+              onTeleport={cheatTeleport}
+              onOpenDoor={cheatOpenDoor}
+              onActivateSwitch={cheatActivateSwitch}
+              onResetSave={handleResetSave}
+              onClose={handleCloseCheat}
+            />
+          )}
 
-          {/* Overlay — covers the full canvas area; dialogue + controls live here */}
+          {/* Overlay — covers the full game area; dialogue + controls live here */}
           <div style={{ position: 'absolute', inset: 0, zIndex: 50, pointerEvents: 'none' }}>
 
             {/* Dialogue box — above controls on mobile, at bottom on desktop */}

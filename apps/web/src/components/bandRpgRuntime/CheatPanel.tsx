@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { RuntimeLevel } from '../../api/bandRpgRuntime';
 import type { GameState } from './useGameEngine';
+import { analyzeProgression } from './WorldEngine';
+import type { WorldSnapshot, ProgressionBlocker } from './WorldEngine';
 
 interface Props {
   state: GameState;
@@ -21,6 +23,7 @@ export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem,
   const [levelSlug, setLevelSlug] = useState('');
   const [tpX, setTpX] = useState(String(level.spawnX));
   const [tpY, setTpY] = useState(String(level.spawnY));
+  const [stuckReport, setStuckReport] = useState<ProgressionBlocker[] | null>(null);
 
   return (
     <div
@@ -189,6 +192,41 @@ export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem,
           })}
         </Section>
       )}
+
+      {/* Stuck? */}
+      <Section label="🔍 Stuck? Progression Check">
+        <button
+          onClick={() => {
+            const snap: WorldSnapshot = {
+              inventory: state.inventory,
+              activeQuestIds: state.activeQuestIds,
+              completedQuests: state.completedQuests,
+              unlockedBeats: state.unlockedBeats,
+              activatedSwitches: state.activatedSwitches,
+              openedDoors: state.openedDoors,
+              worldState: state.worldState,
+            };
+            setStuckReport(analyzeProgression(level.doors, level.exits, snap));
+          }}
+          style={{ ...btnStyle, width: '100%' }}
+        >
+          Analyze Progression
+        </button>
+        {stuckReport !== null && (
+          <div style={{ marginTop: 6 }}>
+            {stuckReport.length === 0 ? (
+              <div style={{ color: '#34d399', fontSize: 10 }}>✓ No blockers found — all doors and exits passable</div>
+            ) : (
+              stuckReport.map((b, i) => (
+                <div key={i} style={{ marginTop: 4, fontSize: 10, borderLeft: '2px solid #ef4444', paddingLeft: 6 }}>
+                  <div style={{ color: '#fca5a5', fontWeight: 600 }}>{b.category === 'door' ? '🔒' : '🚪'} {b.entityName}</div>
+                  <div style={{ color: '#6b7280' }}>{b.reason}</div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </Section>
 
       {/* Danger Zone */}
       <Section label="⚠ Danger Zone">

@@ -7,7 +7,7 @@ import {
 } from './QuestEngine';
 import type { QuestReward, ObjectiveEvent, TriggerEvent } from './QuestEngine';
 import {
-  isDoorOpen, canOpenDoor, doorBlockedMessage,
+  isDoorOpen, canOpenDoor, doorBlockedDetailMessage,
   findTriggeredPuzzles, evaluatePuzzleAction,
   isNpcVisible,
 } from './WorldEngine';
@@ -493,7 +493,7 @@ function reducer(state: GameState, action: GameAction): GameState {
       }
       return {
         ...state,
-        notification: doorBlockedMessage(door),
+        notification: doorBlockedDetailMessage(door, toWorldSnapshot(state)),
         notificationTimer: 150,
       };
     }

@@ -31,11 +31,12 @@ const RARITY_GLOW: Record<string, string> = {
 function computeCamera(
   playerX: number, playerY: number,
   mapW: number, mapH: number,
+  vpW: number, vpH: number,
 ): { cx: number; cy: number } {
-  const maxCamX = Math.max(0, mapW * CELL - VIEWPORT_W);
-  const maxCamY = Math.max(0, mapH * CELL - VIEWPORT_H);
-  const rawCX = VIEWPORT_W / 2 - playerX * CELL - CELL / 2;
-  const rawCY = VIEWPORT_H / 2 - playerY * CELL - CELL / 2;
+  const maxCamX = Math.max(0, mapW * CELL - vpW);
+  const maxCamY = Math.max(0, mapH * CELL - vpH);
+  const rawCX = vpW / 2 - playerX * CELL - CELL / 2;
+  const rawCY = vpH / 2 - playerY * CELL - CELL / 2;
   return {
     cx: Math.min(0, Math.max(-maxCamX, rawCX)),
     cy: Math.min(0, Math.max(-maxCamY, rawCY)),
@@ -54,18 +55,21 @@ interface Props {
   activatedSwitches?: string[];
   visibleNpcs?: RuntimeNpc[];   // pre-filtered by world conditions
   onCellClick?: (x: number, y: number) => void;
+  viewportW?: number;
+  viewportH?: number;
 }
 
 export default function TileRenderer({
   level, playerX, playerY, collectedEntityIds,
   unlockedLevelSlugs = [], openedDoors = [], activatedSwitches = [],
   visibleNpcs, onCellClick,
+  viewportW = 640, viewportH = 480,
 }: Props) {
   const { mapData, items, exits } = level;
   const npcs = visibleNpcs ?? level.npcs;
   const { cx, cy } = useMemo(
-    () => computeCamera(playerX, playerY, mapData.width, mapData.height),
-    [playerX, playerY, mapData.width, mapData.height],
+    () => computeCamera(playerX, playerY, mapData.width, mapData.height, viewportW, viewportH),
+    [playerX, playerY, mapData.width, mapData.height, viewportW, viewportH],
   );
 
   const mapW = mapData.width * CELL;
@@ -73,7 +77,7 @@ export default function TileRenderer({
 
   return (
     <div
-      style={{ width: VIEWPORT_W, height: VIEWPORT_H, overflow: 'hidden', position: 'relative' }}
+      style={{ width: viewportW, height: viewportH, overflow: 'hidden', position: 'relative' }}
       className="bg-gray-950"
     >
       {/* Map container — moves with camera */}
