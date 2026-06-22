@@ -73,10 +73,14 @@ ENTITY TYPES: spawn, exit, item, door, switch, npc
 ### Objectives (within each level)
 { "name", "description", "type", "target", "condition": {}, "reward": {}, "isOptional", "order" }
 OBJECTIVE_TYPES: talk_to_npc, find_item, collect_objects, reach_location, complete_quest, activate_switch, open_door
-- talk_to_npc: target = NPC name
-- find_item: target = item slug
-- collect_objects: target = item slug (or empty for "any item")
+- talk_to_npc: target = NPC name (must exactly match the NPC's "name" field in this level's npcs[])
+- find_item: target = item slug (must exactly match a slug in the top-level items[] array)
+- collect_objects: target = item slug (or omit for "any item")
 - reach_location: target = "x,y" string (e.g. "5,3")
+- activate_switch: target = switch name (must exactly match the switch's "name" field in this level's switches[])
+- open_door: target = door name (must exactly match the door's "name" field in this level's doors[])
+- complete_quest: target = quest slug (must exactly match a slug in the top-level quests[] array)
+IMPORTANT: For activate_switch, target is the switch's "name" string (e.g. "Frequency Lever"), NOT a slug or display label you invent. It must match the switch's "name" field exactly.
 
 ### NPCs (within each level)
 { "name", "role": "quest_giver" | "merchant" | "ambient" | null, "positionX", "positionY", "defaultDialogue": [{ "text", "speakerName" }] }

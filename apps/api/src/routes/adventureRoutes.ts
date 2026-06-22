@@ -477,6 +477,11 @@ function validatePayload(body: unknown): ValidationResult {
     if (!level.slug) errors.push({ path: `levels[${i}].slug`, message: 'Required' });
     if (!level.name) errors.push({ path: `levels[${i}].name`, message: 'Required' });
 
+    // Build name sets early — used in both objective target validation and entity refId checks below
+    const doorNames   = new Set((level.doors    ?? []).map(d => d.name).filter(Boolean));
+    const switchNames = new Set((level.switches ?? []).map(s => s.name).filter(Boolean));
+    const npcNames    = new Set((level.npcs     ?? []).map(n => n.name).filter(Boolean));
+
     for (const [j, obj] of (level.objectives ?? []).entries()) {
       if (!obj.name) errors.push({ path: `levels[${i}].objectives[${j}].name`, message: 'Required' });
       if (!obj.type) {
@@ -486,6 +491,50 @@ function validatePayload(body: unknown): ValidationResult {
           path: `levels[${i}].objectives[${j}].type`,
           message: `Invalid objective type "${obj.type}". Expected one of: ${VALID_OBJECTIVE_TYPES.join(', ')}`,
         });
+      } else if (obj.target !== undefined) {
+        const lvSlug = level.slug ?? String(i);
+        if (obj.type === 'activate_switch') {
+          if (!switchNames.has(obj.target)) {
+            errors.push({
+              path: `levels[${lvSlug}].objectives[${j}].target`,
+              message: `activate_switch target "${obj.target}" does not match any switch name in level "${lvSlug}". ` +
+                `Switch names in this level: [${[...switchNames].join(', ') || 'none'}]`,
+            });
+          }
+        } else if (obj.type === 'find_item') {
+          if (!itemSlugs.includes(obj.target)) {
+            errors.push({
+              path: `levels[${lvSlug}].objectives[${j}].target`,
+              message: `find_item target "${obj.target}" does not match any item slug. ` +
+                `Item slugs in package: [${itemSlugs.join(', ') || 'none'}]`,
+            });
+          }
+        } else if (obj.type === 'talk_to_npc') {
+          if (!npcNames.has(obj.target)) {
+            errors.push({
+              path: `levels[${lvSlug}].objectives[${j}].target`,
+              message: `talk_to_npc target "${obj.target}" does not match any NPC name in level "${lvSlug}". ` +
+                `NPC names in this level: [${[...npcNames].join(', ') || 'none'}]`,
+            });
+          }
+        } else if (obj.type === 'open_door') {
+          if (!doorNames.has(obj.target)) {
+            errors.push({
+              path: `levels[${lvSlug}].objectives[${j}].target`,
+              message: `open_door target "${obj.target}" does not match any door name in level "${lvSlug}". ` +
+                `Door names in this level: [${[...doorNames].join(', ') || 'none'}]`,
+            });
+          }
+        } else if (obj.type === 'complete_quest') {
+          if (!questSlugs.includes(obj.target)) {
+            errors.push({
+              path: `levels[${lvSlug}].objectives[${j}].target`,
+              message: `complete_quest target "${obj.target}" does not match any quest slug. ` +
+                `Quest slugs in package: [${questSlugs.join(', ') || 'none'}]`,
+            });
+          }
+        }
+        // collect_objects and reach_location targets are free-form — not validated
       }
     }
 
@@ -525,9 +574,6 @@ function validatePayload(body: unknown): ValidationResult {
     // referenced door/switch/NPC, or the slug of the referenced item.
     // (Entity refIds are NOT resolved to DB CUIDs during import; the game engine
     //  resolves them by name at runtime, so name mismatches cause silent runtime bugs.)
-    const doorNames  = new Set((level.doors    ?? []).map(d => d.name).filter(Boolean));
-    const switchNames = new Set((level.switches ?? []).map(s => s.name).filter(Boolean));
-    const npcNames   = new Set((level.npcs     ?? []).map(n => n.name).filter(Boolean));
     const md = level.mapData as { entities?: unknown[] } | undefined;
     for (const [j, ent] of (md?.entities ?? []).entries()) {
       const e = ent as { type?: string; refId?: string };
@@ -981,21 +1027,23 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
       const npcNameToId = new Map<string, string>(); // "levelSlug:npcName" → id
 
       for (const lv of levelImportData) {
-        // Objectives
+        // Objectives — individual creates (not createManyAndReturn) so each failure
+        // identifies the exact record and surfaces the full Prisma error.
         const objNameToId = new Map<string, string>();
-        const objectivesToCreate = lv.objectives.map(o => ({
-          levelId: lv.levelId, name: o.name,
-          type: o.type as import('@prisma/client').BandRpgObjectiveType,
-          condition: (o.condition ?? {}) as Prisma.InputJsonValue,
-          reward: (o.reward ?? {}) as Prisma.InputJsonValue,
-          isOptional: o.isOptional ?? false, order: o.order ?? 0,
-          ...(o.description !== undefined ? { description: o.description } : {}),
-          ...(o.target !== undefined ? { target: o.target } : {}),
-          ...(o.dialogueText !== undefined ? { dialogueText: o.dialogueText } : {}),
-        }));
-        const createdObjs = await tx.bandRpgObjective.createManyAndReturn({ data: objectivesToCreate });
-        for (let i = 0; i < createdObjs.length; i++) {
-          objNameToId.set(lv.objectives[i]!.name, createdObjs[i]!.id);
+        for (const [objIdx, o] of lv.objectives.entries()) {
+          const objData = {
+            levelId: lv.levelId, name: o.name,
+            type: o.type as import('@prisma/client').BandRpgObjectiveType,
+            condition: (o.condition ?? {}) as Prisma.InputJsonValue,
+            reward: (o.reward ?? {}) as Prisma.InputJsonValue,
+            isOptional: o.isOptional ?? false, order: o.order ?? 0,
+            ...(o.description !== undefined ? { description: o.description } : {}),
+            ...(o.target !== undefined ? { target: o.target } : {}),
+            ...(o.dialogueText !== undefined ? { dialogueText: o.dialogueText } : {}),
+          };
+          console.error(`[import] objective[${lv.levelSlug}][${objIdx}] type=${o.type} target=${o.target ?? 'none'} name="${o.name}"`);
+          const created = await tx.bandRpgObjective.create({ data: objData });
+          objNameToId.set(o.name, created.id);
         }
         for (const obj of lv.objectives) {
           if (obj.prerequisiteName) {
@@ -1134,11 +1182,9 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
       return advId;
     }, { timeout: 30_000 }); // 30s for large adventures
     } catch (txErr) {
-      // Extract the first meaningful lines of the Prisma/DB error for the frontend.
       const raw = txErr instanceof Error ? txErr.message : String(txErr);
-      const lines = raw.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-      const details = lines.slice(0, 4).join(' | ');
-      res.status(500).json({ ok: false, error: 'Database import failed', details });
+      console.error('[import] Transaction failed:\n', raw);
+      res.status(500).json({ ok: false, error: 'Database import failed', details: raw });
       return;
     }
 
