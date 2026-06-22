@@ -10,7 +10,7 @@ export const campaignGeneratorRouter = Router();
 campaignGeneratorRouter.use(requireAuth, requireAdmin);
 
 const MODEL = 'gpt-4o';
-const MAX_REPAIR_ATTEMPTS = 3;
+const MAX_REPAIR_ATTEMPTS = 10; // frontend controls the visible limit; this is a safety cap
 
 function getClient(): OpenAI {
   const apiKey = process.env['OPENAI_API_KEY'];
@@ -153,11 +153,31 @@ ${SECURITY_GUIDELINES}
 - Keep entity IDs short and descriptive, not CUIDs.
 - NPC positions must be on walkable tiles (tile value 1, 2, or 3).
 - Door and switch tile positions must be on otherwise-walkable tiles.
-- REACHABILITY (CRITICAL): every NPC, item, door, switch, and exit must be reachable from the spawn
-  tile via a continuous path of walkable tiles (value 1, 2, or 3). There must be NO sealed or
-  enclosed rooms with entities inside that have no floor-tile corridor to spawn.
-  Design open maps with corridors, not fully walled-off inner rooms.
-- Every non-final level must have at least one exit entity in mapData.entities.
+- REACHABILITY (CRITICAL — a BFS validator runs on every map):
+  * Every NPC, item, door, switch, and exit MUST be reachable from spawn via a continuous chain
+    of walkable tiles (value 1, 2, or 3). No exceptions.
+  * FORBIDDEN: placing any entity inside a room that has all-wall (0) borders with no corridor out.
+  * GOOD MAP PATTERN — open floor plan with walls only on outer border:
+      0 0 0 0 0 0 0
+      0 1 1 1 1 1 0
+      0 1 1 1 1 1 0
+      0 1 1 1 1 1 0
+      0 0 0 0 0 0 0
+  * ACCEPTABLE — inner room WITH a corridor (at least one tile-wide opening):
+      0 0 0 0 0 0 0
+      0 1 1 0 1 1 0
+      0 1 0 0 0 1 0   ← inner chamber, but row 4 has opening at col 3
+      0 1 1 1 1 1 0
+      0 0 0 0 0 0 0
+  * FORBIDDEN — inner room with no opening (any NPC/item inside is unreachable):
+      0 0 0 0 0 0 0
+      0 1 1 0 1 1 0
+      0 1 0 0 0 1 0   ← fully sealed inner room — NEVER DO THIS
+      0 1 1 0 1 1 0
+      0 0 0 0 0 0 0
+  * If you want a "secret chamber", use a door entity (type:"free") on a wall tile between
+    the chamber and the main floor, NOT a solid wall with no opening.
+- Every non-final level must have at least one exit entity in mapData.entities placed on a border tile.
 - adventure.estimatedPlaytime MUST be a bare integer (minutes). E.g. 45. NEVER a string like "2-3 hours".
 `;
 }
@@ -312,7 +332,19 @@ ${blueprint}
 - Include a timeline array listing all levels and required quests in order
 - All slugs must be globally unique — use the band's prefix consistently
 - Use targetSlug (not targetId) for all WorldCondition references to items and quests
-- adventure.estimatedPlaytime MUST be a bare integer (minutes). Example: 45. NEVER a string like "2-3 hours"`;
+- adventure.estimatedPlaytime MUST be a bare integer (minutes). Example: 45. NEVER a string like "2-3 hours"
+
+## MAP LAYOUT RULES — READ CAREFULLY (BFS validator will reject sealed rooms)
+EVERY entity (NPC, item, switch, exit) must connect to spawn via floor tiles (1/2/3).
+PREFERRED layout: open floor plan, walls only on outer border:
+  0 0 0 0 0 0 0 0 0
+  0 1 1 1 1 1 1 1 0
+  0 1 1 1 1 1 1 1 0
+  0 1 1 1 1 1 1 1 0
+  0 0 0 0 1 0 0 0 0  ← exit on border at (4,4)
+Place NPCs, items, switches on interior floor tiles. Place exits on border tiles.
+If you want a chamber, connect it with a corridor (never a fully-walled inner room).
+DO NOT put any entity inside a region of all-0 tiles with no floor path out.`;
 
     const response = await client.chat.completions.create({
       model: MODEL,
@@ -414,6 +446,83 @@ ${JSON.stringify(json, null, 2)}`;
       parsed = JSON.parse(raw);
     } catch {
       res.status(502).json({ error: 'GPT returned invalid JSON after repair', raw }); return;
+    }
+
+    res.json({ json: parsed, raw, model: MODEL, attempt }); return;
+  } catch (err) { next(err); return; }
+});
+
+// ── POST /repair-reachability — focused map-surgery repair ────────────────────
+// Only fixes map tiles and entity positions. Never touches slugs, dialogue,
+// quests, items, arcs, or any non-map field.
+
+campaignGeneratorRouter.post('/repair-reachability', async (req, res, next): Promise<void> => {
+  try {
+    const { json, errors, attempt = 1 } = req.body as {
+      json: unknown;
+      errors: Array<{ path?: string; message: string }>;
+      attempt?: number;
+    };
+
+    if (!json || !errors || errors.length === 0) {
+      res.status(400).json({ error: 'json and errors are required' }); return;
+    }
+
+    const client = getClient();
+
+    const errorList = errors.map(e => `- ${e.path ? `[${e.path}] ` : ''}${e.message}`).join('\n');
+
+    const userPrompt = `A Band RPG adventure JSON has MAP REACHABILITY errors. Your ONLY task is to fix the map layouts so all entities are reachable from spawn.
+
+## STRICT CONSTRAINTS — read before touching anything
+- DO NOT change: slugs, names, descriptions, dialogue, quests, items, arcs, beats, timeline, tags, or any non-map field.
+- DO NOT rename or delete any NPC, item, switch, or exit.
+- DO NOT rewrite story content.
+- ONLY modify: mapData.tiles arrays and entity x/y coordinates within mapData.entities, and NPC positionX/positionY.
+
+## HOW TO FIX REACHABILITY
+The validator runs BFS flood-fill from the spawn tile. Any entity not connected to spawn via floor tiles (1/2/3) fails.
+
+Fix strategies (use whichever is simplest):
+1. MOVE THE ENTITY: Change the entity's x/y (or positionX/Y for NPCs) to a floor tile that IS reachable from spawn.
+2. CARVE A CORRIDOR: Change wall tiles (0) between spawn and the entity to floor tiles (1) to create a walkable path.
+3. ADD A DOOR OPENING: Change a shared wall tile between two rooms to value 1 (or add a free door there).
+
+Rules:
+- Exit entities sit on border tiles (row 0, last row, col 0, last col) — those are always crossable. Make sure the interior tile adjacent to the exit is a floor tile (1) so the player can approach it.
+- After moving an entity, verify its new position has tile value 1, 2, or 3 in the tiles array.
+- NPCs: update both positionX/positionY (level.npcs array) AND the npc entity x/y in mapData.entities.
+- The spawn entity itself must be on a floor tile.
+
+## Reachability Errors to Fix
+${errorList}
+
+## Adventure JSON (only change maps and coordinates)
+${JSON.stringify(json, null, 2)}
+
+Output ONLY the complete corrected JSON — no markdown, no explanation, no code fences.`;
+
+    const response = await client.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: 'system', content: buildSystemPrompt() },
+        { role: 'user', content: userPrompt },
+      ],
+      max_tokens: 8000,
+      temperature: 0.05, // very low — we want precise surgical edits
+      response_format: { type: 'json_object' },
+    });
+
+    const raw = response.choices[0]?.message?.content?.trim() ?? '';
+    if (!raw) {
+      res.status(502).json({ error: 'GPT returned empty response' }); return;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      res.status(502).json({ error: 'GPT returned invalid JSON after reachability repair', raw }); return;
     }
 
     res.json({ json: parsed, raw, model: MODEL, attempt }); return;

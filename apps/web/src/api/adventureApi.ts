@@ -228,4 +228,7 @@ export const campaignGeneratorApi = {
 
   repair: (json: unknown, errors: Array<{ path?: string; message: string }>, attempt: number) =>
     httpApi.post<RepairResult>(`${CAMPAIGN_BASE}/repair`, { json, errors, attempt }),
+
+  repairReachability: (json: unknown, errors: Array<{ path?: string; message: string }>, attempt: number) =>
+    httpApi.post<RepairResult>(`${CAMPAIGN_BASE}/repair-reachability`, { json, errors, attempt }),
 };
