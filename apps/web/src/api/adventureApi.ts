@@ -175,3 +175,39 @@ export const adventureProgressApi = {
   health: (adventureId: string) =>
     httpApi.get<AdventureHealth>(`${PROGRESS_BASE}/${adventureId}/health`),
 };
+
+// ── Campaign Generator API (admin only) ──────────────────────────────────────
+
+const CAMPAIGN_BASE = '/api/band-rpg/campaign';
+
+export interface CampaignSettings {
+  bandName: string;
+  adventureTitle: string;
+  slug?: string;
+  theme?: string;
+  difficulty?: string;
+  estimatedPlaytime?: number;
+  numLevels?: number;
+  numQuests?: number;
+  tone?: string;
+  includeCompletionScreen?: boolean;
+  includePuzzles?: boolean;
+  includeDoorsKeys?: boolean;
+  songRecovery?: boolean;
+  extraInstructions?: string;
+}
+
+export interface BlueprintResult { blueprint: string; model: string; }
+export interface GenerateResult { json: unknown; raw: string; model: string; }
+export interface RepairResult { json: unknown; raw: string; model: string; attempt: number; }
+
+export const campaignGeneratorApi = {
+  blueprint: (settings: CampaignSettings) =>
+    httpApi.post<BlueprintResult>(`${CAMPAIGN_BASE}/blueprint`, settings),
+
+  generate: (blueprint: string, settings: Pick<CampaignSettings, 'bandName' | 'adventureTitle' | 'slug' | 'numLevels' | 'numQuests' | 'includeCompletionScreen' | 'includePuzzles' | 'includeDoorsKeys'>) =>
+    httpApi.post<GenerateResult>(`${CAMPAIGN_BASE}/generate`, { blueprint, ...settings }),
+
+  repair: (json: unknown, errors: Array<{ path?: string; message: string }>, attempt: number) =>
+    httpApi.post<RepairResult>(`${CAMPAIGN_BASE}/repair`, { json, errors, attempt }),
+};

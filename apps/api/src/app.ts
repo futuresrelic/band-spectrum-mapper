@@ -71,6 +71,7 @@ import { timelineEditorRouter } from './routes/timelineEditorRoutes.js';
 import { worldEditorRouter } from './routes/worldEditorRoutes.js';
 import { adventureRouter } from './routes/adventureRoutes.js';
 import { adventureProgressRouter } from './routes/adventureProgressRoutes.js';
+import { campaignGeneratorRouter } from './routes/campaignGeneratorRoutes.js';
 import { readinessRouter } from './routes/readinessRoutes.js';
 import { runtimeRouter } from './routes/runtimeRoutes.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
@@ -262,6 +263,7 @@ export function createApp() {
   app.use('/api/band-rpg/editor/world', worldEditorRouter);   // Phase Z.3 — World Systems
   app.use('/api/band-rpg/adventures', adventureRouter);        // Phase Z.4 — Adventure Import/Export
   app.use('/api/band-rpg/adventure-progress', adventureProgressRouter); // Phase Z.5 — Campaign Builder
+  app.use('/api/band-rpg/campaign', campaignGeneratorRouter);            // Phase Z.6 — AI Campaign Generator
   app.use('/api/band-rpg/readiness', readinessRouter);                  // Phase Z.6 — v1.0 Dashboard
 
   // Runtime Engine — Phase Z.1 (auth required)

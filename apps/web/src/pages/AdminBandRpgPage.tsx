@@ -12,6 +12,7 @@ import TimelineEditor from '../components/bandRpgEditor/TimelineEditor';
 import LeaderboardTab from '../components/bandRpgEditor/LeaderboardTab';
 import WorldEditor from '../components/bandRpgEditor/WorldEditor';
 import AdventureEditor from '../components/bandRpgEditor/AdventureEditor';
+import CampaignGenerator from '../components/bandRpgEditor/CampaignGenerator';
 import PlaytestChecklist from '../components/bandRpgEditor/PlaytestChecklist';
 import ReadinessDashboard from '../components/bandRpgEditor/ReadinessDashboard';
 
@@ -26,6 +27,7 @@ type Tab =
   | 'items'
   | 'world'
   | 'adventures'
+  | 'campaign-ai'
   | 'graphics'
   | 'settings'
   | 'leaderboard'
@@ -45,6 +47,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'items',       label: 'Items',       icon: '🎒'  },
   { id: 'world',       label: 'World',       icon: '🧩'  },
   { id: 'adventures',  label: 'Adventures',  icon: '📦'  },
+  { id: 'campaign-ai', label: 'AI Campaign', icon: '🤖'  },
   { id: 'graphics',    label: 'Graphics',    icon: '🎨'  },
   { id: 'settings',    label: 'Settings',    icon: '⚙️'  },
   { id: 'leaderboard', label: 'Leaderboard', icon: '🏆'  },
@@ -605,6 +608,7 @@ export default function AdminBandRpgPage() {
       {tab === 'items'       && <ItemEditor />}
       {tab === 'world'       && <WorldEditor />}
       {tab === 'adventures'  && <AdventureEditor />}
+      {tab === 'campaign-ai' && <CampaignGenerator />}
       {tab === 'playtest'    && <PlaytestChecklist />}
       {tab === 'graphics'    && (
         <ComingSoonPlaceholder
