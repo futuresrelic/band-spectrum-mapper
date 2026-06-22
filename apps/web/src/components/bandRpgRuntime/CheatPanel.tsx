@@ -24,6 +24,68 @@ export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem,
   const [tpX, setTpX] = useState(String(level.spawnX));
   const [tpY, setTpY] = useState(String(level.spawnY));
   const [stuckReport, setStuckReport] = useState<ProgressionBlocker[] | null>(null);
+  const [copyMsg, setCopyMsg] = useState<string | null>(null);
+
+  function buildSnap(): WorldSnapshot {
+    return {
+      inventory: state.inventory,
+      activeQuestIds: state.activeQuestIds,
+      completedQuests: state.completedQuests,
+      unlockedBeats: state.unlockedBeats,
+      activatedSwitches: state.activatedSwitches,
+      openedDoors: state.openedDoors,
+      worldState: state.worldState,
+    };
+  }
+
+  function runAnalysis(): ProgressionBlocker[] {
+    const snap = buildSnap();
+    const report = analyzeProgression(level.doors, level.exits, snap);
+    setStuckReport(report);
+    return report;
+  }
+
+  function copyReport() {
+    const snap = buildSnap();
+    const blockers = analyzeProgression(level.doors, level.exits, snap);
+    const lines: string[] = [
+      `=== PROGRESSION REPORT ===`,
+      `Level: ${level.name} (${level.slug})`,
+      `Player: (${state.playerX}, ${state.playerY})`,
+      ``,
+      `INVENTORY (itemId slugs):`,
+      ...state.inventory.map(e => `  ${e.itemId} ×${e.quantity}`),
+      ``,
+      `COMPLETED QUESTS:`,
+      ...(state.completedQuests.length ? state.completedQuests.map(q => `  ${q}`) : ['  (none)']),
+      ``,
+      `ACTIVE QUESTS:`,
+      ...(state.activeQuestIds.length ? state.activeQuestIds.map(q => `  ${q}`) : ['  (none)']),
+      ``,
+      `WORLD STATE:`,
+      ...(Object.keys(state.worldState).length
+        ? Object.entries(state.worldState).map(([k, v]) => `  ${k}: ${String(v)}`)
+        : ['  (empty)']),
+      ``,
+      `DOORS:`,
+      ...level.doors.map(door => {
+        const open = snap.openedDoors.includes(door.id) || door.openedByDefault;
+        const cond = door.lockCondition;
+        const condStr = cond ? `${cond.type}=${cond.targetId ?? cond.targetSlug ?? '?'}` : 'none';
+        return `  ${open ? '🔓 OPEN' : '🔒 LOCKED'} ${door.name} [${door.type}] — cond: ${condStr}`;
+      }),
+      ``,
+      `BLOCKERS:`,
+      ...(blockers.length
+        ? blockers.map(b => `  ${b.category === 'door' ? '🔒' : '🚪'} ${b.entityName}\n     → ${b.reason}`)
+        : ['  ✓ None — all doors/exits passable']),
+    ];
+    const text = lines.join('\n');
+    navigator.clipboard.writeText(text).then(
+      () => { setCopyMsg('Copied!'); setTimeout(() => setCopyMsg(null), 2000); },
+      () => { setCopyMsg('Copy failed'); setTimeout(() => setCopyMsg(null), 2000); },
+    );
+  }
 
   return (
     <div
@@ -195,27 +257,16 @@ export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem,
 
       {/* Stuck? */}
       <Section label="🔍 Stuck? Progression Check">
-        <button
-          onClick={() => {
-            const snap: WorldSnapshot = {
-              inventory: state.inventory,
-              activeQuestIds: state.activeQuestIds,
-              completedQuests: state.completedQuests,
-              unlockedBeats: state.unlockedBeats,
-              activatedSwitches: state.activatedSwitches,
-              openedDoors: state.openedDoors,
-              worldState: state.worldState,
-            };
-            setStuckReport(analyzeProgression(level.doors, level.exits, snap));
-          }}
-          style={{ ...btnStyle, width: '100%' }}
-        >
-          Analyze Progression
-        </button>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+          <button onClick={runAnalysis} style={{ ...btnStyle, flex: 1 }}>Analyze</button>
+          <button onClick={copyReport} style={{ ...btnStyle, flex: 1 }}>
+            {copyMsg ?? 'Copy Report'}
+          </button>
+        </div>
         {stuckReport !== null && (
-          <div style={{ marginTop: 6 }}>
+          <div style={{ marginTop: 4 }}>
             {stuckReport.length === 0 ? (
-              <div style={{ color: '#34d399', fontSize: 10 }}>✓ No blockers found — all doors and exits passable</div>
+              <div style={{ color: '#34d399', fontSize: 10 }}>✓ No blockers — all doors/exits passable</div>
             ) : (
               stuckReport.map((b, i) => (
                 <div key={i} style={{ marginTop: 4, fontSize: 10, borderLeft: '2px solid #ef4444', paddingLeft: 6 }}>

@@ -162,6 +162,7 @@ export default function BandRpgGamePage() {
     state, getWorldSnapshot,
     handleMove, handleInteract,
     handleNextLine, handleChoose, handleCloseDlg, handleCloseCheat,
+    handleToggleDebug, handleToggleCheatPanel,
     cheatCompleteQuest, cheatGrantItem, cheatUnlockLevel, cheatTeleport,
     cheatOpenDoor, cheatActivateSwitch,
   } = useGameEngine(
@@ -323,6 +324,52 @@ export default function BandRpgGamePage() {
 
           {/* Overlay — covers the full game area; dialogue + controls live here */}
           <div style={{ position: 'absolute', inset: 0, zIndex: 50, pointerEvents: 'none' }}>
+
+            {/* Mobile admin shortcuts — F3/F4 not available on touch devices */}
+            {isMobile && isAdmin && (
+              <div style={{
+                pointerEvents: 'auto',
+                position: 'absolute',
+                top: `calc(env(safe-area-inset-top, 0px) + 8px)`,
+                left: `calc(env(safe-area-inset-left, 0px) + 8px)`,
+                display: 'flex',
+                gap: 6,
+                zIndex: 60,
+              }}>
+                <button
+                  onClick={handleToggleDebug}
+                  style={{
+                    backgroundColor: state.showDebug ? 'rgba(34,197,94,0.35)' : 'rgba(0,0,0,0.65)',
+                    border: `1px solid ${state.showDebug ? 'rgba(34,197,94,0.7)' : 'rgba(34,197,94,0.3)'}`,
+                    borderRadius: 8,
+                    padding: isCompact ? '3px 8px' : '4px 10px',
+                    color: '#22c55e',
+                    fontSize: isCompact ? 11 : 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                  aria-label="Toggle Debug (F3)"
+                >
+                  🐞
+                </button>
+                <button
+                  onClick={handleToggleCheatPanel}
+                  style={{
+                    backgroundColor: state.showCheatPanel ? 'rgba(34,197,94,0.35)' : 'rgba(0,0,0,0.65)',
+                    border: `1px solid ${state.showCheatPanel ? 'rgba(34,197,94,0.7)' : 'rgba(34,197,94,0.3)'}`,
+                    borderRadius: 8,
+                    padding: isCompact ? '3px 8px' : '4px 10px',
+                    color: '#22c55e',
+                    fontSize: isCompact ? 11 : 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                  aria-label="Toggle Tools (F4)"
+                >
+                  🛠
+                </button>
+              </div>
+            )}
 
             {/* Dialogue box — above controls on mobile, at bottom on desktop */}
             {state.dialogueMode !== 'none' && (

@@ -597,6 +597,8 @@ export interface GameEngineControls {
   handleChoose: (action: import('../../api/bandRpgRuntime').DialogueChoiceAction) => void;
   handleCloseDlg: () => void;
   handleCloseCheat: () => void;
+  handleToggleDebug: () => void;
+  handleToggleCheatPanel: () => void;
   cheatCompleteQuest: (questId: string) => void;
   cheatGrantItem: (itemId: string, itemName: string) => void;
   cheatUnlockLevel: (levelSlug: string) => void;
@@ -846,10 +848,14 @@ export function useGameEngine(
     }
   }, [level]);
 
+  const handleToggleDebug = useCallback(() => dispatch({ type: 'TOGGLE_DEBUG' }), []);
+  const handleToggleCheatPanel = useCallback(() => dispatch({ type: 'TOGGLE_CHEAT_PANEL' }), []);
+
   return {
     state, getAdjacentNpc, isLevelLocked, getWorldSnapshot,
     handleMove, handleInteract,
     handleNextLine, handleChoose, handleCloseDlg, handleCloseCheat,
+    handleToggleDebug, handleToggleCheatPanel,
     cheatCompleteQuest, cheatGrantItem, cheatUnlockLevel, cheatTeleport,
     cheatOpenDoor, cheatActivateSwitch,
   };
