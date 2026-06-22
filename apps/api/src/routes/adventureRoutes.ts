@@ -348,6 +348,58 @@ const VALID_ITEM_TYPES = [
 // Documented rarity values — rarity is a plain String field but validated for consistency
 const VALID_RARITIES = ['common', 'rare', 'epic', 'legendary'] as const;
 
+// ── estimatedPlaytime normalization ───────────────────────────────────────────
+// GPT sometimes outputs "2-3 hours" or "45 minutes" instead of a bare integer.
+// Normalize to an integer number of minutes before validation so the repair loop
+// is not wasted on a trivially fixable type mismatch.
+
+export function normalizeEstimatedPlaytime(raw: unknown): number | null | undefined {
+  if (raw === null || raw === undefined) return raw as null | undefined;
+  if (typeof raw === 'number') return Number.isInteger(raw) && raw > 0 ? raw : Math.round(raw);
+  if (typeof raw !== 'string') return undefined; // unparseable — let validation flag it
+
+  const s = raw.trim().toLowerCase();
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+
+  const minsMatch = s.match(/^(\d+)\s*(?:minutes?|mins?)$/);
+  if (minsMatch) return parseInt(minsMatch[1]!, 10);
+
+  const hoursMatch = s.match(/^(\d+(?:\.\d+)?)\s*(?:hours?|hrs?)$/);
+  if (hoursMatch) return Math.round(parseFloat(hoursMatch[1]!) * 60);
+
+  // "2-3 hours" or "2–3 hours" → average → minutes
+  const rangeHoursMatch = s.match(/^(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*(?:hours?|hrs?)$/);
+  if (rangeHoursMatch) {
+    const avg = (parseFloat(rangeHoursMatch[1]!) + parseFloat(rangeHoursMatch[2]!)) / 2;
+    return Math.round(avg * 60);
+  }
+
+  // "30-45 minutes" or "30–45 min" → average
+  const rangeMinsMatch = s.match(/^(\d+)\s*[-–]\s*(\d+)\s*(?:minutes?|mins?)$/);
+  if (rangeMinsMatch) {
+    const avg = (parseInt(rangeMinsMatch[1]!, 10) + parseInt(rangeMinsMatch[2]!, 10)) / 2;
+    return Math.round(avg);
+  }
+
+  return undefined; // not parseable — validation will produce a clear error
+}
+
+// Normalize the top-level adventure.estimatedPlaytime field of an arbitrary payload.
+// Returns a new object — does not mutate the original.
+function normalizePayload(body: unknown): unknown {
+  if (!body || typeof body !== 'object') return body;
+  const p = body as Record<string, unknown>;
+  const adv = p['adventure'];
+  if (!adv || typeof adv !== 'object') return body;
+  const a = adv as Record<string, unknown>;
+  if (!('estimatedPlaytime' in a)) return body;
+  const normalized = normalizeEstimatedPlaytime(a['estimatedPlaytime']);
+  return {
+    ...p,
+    adventure: { ...a, estimatedPlaytime: normalized },
+  };
+}
+
 function validatePayload(body: unknown): ValidationResult {
   const errors: ValidationError[] = [];
 
@@ -363,6 +415,15 @@ function validatePayload(body: unknown): ValidationResult {
     if (!p.adventure.name) errors.push({ path: 'adventure.name', message: 'Required' });
     if (p.adventure.slug && !/^[a-z0-9-]+$/.test(p.adventure.slug)) {
       errors.push({ path: 'adventure.slug', message: 'Must contain only lowercase letters, numbers, and hyphens' });
+    }
+    const rawEpt = (p.adventure as Record<string, unknown>)['estimatedPlaytime'];
+    if (rawEpt !== undefined && rawEpt !== null) {
+      if (typeof rawEpt !== 'number' || !Number.isInteger(rawEpt) || rawEpt <= 0) {
+        errors.push({
+          path: 'adventure.estimatedPlaytime',
+          message: `estimatedPlaytime must be an integer number of minutes (e.g. 30, 45, 120). Got: ${JSON.stringify(rawEpt)}`,
+        });
+      }
     }
   }
 
@@ -448,7 +509,7 @@ function validatePayload(body: unknown): ValidationResult {
 
 adventureRouter.post('/validate', async (req, res, next): Promise<void> => {
   try {
-    const result = validatePayload(req.body);
+    const result = validatePayload(normalizePayload(req.body));
 
     if (!result.valid) { res.json(result); return; }
     const p = req.body as ImportPayload;
@@ -480,7 +541,8 @@ adventureRouter.post('/validate', async (req, res, next): Promise<void> => {
 
 adventureRouter.post('/import', async (req, res, next): Promise<void> => {
   try {
-    const { payload, mode = 'create' } = req.body as { payload: unknown; mode?: 'create' | 'update' | 'replace' };
+    const { payload: rawPayload, mode = 'create' } = req.body as { payload: unknown; mode?: 'create' | 'update' | 'replace' };
+    const payload = normalizePayload(rawPayload);
 
     // Step 1: structural + enum validation (no DB writes)
     const validation = validatePayload(payload);

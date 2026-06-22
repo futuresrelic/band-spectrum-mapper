@@ -489,6 +489,29 @@ function ImportStep({ jsonText, onBack, onImported }: {
     },
   });
 
+  // Extract a human-readable message from the error — surfaces Prisma / validation details
+  function importErrorMessage(): string {
+    if (!importMut.isError) return '';
+    const err = importMut.error;
+    if (err instanceof Error) {
+      // The api client attaches .body with the full JSON response
+      const body = (err as Error & { body?: unknown }).body;
+      if (body && typeof body === 'object') {
+        const b = body as { error?: string; errors?: Array<{ path?: string; message: string }> };
+        const lines: string[] = [];
+        if (b.error) lines.push(b.error);
+        if (Array.isArray(b.errors) && b.errors.length > 0) {
+          for (const e of b.errors) {
+            lines.push(e.path ? `[${e.path}] ${e.message}` : e.message);
+          }
+        }
+        if (lines.length) return lines.join('\n');
+      }
+      return err.message;
+    }
+    return 'Unknown error';
+  }
+
   let preview: Record<string, number> | null = null;
   try {
     const parsed = JSON.parse(jsonText) as { levels?: unknown[]; quests?: unknown[] };
@@ -535,8 +558,9 @@ function ImportStep({ jsonText, onBack, onImported }: {
           </div>
 
           {importMut.isError && (
-            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-3">
-              Import failed: {importMut.error instanceof Error ? importMut.error.message : 'Unknown error'}
+            <div className="bg-red-50 border border-red-200 rounded p-3 space-y-1">
+              <p className="text-sm font-semibold text-red-700">Import failed</p>
+              <pre className="text-xs text-red-700 whitespace-pre-wrap font-mono">{importErrorMessage()}</pre>
             </div>
           )}
 

@@ -28,6 +28,8 @@ const SCHEMA_REFERENCE = `
   "bandRpgAdventureVersion": 1,
   "exportedAt": "ISO date string",
   "adventure": { "slug", "name", "description", "isPublished", "difficulty", "estimatedPlaytime", "tags" },
+  NOTE: estimatedPlaytime MUST be an INTEGER number of MINUTES. Examples: 30, 45, 60, 90, 120.
+  NEVER use strings like "2-3 hours", "45 minutes", or "1 hour". Output the bare integer only.
   "items": [...],
   "arcs": [...],
   "quests": [...],
@@ -303,7 +305,8 @@ ${blueprint}
 - NPC positionX/positionY must be on walkable tiles (not walls)
 - Include a timeline array listing all levels and required quests in order
 - All slugs must be globally unique — use the band's prefix consistently
-- Use targetSlug (not targetId) for all WorldCondition references to items and quests`;
+- Use targetSlug (not targetId) for all WorldCondition references to items and quests
+- adventure.estimatedPlaytime MUST be a bare integer (minutes). Example: 45. NEVER a string like "2-3 hours"`;
 
     const response = await client.chat.completions.create({
       model: MODEL,
@@ -356,6 +359,9 @@ campaignGeneratorRouter.post('/repair', async (req, res, next): Promise<void> =>
 
     const userPrompt = `The following Band RPG adventure JSON has validation errors. Fix ONLY the errors listed.
 Do not change any other content. Output only the corrected complete JSON — no markdown, no explanation.
+
+## Critical type rules (always enforce, even if not in error list)
+- adventure.estimatedPlaytime MUST be a bare integer (minutes). E.g. 45. NEVER "2-3 hours" or "45 minutes".
 
 ## Validation Errors (fix these)
 ${errorList}
