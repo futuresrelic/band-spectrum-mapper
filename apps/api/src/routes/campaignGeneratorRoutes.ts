@@ -118,8 +118,39 @@ One entry per level and per required quest. type="level" references a level slug
 - Level slugs are URL-navigable — must be unique across all adventures
 
 ## Cross-reference IDs
-Door IDs, switch IDs, NPC IDs, item IDs within levels: use short descriptive IDs, not CUIDs.
-Entity refIds in mapData must match the id field of the door/switch/npc/item in the level.
+Entity refId in mapData MUST match the "name" field of the door/switch/NPC, or the "slug" of the item.
+- Door entity refId = door's "name" field exactly.    E.g. door named "Vault Gate" → refId: "Vault Gate"
+- Switch entity refId = switch's "name" field exactly. E.g. switch named "Power Lever" → refId: "Power Lever"
+- NPC entity refId = NPC's "name" field exactly.       E.g. NPC named "Archivist Mira" → refId: "Archivist Mira"
+- Item entity refId = item's "slug" field.             E.g. item slug "apc-echo-key" → refId: "apc-echo-key"
+NEVER invent a separate ID string for refId — use the name or slug of the thing it references.
+
+## EXIT GATING — MANDATORY (gameplay validator enforces this)
+Every non-final level (every level except the one with targetLevelSlug:"__adventure_complete__") MUST
+require player action before the exit is reachable. An "ungated" level (spawn → walk to exit) WILL FAIL.
+
+REQUIRED gating mechanisms — use at least ONE per non-final level:
+  (A) KEY HUNT (most common):
+      1. Add an item entity: {id:"item-e1",type:"item",x:4,y:8,refId:"<item-slug>"}
+      2. Add a key_door blocking path to exit:
+         { name:"Vault Gate", tileX:8, tileY:1, type:"key_door", openedByDefault:false,
+           lockCondition:{type:"item_owned",targetSlug:"<item-slug>"} }
+      3. Add door entity at same tile: {id:"door-e1",type:"door",x:8,y:1,refId:"Vault Gate"}
+      Result: player must find item → door unlocks → exit accessible.
+  (B) SWITCH PUZZLE:
+      1. Add a switch: { name:"Power Lever", tileX:3, tileY:5, type:"lever", effect:{type:"open_door",targetName:"Circuit Door"} }
+      2. Add a switch_door blocking exit: { name:"Circuit Door", tileX:9,tileY:1,type:"switch_door",openedByDefault:false,lockCondition:{} }
+      3. Add entities: switch entity with refId:"Power Lever", door entity with refId:"Circuit Door"
+      Result: player must activate switch → door opens → exit accessible.
+  (C) QUEST GATE:
+      1. Create quest with objective (talk_to_npc, find_item, etc.)
+      2. Add quest_door: { name:"Archive Door", type:"quest_door", openedByDefault:false,
+           lockCondition:{type:"quest_complete",targetSlug:"<quest-slug>"} }
+      Result: player must complete quest → door unlocks → exit accessible.
+
+FORBIDDEN pattern (will fail gameplay validation):
+  Spawn tile → open floor → exit entity (player walks through without doing anything)
+  Levels where the ONLY content is an NPC and an exit — these score 0/20 on Progression.
 
 ## Adventure Completion (REQUIRED)
 The final level MUST include an exit entity with targetLevelSlug: "__adventure_complete__"
@@ -349,31 +380,49 @@ If you want a chamber, connect it with a corridor (never a fully-walled inner ro
 DO NOT put any entity inside a region of all-0 tiles with no floor path out.
 
 ## GAMEPLAY REQUIREMENTS — MANDATORY (scored 0-100; must reach 60 to import)
-This adventure is graded on five dimensions. You MUST meet minimum thresholds in each:
+CRITICAL: Every non-final level MUST gate the exit. "Spawn → walk to exit" = automatic fail.
 
-EXPLORATION (target ≥12/20): Each level needs interior walls and branching corridors.
-- Maps should be 12×12 or larger with inner walls creating rooms and dead-end corridors.
-- Spawn to exit should require walking ≥10 tiles (not a straight shot across an empty room).
-- Include 2+ side rooms with dead ends so the player has things to discover.
+### REQUIRED LEVEL STRUCTURE (use this exact template):
 
-PUZZLES (target ≥12/20): Include items + locked doors in at least one level.
-- At least one level: place item entity (type:"item") + locked door (type:"key_door", openedByDefault:false).
-- lockCondition: {"type":"item_owned","targetSlug":"<item-slug>"} links the item to the door.
-- Add switches (type:"switch", effect:{type:"open_door"}) as extra puzzle mechanics.
+LEVEL 1 — Exploration & First Puzzle:
+  - 12×12+ map with interior walls creating corridors and side rooms
+  - Place key item in a dead-end side room: {type:"item",refId:"<item-slug>"}
+  - Gate exit with key_door: {name:"Chamber Gate",type:"key_door",openedByDefault:false,
+      lockCondition:{type:"item_owned",targetSlug:"<item-slug>"}}
+  - NPC who gives a quest to find the item (giverNpcLevelSlug = this level's slug)
+  - Spawn-to-exit path MUST be ≥10 tiles
 
-ITEMS (target ≥10/20): Place 3+ collectible items across the adventure.
-- Add 3+ items to the top-level items[] array (type:"collectible" or "key_item").
-- Place each as a map entity in the appropriate level: {id:"item-1",type:"item",x:4,y:4,refId:"<item-slug>"}.
+LEVEL 2 — Puzzle Escalation:
+  - 13×13+ map, more complex corridors than Level 1
+  - Switch-door combo OR second key hunt with a different item
+  - Quest requiring find_item or activate_switch (NOT just talk_to_npc)
+  - Locked exit requires item from this level OR quest completion
 
-VARIETY (target ≥10/20): Different level types — NOT all "talk to NPC → walk to exit".
-- Level 1: Exploration level — complex map, items to discover, corridors to navigate.
-- Level 2: Puzzle level — locked door requiring a key item found elsewhere in the level.
-- Level 3+: Story/climax — NPC confrontation, narrative payoff, adventure completion exit.
+LEVEL 3+ — Story Climax:
+  - Final confrontation or discovery scene with NPCs
+  - Optional: one more puzzle or switch before the final door
+  - MUST end with exit entity: {targetLevelSlug:"__adventure_complete__"}
 
-PROGRESSION (target ≥8/20): Escalating challenge across levels.
-- Later levels should have more locked doors and longer paths than earlier levels.
-- Include 2+ quests with objectives beyond talk_to_npc (e.g. find_item, activate_switch).
-- Final level MUST have the __adventure_complete__ exit.`;
+### FORBIDDEN (gameplay validator WILL reject these):
+  ✗ Level where player can walk from spawn to exit without any action
+  ✗ Level with only NPCs and no locked door/switch/puzzle
+  ✗ Empty room with an exit (open floor plan, no gating mechanism)
+  ✗ Objective type values outside: talk_to_npc, find_item, collect_objects,
+    reach_location, complete_quest, activate_switch, open_door
+  ✗ Beat type values outside: narration, npc_dialogue, cutscene
+  ✗ Door type values outside: free, key_door, quest_door, story_door, switch_door
+  ✗ Switch type values outside: switch, lever, button, pressure_plate
+
+### ITEMS — place 3+ items across the adventure:
+  - Add items to top-level items[]: {slug:"<prefix>-key-name",name:"...",type:"key_item",rarity:"rare"}
+  - Place each in level mapData.entities: {id:"item-e1",type:"item",x:4,y:8,refId:"<item-slug>"}
+  - refId MUST equal the item slug exactly
+
+### ENTITY REFS — must match name/slug exactly:
+  - Door entity refId = door's "name" field (e.g. refId:"Chamber Gate")
+  - Switch entity refId = switch's "name" field (e.g. refId:"Power Lever")
+  - NPC entity refId = NPC's "name" field (e.g. refId:"Archivist Mira")
+  - Item entity refId = item slug (e.g. refId:"apc-crystal-key")`;
 
     const response = await client.chat.completions.create({
       model: MODEL,
@@ -449,21 +498,40 @@ To fix reachability errors:
 - Check each level's mapData.entities for type="exit" and ensure targetLevelSlug is set correctly.
 
 ## Gameplay quality rules (for gameplay.* errors — scored 0-100, need 60 to import)
-gameplay.variety: All levels are boring "NPC → exit". Add puzzle levels:
-  - Key Hunt: add item to items[], place {type:"item"} entity in map, add key_door with lockCondition:{type:"item_owned",targetSlug:"<slug>"}.
-  - Switch Puzzle: add switch to switches[], place {type:"switch"} entity, set effect:{type:"open_door",targetName:"<door-name>"}.
-gameplay.puzzles: Add items[] and locked doors. Min: 1 key_door (openedByDefault:false) + 1 item entity that unlocks it.
-gameplay.items: Add 3+ items to items[] array and place {type:"item",x,y,refId:"<slug>"} entities in mapData.entities.
-gameplay.exploration: Expand maps to 12×12+. Add interior walls for corridors. Ensure spawn-to-exit path is ≥10 tiles.
-  Example 12×12 map with corridors and a side room:
+
+gameplay.gating (CRITICAL — fix first): Levels have ungated exits. Player walks through without doing anything.
+  FIX: For EACH non-final level, add a locked door that blocks the path to the exit:
+    Step 1 — Add item to items[]: {slug:"<prefix>-key",name:"...",type:"key_item",rarity:"rare"}
+    Step 2 — Place item entity in level: {id:"item-e1",type:"item",x:4,y:4,refId:"<item-slug>"}
+    Step 3 — Add key_door to level.doors[]: {name:"Gate",tileX:8,tileY:1,type:"key_door",openedByDefault:false,lockCondition:{type:"item_owned",targetSlug:"<item-slug>"}}
+    Step 4 — Add door entity: {id:"door-e1",type:"door",x:8,y:1,refId:"Gate"}
+    Step 5 — Place item in a side room so the player must explore to find it.
+  OR use switch-door: add switch to switches[] + switch_door to doors[] + switch entity in map.
+
+gameplay.variety: All levels are boring "NPC → exit". Same fix as gameplay.gating.
+gameplay.puzzles: Add items[] and locked doors. Min: 1 key_door (openedByDefault:false) + 1 item entity.
+gameplay.items: Add 3+ items to items[] array and place {type:"item",x,y,refId:"<slug>"} entities.
+gameplay.exploration: Expand maps to 12×12+. Add interior walls for corridors. Spawn-to-exit ≥10 tiles.
+  Example 12×12 map with corridor and dead-end side rooms:
     [0,0,0,0,0,0,0,0,0,0,0,0]
     [0,1,1,1,1,1,0,1,1,1,1,0]
     [0,1,0,0,0,1,0,1,0,0,1,0]
     [0,1,0,1,1,1,1,1,0,1,1,0]
     [0,1,0,1,0,0,0,0,0,1,0,0]
     [0,1,1,1,0,1,1,1,1,1,0,0]
-    [0,0,0,0,0,1,0,0,0,0,0,0]
-    ... exit on row 6 col 5 (border tile, adjacent floor at 5,5)
+    [0,0,0,0,0,1,0,0,0,0,0,0]  ← exit at (5,6) border
+
+## CRITICAL: entity refId rules (for refId mismatch errors)
+  - door entity refId MUST equal the door's "name" field exactly (NOT an "id" you invented)
+  - switch entity refId MUST equal the switch's "name" field exactly
+  - NPC entity refId MUST equal the NPC's "name" field exactly
+  - item entity refId MUST equal the item slug from items[]
+
+## Enum values — ONLY use these (any other value causes a 500 on import):
+  objective.type: talk_to_npc, find_item, collect_objects, reach_location, complete_quest, activate_switch, open_door
+  beat.type: narration, npc_dialogue, cutscene
+  door.type: free, key_door, quest_door, story_door, switch_door
+  switch.type: switch, lever, button, pressure_plate
 
 ## Validation Errors (fix these)
 ${errorList}

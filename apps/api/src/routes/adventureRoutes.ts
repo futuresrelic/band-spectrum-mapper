@@ -351,6 +351,12 @@ const VALID_ITEM_TYPES = [
 // Documented rarity values — rarity is a plain String field but validated for consistency
 const VALID_RARITIES = ['common', 'rare', 'epic', 'legendary'] as const;
 
+// Nested Prisma enum types — these WILL cause a 500 on import if invalid
+const VALID_BEAT_TYPES      = ['narration', 'npc_dialogue', 'cutscene'] as const;
+const VALID_OBJECTIVE_TYPES = ['talk_to_npc', 'find_item', 'collect_objects', 'reach_location', 'complete_quest', 'activate_switch', 'open_door'] as const;
+const VALID_DOOR_TYPES      = ['free', 'key_door', 'quest_door', 'story_door', 'switch_door'] as const;
+const VALID_SWITCH_TYPES    = ['switch', 'lever', 'button', 'pressure_plate'] as const;
+
 // ── estimatedPlaytime normalization ───────────────────────────────────────────
 // GPT sometimes outputs "2-3 hours" or "45 minutes" instead of a bare integer.
 // Normalize to an integer number of minutes before validation so the repair loop
@@ -466,28 +472,140 @@ function validatePayload(body: unknown): ValidationResult {
     }
   }
 
-  // Validate level required fields
+  // Validate level required fields, enum values, and entity refIds
   for (const [i, level] of (p.levels ?? []).entries()) {
     if (!level.slug) errors.push({ path: `levels[${i}].slug`, message: 'Required' });
     if (!level.name) errors.push({ path: `levels[${i}].name`, message: 'Required' });
+
     for (const [j, obj] of (level.objectives ?? []).entries()) {
       if (!obj.name) errors.push({ path: `levels[${i}].objectives[${j}].name`, message: 'Required' });
-      if (!obj.type) errors.push({ path: `levels[${i}].objectives[${j}].type`, message: 'Required' });
+      if (!obj.type) {
+        errors.push({ path: `levels[${i}].objectives[${j}].type`, message: 'Required' });
+      } else if (!(VALID_OBJECTIVE_TYPES as readonly string[]).includes(obj.type)) {
+        errors.push({
+          path: `levels[${i}].objectives[${j}].type`,
+          message: `Invalid objective type "${obj.type}". Expected one of: ${VALID_OBJECTIVE_TYPES.join(', ')}`,
+        });
+      }
     }
+
     for (const [j, beat] of (level.beats ?? []).entries()) {
-      if (!beat.type) errors.push({ path: `levels[${i}].beats[${j}].type`, message: 'Required' });
+      if (!beat.type) {
+        errors.push({ path: `levels[${i}].beats[${j}].type`, message: 'Required' });
+      } else if (!(VALID_BEAT_TYPES as readonly string[]).includes(beat.type)) {
+        errors.push({
+          path: `levels[${i}].beats[${j}].type`,
+          message: `Invalid beat type "${beat.type}". Expected one of: ${VALID_BEAT_TYPES.join(', ')}`,
+        });
+      }
       if (beat.arcSlug && !arcSlugs.includes(beat.arcSlug)) {
         errors.push({ path: `levels[${i}].beats[${j}].arcSlug`, message: `Arc slug "${beat.arcSlug}" not found in package` });
       }
     }
+
+    for (const [j, door] of (level.doors ?? []).entries()) {
+      if (door.type && !(VALID_DOOR_TYPES as readonly string[]).includes(door.type)) {
+        errors.push({
+          path: `levels[${i}].doors[${j}].type`,
+          message: `Invalid door type "${door.type}" in level "${level.slug ?? i}". Expected one of: ${VALID_DOOR_TYPES.join(', ')}`,
+        });
+      }
+    }
+
+    for (const [j, sw] of (level.switches ?? []).entries()) {
+      if (sw.type && !(VALID_SWITCH_TYPES as readonly string[]).includes(sw.type)) {
+        errors.push({
+          path: `levels[${i}].switches[${j}].type`,
+          message: `Invalid switch type "${sw.type}" in level "${level.slug ?? i}". Expected one of: ${VALID_SWITCH_TYPES.join(', ')}`,
+        });
+      }
+    }
+
+    // Entity refId validation — mapData.entities refIds must match the name of the
+    // referenced door/switch/NPC, or the slug of the referenced item.
+    // (Entity refIds are NOT resolved to DB CUIDs during import; the game engine
+    //  resolves them by name at runtime, so name mismatches cause silent runtime bugs.)
+    const doorNames  = new Set((level.doors    ?? []).map(d => d.name).filter(Boolean));
+    const switchNames = new Set((level.switches ?? []).map(s => s.name).filter(Boolean));
+    const npcNames   = new Set((level.npcs     ?? []).map(n => n.name).filter(Boolean));
+    const md = level.mapData as { entities?: unknown[] } | undefined;
+    for (const [j, ent] of (md?.entities ?? []).entries()) {
+      const e = ent as { type?: string; refId?: string };
+      if (!e.type) continue;
+      if (e.type === 'door' && e.refId && !doorNames.has(e.refId)) {
+        errors.push({
+          path: `levels[${i}].mapData.entities[${j}]`,
+          message: `Door entity refId "${e.refId}" does not match any door name in level "${level.slug ?? i}". ` +
+            `Entity refId must equal the door's "name" field exactly.`,
+        });
+      }
+      if (e.type === 'switch' && e.refId && !switchNames.has(e.refId)) {
+        errors.push({
+          path: `levels[${i}].mapData.entities[${j}]`,
+          message: `Switch entity refId "${e.refId}" does not match any switch name in level "${level.slug ?? i}". ` +
+            `Entity refId must equal the switch's "name" field exactly.`,
+        });
+      }
+      if (e.type === 'npc' && e.refId && !npcNames.has(e.refId)) {
+        errors.push({
+          path: `levels[${i}].mapData.entities[${j}]`,
+          message: `NPC entity refId "${e.refId}" does not match any NPC name in level "${level.slug ?? i}". ` +
+            `Entity refId must equal the NPC's "name" field exactly.`,
+        });
+      }
+      if (e.type === 'item' && e.refId && !itemSlugs.includes(e.refId)) {
+        errors.push({
+          path: `levels[${i}].mapData.entities[${j}]`,
+          message: `Item entity refId "${e.refId}" does not match any item slug in this package. ` +
+            `Item entity refId must be an item slug from the top-level items[] array.`,
+        });
+      }
+    }
   }
 
-  // Validate quest required fields
+  // Validate quest required fields, giverNpcName resolution, and reward refs
   for (const [i, quest] of (p.quests ?? []).entries()) {
     if (!quest.slug) errors.push({ path: `quests[${i}].slug`, message: 'Required' });
     if (!quest.name) errors.push({ path: `quests[${i}].name`, message: 'Required' });
     if (quest.giverNpcLevelSlug && !levelSlugs.includes(quest.giverNpcLevelSlug)) {
       errors.push({ path: `quests[${i}].giverNpcLevelSlug`, message: `Level slug "${quest.giverNpcLevelSlug}" not found in package` });
+    }
+    if (quest.giverNpcName && quest.giverNpcLevelSlug) {
+      const giverLevel = (p.levels ?? []).find(l => l.slug === quest.giverNpcLevelSlug);
+      if (giverLevel && !(giverLevel.npcs ?? []).some(n => n.name === quest.giverNpcName)) {
+        errors.push({
+          path: `quests[${i}].giverNpcName`,
+          message: `NPC "${quest.giverNpcName}" not found in level "${quest.giverNpcLevelSlug}". NPC name must match exactly.`,
+        });
+      }
+    }
+    // Reward item slugs and unlockLevelSlug
+    const reward = quest.reward as { items?: unknown; unlockLevelSlug?: unknown } | undefined;
+    if (reward?.unlockLevelSlug !== undefined && reward.unlockLevelSlug !== null) {
+      if (typeof reward.unlockLevelSlug !== 'string' || !levelSlugs.includes(reward.unlockLevelSlug)) {
+        errors.push({ path: `quests[${i}].reward.unlockLevelSlug`, message: `unlockLevelSlug "${String(reward.unlockLevelSlug)}" not found in package levels` });
+      }
+    }
+    if (Array.isArray(reward?.items)) {
+      for (const [j, slug] of (reward.items as unknown[]).entries()) {
+        if (typeof slug === 'string' && !itemSlugs.includes(slug)) {
+          errors.push({ path: `quests[${i}].reward.items[${j}]`, message: `Reward item slug "${slug}" not found in adventure items[]` });
+        }
+      }
+    }
+  }
+
+  // Validate timeline refSlugs resolve
+  for (const [i, tl] of (p.timeline ?? []).entries()) {
+    if (!tl.title) errors.push({ path: `timeline[${i}].title`, message: 'Required' });
+    if (tl.refSlug &&
+        !levelSlugs.includes(tl.refSlug) &&
+        !questSlugs.includes(tl.refSlug) &&
+        !arcSlugs.includes(tl.refSlug)) {
+      errors.push({
+        path: `timeline[${i}].refSlug`,
+        message: `refSlug "${tl.refSlug}" not found in levels, quests, or arcs`,
+      });
     }
   }
 
@@ -591,7 +709,11 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
 
     // Steps 3–11: all DB writes in a single atomic transaction.
     // If anything throws, the entire import is rolled back — no partial data left behind.
-    const adventureId = await prisma.$transaction(async (tx) => {
+    // The inner try-catch extracts the raw Prisma error message so the frontend can
+    // display it (enum mismatches, constraint violations, etc.) rather than a generic 500.
+    let adventureId!: string;
+    try {
+    adventureId = await prisma.$transaction(async (tx) => {
 
       // Step 3a: Clean up orphaned content (adventureId = null) matching incoming slugs.
       // Handles remnants from failed imports that predate atomic transaction support.
@@ -1011,6 +1133,14 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
 
       return advId;
     }, { timeout: 30_000 }); // 30s for large adventures
+    } catch (txErr) {
+      // Extract the first meaningful lines of the Prisma/DB error for the frontend.
+      const raw = txErr instanceof Error ? txErr.message : String(txErr);
+      const lines = raw.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      const details = lines.slice(0, 4).join(' | ');
+      res.status(500).json({ ok: false, error: 'Database import failed', details });
+      return;
+    }
 
     // Fetch the saved adventure + first level slug for the response
     const saved = await prisma.bandRpgAdventure.findUnique({

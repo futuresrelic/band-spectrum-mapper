@@ -612,10 +612,14 @@ function ValidationStep({ result, onRepair, onRepairReachability, onProceed, onB
   const MAX_REPAIRS = 6;
   const [copiedReach, setCopiedReach] = useState(false);
 
+  function isGameplayError(e: { path: string; message: string }): boolean {
+    return e.path.startsWith('gameplay.');
+  }
+
   const reachabilityErrors = result.errors.filter(e => isReachabilityError(e.message));
-  const gameplayErrors     = result.errors.filter(e => e.path.startsWith('gameplay.'));
+  const gameplayErrors     = result.errors.filter(e => isGameplayError(e));
   const structuralErrors   = result.errors.filter(e =>
-    !isReachabilityError(e.message) && !e.path.startsWith('gameplay.')
+    !isReachabilityError(e.message) && !isGameplayError(e)
   );
   const anyLoading = isRepairLoading || isRepairReachabilityLoading;
 
@@ -787,6 +791,7 @@ function ValidationStep({ result, onRepair, onRepairReachability, onProceed, onB
 
 interface ImportErrorDetails {
   message: string;
+  details?: string;   // raw Prisma/DB error summary surfaced from the import route
   status?: number;
   body?: unknown;
   preValidatePassed: boolean;
@@ -856,8 +861,13 @@ function ImportStep({ jsonText, onBack, onImported }: {
         if (b.error) message = b.error;
       }
 
+      const rawDetails = typeof (body as { details?: unknown })?.details === 'string'
+        ? (body as { details: string }).details
+        : undefined;
+
       setImportErrorDetails({
         message,
+        ...(rawDetails !== undefined ? { details: rawDetails } : {}),
         ...(err.status !== undefined ? { status: err.status } : {}),
         ...(body !== undefined ? { body } : {}),
         preValidatePassed: preValidatePassedRef.current,
@@ -1022,6 +1032,12 @@ function ImportStep({ jsonText, onBack, onImported }: {
           <div className="text-xs text-red-800 space-y-1">
             <p className="font-semibold">Error message:</p>
             <p className="whitespace-pre-wrap font-mono bg-red-100/40 rounded p-2">{importErrorDetails.message}</p>
+            {importErrorDetails.details && (
+              <div>
+                <p className="font-semibold mt-1">Database error:</p>
+                <p className="whitespace-pre-wrap font-mono bg-red-100/40 rounded p-2 text-red-700">{importErrorDetails.details}</p>
+              </div>
+            )}
             {(() => {
               if (!importErrorDetails.body || typeof importErrorDetails.body !== 'object') return null;
               const b = importErrorDetails.body as { errors?: Array<{ path?: string; message: string }> };

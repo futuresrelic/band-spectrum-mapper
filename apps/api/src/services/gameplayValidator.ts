@@ -3,13 +3,18 @@
  *
  * Scores five dimensions (0–20 each, total 0–100):
  *   Exploration — interior walls, dead ends, spawn-to-exit distance
- *   Puzzles     — items to collect, switches, locked doors
+ *   Puzzles     — items to collect, switches, locked doors, key-hunt combos
  *   Items       — collectible item entities placed in levels
  *   Variety     — different level types across the campaign
- *   Progression — escalating challenge, quest chains, completion screen
+ *   Progression — escalating challenge, EXIT GATING, quest depth, completion
  *
  * Adventures scoring below 60 have gameplay errors added to the error list,
  * blocking import and directing auto-repair.
+ *
+ * EXIT GATING: A level is "ungated" when the player can walk from spawn to
+ * exit without completing any action (no locked door, no switch-door, no
+ * puzzle in the path). Ungated levels heavily penalise the Progression score
+ * and trigger per-level errors.
  */
 
 const DIRS: ReadonlyArray<readonly [number, number]> = [[-1, 0], [1, 0], [0, -1], [0, 1]];
@@ -36,6 +41,7 @@ interface RawLevel {
   npcs?: unknown;
   switches?: unknown;
   doors?: unknown;
+  puzzles?: unknown;
 }
 interface RawMapData { width?: unknown; height?: unknown; tiles?: unknown; entities?: unknown; }
 interface RawPayload { levels?: unknown; quests?: unknown; }
@@ -68,11 +74,15 @@ interface LevelAnalysis {
   itemEntityCount: number;
   switchCount: number;
   npcCount: number;
+  puzzleCount: number;
   meaningfulDoorCount: number;
   interiorWallCount: number;
   deadEndCount: number;
-  spawnToExitDist: number;  // Infinity if no exit
+  spawnToExitDist: number;   // Infinity if no reachable exit
   hasExitToCompletion: boolean;
+  // Exit gating: true when the level has a reachable exit AND at least one
+  // mechanism that requires player action (locked door, switch, puzzle, item).
+  isGated: boolean;
 }
 
 // BFS minimum distance from (sx, sy) to the nearest exit entity.
@@ -134,7 +144,7 @@ function analyzeLevel(rawLevel: RawLevel): LevelAnalysis {
     ? (rawEntities as unknown[]).map(e => e as RawEntity)
     : [];
 
-  // Locate spawn (prefer entity over level spawnX/spawnY)
+  // Locate spawn
   let spawnX = typeof rawLevel.spawnX === 'number' ? rawLevel.spawnX : 0;
   let spawnY = typeof rawLevel.spawnY === 'number' ? rawLevel.spawnY : 0;
   for (const e of entities) {
@@ -143,22 +153,16 @@ function analyzeLevel(rawLevel: RawLevel): LevelAnalysis {
     }
   }
 
-  // Item entities placed in the map
   const itemEntityCount = entities.filter(e => e.type === 'item').length;
-
-  // NPC count (from level.npcs array)
   const npcCount = Array.isArray(rawLevel.npcs) ? (rawLevel.npcs as unknown[]).length : 0;
-
-  // Switch count (from level.switches array)
   const switchCount = Array.isArray(rawLevel.switches) ? (rawLevel.switches as unknown[]).length : 0;
+  const puzzleCount = Array.isArray(rawLevel.puzzles) ? (rawLevel.puzzles as unknown[]).length : 0;
 
-  // Meaningful doors: not free / not openedByDefault
   const rawDoors: RawDoor[] = Array.isArray(rawLevel.doors)
     ? (rawLevel.doors as unknown[]).map(d => d as RawDoor)
     : [];
   const meaningfulDoorCount = rawDoors.filter(d => d.openedByDefault !== true && d.type !== 'free').length;
 
-  // Interior geometry analysis
   let interiorWallCount = 0;
   let deadEndCount = 0;
 
@@ -187,10 +191,20 @@ function analyzeLevel(rawLevel: RawLevel): LevelAnalysis {
     ? bfsMinDist(tiles, entities, spawnX, spawnY, width, height)
     : Infinity;
 
+  // A level is gated when: exit exists AND at least one blocking mechanism is present.
+  // Blocking mechanisms: locked door (player must obtain key) OR switch (may open a door)
+  // OR puzzle (may gate exit) OR item+door combo (key hunt).
+  // A level with ONLY NPCs and a walkable exit path is ungated — player can skip everything.
+  const hasReachableExit = spawnToExitDist !== Infinity;
+  const isGated = !hasReachableExit ||  // unreachable exits handled by reachability validator
+    meaningfulDoorCount > 0 ||
+    switchCount > 0 ||
+    puzzleCount > 0;
+
   return {
-    slug, name, order, itemEntityCount, switchCount, npcCount,
+    slug, name, order, itemEntityCount, switchCount, npcCount, puzzleCount,
     meaningfulDoorCount, interiorWallCount, deadEndCount,
-    spawnToExitDist, hasExitToCompletion,
+    spawnToExitDist, hasExitToCompletion, isGated,
   };
 }
 
@@ -235,7 +249,8 @@ function scoreItems(levels: LevelAnalysis[]): number {
 function scoreVariety(levels: LevelAnalysis[]): number {
   const hasPuzzleLevel = levels.some(l =>
     (l.itemEntityCount > 0 && l.meaningfulDoorCount > 0) ||
-    (l.switchCount > 0 && l.meaningfulDoorCount > 0)
+    (l.switchCount > 0 && l.meaningfulDoorCount > 0) ||
+    l.puzzleCount > 0
   );
   const hasExplorationLevel = levels.some(l => l.interiorWallCount > 3 && l.deadEndCount >= 1);
   const hasStoryLevel = levels.some(l => l.npcCount > 0);
@@ -250,19 +265,23 @@ function scoreProgression(levels: LevelAnalysis[], questCount: number): number {
   const hasCompletion = levels.some(l => l.hasExitToCompletion);
   const numLevels = levels.length;
 
+  // Exit gating: levels that require action before progression are "gated".
+  // Non-final levels (those without adventure_complete exit) should be gated.
+  const nonFinalWithExit = levels.filter(l => !l.hasExitToCompletion && l.spawnToExitDist !== Infinity);
+  const gatedCount = nonFinalWithExit.filter(l => l.isGated).length;
+  const totalNonFinal = nonFinalWithExit.length;
+  const fullyGated = totalNonFinal === 0 || gatedCount === totalNonFinal;
+  const partiallyGated = gatedCount > 0;
+
   const dists = levels.map(l => l.spawnToExitDist).filter(d => d !== Infinity);
   const distIncreases = dists.length >= 2 && (dists[dists.length - 1] ?? 0) > (dists[0] ?? 0);
 
-  const halfway = Math.floor(numLevels / 2);
-  const laterLevelsHaveDoors = numLevels >= 2 &&
-    levels.slice(halfway).some(l => l.meaningfulDoorCount > 0);
-
   return Math.min(20,
-    (hasCompletion ? 5 : 0) +
-    (questCount >= 2 ? 4 : 0) +
-    (questCount >= numLevels ? 3 : 0) +
-    (distIncreases ? 4 : 0) +
-    (laterLevelsHaveDoors ? 4 : 0)
+    (hasCompletion ? 4 : 0) +
+    (questCount >= 2 ? 3 : 0) +
+    (questCount >= numLevels ? 2 : 0) +
+    (fullyGated ? 7 : partiallyGated ? 3 : 0) +  // exit gating is the biggest factor
+    (distIncreases ? 4 : 0)
   );
 }
 
@@ -273,7 +292,36 @@ function generateErrors(score: GameplayScore, levels: LevelAnalysis[]): Validati
 
   const errors: ValidationError[] = [];
 
-  // Per-level path errors
+  // Exit gating — highest priority error because it's the most obvious gameplay failure
+  const nonFinalWithExit = levels.filter(l => !l.hasExitToCompletion && l.spawnToExitDist !== Infinity);
+  const ungated = nonFinalWithExit.filter(l => !l.isGated);
+  if (ungated.length > 0) {
+    if (ungated.length === nonFinalWithExit.length && ungated.length > 0) {
+      errors.push({
+        path: 'gameplay.gating',
+        message:
+          `ALL ${ungated.length} non-final level${ungated.length !== 1 ? 's' : ''} have ungated exits ` +
+          `— the player can walk from spawn to exit without doing anything. ` +
+          `Each level needs at least ONE gating mechanism before the exit:\n` +
+          `  (A) Key Hunt: item entity in map + key_door (openedByDefault:false, lockCondition:{type:"item_owned",targetSlug:"<slug>"})\n` +
+          `  (B) Switch-Door: switch entity + switch_door that blocks path to exit\n` +
+          `  (C) Quest Gate: quest_door with lockCondition:{type:"quest_complete",targetSlug:"<quest-slug>"}\n` +
+          `  (D) Puzzle: puzzle that reveals exit or opens blocking door`,
+      });
+    } else {
+      for (const lv of ungated) {
+        errors.push({
+          path: `gameplay.gating.${lv.slug}`,
+          message:
+            `Level "${lv.name}" exit is ungated — player skips it by walking straight through. ` +
+            `Add a locked door (key_door), switch-door combo, quest-gated door, or puzzle ` +
+            `that must be completed before reaching the exit.`,
+        });
+      }
+    }
+  }
+
+  // Per-level short-path errors
   for (const lv of levels) {
     if (lv.spawnToExitDist !== Infinity && lv.spawnToExitDist < 8) {
       errors.push({
@@ -286,16 +334,14 @@ function generateErrors(score: GameplayScore, levels: LevelAnalysis[]): Validati
 
   // Variety: all levels are simple talk-to-NPC with no interactables
   const allBoring = levels.every(
-    l => l.itemEntityCount === 0 && l.switchCount === 0 && l.meaningfulDoorCount === 0
+    l => l.itemEntityCount === 0 && l.switchCount === 0 && l.meaningfulDoorCount === 0 && l.puzzleCount === 0
   );
   if (allBoring) {
     errors.push({
       path: 'gameplay.variety',
       message: `All levels are "spawn → NPC → exit" with no puzzles, items, or locked doors. ` +
-        `Add at least one puzzle level and one exploration level. ` +
-        `Puzzle templates: (A) Key Hunt — item entity + key_door locked on item_owned; ` +
-        `(B) Switch Puzzle — switch entity + switch_door; ` +
-        `(C) Multi-Room — item in side room unlocks exit door.`,
+        `Add at least one puzzle level (locked door + key item) and one exploration level (corridor map). ` +
+        `Puzzle templates: (A) Key Hunt, (B) Switch Puzzle, (C) Quest Gate, (D) Multi-Room Retrieval.`,
     });
   }
 
@@ -326,7 +372,7 @@ function generateErrors(score: GameplayScore, levels: LevelAnalysis[]): Validati
     });
   }
 
-  // Always append score summary so GPT knows the breakdown
+  // Score summary — always last, so GPT sees the full picture when repairing
   errors.push({
     path: 'gameplay.score',
     message: `Gameplay quality: ${score.total}/100 (minimum 60 to import). ` +
@@ -347,7 +393,6 @@ export function validateGameplay(payload: unknown): GameplayResult {
     : [];
 
   if (rawLevels.length === 0) {
-    // Structural validator handles missing levels — skip gameplay
     return {
       score: { total: 0, exploration: 0, puzzles: 0, items: 0, variety: 0, progression: 0, details: [] },
       errors: [],
@@ -366,9 +411,10 @@ export function validateGameplay(payload: unknown): GameplayResult {
 
   const details = levels.map(l =>
     `${l.name}: dist=${l.spawnToExitDist === Infinity ? '∞' : l.spawnToExitDist}` +
+    `, gated=${l.isGated ? 'yes' : 'NO'}` +
     `, items=${l.itemEntityCount}, switches=${l.switchCount}` +
-    `, doors=${l.meaningfulDoorCount}, walls=${l.interiorWallCount}` +
-    `, deadEnds=${l.deadEndCount}`
+    `, doors=${l.meaningfulDoorCount}, puzzles=${l.puzzleCount}` +
+    `, walls=${l.interiorWallCount}, deadEnds=${l.deadEndCount}`
   );
 
   const score: GameplayScore = { total, exploration, puzzles, items, variety, progression, details };
