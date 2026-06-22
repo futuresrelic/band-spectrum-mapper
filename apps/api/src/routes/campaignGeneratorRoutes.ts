@@ -1,16 +1,20 @@
 import { Router } from 'express';
 import OpenAI from 'openai';
+import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { HttpError } from '../middleware/errorHandler.js';
 
 export const campaignGeneratorRouter = Router();
+
+// All campaign generator endpoints require an authenticated admin session
+campaignGeneratorRouter.use(requireAuth, requireAdmin);
 
 const MODEL = 'gpt-4o';
 const MAX_REPAIR_ATTEMPTS = 3;
 
 function getClient(): OpenAI {
   const apiKey = process.env['OPENAI_API_KEY'];
-  if (!apiKey) throw new HttpError(503, 'OPENAI_API_KEY is not configured');
+  if (!apiKey) throw new HttpError(503, 'OPENAI_API_KEY missing from Railway environment — set it in Railway → Variables');
   return new OpenAI({ apiKey });
 }
 
@@ -150,9 +154,27 @@ ${SECURITY_GUIDELINES}
 `;
 }
 
+// ── GET /ping — connection test (no GPT call) ─────────────────────────────────
+
+campaignGeneratorRouter.get('/ping', (req, res): void => {
+  const hasKey = !!process.env['OPENAI_API_KEY'];
+  res.json({
+    authenticated: true,
+    userId: req.user!.userId,
+    email: req.user!.email,
+    isAdmin: true,
+    openAiKeyConfigured: hasKey,
+    model: MODEL,
+    status: hasKey ? 'ready' : 'missing_openai_key',
+    message: hasKey
+      ? 'AI Campaign Generator is ready'
+      : 'OPENAI_API_KEY is not set in the Railway environment',
+  });
+});
+
 // ── POST /blueprint ───────────────────────────────────────────────────────────
 
-campaignGeneratorRouter.post('/blueprint', requireAdmin, async (req, res, next): Promise<void> => {
+campaignGeneratorRouter.post('/blueprint', async (req, res, next): Promise<void> => {
   try {
     const {
       bandName, adventureTitle, slug, theme, difficulty, estimatedPlaytime,
@@ -233,7 +255,7 @@ Do NOT include lyrics or quotes from songs.`;
 
 // ── POST /generate ────────────────────────────────────────────────────────────
 
-campaignGeneratorRouter.post('/generate', requireAdmin, async (req, res, next): Promise<void> => {
+campaignGeneratorRouter.post('/generate', async (req, res, next): Promise<void> => {
   try {
     const {
       blueprint, bandName, adventureTitle, slug, numLevels, numQuests,
@@ -312,7 +334,7 @@ ${blueprint}
 
 // ── POST /repair ──────────────────────────────────────────────────────────────
 
-campaignGeneratorRouter.post('/repair', requireAdmin, async (req, res, next): Promise<void> => {
+campaignGeneratorRouter.post('/repair', async (req, res, next): Promise<void> => {
   try {
     const { json, errors, attempt = 1 } = req.body as {
       json: unknown;

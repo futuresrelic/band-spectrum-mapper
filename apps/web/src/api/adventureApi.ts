@@ -200,8 +200,21 @@ export interface CampaignSettings {
 export interface BlueprintResult { blueprint: string; model: string; }
 export interface GenerateResult { json: unknown; raw: string; model: string; }
 export interface RepairResult { json: unknown; raw: string; model: string; attempt: number; }
+export interface CampaignPingResult {
+  authenticated: boolean;
+  userId: string;
+  email: string;
+  isAdmin: boolean;
+  openAiKeyConfigured: boolean;
+  model: string;
+  status: 'ready' | 'missing_openai_key';
+  message: string;
+}
 
 export const campaignGeneratorApi = {
+  ping: () =>
+    httpApi.get<CampaignPingResult>(`${CAMPAIGN_BASE}/ping`),
+
   blueprint: (settings: CampaignSettings) =>
     httpApi.post<BlueprintResult>(`${CAMPAIGN_BASE}/blueprint`, settings),
 

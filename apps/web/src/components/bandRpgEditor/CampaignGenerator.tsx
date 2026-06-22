@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { campaignGeneratorApi, adventureApi } from '../../api/adventureApi';
-import type { CampaignSettings, ValidationResult } from '../../api/adventureApi';
+import type { CampaignSettings, ValidationResult, CampaignPingResult } from '../../api/adventureApi';
+import { useAuth } from '../../contexts/AuthContext';
 
 // ── Draft persistence (localStorage) ─────────────────────────────────────────
 
@@ -60,6 +61,110 @@ function StepBar({ current }: { current: Step }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── Diagnostics panel ─────────────────────────────────────────────────────────
+
+function DiagnosticsPanel() {
+  const { user } = useAuth();
+  const [open, setOpen] = useState(false);
+
+  const { data, isFetching, isError, error, refetch } = useQuery<CampaignPingResult>({
+    queryKey: ['campaign-ping'],
+    queryFn: () => campaignGeneratorApi.ping(),
+    enabled: false,
+    retry: false,
+  });
+
+  const pingError = isError
+    ? (error instanceof Error ? error.message : 'Request failed')
+    : null;
+
+  const httpStatus = isError && error && 'status' in error
+    ? (error as { status: number }).status
+    : null;
+
+  return (
+    <div className="border border-surface-200 rounded-lg overflow-hidden text-sm">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-2.5 bg-surface-50 hover:bg-surface-100 text-surface-600 text-xs font-medium transition-colors"
+      >
+        <span>🔌 AI Connection Diagnostics</span>
+        <span>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div className="p-4 space-y-3 bg-white text-xs">
+          {/* Client-side auth state */}
+          <div>
+            <p className="font-semibold text-surface-700 mb-1.5">Browser auth state</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono">
+              <span className="text-surface-500">User</span>
+              <span className={user ? 'text-emerald-600' : 'text-red-500'}>{user ? user.email : 'not logged in'}</span>
+              <span className="text-surface-500">isAdmin</span>
+              <span className={user?.isAdmin ? 'text-emerald-600' : 'text-red-500'}>{user?.isAdmin ? 'true' : 'false'}</span>
+              <span className="text-surface-500">Token</span>
+              <span className={localStorage.getItem('bsm_token') ? 'text-emerald-600' : 'text-red-500'}>
+                {localStorage.getItem('bsm_token') ? 'present in localStorage' : 'MISSING'}
+              </span>
+            </div>
+          </div>
+
+          <hr className="border-surface-200" />
+
+          {/* Server ping */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="font-semibold text-surface-700">Server ping: POST /api/band-rpg/campaign/ping</p>
+              <button
+                onClick={() => { void refetch(); }}
+                disabled={isFetching}
+                className="px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-medium transition-colors"
+              >
+                {isFetching ? 'Testing…' : '▶ Run Test'}
+              </button>
+            </div>
+
+            {pingError && (
+              <div className="bg-red-50 border border-red-200 rounded p-2 text-red-700 space-y-0.5">
+                <div><strong>Error:</strong> {pingError}</div>
+                {httpStatus && <div><strong>HTTP status:</strong> {httpStatus}{httpStatus === 401 ? ' — not authenticated (token missing or expired)' : httpStatus === 403 ? ' — authenticated but not admin' : ''}</div>}
+              </div>
+            )}
+
+            {data && !pingError && (
+              <div className="bg-surface-50 border border-surface-200 rounded p-2 font-mono space-y-0.5">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  <span className="text-surface-500">Authenticated</span>
+                  <span className="text-emerald-600">true</span>
+                  <span className="text-surface-500">User ID</span>
+                  <span className="text-surface-700">{data.userId}</span>
+                  <span className="text-surface-500">Email</span>
+                  <span className="text-surface-700">{data.email}</span>
+                  <span className="text-surface-500">isAdmin</span>
+                  <span className={data.isAdmin ? 'text-emerald-600' : 'text-red-500'}>{String(data.isAdmin)}</span>
+                  <span className="text-surface-500">OPENAI_API_KEY</span>
+                  <span className={data.openAiKeyConfigured ? 'text-emerald-600' : 'text-red-500'}>
+                    {data.openAiKeyConfigured ? 'configured ✓' : 'MISSING — set in Railway → Variables'}
+                  </span>
+                  <span className="text-surface-500">Model</span>
+                  <span className="text-surface-700">{data.model}</span>
+                  <span className="text-surface-500">Status</span>
+                  <span className={data.status === 'ready' ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold'}>{data.status}</span>
+                </div>
+                <p className="text-surface-500 mt-1 pt-1 border-t border-surface-200">{data.message}</p>
+              </div>
+            )}
+
+            {!data && !pingError && !isFetching && (
+              <p className="text-surface-400">Press "Run Test" to check authentication and OpenAI key status.</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -557,6 +662,8 @@ export default function CampaignGenerator() {
           </button>
         )}
       </div>
+
+      <DiagnosticsPanel />
 
       <StepBar current={step} />
 
