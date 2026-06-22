@@ -85,26 +85,34 @@ runtimeRouter.get('/level/:slug', requireAuth, async (req, res, next): Promise<v
     }
 
     // ── Resolve item entity placements ───────────────────────────────────────
+    // refId in mapData may be either the DB CUID id or the item slug — try both.
     const itemRefIds = entities
       .filter(e => e.type === 'item' && e.refId)
       .map(e => e.refId as string);
 
     const itemsDb = itemRefIds.length > 0
-      ? await prisma.bandRpgItem.findMany({ where: { id: { in: itemRefIds } } })
+      ? await prisma.bandRpgItem.findMany({
+          where: { OR: [{ id: { in: itemRefIds } }, { slug: { in: itemRefIds } }] },
+        })
       : [];
-    const itemById = new Map(itemsDb.map(i => [i.id, i]));
+    const itemById   = new Map(itemsDb.map(i => [i.id,   i]));
+    const itemBySlug = new Map(itemsDb.map(i => [i.slug, i]));
 
     const runtimeItems: object[] = [];
     for (const e of entities) {
       if (e.type !== 'item' || !e.refId) continue;
-      const item = itemById.get(e.refId);
+      // Prefer id match; fall back to slug match (for JSON-authored adventures)
+      const item = itemById.get(e.refId) ?? itemBySlug.get(e.refId);
       if (!item) continue;
       runtimeItems.push({
-        id: item.id, entityId: e.id,
+        // Use item.slug as the canonical runtime id so inventory entries, objective
+        // targets, and door lockCondition.targetId all reference the same value.
+        id: item.slug,
+        entityId: e.id,
         name: item.name, description: item.description,
         rarity: item.rarity, scoreValue: item.scoreValue,
         iconUrl: item.iconUrl, tileX: e.x, tileY: e.y,
-        spawnCondition: e.condition ?? null,  // Phase Z.3 — from map entity
+        spawnCondition: e.condition ?? null,
       });
     }
 
@@ -280,6 +288,17 @@ runtimeRouter.post('/save', requireAuth, async (req, res, next): Promise<void> =
       create: createData,
     });
 
+    res.json({ ok: true });
+    return;
+  } catch (err) { next(err); return; }
+});
+
+// ── POST /save/reset — wipe player progress (admin testing only) ──────────────
+
+runtimeRouter.post('/save/reset', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    await prisma.bandRpgPlayerProgress.deleteMany({ where: { userId } });
     res.json({ ok: true });
     return;
   } catch (err) { next(err); return; }

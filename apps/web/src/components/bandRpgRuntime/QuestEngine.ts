@@ -82,10 +82,22 @@ export function getObjectiveProgressDelta(
   switch (objective.type) {
     case 'talk_to_npc':
       return event.type === 'talk_to_npc' && event.npcId === target ? 1 : 0;
+
+    // find_item / collect_item / CollectItem — JSON type aliases for the same behaviour.
+    // Requires a non-empty target; an objective without a specific target slug NEVER
+    // auto-completes (prevents corrupted state when target is missing from the DB record).
     case 'find_item':
+    case 'collect_item':
+    case 'CollectItem':
+      if (event.type !== 'collect_item') return 0;
+      if (!target) return 0; // guard: never match without a specific target
+      return event.itemId === target ? 1 : 0;
+
+    // collect_objects is intentionally looser — any item satisfies it when target is empty
     case 'collect_objects':
       if (event.type !== 'collect_item') return 0;
       return (target === '' || event.itemId === target) ? 1 : 0;
+
     case 'reach_location': {
       if (event.type !== 'reach_location') return 0;
       const parts = target.split(',');

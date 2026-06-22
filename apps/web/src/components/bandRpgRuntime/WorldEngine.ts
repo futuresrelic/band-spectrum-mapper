@@ -17,26 +17,32 @@ export interface WorldSnapshot {
 
 // ── Condition evaluation ───────────────────────────────────────────────────────
 
+// Adventure JSON may use either `targetId` or `targetSlug` — normalise here.
+function resolveTarget(condition: WorldCondition): string | undefined {
+  return condition.targetId ?? condition.targetSlug;
+}
+
 export function evaluateCondition(
   condition: WorldCondition | null | undefined,
   snap: WorldSnapshot,
 ): boolean {
   if (!condition) return true;
+  const target = resolveTarget(condition);
   switch (condition.type) {
     case 'always': return true;
     case 'never': return false;
     case 'item_owned':
-      return snap.inventory.some(e => e.itemId === condition.targetId);
+      return !!target && snap.inventory.some(e => e.itemId === target);
     case 'quest_active':
-      return snap.activeQuestIds.includes(condition.targetId ?? '');
+      return snap.activeQuestIds.includes(target ?? '');
     case 'quest_complete':
-      return snap.completedQuests.includes(condition.targetId ?? '');
+      return snap.completedQuests.includes(target ?? '');
     case 'story_beat_seen':
-      return snap.unlockedBeats.includes(condition.targetId ?? '');
+      return snap.unlockedBeats.includes(target ?? '');
     case 'switch_activated':
-      return snap.activatedSwitches.includes(condition.targetId ?? '');
+      return snap.activatedSwitches.includes(target ?? '');
     case 'door_open':
-      return snap.openedDoors.includes(condition.targetId ?? '');
+      return snap.openedDoors.includes(target ?? '');
     case 'world_state': {
       const k = condition.key ?? '';
       return snap.worldState[k] === condition.value;

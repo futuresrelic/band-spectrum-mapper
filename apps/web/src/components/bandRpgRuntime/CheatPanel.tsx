@@ -11,10 +11,11 @@ interface Props {
   onTeleport: (x: number, y: number) => void;
   onOpenDoor: (doorId: string) => void;
   onActivateSwitch: (switchId: string) => void;
+  onResetSave: () => void;
   onClose: () => void;
 }
 
-export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem, onUnlockLevel, onTeleport, onOpenDoor, onActivateSwitch, onClose }: Props) {
+export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem, onUnlockLevel, onTeleport, onOpenDoor, onActivateSwitch, onResetSave, onClose }: Props) {
   const [itemId, setItemId] = useState('');
   const [itemName, setItemName] = useState('');
   const [levelSlug, setLevelSlug] = useState('');
@@ -102,7 +103,7 @@ export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem,
                 onClick={() => onGrantItem(item.id, item.name)}
                 style={{ ...btnStyle, marginBottom: 2, width: '100%', textAlign: 'left' }}
               >
-                {item.name}
+                {item.name} <span style={{ color: '#4b5563' }}>[{item.id}]</span>
               </button>
             ))}
           </div>
@@ -188,6 +189,23 @@ export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem,
           })}
         </Section>
       )}
+
+      {/* Danger Zone */}
+      <Section label="⚠ Danger Zone">
+        <button
+          onClick={() => {
+            if (window.confirm('Reset ALL game progress for this save? This cannot be undone.')) {
+              onResetSave();
+            }
+          }}
+          style={{ ...btnStyle, width: '100%', borderColor: 'rgba(239,68,68,0.4)', color: '#fca5a5', backgroundColor: 'rgba(239,68,68,0.1)' }}
+        >
+          Reset Save Progress
+        </button>
+        <div style={{ color: '#374151', fontSize: 10, marginTop: 4 }}>
+          Wipes all quests, inventory, objectives, doors and switches. Use to clear corrupted test state.
+        </div>
+      </Section>
 
       {/* State summary */}
       <Section label="State">

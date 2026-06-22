@@ -106,6 +106,11 @@ export default function BandRpgGamePage() {
     },
   });
 
+  const handleResetSave = useCallback(async () => {
+    await bandRpgRuntimeApi.resetSave();
+    window.location.reload();
+  }, []);
+
   const handleLevelTransition = useCallback((targetSlug: string) => {
     const params = adventureId ? `?adventureId=${encodeURIComponent(adventureId)}` : '';
     navigate(`/play/band-rpg/game/${encodeURIComponent(targetSlug)}${params}`);
@@ -295,6 +300,7 @@ export default function BandRpgGamePage() {
                   onTeleport={cheatTeleport}
                   onOpenDoor={cheatOpenDoor}
                   onActivateSwitch={cheatActivateSwitch}
+                  onResetSave={handleResetSave}
                   onClose={handleCloseCheat}
                 />
               )}

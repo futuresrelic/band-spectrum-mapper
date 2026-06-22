@@ -9,9 +9,10 @@ export type WorldConditionType =
 
 export interface WorldCondition {
   type: WorldConditionType;
-  targetId?: string;   // doorId / switchId / questId / beatId / itemId
-  key?: string;        // worldState key (for world_state type)
-  value?: unknown;     // worldState expected value
+  targetId?: string;    // doorId / switchId / questId / beatId / itemId (preferred)
+  targetSlug?: string;  // JSON alias for targetId — normalized at runtime
+  key?: string;         // worldState key (for world_state type)
+  value?: unknown;      // worldState expected value
 }
 
 export type PuzzleTriggerType =
@@ -210,4 +211,7 @@ export const bandRpgRuntimeApi = {
 
   saveProgress: (state: Partial<SaveState>) =>
     api.post<{ ok: boolean }>(`${BASE}/save`, state),
+
+  resetSave: () =>
+    api.post<{ ok: boolean }>(`${BASE}/save/reset`, {}),
 };
