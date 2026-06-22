@@ -998,7 +998,26 @@ adventureRouter.post('/import', async (req, res, next): Promise<void> => {
       return advId;
     }, { timeout: 30_000 }); // 30s for large adventures
 
-    res.json({ ok: true, adventureId, imported: validation.preview }); return;
+    // Fetch the saved adventure + first level slug for the response
+    const saved = await prisma.bandRpgAdventure.findUnique({
+      where: { id: adventureId },
+      select: {
+        slug: true,
+        name: true,
+        isPublished: true,
+        levels: { select: { slug: true }, orderBy: { order: 'asc' }, take: 1 },
+      },
+    });
+
+    res.json({
+      ok: true,
+      adventureId,
+      slug: saved?.slug ?? null,
+      name: saved?.name ?? null,
+      isPublished: saved?.isPublished ?? false,
+      firstLevelSlug: saved?.levels[0]?.slug ?? null,
+      imported: validation.preview,
+    }); return;
   } catch (err) { next(err); return; }
 });
 

@@ -1,8 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { campaignGeneratorApi, adventureApi } from '../../api/adventureApi';
-import type { CampaignSettings, ValidationResult, CampaignPingResult } from '../../api/adventureApi';
+import type { CampaignSettings, ValidationResult, CampaignPingResult, ImportResult } from '../../api/adventureApi';
 import { useAuth } from '../../contexts/AuthContext';
+import { bandsApi } from '../../api/bands';
+import type { BandWithCounts } from '@band-spectrum-mapper/shared';
 
 // ── Draft persistence (localStorage) ─────────────────────────────────────────
 
@@ -169,6 +172,142 @@ function DiagnosticsPanel() {
   );
 }
 
+// ── Band picker (combobox from BSM library) ───────────────────────────────────
+
+function BandPicker({ value, bandId, onChange }: {
+  value: string;
+  bandId: string | undefined;
+  onChange: (name: string, id: string | undefined) => void;
+}) {
+  const [open, setOpen]         = useState(false);
+  const [query, setQuery]       = useState('');
+  const [mode, setMode]         = useState<'picker' | 'custom'>(bandId ? 'picker' : 'picker');
+  const containerRef            = useRef<HTMLDivElement>(null);
+
+  const { data: bands = [], isLoading } = useQuery<BandWithCounts[]>({
+    queryKey: ['bands-list'],
+    queryFn: () => bandsApi.list(),
+    staleTime: 5 * 60_000,
+  });
+
+  // Close on outside click
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, []);
+
+  const filtered = query.trim()
+    ? bands.filter(b => b.name.toLowerCase().includes(query.toLowerCase()))
+    : bands;
+
+  const selected = bandId ? bands.find(b => b.id === bandId) : null;
+
+  function selectBand(band: BandWithCounts) {
+    onChange(band.name, band.id);
+    setQuery('');
+    setOpen(false);
+    setMode('picker');
+  }
+
+  function clearBand() {
+    onChange('', undefined);
+    setQuery('');
+  }
+
+  if (mode === 'custom') {
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <input
+            value={value}
+            onChange={e => onChange(e.target.value, undefined)}
+            placeholder="e.g. Radiohead"
+            className="flex-1 border border-surface-300 rounded-lg px-3 py-2 text-sm text-surface-900 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          />
+          <button
+            type="button"
+            onClick={() => { setMode('picker'); onChange('', undefined); }}
+            className="text-xs text-indigo-600 hover:text-indigo-800 whitespace-nowrap"
+          >
+            ← Pick from library
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={containerRef} className="relative space-y-1">
+      {/* Selected display or search input */}
+      {selected && !open ? (
+        <div className="flex items-center gap-2 border border-surface-300 rounded-lg px-3 py-2 bg-indigo-50">
+          <span className="flex-1 text-sm font-medium text-surface-900">{selected.name}</span>
+          <span className="text-xs text-surface-400">
+            {selected._count.albums} album{selected._count.albums !== 1 ? 's' : ''} · {selected._count.songs} song{selected._count.songs !== 1 ? 's' : ''}
+          </span>
+          <button
+            type="button"
+            onClick={clearBand}
+            className="text-surface-400 hover:text-red-500 text-sm leading-none"
+          >
+            ✕
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center border border-surface-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-indigo-400">
+          <input
+            value={open ? query : (value || '')}
+            onChange={e => { setQuery(e.target.value); setOpen(true); if (!e.target.value) onChange('', undefined); }}
+            onFocus={() => setOpen(true)}
+            placeholder={isLoading ? 'Loading bands…' : 'Search band library…'}
+            className="flex-1 px-3 py-2 text-sm text-surface-900 bg-white focus:outline-none"
+          />
+          <span className="px-2 text-surface-400 text-xs select-none">▼</span>
+        </div>
+      )}
+
+      {/* Dropdown */}
+      {open && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-surface-300 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+          {isLoading && (
+            <div className="px-3 py-2 text-xs text-surface-400">Loading…</div>
+          )}
+          {!isLoading && filtered.length === 0 && (
+            <div className="px-3 py-2 text-xs text-surface-400">No bands match "{query}"</div>
+          )}
+          {filtered.map(band => (
+            <button
+              key={band.id}
+              type="button"
+              onClick={() => selectBand(band)}
+              className="w-full text-left px-3 py-2 flex items-center justify-between hover:bg-indigo-50 transition-colors"
+            >
+              <span className="text-sm font-medium text-surface-900">{band.name}</span>
+              <span className="text-xs text-surface-400 ml-2 shrink-0">
+                {band._count.albums} album{band._count.albums !== 1 ? 's' : ''} · {band._count.songs} song{band._count.songs !== 1 ? 's' : ''}
+              </span>
+            </button>
+          ))}
+          <div className="border-t border-surface-200 px-3 py-2">
+            <button
+              type="button"
+              onClick={() => { setOpen(false); setMode('custom'); }}
+              className="text-xs text-indigo-600 hover:text-indigo-800"
+            >
+              + Use custom band name not in library
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Settings form ─────────────────────────────────────────────────────────────
 
 const DEFAULT_SETTINGS: CampaignSettings = {
@@ -203,11 +342,10 @@ function SettingsForm({ settings, onChange, onGenerate, isLoading }: {
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2 sm:col-span-1">
           <label className="block text-xs font-medium text-surface-700 mb-1">Band <span className="text-red-500">*</span></label>
-          <input
+          <BandPicker
             value={settings.bandName}
-            onChange={e => set('bandName', e.target.value)}
-            placeholder="e.g. Radiohead"
-            className="w-full border border-surface-300 rounded-lg px-3 py-2 text-sm text-surface-900 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            bandId={settings.bandId}
+            onChange={(name, id) => onChange({ ...settings, bandName: name, ...(id !== undefined ? { bandId: id } : { bandId: undefined }) })}
           />
         </div>
         <div className="col-span-2 sm:col-span-1">
@@ -505,10 +643,11 @@ function ValidationStep({ result, onRepair, onProceed, onBack, isRepairLoading, 
 function ImportStep({ jsonText, onBack, onImported }: {
   jsonText: string;
   onBack: () => void;
-  onImported: (adventureId: string) => void;
+  onImported: (result: ImportResult) => void;
 }) {
   const [mode, setMode] = useState<'create' | 'update' | 'replace'>('create');
-  const [imported, setImported] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [published, setPublished] = useState(false);
 
   const importMut = useMutation({
     mutationFn: () => {
@@ -517,27 +656,29 @@ function ImportStep({ jsonText, onBack, onImported }: {
     },
     onSuccess: (result) => {
       if (result.ok && result.adventureId) {
-        setImported(true);
-        onImported(result.adventureId);
+        setImportResult(result);
+        setPublished(result.isPublished ?? false);
+        onImported(result);
       }
     },
   });
 
-  // Extract a human-readable message from the error — surfaces Prisma / validation details
+  const publishMut = useMutation({
+    mutationFn: () => adventureApi.update(importResult!.adventureId!, { isPublished: true }),
+    onSuccess: () => setPublished(true),
+  });
+
   function importErrorMessage(): string {
     if (!importMut.isError) return '';
     const err = importMut.error;
     if (err instanceof Error) {
-      // The api client attaches .body with the full JSON response
       const body = (err as Error & { body?: unknown }).body;
       if (body && typeof body === 'object') {
         const b = body as { error?: string; errors?: Array<{ path?: string; message: string }> };
         const lines: string[] = [];
         if (b.error) lines.push(b.error);
         if (Array.isArray(b.errors) && b.errors.length > 0) {
-          for (const e of b.errors) {
-            lines.push(e.path ? `[${e.path}] ${e.message}` : e.message);
-          }
+          for (const e of b.errors) lines.push(e.path ? `[${e.path}] ${e.message}` : e.message);
         }
         if (lines.length) return lines.join('\n');
       }
@@ -555,61 +696,128 @@ function ImportStep({ jsonText, onBack, onImported }: {
     };
   } catch { /* ignore */ }
 
-  return (
-    <div className="space-y-5 max-w-lg">
-      {imported ? (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-center">
-          <div className="text-4xl mb-3">🎉</div>
-          <h3 className="font-semibold text-emerald-800 text-lg mb-1">Adventure Imported!</h3>
-          <p className="text-sm text-emerald-700">The adventure is now in the system. Switch to the Adventures tab to view and publish it.</p>
-        </div>
-      ) : (
-        <>
-          <div className="bg-surface-50 border border-surface-200 rounded-lg p-4">
-            <p className="text-sm font-medium text-surface-800 mb-2">Ready to import</p>
-            {preview && (
-              <div className="text-xs text-surface-600 space-y-0.5">
-                <div>Levels: <strong>{preview.levels}</strong></div>
-                <div>Quests: <strong>{preview.quests}</strong></div>
-              </div>
+  // ── Post-import success panel ──
+  if (importResult?.ok && importResult.adventureId) {
+    const advId = importResult.adventureId;
+    const firstSlug = importResult.firstLevelSlug;
+
+    return (
+      <div className="space-y-5 max-w-lg">
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5">
+          <div className="text-3xl mb-2">🎉</div>
+          <h3 className="font-semibold text-emerald-800 text-lg mb-0.5">Adventure Imported!</h3>
+          {importResult.name && (
+            <p className="text-sm text-emerald-700 mb-1 font-medium">{importResult.name}</p>
+          )}
+          <div className="flex gap-2 flex-wrap text-xs mt-1">
+            {importResult.slug && (
+              <span className="bg-emerald-100 text-emerald-700 rounded px-1.5 py-0.5 font-mono">{importResult.slug}</span>
             )}
+            <span className={`rounded px-1.5 py-0.5 font-medium ${published ? 'bg-emerald-200 text-emerald-800' : 'bg-amber-100 text-amber-700'}`}>
+              {published ? '● Published' : '○ Unpublished'}
+            </span>
           </div>
+        </div>
 
-          <div>
-            <label className="block text-xs font-medium text-surface-700 mb-2">Import mode</label>
-            <div className="space-y-2">
-              {([
-                ['create', 'Create — fails if adventure slug already exists (safest)'],
-                ['update', 'Update — upsert by slug, adds/updates content'],
-                ['replace', 'Replace — delete all existing content, then recreate'],
-              ] as const).map(([m, desc]) => (
-                <label key={m} className="flex items-start gap-2 cursor-pointer">
-                  <input type="radio" name="mode" value={m} checked={mode === m} onChange={() => setMode(m)} className="mt-0.5" />
-                  <span className="text-sm text-surface-700"><strong>{m}</strong> — {desc}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {importMut.isError && (
-            <div className="bg-red-50 border border-red-200 rounded p-3 space-y-1">
-              <p className="text-sm font-semibold text-red-700">Import failed</p>
-              <pre className="text-xs text-red-700 whitespace-pre-wrap font-mono">{importErrorMessage()}</pre>
-            </div>
+        <div className="space-y-2">
+          {!published && (
+            <button
+              onClick={() => publishMut.mutate()}
+              disabled={publishMut.isPending}
+              className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+            >
+              {publishMut.isPending ? 'Publishing…' : '🌐 Publish Now'}
+            </button>
           )}
 
-          <div className="flex gap-3">
-            <button onClick={onBack} className="text-sm text-surface-500 hover:text-surface-700 px-4 py-2 border border-surface-300 rounded-lg">← Back</button>
-            <button
-              onClick={() => importMut.mutate()}
-              disabled={importMut.isPending}
-              className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-medium transition-colors"
+          {published && firstSlug && (
+            <Link
+              to={`/play/band-rpg/game/${encodeURIComponent(firstSlug)}?adventureId=${encodeURIComponent(advId)}`}
+              className="block w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium text-center transition-colors"
             >
-              {importMut.isPending ? '✦ Importing…' : '✦ Import Adventure'}
-            </button>
+              ▶ Play Adventure
+            </Link>
+          )}
+
+          {!published && firstSlug && (
+            <p className="text-center text-xs text-surface-400">Publish first to enable Play Adventure</p>
+          )}
+
+          <Link
+            to={`/play/band-rpg/adventures/${encodeURIComponent(advId)}`}
+            className="block w-full py-2 rounded-lg border border-surface-300 hover:bg-surface-50 text-surface-700 text-sm font-medium text-center transition-colors"
+          >
+            📋 Adventure Detail Page
+          </Link>
+
+          <Link
+            to="/play/band-rpg/adventures"
+            className="block w-full py-2 rounded-lg border border-surface-300 hover:bg-surface-50 text-surface-700 text-sm font-medium text-center transition-colors"
+          >
+            🗺 Adventure Browser
+          </Link>
+
+          <a
+            href={`/admin/band-rpg`}
+            className="block w-full py-2 rounded-lg border border-surface-300 hover:bg-surface-50 text-surface-500 text-xs font-medium text-center transition-colors"
+          >
+            ⚙ Open in Admin (Adventures tab)
+          </a>
+        </div>
+
+        {publishMut.isError && (
+          <p className="text-xs text-red-600">Publish failed: {publishMut.error instanceof Error ? publishMut.error.message : 'Unknown error'}</p>
+        )}
+      </div>
+    );
+  }
+
+  // ── Pre-import panel ──
+  return (
+    <div className="space-y-5 max-w-lg">
+      <div className="bg-surface-50 border border-surface-200 rounded-lg p-4">
+        <p className="text-sm font-medium text-surface-800 mb-2">Ready to import</p>
+        {preview && (
+          <div className="text-xs text-surface-600 space-y-0.5">
+            <div>Levels: <strong>{preview.levels}</strong></div>
+            <div>Quests: <strong>{preview.quests}</strong></div>
           </div>
-        </>
+        )}
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-surface-700 mb-2">Import mode</label>
+        <div className="space-y-2">
+          {([
+            ['create',  'Create — fails if adventure slug already exists (safest)'],
+            ['update',  'Update — upsert by slug, adds/updates content'],
+            ['replace', 'Replace — delete all existing content, then recreate'],
+          ] as const).map(([m, desc]) => (
+            <label key={m} className="flex items-start gap-2 cursor-pointer">
+              <input type="radio" name="mode" value={m} checked={mode === m} onChange={() => setMode(m)} className="mt-0.5" />
+              <span className="text-sm text-surface-700"><strong>{m}</strong> — {desc}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {importMut.isError && (
+        <div className="bg-red-50 border border-red-200 rounded p-3 space-y-1">
+          <p className="text-sm font-semibold text-red-700">Import failed</p>
+          <pre className="text-xs text-red-700 whitespace-pre-wrap font-mono">{importErrorMessage()}</pre>
+        </div>
       )}
+
+      <div className="flex gap-3">
+        <button onClick={onBack} className="text-sm text-surface-500 hover:text-surface-700 px-4 py-2 border border-surface-300 rounded-lg">← Back</button>
+        <button
+          onClick={() => importMut.mutate()}
+          disabled={importMut.isPending}
+          className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-medium transition-colors"
+        >
+          {importMut.isPending ? '✦ Importing…' : '✦ Import Adventure'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -625,7 +833,6 @@ export default function CampaignGenerator() {
   const [jsonText, setJsonText] = useState(draft?.jsonText ?? '');
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [repairAttempt, setRepairAttempt] = useState(0);
-  const [importedId, setImportedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Persist draft on key state changes
@@ -776,14 +983,8 @@ export default function CampaignGenerator() {
         <ImportStep
           jsonText={jsonText}
           onBack={() => setStep('validate')}
-          onImported={(id) => setImportedId(id)}
+          onImported={(_result) => { /* result rendered inside ImportStep */ }}
         />
-      )}
-
-      {importedId && (
-        <div className="text-xs text-surface-400 text-center">
-          Imported adventure ID: <code className="font-mono">{importedId}</code> — switch to the Adventures tab to publish it.
-        </div>
       )}
     </div>
   );

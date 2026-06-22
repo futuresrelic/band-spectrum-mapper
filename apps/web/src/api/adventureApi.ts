@@ -82,6 +82,10 @@ export interface ValidationResult {
 export interface ImportResult {
   ok: boolean;
   adventureId?: string;
+  slug?: string | null;
+  name?: string | null;
+  isPublished?: boolean;
+  firstLevelSlug?: string | null;
   imported?: ImportPreview;
   errors?: ValidationError[];
 }
@@ -182,6 +186,7 @@ const CAMPAIGN_BASE = '/api/band-rpg/campaign';
 
 export interface CampaignSettings {
   bandName: string;
+  bandId?: string;       // BSM library band ID — passed through for future metadata use
   adventureTitle: string;
   slug?: string;
   theme?: string;
