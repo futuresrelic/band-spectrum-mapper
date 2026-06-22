@@ -78,8 +78,11 @@ type GameAction =
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function canMoveTo(level: RuntimeLevel, x: number, y: number): boolean {
+// Door entities own their tile's traversability: open = passable even if the base tile is wall (0).
+function isTileCrossable(level: RuntimeLevel, x: number, y: number, snap: WorldSnapshot): boolean {
   if (x < 0 || y < 0 || x >= level.mapData.width || y >= level.mapData.height) return false;
+  const door = level.doors.find(d => d.tileX === x && d.tileY === y);
+  if (door) return isDoorOpen(door, snap);
   return (level.mapData.tiles[y]?.[x] ?? 0) === 1;
 }
 
@@ -252,13 +255,7 @@ function reducer(state: GameState, action: GameAction): GameState {
       if (state.dialogueMode !== 'none') return state;
       const newX = state.playerX + dx;
       const newY = state.playerY + dy;
-      if (!canMoveTo(level, newX, newY)) return state;
-
-      // Block on closed doors
-      const doorAtTile = level.doors.find(d => d.tileX === newX && d.tileY === newY);
-      if (doorAtTile && !isDoorOpen(doorAtTile, toWorldSnapshot(state))) {
-        return state; // impassable closed door — player interacts via E to open
-      }
+      if (!isTileCrossable(level, newX, newY, toWorldSnapshot(state))) return state;
 
       let s: GameState = { ...state, playerX: newX, playerY: newY };
 
@@ -684,15 +681,11 @@ export function useGameEngine(
         dispatch({ type: 'MOVE', dx, dy, level: lv });
         const newX = s.playerX + dx;
         const newY = s.playerY + dy;
-        // Only check exit if the tile is actually walkable (prevents transition when blocked by door/wall)
-        if ((lv.mapData.tiles[newY]?.[newX] ?? 0) === 1) {
-          const doorBlocking = lv.doors.find(d => d.tileX === newX && d.tileY === newY);
-          if (!doorBlocking || isDoorOpen(doorBlocking, toWorldSnapshot(s))) {
-            const exit = lv.exits.find(ex => ex.tileX === newX && ex.tileY === newY);
-            if (exit) {
-              const locked = s.unlockedLevelSlugs.length > 0 && !s.unlockedLevelSlugs.includes(exit.targetLevelSlug);
-              if (!locked) onLevelTransition(exit.targetLevelSlug);
-            }
+        if (isTileCrossable(lv, newX, newY, toWorldSnapshot(s))) {
+          const exit = lv.exits.find(ex => ex.tileX === newX && ex.tileY === newY);
+          if (exit) {
+            const locked = s.unlockedLevelSlugs.length > 0 && !s.unlockedLevelSlugs.includes(exit.targetLevelSlug);
+            if (!locked) onLevelTransition(exit.targetLevelSlug);
           }
         }
         return;
@@ -813,8 +806,7 @@ export function useGameEngine(
     dispatch({ type: 'MOVE', dx, dy, level: lv });
     const newX = s.playerX + dx;
     const newY = s.playerY + dy;
-    // Check exit — only if tile is passable
-    if ((lv.mapData.tiles[newY]?.[newX] ?? 0) === 1) {
+    if (isTileCrossable(lv, newX, newY, toWorldSnapshot(s))) {
       const exit = lv.exits.find(ex => ex.tileX === newX && ex.tileY === newY);
       if (exit) {
         const locked = s.unlockedLevelSlugs.length > 0 && !s.unlockedLevelSlugs.includes(exit.targetLevelSlug);

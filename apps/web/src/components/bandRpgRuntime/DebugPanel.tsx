@@ -35,6 +35,7 @@ export default function DebugPanel({ state, level }: Props) {
     ['Beats shown', `${state.unlockedBeats.length} / ${level.beats.length} total`],
     ['Pending beats', `${state.pendingBeats.length}`],
     ['Doors', `${level.doors.length} total / ${state.openedDoors.length} open`],
+    ['Door collision', level.doors.length === 0 ? 'none' : `${level.doors.filter(d => isDoorOpen(d, snap)).length}/${level.doors.length} passable`],
     ['Switches', `${level.switches.length} total / ${state.activatedSwitches.length} on`],
     ['Puzzles', `${level.puzzles.length}`],
     ['World keys', `${Object.keys(state.worldState).length}`],
@@ -140,10 +141,12 @@ export default function DebugPanel({ state, level }: Props) {
             const condStr = cond
               ? `${cond.type}=${cond.targetId ?? cond.targetSlug ?? '?'}`
               : 'none';
+            const tileVal = level.mapData.tiles[door.tileY]?.[door.tileX] ?? '?';
             return (
               <div key={door.id} style={{ fontSize: 10, lineHeight: 1.6, color: open ? '#4b5563' : canOpen ? '#34d399' : '#f87171' }}>
                 {open ? '🔓 OPEN' : canOpen ? '✓ CAN OPEN' : '🔒 LOCKED'} {door.name} [{door.type}]
                 {!open && <span style={{ color: '#6b7280' }}> · {condStr}</span>}
+                <span style={{ color: '#374151' }}> · tile={tileVal} · {open ? 'PASSABLE' : 'BLOCKED'}</span>
               </div>
             );
           })}

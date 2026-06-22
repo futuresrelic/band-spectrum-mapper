@@ -365,6 +365,19 @@ function DoorSprite({ door, isOpen, adjacent }: { door: RuntimeDoor; isOpen: boo
           [E] Try
         </div>
       )}
+      {adjacent && isOpen && (
+        <div
+          style={{
+            position: 'absolute', top: -16, left: '50%',
+            transform: 'translateX(-50%)',
+            backgroundColor: 'rgba(59,130,246,0.15)', color: '#93c5fd',
+            fontSize: 9, padding: '1px 4px', borderRadius: 3,
+            whiteSpace: 'nowrap', border: '1px solid rgba(59,130,246,0.35)',
+          }}
+        >
+          → Walk
+        </div>
+      )}
       {door.label && (
         <div style={{
           position: 'absolute', bottom: CELL + 2, left: '50%',
