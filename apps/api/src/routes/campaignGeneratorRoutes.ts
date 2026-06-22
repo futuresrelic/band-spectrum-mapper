@@ -153,6 +153,12 @@ ${SECURITY_GUIDELINES}
 - Keep entity IDs short and descriptive, not CUIDs.
 - NPC positions must be on walkable tiles (tile value 1, 2, or 3).
 - Door and switch tile positions must be on otherwise-walkable tiles.
+- REACHABILITY (CRITICAL): every NPC, item, door, switch, and exit must be reachable from the spawn
+  tile via a continuous path of walkable tiles (value 1, 2, or 3). There must be NO sealed or
+  enclosed rooms with entities inside that have no floor-tile corridor to spawn.
+  Design open maps with corridors, not fully walled-off inner rooms.
+- Every non-final level must have at least one exit entity in mapData.entities.
+- adventure.estimatedPlaytime MUST be a bare integer (minutes). E.g. 45. NEVER a string like "2-3 hours".
 `;
 }
 
@@ -357,11 +363,29 @@ campaignGeneratorRouter.post('/repair', async (req, res, next): Promise<void> =>
 
     const errorList = errors.map(e => `- ${e.path ? `[${e.path}] ` : ''}${e.message}`).join('\n');
 
-    const userPrompt = `The following Band RPG adventure JSON has validation errors. Fix ONLY the errors listed.
+    const userPrompt = `The following Band RPG adventure JSON has validation errors. Fix ALL the errors listed.
 Do not change any other content. Output only the corrected complete JSON — no markdown, no explanation.
 
 ## Critical type rules (always enforce, even if not in error list)
 - adventure.estimatedPlaytime MUST be a bare integer (minutes). E.g. 45. NEVER "2-3 hours" or "45 minutes".
+
+## Reachability rules (for any "unreachable" or "sealed room" or "no exit" errors)
+The game uses a BFS flood-fill from the spawn tile. An entity is unreachable if no walkable path
+(floor tiles 1/2/3 + exit tiles + door tiles) connects it to spawn.
+
+To fix reachability errors:
+- Move the unreachable entity to a tile within the walkable area (tile value 1, 2, or 3).
+- OR carve a floor corridor: change wall tiles (0) between spawn and the entity to floor tiles (1).
+- OR if an entity is in a separate room with no door, add a door entity to a shared wall tile AND add
+  that wall tile as a "free" type door (openedByDefault: true) in the level's doors array.
+- For "no exit entity" errors: add an exit entity on a border tile (row 0, last row, col 0, last col)
+  AND include it in mapData.entities. The final level's exit must use targetLevelSlug: "__adventure_complete__".
+- NEVER delete required entities (NPCs, items) to fix reachability — always move or add paths.
+- After fixing, verify the fixed entity's position is on a tile with value 1, 2, or 3, OR adjacent to one.
+
+## Campaign connectivity rules (for "not reachable from the starting level" errors)
+- Every level must have at least one exit entity whose targetLevelSlug points to the next level's slug.
+- Check each level's mapData.entities for type="exit" and ensure targetLevelSlug is set correctly.
 
 ## Validation Errors (fix these)
 ${errorList}

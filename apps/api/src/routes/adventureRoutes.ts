@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
+import { validateReachability } from '../services/reachabilityValidator.js';
 
 export const adventureRouter = Router();
 adventureRouter.use(requireAuth, requireAdmin);
@@ -501,6 +502,10 @@ function validatePayload(body: unknown): ValidationResult {
     puzzleCount: (p.levels ?? []).reduce((s, l) => s + (l.puzzles ?? []).length, 0),
     timelineCount: (p.timeline ?? []).length,
   };
+
+  // Reachability validation — BFS flood-fill from each level's spawn.
+  // Runs after structural checks so map dimensions and spawn are already confirmed.
+  for (const e of validateReachability(body)) errors.push(e);
 
   return { valid: errors.length === 0, errors, preview };
 }

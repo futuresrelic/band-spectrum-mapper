@@ -407,12 +407,20 @@ function ValidationStep({ result, onRepair, onProceed, onBack, isRepairLoading, 
 }) {
   const MAX_REPAIRS = 3;
 
+  // Separate reachability errors (BFS failures) from structural errors
+  const reachabilityErrors = result.errors.filter(e =>
+    e.message.includes('unreachable') || e.message.includes('sealed') ||
+    e.message.includes('no exit entity') || e.message.includes('not reachable from the starting level') ||
+    e.message.includes('no spawn entity') || e.message.includes('non-walkable tile')
+  );
+  const structuralErrors = result.errors.filter(e => !reachabilityErrors.includes(e));
+
   return (
     <div className="space-y-4">
       {result.valid ? (
         <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
           <div className="flex items-center gap-2 text-emerald-800 font-medium mb-3">
-            <span className="text-xl">✅</span> Adventure is valid
+            <span className="text-xl">✅</span> Adventure is valid and fully reachable
           </div>
           {result.preview && (
             <div className="grid grid-cols-3 gap-2 text-xs text-emerald-700">
@@ -425,21 +433,47 @@ function ValidationStep({ result, onRepair, onProceed, onBack, isRepairLoading, 
           )}
         </div>
       ) : (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center gap-2 text-red-800 font-medium mb-3">
-            <span className="text-xl">❌</span> {result.errors.length} validation error{result.errors.length !== 1 ? 's' : ''}
-          </div>
-          <ul className="space-y-1">
-            {result.errors.map((e, i) => (
-              <li key={i} className="text-xs text-red-700">
-                {e.path && <span className="font-medium">[{e.path}] </span>}{e.message}
-              </li>
-            ))}
-          </ul>
+        <div className="space-y-3">
+          {reachabilityErrors.length > 0 && (
+            <div className="bg-orange-50 border border-orange-300 rounded-lg p-4">
+              <div className="flex items-center gap-2 text-orange-900 font-semibold mb-2 text-sm">
+                <span className="text-xl">🗺</span>
+                Reachability errors — import blocked ({reachabilityErrors.length})
+              </div>
+              <p className="text-xs text-orange-800 mb-3">
+                BFS flood-fill from spawn found entities that cannot be reached in normal gameplay.
+                Auto-Repair will attempt to fix these by moving entities or carving corridors.
+              </p>
+              <ul className="space-y-1.5">
+                {reachabilityErrors.map((e, i) => (
+                  <li key={i} className="text-xs text-orange-800 bg-orange-100/60 rounded px-2 py-1.5">
+                    {e.path && <span className="font-mono font-medium text-orange-900">[{e.path}]</span>}{' '}
+                    {e.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {structuralErrors.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 text-red-800 font-medium mb-2 text-sm">
+                <span className="text-xl">❌</span>
+                {structuralErrors.length} structural error{structuralErrors.length !== 1 ? 's' : ''}
+              </div>
+              <ul className="space-y-1">
+                {structuralErrors.map((e, i) => (
+                  <li key={i} className="text-xs text-red-700">
+                    {e.path && <span className="font-mono font-medium">[{e.path}]</span>}{' '}{e.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
-      <div className="flex gap-3 flex-wrap">
+      <div className="flex gap-3 flex-wrap items-center">
         <button onClick={onBack} className="text-sm text-surface-500 hover:text-surface-700 px-4 py-2 border border-surface-300 rounded-lg">← Edit JSON</button>
         {!result.valid && repairAttempt < MAX_REPAIRS && (
           <button
@@ -459,7 +493,7 @@ function ValidationStep({ result, onRepair, onProceed, onBack, isRepairLoading, 
           </button>
         )}
         {!result.valid && repairAttempt >= MAX_REPAIRS && (
-          <p className="text-sm text-surface-500 self-center">Max repair attempts reached. Edit JSON manually then re-validate.</p>
+          <p className="text-sm text-surface-500">Max repair attempts reached. Edit JSON manually then re-validate.</p>
         )}
       </div>
     </div>
