@@ -68,6 +68,9 @@ export default function BandRpgGamePage() {
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = useState({ w: 640, h: 480 });
   const gameStateRef = useRef<GameState | null>(null);
+  // slugRef lets stable callbacks read the latest level slug without stale closures
+  const slugRef = useRef(slug);
+  slugRef.current = slug;
 
   useEffect(() => {
     const el = canvasContainerRef.current;
@@ -103,6 +106,9 @@ export default function BandRpgGamePage() {
     staleTime: 300_000,
   });
   const adventureName = adventureDetail?.adventure?.name ?? null;
+  // adventureDetailRef lets stable callbacks read latest adventure/quest counts without stale closures
+  const adventureDetailRef = useRef(adventureDetail);
+  adventureDetailRef.current = adventureDetail;
 
   const saveMutation = useMutation({
     mutationFn: (partial: Parameters<typeof bandRpgRuntimeApi.saveProgress>[0]) =>
@@ -114,6 +120,14 @@ export default function BandRpgGamePage() {
       adventureProgressApi.sync(adventureId!, data),
     onSuccess: ({ progress }) => {
       if (progress.isCompleted && !showCompletion) {
+        console.log('[adventure-complete] sync confirmed', {
+          adventureId,
+          completionPct: progress.completionPct,
+          questsCompleted: progress.questsCompleted,
+          levelsDiscovered: progress.levelsDiscovered,
+          itemsCollected: progress.itemsCollected,
+          isCompleted: progress.isCompleted,
+        });
         void adventureProgressApi.get(adventureId!).then(({ adventure, progress: freshProgress }) => {
           setCompletionAdventure(adventure);
           setCompletionProgress(freshProgress);
@@ -132,12 +146,39 @@ export default function BandRpgGamePage() {
     if (targetSlug === '__adventure_complete__') {
       if (adventureId) {
         const gs = gameStateRef.current;
-        progressSyncMutation.mutate({
-          levelsDiscovered: gs?.unlockedLevelSlugs ?? [],
-          questsCompleted: gs?.completedQuests.length ?? 0,
+        const currentSlug = slugRef.current;
+
+        // Soft gate: warn if there are quests in this adventure the player hasn't completed.
+        const totalQuests = adventureDetailRef.current?.adventure._count?.quests ?? 0;
+        const completedCount = gs?.completedQuests.length ?? 0;
+        if (totalQuests > 0 && completedCount < totalQuests) {
+          const remaining = totalQuests - completedCount;
+          const ok = window.confirm(
+            `You still have ${remaining} quest${remaining !== 1 ? 's' : ''} to complete.\n` +
+            `Finishing now will lower your completion score.\n\n` +
+            `Complete adventure anyway?`,
+          );
+          if (!ok) return;
+        }
+
+        // Include the current level slug so it counts toward levelsDiscovered.
+        // The server merges this with previously-synced levels, so no history is lost.
+        const visited = Array.from(new Set([...(gs?.unlockedLevelSlugs ?? []), currentSlug]));
+
+        const payload = {
+          levelsDiscovered: visited,
+          questsCompleted: completedCount,
           itemsCollected: gs?.inventory.length ?? 0,
-          isCompleted: true,
+          isCompleted: true as const,
+        };
+        console.log('[adventure-complete] final sync payload', {
+          adventureId,
+          currentSlug,
+          levelsDiscovered: payload.levelsDiscovered,
+          questsCompleted: payload.questsCompleted,
+          itemsCollected: payload.itemsCollected,
         });
+        progressSyncMutation.mutate(payload);
       }
       return;
     }
@@ -167,8 +208,11 @@ export default function BandRpgGamePage() {
       worldState: gameState.worldState,
     });
     if (adventureId) {
+      // Include the current level slug in levelsDiscovered so each level visit is tracked.
+      // The server merges with existing, so levels accumulate across the whole adventure.
+      const visited = Array.from(new Set([...gameState.unlockedLevelSlugs, levelSlug]));
       progressSyncMutation.mutate({
-        levelsDiscovered: gameState.unlockedLevelSlugs,
+        levelsDiscovered: visited,
         questsCompleted: gameState.completedQuests.length,
         itemsCollected: gameState.inventory.length,
         isCompleted: false,
@@ -335,6 +379,7 @@ export default function BandRpgGamePage() {
             <CheatPanel
               state={state}
               level={level}
+              adventureDetail={adventureDetail ?? null}
               onCompleteQuest={cheatCompleteQuest}
               onGrantItem={cheatGrantItem}
               onUnlockLevel={cheatUnlockLevel}

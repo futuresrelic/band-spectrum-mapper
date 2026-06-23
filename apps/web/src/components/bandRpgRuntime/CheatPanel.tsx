@@ -1,12 +1,20 @@
 import { useState } from 'react';
 import type { RuntimeLevel } from '../../api/bandRpgRuntime';
+import type { Adventure, AdventureProgress } from '../../api/adventureApi';
 import type { GameState } from './useGameEngine';
 import { analyzeProgression } from './WorldEngine';
 import type { WorldSnapshot, ProgressionBlocker } from './WorldEngine';
 
+interface AdventureDetailProp {
+  adventure: Adventure;
+  progress: AdventureProgress;
+  firstLevelSlug: string | null;
+}
+
 interface Props {
   state: GameState;
   level: RuntimeLevel;
+  adventureDetail?: AdventureDetailProp | null;
   onCompleteQuest: (questId: string) => void;
   onGrantItem: (itemId: string, itemName: string) => void;
   onUnlockLevel: (slug: string) => void;
@@ -17,7 +25,7 @@ interface Props {
   onClose: () => void;
 }
 
-export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem, onUnlockLevel, onTeleport, onOpenDoor, onActivateSwitch, onResetSave, onClose }: Props) {
+export default function CheatPanel({ state, level, adventureDetail, onCompleteQuest, onGrantItem, onUnlockLevel, onTeleport, onOpenDoor, onActivateSwitch, onResetSave, onClose }: Props) {
   const [itemId, setItemId] = useState('');
   const [itemName, setItemName] = useState('');
   const [levelSlug, setLevelSlug] = useState('');
@@ -50,10 +58,17 @@ export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem,
     const snap = buildSnap();
     const questIdToName = new Map(level.quests.map(q => [q.id, q.name]));
     const blockers = analyzeProgression(level.doors, level.exits, snap, questIdToName);
+    const prog = adventureDetail?.progress;
+    const adv  = adventureDetail?.adventure;
     const lines: string[] = [
       `=== PROGRESSION REPORT ===`,
       `Level: ${level.name} (${level.slug})`,
       `Player: (${state.playerX}, ${state.playerY})`,
+      ...(prog ? [
+        `Adventure: ${adv?.name ?? '?'} — ${Math.round(prog.completionPct)}% complete`,
+        `Visited levels (server): ${(prog.levelsDiscovered as string[]).join(', ') || '(none)'}`,
+        `Quests (server): ${prog.questsCompleted} / ${adv?._count?.quests ?? '?'}`,
+      ] : []),
       ``,
       `INVENTORY (itemId slugs):`,
       ...state.inventory.map(e => `  ${e.itemId} ×${e.quantity}`),
@@ -311,13 +326,51 @@ export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem,
         </div>
       </Section>
 
+      {/* Adventure Progress (from last server sync) */}
+      {adventureDetail && (
+        <Section label="Adventure Progress">
+          {(() => {
+            const prog = adventureDetail.progress;
+            const adv  = adventureDetail.adventure;
+            const totalLevels = adv._count?.levels ?? 0;
+            const totalQuests = adv._count?.quests ?? 0;
+            const visitedCount = (prog.levelsDiscovered as string[]).length;
+            // Recalculate pct from synced data in case DB value is stale
+            const recalcPct = (totalLevels > 0 ? (visitedCount / totalLevels) * 50 : 0)
+              + (totalQuests > 0 ? (prog.questsCompleted / totalQuests) * 50 : 0);
+            const displayPct = prog.completionPct > 0 ? prog.completionPct : recalcPct;
+            return (
+              <div style={{ color: '#4b5563', lineHeight: 1.7, fontSize: 11 }}>
+                <div style={{ color: prog.completionPct > 0 ? '#34d399' : '#f59e0b' }}>
+                  Completion: {Math.round(displayPct)}%
+                  {prog.completionPct === 0 && recalcPct > 0 && ' (recalc)'}
+                </div>
+                <div>Levels visited: {visitedCount} / {totalLevels}</div>
+                <div>Quests done: {prog.questsCompleted} / {totalQuests}</div>
+                <div>Items collected: {prog.itemsCollected}</div>
+                {(prog.levelsDiscovered as string[]).map(s => (
+                  <div key={s} style={{ paddingLeft: 8, fontSize: 10 }}>• {s}</div>
+                ))}
+                {totalQuests > 0 && state.completedQuests.length < totalQuests && (
+                  <div style={{ color: '#f59e0b', marginTop: 4 }}>
+                    ⚠ {totalQuests - state.completedQuests.length} quest{totalQuests - state.completedQuests.length !== 1 ? 's' : ''} remaining
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </Section>
+      )}
+
       {/* State summary */}
       <Section label="State">
         <div style={{ color: '#4b5563', lineHeight: 1.7 }}>
           <div>Player: ({state.playerX}, {state.playerY})</div>
           <div>Objectives done: {state.completedObjectives.length}</div>
           <div>Quests active: {state.activeQuestIds.length}</div>
+          <div>Quests done: {state.completedQuests.length}</div>
           <div>Inventory: {state.inventory.length} items</div>
+          <div>Level: {level.slug}</div>
           <div>Unlocked levels: {state.unlockedLevelSlugs.length}</div>
           <div>Beats shown: {state.unlockedBeats.length}</div>
           <div>Doors open: {state.openedDoors.length}</div>

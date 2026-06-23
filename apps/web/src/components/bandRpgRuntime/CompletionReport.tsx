@@ -19,6 +19,16 @@ export default function CompletionReport({ adventure, progress, onDismiss, onRep
     : null;
   const durationMin = durationMs !== null ? Math.round(durationMs / 60_000) : null;
 
+  // If the adventure is marked complete but completionPct is 0, it's a data inconsistency —
+  // recalculate from the fields we do have rather than showing a misleading 0%.
+  const rawPct = progress.completionPct;
+  const recalcPct =
+    (levelCount > 0 ? ((progress.levelsDiscovered?.length ?? 0) / levelCount) * 50 : 0) +
+    (questCount > 0 ? (progress.questsCompleted / questCount) * 50 : 0);
+  const displayPct = progress.isCompleted && rawPct === 0 && recalcPct > 0
+    ? Math.round(recalcPct)
+    : Math.round(rawPct);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
       <div
@@ -34,7 +44,7 @@ export default function CompletionReport({ adventure, progress, onDismiss, onRep
 
         {/* Stats grid */}
         <div className="mx-8 mb-6 grid grid-cols-2 gap-3">
-          <StatCard label="Completion" value={`${Math.round(progress.completionPct)}%`} />
+          <StatCard label="Completion" value={`${displayPct}%`} />
           <StatCard label="Quests Done" value={`${progress.questsCompleted} / ${questCount}`} />
           <StatCard label="Levels Found" value={`${progress.levelsDiscovered.length} / ${levelCount}`} />
           <StatCard label="Items Collected" value={String(progress.itemsCollected)} />
@@ -48,7 +58,7 @@ export default function CompletionReport({ adventure, progress, onDismiss, onRep
           <div className="h-2 rounded-full bg-white/10 overflow-hidden">
             <div
               className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-1000"
-              style={{ width: `${progress.completionPct}%` }}
+              style={{ width: `${displayPct}%` }}
             />
           </div>
         </div>

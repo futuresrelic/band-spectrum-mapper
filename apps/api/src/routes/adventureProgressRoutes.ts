@@ -240,7 +240,14 @@ adventureProgressRouter.post('/:adventureId/sync', requireAuth, async (req, res,
     const totalLevels = counts?._count.levels ?? 0;
 
     const resolvedQuestsCompleted = questsCompleted ?? existing.questsCompleted;
-    const resolvedLevelsDiscovered = levelsDiscovered ?? (existing.levelsDiscovered as string[]);
+
+    // levelsDiscovered is additive — merge incoming with existing so levels are never lost
+    // across level transitions (each sync only knows about the current session).
+    const existingLevels = existing.levelsDiscovered as string[];
+    const resolvedLevelsDiscovered = levelsDiscovered
+      ? Array.from(new Set([...existingLevels, ...levelsDiscovered]))
+      : existingLevels;
+
     const resolvedItemsCollected = itemsCollected ?? existing.itemsCollected;
     // Completion is sticky: once true it never reverts via sync (use /restart to reset)
     const resolvedIsCompleted = existing.isCompleted || (isCompleted ?? false);
@@ -256,6 +263,20 @@ adventureProgressRouter.post('/:adventureId/sync', requireAuth, async (req, res,
     const completedAt = resolvedIsCompleted && !existing.isCompleted
       ? now
       : existing.completedAt ?? undefined;
+
+    if (resolvedIsCompleted) {
+      console.log('[adventure-progress/sync] completion sync', {
+        adventureId,
+        userId,
+        questsCompleted: resolvedQuestsCompleted,
+        totalQuests,
+        levelsDiscovered: resolvedLevelsDiscovered,
+        totalLevels,
+        itemsCollected: resolvedItemsCollected,
+        completionPct: Math.round(completionPct),
+        isCompleted: resolvedIsCompleted,
+      });
+    }
 
     const updateData: Prisma.BandRpgAdventureProgressUpdateInput = {
       questsCompleted: resolvedQuestsCompleted,
