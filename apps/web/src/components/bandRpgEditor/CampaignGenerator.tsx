@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { campaignGeneratorApi, adventureApi } from '../../api/adventureApi';
@@ -6,6 +6,8 @@ import type { CampaignSettings, ValidationResult, CampaignPingResult, ImportResu
 import { useAuth } from '../../contexts/AuthContext';
 import { bandsApi } from '../../api/bands';
 import type { BandWithCounts } from '@band-spectrum-mapper/shared';
+import { MapPreview } from './MapPreview.js';
+import { MapFixer } from './MapFixer.js';
 
 // ── Draft persistence (localStorage) ─────────────────────────────────────────
 
@@ -598,7 +600,23 @@ function isReachabilityError(msg: string): boolean {
   return REACHABILITY_KEYWORDS.some(kw => msg.includes(kw));
 }
 
-function ValidationStep({ result, onRepair, onRepairReachability, onProceed, onBack, isRepairLoading, isRepairReachabilityLoading, repairAttempt, repairHistory }: {
+interface RawMapEntity {
+  type?: string;
+  x?: number;
+  y?: number;
+  refId?: string;
+  label?: string;
+  targetLevelSlug?: string;
+  id?: string;
+}
+
+interface ParsedLevel {
+  slug: string;
+  name: string;
+  mapData: { width?: number; height?: number; tiles?: number[][]; entities?: RawMapEntity[] };
+}
+
+function ValidationStep({ result, onRepair, onRepairReachability, onProceed, onBack, isRepairLoading, isRepairReachabilityLoading, repairAttempt, repairHistory, parsedLevels, onEditMap }: {
   result: ValidationResult;
   onRepair: () => void;
   onRepairReachability: () => void;
@@ -608,6 +626,8 @@ function ValidationStep({ result, onRepair, onRepairReachability, onProceed, onB
   isRepairReachabilityLoading: boolean;
   repairAttempt: number;
   repairHistory: RepairHistoryEntry[];
+  parsedLevels: ParsedLevel[];
+  onEditMap: (levelSlug: string) => void;
 }) {
   const MAX_REPAIRS = 6;
   const [copiedReach, setCopiedReach] = useState(false);
@@ -721,6 +741,31 @@ function ValidationStep({ result, onRepair, onRepairReachability, onProceed, onB
               </ul>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Map previews — shown whenever we have level data */}
+      {parsedLevels.length > 0 && (
+        <div className="border border-surface-200 rounded-lg p-3">
+          <p className="text-xs font-semibold text-surface-600 mb-3">Map Previews ({parsedLevels.length} level{parsedLevels.length !== 1 ? 's' : ''})</p>
+          <div className="flex flex-wrap gap-4">
+            {parsedLevels.map(level => {
+              const hasReachErr = reachabilityErrors.some(e =>
+                e.path.includes(`[${level.slug}]`) ||
+                e.message.includes(level.name) ||
+                e.message.includes(level.slug),
+              );
+              return (
+                <MapPreview
+                  key={level.slug}
+                  mapData={level.mapData}
+                  levelName={level.name}
+                  hasErrors={hasReachErr}
+                  onEdit={hasReachErr ? () => onEditMap(level.slug) : undefined}
+                />
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -1100,6 +1145,31 @@ export default function CampaignGenerator() {
   const [repairAttempt, setRepairAttempt]   = useState(0);
   const [repairHistory, setRepairHistory]   = useState<RepairHistoryEntry[]>([]);
   const [error, setError]                   = useState<string | null>(null);
+  const [fixerLevel, setFixerLevel]         = useState<string | null>(null);
+
+  const parsedLevels = useMemo((): ParsedLevel[] => {
+    if (!jsonText.trim()) return [];
+    try {
+      const json = JSON.parse(jsonText) as {
+        levels?: Array<{
+          slug?: string;
+          name?: string;
+          mapData?: {
+            width?: number; height?: number;
+            tiles?: number[][];
+            entities?: RawMapEntity[];
+          };
+        }>;
+      };
+      return (json.levels ?? [])
+        .filter((l): l is typeof l & { slug: string } => typeof l.slug === 'string')
+        .map(l => ({
+          slug:    l.slug,
+          name:    typeof l.name === 'string' ? l.name : l.slug,
+          mapData: l.mapData ?? {},
+        }));
+    } catch { return []; }
+  }, [jsonText]);
 
   useEffect(() => { saveDraft({ settings }); }, [settings]);
   useEffect(() => { if (blueprint) saveDraft({ blueprint }); }, [blueprint]);
@@ -1147,6 +1217,23 @@ export default function CampaignGenerator() {
     },
     onError: (e) => setError(e instanceof Error ? e.message : 'Validation request failed'),
   });
+
+  function handleMapSave(levelSlug: string, updatedMapData: ParsedLevel['mapData']) {
+    try {
+      const json = JSON.parse(jsonText) as {
+        levels?: Array<{ slug?: string; mapData?: unknown }>;
+      };
+      if (json.levels) {
+        const idx = json.levels.findIndex(l => l.slug === levelSlug);
+        if (idx >= 0) {
+          json.levels[idx] = { ...json.levels[idx], mapData: updatedMapData };
+        }
+      }
+      setJsonText(JSON.stringify(json, null, 2));
+      setFixerLevel(null);
+      validateMut.mutate();
+    } catch { /* ignore malformed JSON */ }
+  }
 
   function recordRepair(attempt: number, type: 'full' | 'reachability', result: ValidationResult) {
     const errCount = result.errors.length;
@@ -1282,8 +1369,23 @@ export default function CampaignGenerator() {
           isRepairReachabilityLoading={repairReachabilityMut.isPending}
           repairAttempt={repairAttempt}
           repairHistory={repairHistory}
+          parsedLevels={parsedLevels}
+          onEditMap={(slug) => setFixerLevel(slug)}
         />
       )}
+
+      {fixerLevel && (() => {
+        const level = parsedLevels.find(l => l.slug === fixerLevel);
+        if (!level) return null;
+        return (
+          <MapFixer
+            mapData={level.mapData}
+            levelName={level.name}
+            onSave={(updated) => handleMapSave(fixerLevel, updated)}
+            onClose={() => setFixerLevel(null)}
+          />
+        );
+      })()}
 
       {step === 'import' && (
         <ImportStep

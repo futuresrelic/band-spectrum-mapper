@@ -3,6 +3,8 @@ import OpenAI from 'openai';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { HttpError } from '../middleware/errorHandler.js';
+import { pickTemplates, applyTransform, formatTemplateForPrompt } from '@band-spectrum-mapper/shared';
+import type { Transform } from '@band-spectrum-mapper/shared';
 
 export const campaignGeneratorRouter = Router();
 
@@ -342,16 +344,46 @@ campaignGeneratorRouter.post('/generate', async (req, res, next): Promise<void> 
 
     const client = getClient();
 
+    // Pick one template per level, cycling through the template bank.
+    // Apply a random transform to add visual variety while preserving BFS validity.
+    const TRANSFORMS: Transform[] = ['rot0', 'rot90', 'rot180', 'rot270', 'flipH', 'flipV'];
+    const levelCount = numLevels ?? 3;
+    const templates  = pickTemplates(levelCount);
+    const templateBlock = templates.map((rawTemplate, idx) => {
+      const t = TRANSFORMS[idx % TRANSFORMS.length] ?? 'rot0';
+      const template = applyTransform(rawTemplate, t);
+      return formatTemplateForPrompt(template, idx + 1);
+    }).join('\n\n');
+
     const userPrompt = `Convert the following adventure blueprint into a complete, valid Band RPG adventure JSON.
 
 Band: ${bandName}
 Adventure Title: ${adventureTitle}
 ${slug ? `Adventure slug: ${slug}` : ''}
-Levels: ${numLevels ?? 3}
+Levels: ${levelCount}
 Quests: ${numQuests ?? 2}
 Include completion screen: ${includeCompletionScreen !== false ? 'YES — final level MUST have an exit entity with targetLevelSlug: "__adventure_complete__"' : 'no'}
 Include puzzles/switches: ${includePuzzles !== false ? 'yes' : 'no'}
 Include doors/key items: ${includeDoorsKeys !== false ? 'yes' : 'no'}
+
+## PRE-VALIDATED MAP TEMPLATES — MANDATORY
+
+These tile arrays have been mathematically verified for BFS connectivity.
+You MUST use them exactly as provided. DO NOT invent your own tile arrays.
+
+${templateBlock}
+
+CRITICAL MAP RULES:
+- Copy each tile array VERBATIM into mapData.tiles. Do not modify any tile values.
+- Set mapData.width and mapData.height to the values shown.
+- Place the spawn entity at the spawn slot position shown above.
+- Place the exit entity at the exitMain slot position (this is a border tile — already verified reachable).
+- Place other entities at the recommended slot positions (all verified reachable from spawn).
+- spawnX/spawnY on the level object must match the spawn slot x/y.
+- You may add NPCs at npcQuestGiver/npcHint slots, items at itemKey/itemOptional slots, etc.
+- If a template has a doorMain slot: place a locked door entity there + define it in doors[].
+- If a template has a switchA slot: place a switch entity there + define it in switches[].
+- Do NOT place any entity on a wall tile (value 0) — only use the named slot positions.
 
 ## Blueprint to Convert
 ${blueprint}
