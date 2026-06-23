@@ -87,7 +87,8 @@ IMPORTANT: For activate_switch, target is the switch's "name" string (e.g. "Freq
 NPC positions are tile coordinates. Must NOT be a wall tile.
 
 ### Story Beats (beats within each level)
-{ "arcSlug", "type": "narration" | "npc_dialogue" | "cutscene", "content": { "lines": [{ "text", "speakerName"? }] }, "unlockCondition": <WorldCondition>, "order" }
+{ "arcSlug", "type": "dialogue" | "narration" | "cutscene" | "choice" | "unlock" | "trigger", "content": { "lines": [{ "text", "speakerName"? }] }, "unlockCondition": <WorldCondition>, "order" }
+IMPORTANT: Use "dialogue" for NPC speech beats — "npc_dialogue" is NOT a valid value and will fail import.
 
 ### Doors (within each level)
 { "id", "name", "label", "tileX", "tileY", "type", "lockCondition": <WorldCondition> | null, "openedByDefault" }
@@ -411,9 +412,11 @@ LEVEL 3+ — Story Climax:
   ✗ Level where player can walk from spawn to exit without any action
   ✗ Level with only NPCs and no locked door/switch/puzzle
   ✗ Empty room with an exit (open floor plan, no gating mechanism)
-  ✗ Objective type values outside: talk_to_npc, find_item, collect_objects,
-    reach_location, complete_quest, activate_switch, open_door
-  ✗ Beat type values outside: narration, npc_dialogue, cutscene
+  ✗ Objective type values outside the exact list below — any other value causes import failure:
+    find_item, talk_to_npc, reach_location, collect_objects, inspect_object,
+    trigger_music_node, complete_sequence, survive_timer, solve_clue, play_minigame,
+    score_threshold, activate_switch, open_door, complete_quest
+  ✗ Beat type "npc_dialogue" — use "dialogue" instead. Only valid: dialogue, narration, cutscene, choice, unlock, trigger
   ✗ Door type values outside: free, key_door, quest_door, story_door, switch_door
   ✗ Switch type values outside: switch, lever, button, pressure_plate
 
@@ -531,9 +534,12 @@ gameplay.exploration: Expand maps to 12×12+. Add interior walls for corridors. 
   - NPC entity refId MUST equal the NPC's "name" field exactly
   - item entity refId MUST equal the item slug from items[]
 
-## Enum values — ONLY use these (any other value causes a 500 on import):
-  objective.type: talk_to_npc, find_item, collect_objects, reach_location, complete_quest, activate_switch, open_door
-  beat.type: narration, npc_dialogue, cutscene
+## Enum values — ONLY use these exactly (any other value causes a 500 on import):
+  objective.type: find_item, talk_to_npc, reach_location, collect_objects, inspect_object,
+    trigger_music_node, complete_sequence, survive_timer, solve_clue, play_minigame,
+    score_threshold, activate_switch, open_door, complete_quest
+  beat.type: dialogue, narration, cutscene, choice, unlock, trigger
+    ← "npc_dialogue" is INVALID — use "dialogue" for any NPC speech beat
   door.type: free, key_door, quest_door, story_door, switch_door
   switch.type: switch, lever, button, pressure_plate
 

@@ -351,11 +351,19 @@ const VALID_ITEM_TYPES = [
 // Documented rarity values — rarity is a plain String field but validated for consistency
 const VALID_RARITIES = ['common', 'rare', 'epic', 'legendary'] as const;
 
-// Nested Prisma enum types — these WILL cause a 500 on import if invalid
-const VALID_BEAT_TYPES      = ['narration', 'npc_dialogue', 'cutscene'] as const;
-const VALID_OBJECTIVE_TYPES = ['talk_to_npc', 'find_item', 'collect_objects', 'reach_location', 'complete_quest', 'activate_switch', 'open_door'] as const;
-const VALID_DOOR_TYPES      = ['free', 'key_door', 'quest_door', 'story_door', 'switch_door'] as const;
-const VALID_SWITCH_TYPES    = ['switch', 'lever', 'button', 'pressure_plate'] as const;
+// Nested Prisma enum types — MUST stay in sync with prisma/schema.prisma.
+// Any value not in this list will cause a 500 on import (Prisma rejects unknown enum values).
+const VALID_BEAT_TYPES = [
+  'dialogue', 'narration', 'cutscene', 'choice', 'unlock', 'trigger',
+] as const;
+const VALID_OBJECTIVE_TYPES = [
+  'find_item', 'talk_to_npc', 'reach_location', 'collect_objects',
+  'inspect_object', 'trigger_music_node', 'complete_sequence', 'survive_timer',
+  'solve_clue', 'play_minigame', 'score_threshold',
+  'activate_switch', 'open_door', 'complete_quest',
+] as const;
+const VALID_DOOR_TYPES   = ['free', 'key_door', 'quest_door', 'story_door', 'switch_door'] as const;
+const VALID_SWITCH_TYPES = ['switch', 'lever', 'button', 'pressure_plate'] as const;
 
 // ── estimatedPlaytime normalization ───────────────────────────────────────────
 // GPT sometimes outputs "2-3 hours" or "45 minutes" instead of a bare integer.

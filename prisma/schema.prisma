@@ -1573,6 +1573,9 @@ enum BandRpgObjectiveType {
   solve_clue
   play_minigame
   score_threshold
+  activate_switch
+  open_door
+  complete_quest
 
   @@map("band_rpg_objective_type")
 }
