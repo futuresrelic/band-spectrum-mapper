@@ -79,14 +79,21 @@ export function doorBlockedMessage(door: RuntimeDoor): string {
 export function describeConditionBlocker(
   condition: import('../../api/bandRpgRuntime').WorldCondition | null | undefined,
   snap: WorldSnapshot,
+  questIdToName?: Map<string, string>,
 ): string {
   if (!condition) return 'No condition — should be passable';
   if (evaluateCondition(condition, snap)) return 'Condition already met';
   const target = resolveTarget(condition);
   switch (condition.type) {
     case 'item_owned':      return `Missing item: ${target ?? '(no target set)'}`;
-    case 'quest_active':    return `Quest not active: ${target ?? '(no target set)'}`;
-    case 'quest_complete':  return `Quest not complete: ${target ?? '(no target set)'}`;
+    case 'quest_active': {
+      const name = questIdToName?.get(target ?? '');
+      return name ? `Quest not active: ${name} (${target ?? ''})` : `Quest not active: ${target ?? '(no target set)'}`;
+    }
+    case 'quest_complete': {
+      const name = questIdToName?.get(target ?? '');
+      return name ? `Quest not complete: ${name} (${target ?? ''})` : `Quest not complete: ${target ?? '(no target set)'}`;
+    }
     case 'story_beat_seen': return `Story beat not seen: ${target ?? '(no target set)'}`;
     case 'switch_activated':return `Switch not activated: ${target ?? '(no target set)'}`;
     case 'door_open':       return `Door not open: ${target ?? '(no target set)'}`;
@@ -96,8 +103,12 @@ export function describeConditionBlocker(
   }
 }
 
-export function doorBlockedDetailMessage(door: import('../../api/bandRpgRuntime').RuntimeDoor, snap: WorldSnapshot): string {
-  return `${door.label ?? door.name}: ${describeConditionBlocker(door.lockCondition, snap)}`;
+export function doorBlockedDetailMessage(
+  door: import('../../api/bandRpgRuntime').RuntimeDoor,
+  snap: WorldSnapshot,
+  questIdToName?: Map<string, string>,
+): string {
+  return `${door.label ?? door.name}: ${describeConditionBlocker(door.lockCondition, snap, questIdToName)}`;
 }
 
 export interface ProgressionBlocker {
@@ -110,6 +121,7 @@ export function analyzeProgression(
   doors: import('../../api/bandRpgRuntime').RuntimeDoor[],
   exits: import('../../api/bandRpgRuntime').RuntimeExit[],
   snap: WorldSnapshot,
+  questIdToName?: Map<string, string>,
 ): ProgressionBlocker[] {
   const blockers: ProgressionBlocker[] = [];
   for (const door of doors) {
@@ -117,7 +129,7 @@ export function analyzeProgression(
       blockers.push({
         category: 'door',
         entityName: door.label ?? door.name,
-        reason: describeConditionBlocker(door.lockCondition, snap),
+        reason: describeConditionBlocker(door.lockCondition, snap, questIdToName),
       });
     }
   }
@@ -126,7 +138,7 @@ export function analyzeProgression(
       blockers.push({
         category: 'exit',
         entityName: exit.label ?? exit.targetLevelSlug,
-        reason: describeConditionBlocker(exit.condition, snap),
+        reason: describeConditionBlocker(exit.condition, snap, questIdToName),
       });
     }
   }

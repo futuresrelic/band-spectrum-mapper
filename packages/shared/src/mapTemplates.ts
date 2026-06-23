@@ -464,7 +464,7 @@ export function formatTemplateForPrompt(template: MapTemplate, levelNumber: numb
   if (slots.itemKey)       slotLines.push(`  itemKey:        { x: ${slots.itemKey.x}, y: ${slots.itemKey.y} }${dStr(slots.itemKey)}  ← key item placement position`);
   if (slots.itemOptional)  slotLines.push(`  itemOptional:   { x: ${slots.itemOptional.x}, y: ${slots.itemOptional.y} }${dStr(slots.itemOptional)}  ← optional secondary item`);
 
-  // Softlock risk warning: itemKey depth >= doorMain depth means the key is BEHIND its own door
+  // Softlock risk warnings based on slot depth relationships
   const warnings: string[] = [];
   if (slots.doorMain && slots.itemKey) {
     const doorDepth = slots.doorMain.depth ?? 3;
@@ -475,6 +475,17 @@ export function formatTemplateForPrompt(template: MapTemplate, levelNumber: numb
         ` Do NOT use itemKey as the door key — that creates an impossible game.` +
         ` For doorMain use: openedByDefault:true, lockCondition.type:"always", or quest_complete` +
         ` from an NPC whose slot has depth < ${doorDepth}.`,
+      );
+    }
+  }
+  if (slots.doorMain && slots.npcQuestGiver) {
+    const doorDepth  = slots.doorMain.depth      ?? 3;
+    const giverDepth = slots.npcQuestGiver.depth ?? 1;
+    if (giverDepth >= doorDepth) {
+      warnings.push(
+        `  ⚠ SOFTLOCK RISK: npcQuestGiver [depth:${giverDepth}] is BEHIND doorMain [depth:${doorDepth}].` +
+        ` If doorMain is a quest_door, the quest giver is unreachable before the door — immediate softlock.` +
+        ` If using quest_complete on doorMain, the quest giver NPC MUST be at depth < ${doorDepth} (pre-door side).`,
       );
     }
   }

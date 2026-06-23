@@ -40,14 +40,16 @@ export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem,
 
   function runAnalysis(): ProgressionBlocker[] {
     const snap = buildSnap();
-    const report = analyzeProgression(level.doors, level.exits, snap);
+    const questIdToName = new Map(level.quests.map(q => [q.id, q.name]));
+    const report = analyzeProgression(level.doors, level.exits, snap, questIdToName);
     setStuckReport(report);
     return report;
   }
 
   function copyReport() {
     const snap = buildSnap();
-    const blockers = analyzeProgression(level.doors, level.exits, snap);
+    const questIdToName = new Map(level.quests.map(q => [q.id, q.name]));
+    const blockers = analyzeProgression(level.doors, level.exits, snap, questIdToName);
     const lines: string[] = [
       `=== PROGRESSION REPORT ===`,
       `Level: ${level.name} (${level.slug})`,
@@ -57,10 +59,14 @@ export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem,
       ...state.inventory.map(e => `  ${e.itemId} ×${e.quantity}`),
       ``,
       `COMPLETED QUESTS:`,
-      ...(state.completedQuests.length ? state.completedQuests.map(q => `  ${q}`) : ['  (none)']),
+      ...(state.completedQuests.length
+        ? state.completedQuests.map(q => `  ${questIdToName.get(q) ? `${questIdToName.get(q)} (${q})` : q}`)
+        : ['  (none)']),
       ``,
       `ACTIVE QUESTS:`,
-      ...(state.activeQuestIds.length ? state.activeQuestIds.map(q => `  ${q}`) : ['  (none)']),
+      ...(state.activeQuestIds.length
+        ? state.activeQuestIds.map(q => `  ${questIdToName.get(q) ? `${questIdToName.get(q)} (${q})` : q}`)
+        : ['  (none)']),
       ``,
       `WORLD STATE:`,
       ...(Object.keys(state.worldState).length
@@ -71,7 +77,16 @@ export default function CheatPanel({ state, level, onCompleteQuest, onGrantItem,
       ...level.doors.map(door => {
         const open = snap.openedDoors.includes(door.id) || door.openedByDefault;
         const cond = door.lockCondition;
-        const condStr = cond ? `${cond.type}=${cond.targetId ?? cond.targetSlug ?? '?'}` : 'none';
+        let condStr = 'none';
+        if (cond) {
+          const rawTarget = cond.targetId ?? cond.targetSlug ?? '?';
+          const questName = (cond.type === 'quest_complete' || cond.type === 'quest_active')
+            ? questIdToName.get(rawTarget)
+            : undefined;
+          condStr = questName
+            ? `${cond.type}=${questName} (${rawTarget})`
+            : `${cond.type}=${rawTarget}`;
+        }
         return `  ${open ? '🔓 OPEN' : '🔒 LOCKED'} ${door.name} [${door.type}] — cond: ${condStr}`;
       }),
       ``,

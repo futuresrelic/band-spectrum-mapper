@@ -151,9 +151,17 @@ REQUIRED gating mechanisms — use at least ONE per non-final level:
       Result: player must activate switch → door opens → exit accessible.
   (C) QUEST GATE:
       1. Create quest with objective (talk_to_npc, find_item, etc.)
-      2. Add quest_door: { name:"Archive Door", type:"quest_door", openedByDefault:false,
+      2. Place quest giver NPC BEFORE the quest door — the NPC must be accessible from spawn
+         WITHOUT passing through the quest door.
+      3. Add quest_door: { name:"Archive Door", type:"quest_door", openedByDefault:false,
            lockCondition:{type:"quest_complete",targetSlug:"<quest-slug>"} }
       Result: player must complete quest → door unlocks → exit accessible.
+
+      ⚠ CRITICAL ANTI-SOFTLOCK RULE — quest gates:
+      NEVER place the quest giver NPC behind the door that requires that quest.
+      The quest giver MUST be reachable from spawn before the player crosses the quest door.
+      REQUIRED order: Spawn → quest giver NPC → objective target → quest completion → quest door → exit
+      FORBIDDEN order: Spawn → quest door → quest giver NPC (player can NEVER start the quest)
 
 FORBIDDEN pattern (will fail gameplay validation):
   Spawn tile → open floor → exit entity (player walks through without doing anything)
@@ -195,6 +203,12 @@ ${SECURITY_GUIDELINES}
   * Every NPC, item, door, switch, and exit MUST be reachable from spawn via a continuous chain
     of walkable tiles (value 1, 2, or 3). No exceptions.
   * FORBIDDEN: placing any entity inside a room that has all-wall (0) borders with no corridor out.
+  * QUEST GATE ORDER (CRITICAL — a progression validator enforces this):
+    Quest giver NPCs MUST be accessible from spawn BEFORE the quest door that requires their quest.
+    REQUIRED: Spawn → quest giver NPC → objective → quest complete → quest_door → exit
+    FORBIDDEN: Spawn → quest_door → quest giver NPC (player can never start the quest — immediate softlock)
+    If a quest_door uses lockCondition type "quest_complete", the quest giver NPC for that quest
+    must NOT be placed in an area only reachable by passing through that quest_door.
   * GOOD MAP PATTERN — open floor plan with walls only on outer border:
       0 0 0 0 0 0 0
       0 1 1 1 1 1 0
@@ -535,6 +549,15 @@ To fix reachability errors:
 ## Campaign connectivity rules (for "not reachable from the starting level" errors)
 - Every level must have at least one exit entity whose targetLevelSlug points to the next level's slug.
 - Check each level's mapData.entities for type="exit" and ensure targetLevelSlug is set correctly.
+
+## Quest gate softlock rules (for "SOFTLOCK: Door ... requires quest ... but the quest giver ... is behind that door" errors)
+- The quest giver NPC must be placed BEFORE the quest_door that requires that quest.
+- Required order: Spawn → quest giver NPC (accessible) → objective target → quest complete → quest_door → exit
+- FIX: Move the quest giver NPC to a tile that is reachable from spawn WITHOUT passing through the quest_door.
+  1. Find the NPC's positionX/positionY in level.npcs[] and the entity x/y in mapData.entities[]
+  2. Move both to a floor tile (value 1/2/3) on the SPAWN SIDE of the quest_door
+  3. Do NOT move the quest_door — keep it where it blocks the exit
+- If the NPC is in a sealed room behind the door, also update positionX/positionY in npcs[] and x/y in entities[].
 
 ## Gameplay quality rules (for gameplay.* errors — scored 0-100, need 60 to import)
 

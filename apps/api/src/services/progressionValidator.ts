@@ -425,13 +425,12 @@ function runSimulation(adv: ProgAdventure): SimState {
         }
       }
 
-      // Complete quests whose giver NPC is accessible
+      // Complete quests whose giver NPC is accessible.
+      // Quests with no giver metadata are skipped — we cannot simulate their completion,
+      // and auto-completing them would mask giver-behind-door softlocks.
       for (const quest of adv.quests) {
         if (state.completedQuests.has(quest.slug)) continue;
-        if (!quest.giverLevelSlug || !quest.giverNpcName) {
-          // Quest with no giver — mark completable immediately
-          state.completedQuests.add(quest.slug); changed = true; continue;
-        }
+        if (!quest.giverLevelSlug || !quest.giverNpcName) continue;
         if (quest.giverLevelSlug !== levelSlug) continue;
         const npc = level.npcs.find(n => n.name === quest.giverNpcName);
         if (npc && near(reachable, npc.posX, npc.posY)) {
@@ -554,29 +553,48 @@ function detectSoftlocks(adv: ProgAdventure, finalState: SimState): SoftlockInfo
       }
 
       if (c.type === 'quest_complete' && c.targetSlug) {
-        if (!finalState.completedQuests.has(c.targetSlug)) {
-          const quest = adv.quests.find(q => q.slug === c.targetSlug);
-          if (quest && quest.giverLevelSlug === level.slug) {
-            // Quest giver is in same level — is it accessible without door?
-            const reachableWithoutDoor = bfsLevelWithDoorLocked(
-              level, finalState.openedDoors, door.name,
-            );
-            const npc = level.npcs.find(n => n.name === quest.giverNpcName);
-            if (npc && !near(reachableWithoutDoor, npc.posX, npc.posY)) {
-              errors.push({
-                path: pref,
-                message: [
-                  `SOFTLOCK: "${door.name}" in level "${level.name}" requires quest "${c.targetSlug}" to be complete,`,
-                  `but the quest giver "${quest.giverNpcName}" is only accessible after passing through this door.`,
-                  `Move the quest giver to an area accessible before the door.`,
-                ].join(' '),
-              });
-            }
-          } else if (!finalState.completedQuests.has(c.targetSlug)) {
+        const quest = adv.quests.find(q => q.slug === c.targetSlug);
+        const questDisplay = quest?.name ? `"${quest.name}"` : `"${c.targetSlug}"`;
+        let giverBehindDoor = false;
+
+        // Unconditional check: is the quest giver behind this specific door?
+        // Run this even if the simulation marked the quest complete, because the simulation
+        // auto-skips quests without giver metadata, which can mask real softlocks.
+        if (quest && quest.giverLevelSlug === level.slug && quest.giverNpcName) {
+          const reachableWithoutDoor = bfsLevelWithDoorLocked(
+            level, finalState.openedDoors, door.name,
+          );
+          const npc = level.npcs.find(n => n.name === quest.giverNpcName);
+          if (npc && !near(reachableWithoutDoor, npc.posX, npc.posY)) {
+            giverBehindDoor = true;
             errors.push({
               path: pref,
               message: [
-                `Unsatisfied door: "${door.name}" in level "${level.name}" requires quest "${c.targetSlug}" to be completed,`,
+                `SOFTLOCK: Door "${door.name}" requires quest ${questDisplay},`,
+                `but the quest giver NPC "${quest.giverNpcName}" is behind that door.`,
+                `The player can never start this quest before reaching the door.`,
+                `Move the quest giver to an area accessible before the door.`,
+              ].join(' '),
+            });
+          }
+        }
+
+        // If giver is not behind this door but quest still wasn't completed, explain why.
+        if (!giverBehindDoor && !finalState.completedQuests.has(c.targetSlug)) {
+          if (quest && quest.giverLevelSlug && !finalState.visitedLevels.has(quest.giverLevelSlug)) {
+            errors.push({
+              path: pref,
+              message: [
+                `SOFTLOCK: Door "${door.name}" requires quest ${questDisplay},`,
+                `but the quest giver is in level "${quest.giverLevelSlug}" which was never reached`,
+                `during simulation. Ensure that level is accessible before this door.`,
+              ].join(' '),
+            });
+          } else {
+            errors.push({
+              path: pref,
+              message: [
+                `Unsatisfied door: "${door.name}" in level "${level.name}" requires quest ${questDisplay} to be completed,`,
                 `but this quest was never completed during simulation.`,
               ].join(' '),
             });
