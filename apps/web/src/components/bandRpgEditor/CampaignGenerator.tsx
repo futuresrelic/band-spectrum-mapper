@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { campaignGeneratorApi, adventureApi } from '../../api/adventureApi';
-import type { CampaignSettings, ValidationResult, CampaignPingResult, ImportResult, GameplayScore } from '../../api/adventureApi';
+import type { CampaignSettings, ValidationResult, CampaignPingResult, ImportResult, GameplayScore, ProgressionResult } from '../../api/adventureApi';
 import { useAuth } from '../../contexts/AuthContext';
 import { bandsApi } from '../../api/bands';
 import type { BandWithCounts } from '@band-spectrum-mapper/shared';
@@ -592,6 +592,87 @@ function GameplayScorePanel({ score }: { score: GameplayScore }) {
   );
 }
 
+// ── Progression simulation panel ──────────────────────────────────────────────
+
+function ProgressionPanel({ progression }: { progression: ProgressionResult }) {
+  const { passed, errors, warnings, metrics } = progression;
+
+  const panelCls = passed
+    ? 'bg-emerald-50 border-emerald-200'
+    : 'bg-red-50 border-red-300';
+  const headCls = passed ? 'text-emerald-800' : 'text-red-800';
+
+  const checks = [
+    {
+      ok: metrics.adventureCompletable,
+      label: 'Adventure completable',
+      detail: metrics.adventureCompletable
+        ? `Simulation reached __adventure_complete__ in ${metrics.progressionSteps} step${metrics.progressionSteps !== 1 ? 's' : ''}`
+        : 'Simulation got stuck — player cannot finish the adventure',
+    },
+    {
+      ok: metrics.softlockCount === 0,
+      label: 'No softlocks / cycles',
+      detail: metrics.softlockCount === 0
+        ? 'No impossible doors or circular dependencies found'
+        : `${metrics.softlockCount} softlock${metrics.softlockCount !== 1 ? 's' : ''} detected`,
+    },
+    {
+      ok: metrics.unreachableObjectives === 0,
+      label: 'All objectives completable',
+      detail: metrics.unreachableObjectives === 0
+        ? 'Every required objective is achievable'
+        : `${metrics.unreachableObjectives} required objective${metrics.unreachableObjectives !== 1 ? 's' : ''} unreachable`,
+    },
+  ];
+
+  return (
+    <div className={`border rounded-lg p-3 ${panelCls}`}>
+      <div className="flex items-center justify-between mb-2.5">
+        <span className={`text-sm font-semibold ${headCls}`}>
+          Progression Simulation
+        </span>
+        <span className={`text-xs px-2 py-0.5 rounded font-semibold ${passed ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+          {passed ? '✓ PASS' : '✗ FAIL'}
+        </span>
+      </div>
+
+      <div className="space-y-1 mb-2">
+        {checks.map(({ ok, label, detail }) => (
+          <div key={label} className="flex items-start gap-2 text-xs">
+            <span className={ok ? 'text-emerald-600' : 'text-red-600'}>{ok ? '✓' : '✗'}</span>
+            <div>
+              <span className={`font-medium ${ok ? 'text-emerald-700' : 'text-red-700'}`}>{label}</span>
+              <span className="text-surface-500 ml-1">— {detail}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {errors.length > 0 && (
+        <ul className="space-y-1.5 mt-2">
+          {errors.map((e, i) => (
+            <li key={i} className="text-xs text-red-800 bg-red-100/60 rounded px-2 py-1.5">
+              {e.path && <span className="font-mono font-medium">[{e.path}]</span>}{' '}
+              {e.message}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {warnings.length > 0 && (
+        <ul className="space-y-1 mt-2">
+          {warnings.map((w, i) => (
+            <li key={i} className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">
+              ⚠ {w.message}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ── Validation step ───────────────────────────────────────────────────────────
 
 const REACHABILITY_KEYWORDS = ['unreachable', 'sealed', 'no exit entity', 'not reachable from the starting level', 'no spawn entity', 'non-walkable tile'];
@@ -636,10 +717,17 @@ function ValidationStep({ result, onRepair, onRepairReachability, onProceed, onB
     return e.path.startsWith('gameplay.');
   }
 
+  const progressionErrorSet = new Set(
+    (result.progression?.errors ?? []).map(pe => `${pe.path}::${pe.message}`),
+  );
+  function isProgressionError(e: { path: string; message: string }): boolean {
+    return progressionErrorSet.has(`${e.path}::${e.message}`);
+  }
+
   const reachabilityErrors = result.errors.filter(e => isReachabilityError(e.message));
   const gameplayErrors     = result.errors.filter(e => isGameplayError(e));
   const structuralErrors   = result.errors.filter(e =>
-    !isReachabilityError(e.message) && !isGameplayError(e)
+    !isReachabilityError(e.message) && !isGameplayError(e) && !isProgressionError(e)
   );
   const anyLoading = isRepairLoading || isRepairReachabilityLoading;
 
@@ -657,6 +745,11 @@ function ValidationStep({ result, onRepair, onRepairReachability, onProceed, onB
       {/* Gameplay score — shown in both valid and invalid states */}
       {result.gameplay && (
         <GameplayScorePanel score={result.gameplay} />
+      )}
+
+      {/* Progression simulation — shown whenever data is available */}
+      {result.progression && (
+        <ProgressionPanel progression={result.progression} />
       )}
 
       {result.valid ? (

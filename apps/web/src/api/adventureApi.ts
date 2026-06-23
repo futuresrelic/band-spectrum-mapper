@@ -83,11 +83,25 @@ export interface GameplayScore {
   progression: number;
   details: string[];
 }
+export interface ProgressionError   { path: string; message: string; }
+export interface ProgressionWarning { path: string; message: string; }
+export interface ProgressionResult {
+  passed: boolean;
+  errors: ProgressionError[];
+  warnings: ProgressionWarning[];
+  metrics: {
+    softlockCount:         number;
+    progressionSteps:      number;
+    unreachableObjectives: number;
+    adventureCompletable:  boolean;
+  };
+}
 export interface ValidationResult {
   valid: boolean;
   errors: ValidationError[];
   preview: ImportPreview | null;
   gameplay?: GameplayScore;
+  progression?: ProgressionResult;
 }
 export interface ImportResult {
   ok: boolean;

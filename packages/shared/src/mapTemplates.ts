@@ -8,6 +8,8 @@ export type Transform = 'rot0' | 'rot90' | 'rot180' | 'rot270' | 'flipH' | 'flip
 export interface SlotPosition {
   x: number;
   y: number;
+  /** Accessibility depth: 0=spawn, 1-2=pre-door, 3=door boundary, 4-5=post-door. */
+  depth?: number;
 }
 
 export interface MapSlots {
@@ -34,6 +36,8 @@ export interface MapTemplate {
 
 const TEMPLATES: MapTemplate[] = [
   {
+    // Spawn in RIGHT room; exitMain on LEFT border (behind doorMain).
+    // itemKey is in the RIGHT room (pre-door depth:1) — safe to use as the door key.
     templateId: 'two_room',
     name: 'Two Room',
     width: 11, height: 9,
@@ -49,11 +53,11 @@ const TEMPLATES: MapTemplate[] = [
       [0,0,0,0,0,0,0,0,0,0,0],
     ],
     slots: {
-      spawn:          { x: 8, y: 3 },
-      exitMain:       { x: 0, y: 3 },
-      doorMain:       { x: 4, y: 3 },
-      npcQuestGiver:  { x: 8, y: 2 },
-      itemKey:        { x: 2, y: 5 },
+      spawn:         { x: 8, y: 3, depth: 0 },
+      exitMain:      { x: 0, y: 3, depth: 4 },
+      doorMain:      { x: 4, y: 3, depth: 3 },
+      npcQuestGiver: { x: 8, y: 2, depth: 1 },
+      itemKey:       { x: 8, y: 5, depth: 1 },
     },
   },
 
@@ -73,11 +77,11 @@ const TEMPLATES: MapTemplate[] = [
       [0,0,0,0,0,0,0,0,0,0,0],
     ],
     slots: {
-      spawn:         { x: 4, y: 6 },
-      exitMain:      { x: 9, y: 0 },
-      doorMain:      { x: 1, y: 3 },
-      itemKey:       { x: 9, y: 2 },
-      npcQuestGiver: { x: 1, y: 2 },
+      spawn:         { x: 4, y: 6, depth: 0 },
+      exitMain:      { x: 9, y: 0, depth: 4 },
+      doorMain:      { x: 1, y: 3, depth: 3 },
+      itemKey:       { x: 9, y: 2, depth: 1 },
+      npcQuestGiver: { x: 1, y: 2, depth: 2 },
     },
   },
 
@@ -97,14 +101,14 @@ const TEMPLATES: MapTemplate[] = [
       [0,0,0,0,0,0,0,0,0,0,0,0,0],
     ],
     slots: {
-      spawn:         { x: 2, y: 3 },
-      exitMain:      { x: 12, y: 3 },
-      doorMain:      { x: 4, y: 3 },
-      switchA:       { x: 8, y: 3 },
-      npcQuestGiver: { x: 6, y: 2 },
-      npcHint:       { x: 10, y: 2 },
-      itemKey:       { x: 10, y: 5 },
-      itemOptional:  { x: 6, y: 5 },
+      spawn:         { x: 2,  y: 3, depth: 0 },
+      exitMain:      { x: 12, y: 3, depth: 5 },
+      doorMain:      { x: 4,  y: 3, depth: 3 },
+      switchA:       { x: 8,  y: 3, depth: 4 },
+      npcQuestGiver: { x: 6,  y: 2, depth: 4 },
+      npcHint:       { x: 10, y: 2, depth: 5 },
+      itemKey:       { x: 10, y: 5, depth: 5 },
+      itemOptional:  { x: 6,  y: 5, depth: 4 },
     },
   },
 
@@ -129,14 +133,14 @@ const TEMPLATES: MapTemplate[] = [
       [0,0,0,0,0,0,0,0,0,0,0,0,0],
     ],
     slots: {
-      spawn:         { x: 6, y: 5 },
-      exitMain:      { x: 6, y: 0 },
-      doorMain:      { x: 6, y: 3 },
-      switchA:       { x: 6, y: 7 },
-      npcQuestGiver: { x: 2, y: 2 },
-      npcHint:       { x: 10, y: 2 },
-      itemKey:       { x: 2, y: 8 },
-      itemOptional:  { x: 10, y: 8 },
+      spawn:         { x: 6,  y: 5, depth: 0 },
+      exitMain:      { x: 6,  y: 0, depth: 4 },
+      doorMain:      { x: 6,  y: 3, depth: 3 },
+      switchA:       { x: 6,  y: 7, depth: 1 },
+      npcQuestGiver: { x: 2,  y: 2, depth: 1 },
+      npcHint:       { x: 10, y: 2, depth: 1 },
+      itemKey:       { x: 2,  y: 8, depth: 1 },
+      itemOptional:  { x: 10, y: 8, depth: 1 },
     },
   },
 
@@ -160,11 +164,11 @@ const TEMPLATES: MapTemplate[] = [
       [0,0,0,0,0,0,0,0,0,0,0],
     ],
     slots: {
-      spawn:    { x: 2, y: 9 },
-      exitMain: { x: 0, y: 1 },
-      doorMain: { x: 5, y: 7 },
-      switchA:  { x: 4, y: 5 },
-      itemKey:  { x: 2, y: 6 },
+      spawn:    { x: 2, y: 9, depth: 0 },
+      exitMain: { x: 0, y: 1, depth: 4 },
+      doorMain: { x: 5, y: 7, depth: 3 },
+      switchA:  { x: 4, y: 5, depth: 2 },
+      itemKey:  { x: 2, y: 6, depth: 1 },
     },
   },
 
@@ -186,13 +190,13 @@ const TEMPLATES: MapTemplate[] = [
       [0,0,0,0,0,0,0,0,0,0,0],
     ],
     slots: {
-      spawn:         { x: 5, y: 5 },
-      exitMain:      { x: 5, y: 0 },
-      doorMain:      { x: 5, y: 3 },
-      switchA:       { x: 5, y: 7 },
-      npcQuestGiver: { x: 2, y: 5 },
-      npcHint:       { x: 8, y: 5 },
-      itemKey:       { x: 5, y: 8 },
+      spawn:         { x: 5, y: 5, depth: 0 },
+      exitMain:      { x: 5, y: 0, depth: 4 },
+      doorMain:      { x: 5, y: 3, depth: 3 },
+      switchA:       { x: 5, y: 7, depth: 1 },
+      npcQuestGiver: { x: 2, y: 5, depth: 1 },
+      npcHint:       { x: 8, y: 5, depth: 1 },
+      itemKey:       { x: 5, y: 8, depth: 2 },
     },
   },
 
@@ -214,12 +218,12 @@ const TEMPLATES: MapTemplate[] = [
       [0,0,0,0,0,0,0,0,0,0,0,0,0],
     ],
     slots: {
-      spawn:         { x: 2, y: 6 },
-      exitMain:      { x: 0, y: 6 },
-      doorMain:      { x: 6, y: 4 },
-      npcQuestGiver: { x: 2, y: 2 },
-      itemKey:       { x: 10, y: 2 },
-      itemOptional:  { x: 10, y: 6 },
+      spawn:         { x: 2,  y: 6, depth: 0 },
+      exitMain:      { x: 0,  y: 6, depth: 1 },
+      doorMain:      { x: 6,  y: 4, depth: 3 },
+      npcQuestGiver: { x: 2,  y: 2, depth: 1 },
+      itemKey:       { x: 10, y: 2, depth: 4 },
+      itemOptional:  { x: 10, y: 6, depth: 4 },
     },
   },
 
@@ -240,14 +244,14 @@ const TEMPLATES: MapTemplate[] = [
       [0,0,0,0,0,0,0,0,0,0,0,0,0],
     ],
     slots: {
-      spawn:         { x: 2, y: 4 },
-      exitMain:      { x: 12, y: 4 },
-      doorMain:      { x: 9, y: 4 },
-      switchA:       { x: 5, y: 4 },
-      npcQuestGiver: { x: 1, y: 2 },
-      npcHint:       { x: 4, y: 6 },
-      itemKey:       { x: 10, y: 2 },
-      itemOptional:  { x: 7, y: 6 },
+      spawn:         { x: 2,  y: 4, depth: 0 },
+      exitMain:      { x: 12, y: 4, depth: 4 },
+      doorMain:      { x: 9,  y: 4, depth: 3 },
+      switchA:       { x: 5,  y: 4, depth: 1 },
+      npcQuestGiver: { x: 1,  y: 2, depth: 1 },
+      npcHint:       { x: 4,  y: 6, depth: 1 },
+      itemKey:       { x: 10, y: 2, depth: 4 },
+      itemOptional:  { x: 7,  y: 6, depth: 2 },
     },
   },
 
@@ -271,11 +275,11 @@ const TEMPLATES: MapTemplate[] = [
       [0,0,0,0,0,0,0,0,0,0,0,0,0],
     ],
     slots: {
-      spawn:    { x: 1, y: 9 },
-      exitMain: { x: 11, y: 0 },
-      doorMain: { x: 7, y: 5 },
-      switchA:  { x: 9, y: 5 },
-      itemKey:  { x: 11, y: 2 },
+      spawn:    { x: 1,  y: 9, depth: 0 },
+      exitMain: { x: 11, y: 0, depth: 5 },
+      doorMain: { x: 7,  y: 5, depth: 3 },
+      switchA:  { x: 9,  y: 5, depth: 4 },
+      itemKey:  { x: 11, y: 2, depth: 5 },
     },
   },
 
@@ -300,14 +304,14 @@ const TEMPLATES: MapTemplate[] = [
       [0,0,0,0,0,0,0,0,0,0,0,0,0],
     ],
     slots: {
-      spawn:         { x: 6, y: 9 },
-      exitMain:      { x: 6, y: 0 },
-      doorMain:      { x: 6, y: 2 },
-      switchA:       { x: 6, y: 8 },
-      npcQuestGiver: { x: 2, y: 2 },
-      npcHint:       { x: 10, y: 2 },
-      itemKey:       { x: 2, y: 8 },
-      itemOptional:  { x: 10, y: 8 },
+      spawn:         { x: 6,  y: 9, depth: 0 },
+      exitMain:      { x: 6,  y: 0, depth: 4 },
+      doorMain:      { x: 6,  y: 2, depth: 3 },
+      switchA:       { x: 6,  y: 8, depth: 1 },
+      npcQuestGiver: { x: 2,  y: 2, depth: 1 },
+      npcHint:       { x: 10, y: 2, depth: 1 },
+      itemKey:       { x: 2,  y: 8, depth: 1 },
+      itemOptional:  { x: 10, y: 8, depth: 1 },
     },
   },
 ];
@@ -400,13 +404,14 @@ function transformTiles(
 
 function transformSlot(slot: SlotPosition, origWidth: number, origHeight: number, t: Transform): SlotPosition {
   const { x, y } = slot;
-  if (t === 'rot0')   return { x, y };
-  if (t === 'flipH')  return { x: origWidth - 1 - x, y };
-  if (t === 'flipV')  return { x, y: origHeight - 1 - y };
-  if (t === 'rot90')  return { x: origHeight - 1 - y, y: x };
-  if (t === 'rot180') return { x: origWidth - 1 - x, y: origHeight - 1 - y };
-  if (t === 'rot270') return { x: y, y: origWidth - 1 - x };
-  return { x, y };
+  const d = slot.depth !== undefined ? { depth: slot.depth } : {};
+  if (t === 'rot0')   return { x, y, ...d };
+  if (t === 'flipH')  return { x: origWidth - 1 - x, y, ...d };
+  if (t === 'flipV')  return { x, y: origHeight - 1 - y, ...d };
+  if (t === 'rot90')  return { x: origHeight - 1 - y, y: x, ...d };
+  if (t === 'rot180') return { x: origWidth - 1 - x, y: origHeight - 1 - y, ...d };
+  if (t === 'rot270') return { x: y, y: origWidth - 1 - x, ...d };
+  return { x, y, ...d };
 }
 
 export function applyTransform(template: MapTemplate, t: Transform): MapTemplate {
@@ -444,22 +449,44 @@ export function formatTemplateForPrompt(template: MapTemplate, levelNumber: numb
     template.tiles.map(row => '  ' + JSON.stringify(row)).join(',\n') +
     '\n]';
 
-  const slotLines: string[] = [
-    `  spawn:          { x: ${slots.spawn.x}, y: ${slots.spawn.y} }  ← REQUIRED: place spawn entity here`,
-    `  exitMain:       { x: ${slots.exitMain.x}, y: ${slots.exitMain.y} }  ← REQUIRED: place exit entity here (border tile)`,
-  ];
-  if (slots.doorMain)      slotLines.push(`  doorMain:       { x: ${slots.doorMain.x}, y: ${slots.doorMain.y} }  ← recommended: place locked door entity + define door in doors[]`);
-  if (slots.switchA)       slotLines.push(`  switchA:        { x: ${slots.switchA.x}, y: ${slots.switchA.y} }  ← recommended: place switch entity + define switch in switches[]`);
-  if (slots.npcQuestGiver) slotLines.push(`  npcQuestGiver:  { x: ${slots.npcQuestGiver.x}, y: ${slots.npcQuestGiver.y} }  ← recommended: place NPC here, set positionX/Y`);
-  if (slots.npcHint)       slotLines.push(`  npcHint:        { x: ${slots.npcHint.x}, y: ${slots.npcHint.y} }  ← optional secondary NPC`);
-  if (slots.itemKey)       slotLines.push(`  itemKey:        { x: ${slots.itemKey.x}, y: ${slots.itemKey.y} }  ← recommended: place key item entity here`);
-  if (slots.itemOptional)  slotLines.push(`  itemOptional:   { x: ${slots.itemOptional.x}, y: ${slots.itemOptional.y} }  ← optional secondary item`);
+  function dStr(s: SlotPosition): string {
+    return s.depth !== undefined ? ` [depth:${s.depth}]` : '';
+  }
 
-  return [
+  const slotLines: string[] = [
+    `  spawn:          { x: ${slots.spawn.x}, y: ${slots.spawn.y} }${dStr(slots.spawn)}  ← REQUIRED: place spawn entity here`,
+    `  exitMain:       { x: ${slots.exitMain.x}, y: ${slots.exitMain.y} }${dStr(slots.exitMain)}  ← REQUIRED: place exit entity here (border tile)`,
+  ];
+  if (slots.doorMain)      slotLines.push(`  doorMain:       { x: ${slots.doorMain.x}, y: ${slots.doorMain.y} }${dStr(slots.doorMain)}  ← recommended: place locked door entity + define in doors[]`);
+  if (slots.switchA)       slotLines.push(`  switchA:        { x: ${slots.switchA.x}, y: ${slots.switchA.y} }${dStr(slots.switchA)}  ← recommended: place switch entity + define in switches[]`);
+  if (slots.npcQuestGiver) slotLines.push(`  npcQuestGiver:  { x: ${slots.npcQuestGiver.x}, y: ${slots.npcQuestGiver.y} }${dStr(slots.npcQuestGiver)}  ← recommended: NPC quest giver, set positionX/Y`);
+  if (slots.npcHint)       slotLines.push(`  npcHint:        { x: ${slots.npcHint.x}, y: ${slots.npcHint.y} }${dStr(slots.npcHint)}  ← optional secondary NPC`);
+  if (slots.itemKey)       slotLines.push(`  itemKey:        { x: ${slots.itemKey.x}, y: ${slots.itemKey.y} }${dStr(slots.itemKey)}  ← key item placement position`);
+  if (slots.itemOptional)  slotLines.push(`  itemOptional:   { x: ${slots.itemOptional.x}, y: ${slots.itemOptional.y} }${dStr(slots.itemOptional)}  ← optional secondary item`);
+
+  // Softlock risk warning: itemKey depth >= doorMain depth means the key is BEHIND its own door
+  const warnings: string[] = [];
+  if (slots.doorMain && slots.itemKey) {
+    const doorDepth = slots.doorMain.depth ?? 3;
+    const keyDepth  = slots.itemKey.depth  ?? 1;
+    if (keyDepth >= doorDepth) {
+      warnings.push(
+        `  ⚠ SOFTLOCK RISK: itemKey [depth:${keyDepth}] is BEHIND doorMain [depth:${doorDepth}].` +
+        ` Do NOT use itemKey as the door key — that creates an impossible game.` +
+        ` For doorMain use: openedByDefault:true, lockCondition.type:"always", or quest_complete` +
+        ` from an NPC whose slot has depth < ${doorDepth}.`,
+      );
+    }
+  }
+
+  const lines = [
     `### Level ${levelNumber} — Template: "${template.templateId}" (${template.name}) — ${template.width}×${template.height}`,
     `TILE ARRAY — copy verbatim into mapData.tiles, set mapData.width:${template.width}, mapData.height:${template.height}:`,
     tilesJson,
-    `ENTITY SLOT POSITIONS (all slots are on walkable floor tiles, BFS-verified):`,
+    `ENTITY SLOT POSITIONS (depth: 0=spawn, 1-2=pre-door, 3=door, 4-5=post-door — key items MUST have depth < doorMain depth):`,
     slotLines.join('\n'),
-  ].join('\n');
+  ];
+  if (warnings.length > 0) lines.push(warnings.join('\n'));
+
+  return lines.join('\n');
 }

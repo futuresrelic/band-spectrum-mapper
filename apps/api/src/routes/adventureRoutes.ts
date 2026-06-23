@@ -6,6 +6,8 @@ import { requireAdmin } from '../middleware/requireAdmin.js';
 import { validateReachability } from '../services/reachabilityValidator.js';
 import { validateGameplay } from '../services/gameplayValidator.js';
 import type { GameplayScore } from '../services/gameplayValidator.js';
+import { validateProgression } from '../services/progressionValidator.js';
+import type { ProgressionResult } from '../services/progressionValidator.js';
 
 export const adventureRouter = Router();
 adventureRouter.use(requireAuth, requireAdmin);
@@ -339,7 +341,7 @@ interface ImportTimeline { title: string; type: string; refSlug?: string; isRequ
 interface ImportLevel { slug: string; name: string; description?: string; order?: number; spawnX?: number; spawnY?: number; background?: string; mapData?: unknown; isPublished?: boolean; objectives?: ImportObjective[]; npcs?: ImportNpc[]; beats?: ImportBeat[]; doors?: ImportDoor[]; switches?: ImportSwitch[]; puzzles?: ImportPuzzle[]; }
 
 interface ValidationError { path: string; message: string; }
-interface ValidationResult { valid: boolean; errors: ValidationError[]; preview: ImportPreview | null; gameplay?: GameplayScore; }
+interface ValidationResult { valid: boolean; errors: ValidationError[]; preview: ImportPreview | null; gameplay?: GameplayScore; progression?: ProgressionResult; }
 interface ImportPreview { levelCount: number; npcCount: number; objectiveCount: number; questCount: number; arcCount: number; itemCount: number; beatCount: number; doorCount: number; switchCount: number; puzzleCount: number; timelineCount: number; }
 
 // Valid enum values — must stay in sync with prisma/schema.prisma BandRpgItemType
@@ -717,12 +719,17 @@ adventureRouter.post('/validate', async (req, res, next): Promise<void> => {
     // Gameplay validation — only in /validate, never in /import (allows manual imports to bypass).
     const gameplayResult = validateGameplay(normalized);
 
-    const allErrors = [...result.errors, ...dbErrors, ...gameplayResult.errors];
+    // Progression simulation — Phase 4.5: forward gameplay simulation for softlock detection.
+    // Only runs when structural validation passes (needs a parseable adventure).
+    const progressionResult = validateProgression(normalized);
+
+    const allErrors = [...result.errors, ...dbErrors, ...gameplayResult.errors, ...progressionResult.errors];
     const response: ValidationResult = {
       valid: allErrors.length === 0,
       errors: allErrors,
       preview: result.preview,
       gameplay: gameplayResult.score,
+      progression: progressionResult,
     };
     res.json(response); return;
   } catch (err) { next(err); return; }
