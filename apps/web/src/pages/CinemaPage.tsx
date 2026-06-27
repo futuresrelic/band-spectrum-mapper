@@ -739,9 +739,19 @@ export default function CinemaPage() {
   const [lyricPathSongId,    setLyricPathSongId]    = useState<string | null>(null);
   const [lyricPathSongLabel, setLyricPathSongLabel] = useState('');
 
-  // ── Cinema Handoff (incoming from Word Cloud / Pattern Lab) ─────────────────
+  // ── Cinema Handoff (incoming from Word Cloud / Pattern Lab / Song Spectrum) ──
   const [cinemaHandoff, setCinemaHandoff] = useState<CinemaHandoff | null>(null);
-  useEffect(() => { setCinemaHandoff(popCinemaHandoff()); }, []);
+  useEffect(() => {
+    const handoff = popCinemaHandoff();
+    setCinemaHandoff(handoff);
+    // If the handoff carries audio context, apply BPM-derived speed multiplier.
+    // Map 60-200 BPM → 0.4-1.6 speed; clamp to [0.3, 2.0].
+    if (handoff?.audioContext) {
+      const bpm = handoff.audioContext.bpm;
+      const derived = Math.max(0.3, Math.min(2.0, bpm / 120));
+      setCinemaControls((c) => ({ ...c, speedMultiplier: parseFloat(derived.toFixed(2)) }));
+    }
+  }, []);
 
   // ── Server persistence timers (debounced saves, 2 s after each change) ────────
   const presetsServerTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3729,27 +3739,37 @@ export default function CinemaPage() {
             </Link>
           </div>
 
-          {/* Cinema Handoff banner — incoming tour from Word Cloud / Pattern Lab */}
+          {/* Cinema Handoff banner — incoming from Word Cloud, Pattern Lab, or Song Spectrum */}
           {cinemaHandoff && (
             <div className="absolute top-14 left-1/2 -translate-x-1/2 z-40
               bg-indigo-950/95 border border-indigo-700/60 rounded-xl px-4 py-2.5
-              backdrop-blur-sm shadow-2xl flex items-center gap-3 max-w-sm">
+              backdrop-blur-sm shadow-2xl flex items-center gap-3 max-w-md">
               <div className="flex-1 min-w-0">
                 <div className="text-indigo-300 text-[11px] leading-snug">🎬 {cinemaHandoff.label}</div>
                 {cinemaHandoff.preset === 'lyrical-dna' && (
                   <div className="text-indigo-600 text-[9px] mt-0.5">Words → Songs · Lyrical DNA view</div>
                 )}
+                {cinemaHandoff.audioContext && (
+                  <div className="text-violet-400 text-[9px] mt-0.5 font-mono">
+                    {cinemaHandoff.audioContext.bpm.toFixed(0)} BPM
+                    {' · '}{cinemaHandoff.audioContext.key}
+                    {' · '}{Math.floor(cinemaHandoff.audioContext.duration / 60)}:{String(Math.round(cinemaHandoff.audioContext.duration % 60)).padStart(2, '0')}
+                    {' · speed ×'}{cinemaControls.speedMultiplier.toFixed(2)}
+                  </div>
+                )}
               </div>
-              <button
-                onClick={() => {
-                  setSelectedBandIds(cinemaHandoff.bandIds);
-                  if (cinemaHandoff.preset) setGraphPreset(cinemaHandoff.preset);
-                  setCinemaHandoff(null);
-                }}
-                className="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white rounded px-2 py-1 whitespace-nowrap shrink-0 transition-colors"
-              >
-                {cinemaHandoff.preset === 'lyrical-dna' ? '🧬 Load' : 'Apply bands'}
-              </button>
+              {cinemaHandoff.bandIds.length > 0 && (
+                <button
+                  onClick={() => {
+                    setSelectedBandIds(cinemaHandoff.bandIds);
+                    if (cinemaHandoff.preset) setGraphPreset(cinemaHandoff.preset);
+                    setCinemaHandoff(null);
+                  }}
+                  className="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white rounded px-2 py-1 whitespace-nowrap shrink-0 transition-colors"
+                >
+                  {cinemaHandoff.preset === 'lyrical-dna' ? '🧬 Load' : 'Apply bands'}
+                </button>
+              )}
               <button
                 onClick={() => setCinemaHandoff(null)}
                 className="text-indigo-600 hover:text-indigo-300 text-xs shrink-0 transition-colors"

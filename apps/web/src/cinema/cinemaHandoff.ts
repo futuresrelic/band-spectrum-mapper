@@ -1,11 +1,31 @@
 /** Thin localStorage bridge: research tools → Cinema Mode band/tour preset. */
 
+/**
+ * Distilled audio analysis data sent from Song Spectrum Analyzer to Cinema Mode.
+ * Contains only the fields needed to drive visual parameters — not the full
+ * AudioAnalysisResult which could be very large.
+ */
+export interface CinemaAudioContext {
+  songTitle: string;
+  artistName: string;
+  bpm: number;
+  bpmConfidence: number;
+  key: string;
+  duration: number;
+  loudnessMeanDb: number;
+  dynamicRange: number;
+  spectralCentroid: number;
+  rhythmicDensity: number;
+}
+
 export interface CinemaHandoff {
   label: string;
   bandIds: string[];
   /** Optional graph preset to load. Defaults to 'artist-universe' if absent. */
   preset?: 'lyrical-dna';
   createdAt: string;
+  /** Optional audio analysis context from Song Spectrum Analyzer. */
+  audioContext?: CinemaAudioContext;
 }
 
 const KEY = 'cinema-handoff';

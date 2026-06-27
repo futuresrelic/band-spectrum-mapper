@@ -4,6 +4,59 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.7 — YouTube Audio Pipeline Audit & Improvement (2026-06-27)
+
+### Added
+
+**Phase 4 — Comprehensive diagnostic logging in `apps/audio-worker/main.py`:**
+- Every YouTube download now logs: yt-dlp version/path, ffmpeg version/path, cookies state, full stdout/stderr, exit code, download duration, output filename and file size
+- Log output visible in Railway service logs for easy debugging
+
+**Phase 5 — Diagnostics endpoint:**
+- `GET /diagnostics` on the Python worker returns yt-dlp installed/version/path, ffmpeg installed/version/path, temp directory writable, cookies configured, youtube enabled, platform, Python version
+- `GET /api/audio/diagnostics` on the Node.js API proxies to the Python worker and adds local flags (`workerUrl`, `workerReachable`, `nodeYoutubeAudioEnabled`)
+- Available to admin users; useful for Railway setup verification
+
+**Phase 6 — Improved yt-dlp error classification:**
+- `_classify_ytdlp_error()` helper parses yt-dlp stderr into specific user-facing messages:
+  - HTTP 429 / "too many requests" → 429 with cookie setup instructions
+  - HTTP 403 / bot detection / "sign in" → 403 with cookie setup instructions
+  - "Video unavailable" / "private video" → 404
+  - "not available in your country" → 451
+  - Copyright takedown → 451
+  - All other failures → 422 with raw stderr (capped to 600 chars)
+- Error status codes now correctly reflect the underlying cause (was always 422)
+
+**Phase 7 — YouTube analysis caching:**
+- `POST /score` endpoint on Python worker — accepts a pre-computed `AudioAnalysisResult` JSON and returns scores; no audio file required
+- `findCachedYoutubeAnalysis()` in `songSpectrumService.ts` — checks `SongSpectrumAnalysis` DB for an existing entry with the same YouTube URL and populated `audioAnalysis`, within a 30-day TTL
+- `analyzeAudioFromYouTube()` now checks the cache first; on hit, calls `/score` for fresh scoring with current lyrics context and skips the yt-dlp download entirely
+- Cache is keyed on normalized YouTube URL; TTL is 30 days
+- Logged as "Cache hit" in server logs
+
+**Phase 8 — Cinema Mode audio context:**
+- `CinemaAudioContext` interface in `cinemaHandoff.ts` — distills audio analysis to BPM, key, duration, loudness, spectral centroid, rhythmic density
+- `CinemaHandoff` extended with optional `audioContext` field
+- "Cinema Mode" button added to Song Spectrum results header (visible when audio analysis exists)
+- Clicking the button pushes audio context to Cinema via localStorage handoff and navigates to `/cinema`
+- CinemaPage reads the handoff and auto-applies a BPM-derived `speedMultiplier` (BPM ÷ 120, clamped to 0.3–2.0)
+- Handoff banner in Cinema shows BPM, key, duration, and applied speed when audio context is present
+
+**Phase 9 — Manual audio upload fallback:**
+- Already fully implemented: `/analyze-audio` route accepts WAV, MP3, FLAC, OGG, M4A, AAC, OPUS, WEBM; runs the identical librosa analysis pipeline. No changes needed. Documented here for completeness.
+
+**Phase 10 — Legal boundary disclaimer:**
+- Legal disclaimer added to the "Analyze from YouTube" section in Song Spectrum page
+- States: "Only analyze audio you have the right to use. BSM extracts and stores analysis data (tempo, key, spectral features) — not the original audio file. The downloaded audio is processed in memory and deleted immediately after analysis."
+
+### Changed
+
+- `_download_youtube_audio()` in Python worker: logs are now structured and comprehensive; error messages are human-readable rather than raw yt-dlp stderr
+- `analyzeAudioFromYouTube()` in `songSpectrumService.ts`: cache-aware; returns `{ analysis, scores, fromCache?: true }` on cache hits
+- Cinema handoff banner: shows audio context row when `audioContext` is present; hides "Apply bands" button when `bandIds` is empty (audio-context-only handoffs)
+
+---
+
 ## Phase Z.6 (continued) — Tool Adventure: The Lost Archive (2026-06-21)
 
 ### Added

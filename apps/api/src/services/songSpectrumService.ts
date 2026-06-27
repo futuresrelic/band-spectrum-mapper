@@ -41,6 +41,63 @@ export function isYouTubeAudioEnabled(): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Worker diagnostics — proxies to Python worker GET /diagnostics
+// ---------------------------------------------------------------------------
+
+export interface WorkerDiagnostics {
+  ytDlpInstalled: boolean;
+  ytDlpVersion: string | null;
+  ytDlpPath: string | null;
+  ffmpegInstalled: boolean;
+  ffmpegVersion: string | null;
+  ffmpegPath: string | null;
+  tempDirectoryWritable: boolean;
+  cookiesConfigured: boolean;
+  youtubeEnabled: boolean;
+  maxUploadMb: number;
+  platform: string;
+  pythonVersion: string;
+  // Local API-side additions
+  workerUrl: string | null;
+  workerReachable: boolean;
+  nodeYoutubeAudioEnabled: boolean;
+}
+
+export async function getWorkerDiagnostics(): Promise<WorkerDiagnostics> {
+  const workerUrl = process.env['AUDIO_WORKER_URL']?.replace(/\/$/, '') ?? null;
+  const nodeYoutubeAudioEnabled = isYouTubeAudioEnabled();
+
+  if (!workerUrl) {
+    return {
+      ytDlpInstalled: false, ytDlpVersion: null, ytDlpPath: null,
+      ffmpegInstalled: false, ffmpegVersion: null, ffmpegPath: null,
+      tempDirectoryWritable: false, cookiesConfigured: false,
+      youtubeEnabled: false, maxUploadMb: 0,
+      platform: 'unknown', pythonVersion: 'unknown',
+      workerUrl: null, workerReachable: false, nodeYoutubeAudioEnabled,
+    };
+  }
+
+  try {
+    const res = await fetch(`${workerUrl}/diagnostics`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) throw new Error(`Worker returned ${res.status}`);
+    const data = await res.json() as Omit<WorkerDiagnostics, 'workerUrl' | 'workerReachable' | 'nodeYoutubeAudioEnabled'>;
+    return { ...data, workerUrl, workerReachable: true, nodeYoutubeAudioEnabled };
+  } catch {
+    return {
+      ytDlpInstalled: false, ytDlpVersion: null, ytDlpPath: null,
+      ffmpegInstalled: false, ffmpegVersion: null, ffmpegPath: null,
+      tempDirectoryWritable: false, cookiesConfigured: false,
+      youtubeEnabled: false, maxUploadMb: 0,
+      platform: 'unknown', pythonVersion: 'unknown',
+      workerUrl, workerReachable: false, nodeYoutubeAudioEnabled,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // YouTube metadata — official Data API v3 only, no audio download
 // ---------------------------------------------------------------------------
 
@@ -342,6 +399,54 @@ export async function analyzeAudio(
 }
 
 // ---------------------------------------------------------------------------
+// YouTube analysis cache — avoids re-downloading audio for the same URL.
+//
+// The Python analysis pipeline is expensive (yt-dlp download + librosa).
+// If we already have an AudioAnalysisResult for this URL in the DB (within
+// the TTL), we re-score it via the lightweight /score worker endpoint
+// instead of re-running the full pipeline.
+//
+// Cache TTL: 30 days.  Cache key: normalized YouTube URL.
+// Only the audio features are cached; scores are always recomputed because
+// they depend on the per-call lyricsContext.
+// ---------------------------------------------------------------------------
+
+const YOUTUBE_ANALYSIS_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+async function findCachedYoutubeAnalysis(youtubeUrl: string): Promise<AudioAnalysisResult | null> {
+  const cutoff = new Date(Date.now() - YOUTUBE_ANALYSIS_CACHE_TTL_MS);
+  const row = await prisma.songSpectrumAnalysis.findFirst({
+    where: {
+      youtubeUrl,
+      createdAt: { gte: cutoff },
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { audioAnalysis: true },
+  });
+  if (!row || !row.audioAnalysis) return null;
+  return row.audioAnalysis as unknown as AudioAnalysisResult;
+}
+
+async function scoreAnalysisFromWorker(
+  workerUrl: string,
+  analysis: AudioAnalysisResult,
+  lyricsContext: string,
+): Promise<Record<string, ScoreAxisDetail>> {
+  try {
+    const res = await fetch(`${workerUrl}/score`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ analysis, lyrics_context: lyricsContext }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.ok) return res.json() as Promise<Record<string, ScoreAxisDetail>>;
+  } catch (err) {
+    console.warn('[songSpectrumService] /score request failed, returning empty scores:', err);
+  }
+  return {};
+}
+
+// ---------------------------------------------------------------------------
 // YouTube audio analysis — calls Python worker /analyze-youtube endpoint.
 // Requires ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT=true on BOTH the Node.js API
 // and the Python worker (defense in depth).
@@ -350,7 +455,7 @@ export async function analyzeAudio(
 export async function analyzeAudioFromYouTube(
   youtubeUrl: string,
   lyricsContext: string = '',
-): Promise<{ analysis: AudioAnalysisResult; scores: Record<string, ScoreAxisDetail> }> {
+): Promise<{ analysis: AudioAnalysisResult; scores: Record<string, ScoreAxisDetail>; fromCache?: boolean }> {
   if (!isAudioWorkerConfigured()) {
     throw Object.assign(
       new Error('Audio analysis worker not configured. Set AUDIO_WORKER_URL.'),
@@ -365,6 +470,15 @@ export async function analyzeAudioFromYouTube(
   }
 
   const workerUrl = process.env['AUDIO_WORKER_URL']!.replace(/\/$/, '');
+
+  // Cache check: skip the yt-dlp download if we already have analysis data
+  // for this URL within the 30-day TTL.
+  const cachedAnalysis = await findCachedYoutubeAnalysis(youtubeUrl);
+  if (cachedAnalysis) {
+    console.log(`[songSpectrumService] Cache hit for ${youtubeUrl} — skipping yt-dlp download`);
+    const scores = await scoreAnalysisFromWorker(workerUrl, cachedAnalysis, lyricsContext);
+    return { analysis: cachedAnalysis, scores, fromCache: true };
+  }
 
   const buildInit = (): RequestInit => ({
     method: 'POST',

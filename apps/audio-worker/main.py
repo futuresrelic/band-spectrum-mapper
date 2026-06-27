@@ -20,8 +20,11 @@ The Node.js API calls this service via AUDIO_WORKER_URL.
 """
 
 import os
+import sys
+import shutil
 import subprocess
 import tempfile
+import time
 import logging
 from pathlib import Path
 from pydantic import BaseModel
@@ -79,6 +82,55 @@ elif _yt_cookies_file and os.path.isfile(_yt_cookies_file):
 else:
     log.info("No YouTube cookies configured — yt-dlp running unauthenticated (set YTDLP_COOKIES_CONTENT to fix 429/403 errors)")
 
+# ---------------------------------------------------------------------------
+# Tool introspection helpers (called at startup for /diagnostics)
+# ---------------------------------------------------------------------------
+
+
+def _get_tool_version(cmd: list) -> "str | None":
+    """Run a command and return its first line of stdout, or None on failure."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip().splitlines()[0]
+    except Exception:
+        pass
+    return None
+
+
+def _classify_ytdlp_error(stderr: str, returncode: int) -> "tuple[int, str]":
+    """Parse yt-dlp stderr into a (HTTP status code, user-facing message) pair."""
+    s = stderr.lower()
+
+    if "429" in s or "too many requests" in s:
+        return (429, (
+            "YouTube rate-limited this download (HTTP 429). "
+            "Wait a few minutes and try again, or configure YTDLP_COOKIES_CONTENT "
+            "with cookies from a logged-in YouTube session to reduce rate-limiting."
+        ))
+
+    if (("403" in s and ("youtube" in s or "googlevideo" in s))
+            or "sign in" in s or "bot" in s or "confirm your age" in s
+            or "who you are" in s):
+        return (403, (
+            "YouTube blocked this download (bot detection / login required). "
+            "Configure YTDLP_COOKIES_CONTENT with cookies from a logged-in YouTube "
+            "session. See README → Environment Variables for instructions."
+        ))
+
+    if "video unavailable" in s or "private video" in s or "has been removed" in s:
+        return (404, "Video is unavailable, private, or has been removed from YouTube.")
+
+    if "not available in your country" in s or "not available in this country" in s:
+        return (451, "Video is not available in this region.")
+
+    if "copyright" in s or "takedown" in s:
+        return (451, "Video has been blocked due to a copyright claim.")
+
+    short = stderr[:600].strip() if stderr else "unknown error"
+    return (422, f"yt-dlp failed (exit {returncode}): {short}")
+
+
 app = FastAPI(
     title="BSM Audio Worker",
     description="Librosa-based audio analysis service for Band Spectrum Mapper",
@@ -91,6 +143,41 @@ app = FastAPI(
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "bsm-audio-worker"}
+
+
+@app.get("/diagnostics")
+def diagnostics():
+    """
+    Report tool availability and configuration — useful for Railway debugging.
+    Call GET /api/audio/diagnostics from the Node.js admin API to see this.
+    """
+    ytdlp_path = shutil.which("yt-dlp")
+    ffmpeg_path = shutil.which("ffmpeg")
+    ytdlp_version = _get_tool_version(["yt-dlp", "--version"]) if ytdlp_path else None
+    ffmpeg_version = _get_tool_version(["ffmpeg", "-version"]) if ffmpeg_path else None
+
+    temp_writable = False
+    try:
+        with tempfile.NamedTemporaryFile(delete=True) as t:
+            t.write(b"ok")
+            temp_writable = True
+    except Exception:
+        pass
+
+    return {
+        "ytDlpInstalled": ytdlp_path is not None,
+        "ytDlpVersion": ytdlp_version,
+        "ytDlpPath": ytdlp_path,
+        "ffmpegInstalled": ffmpeg_path is not None,
+        "ffmpegVersion": ffmpeg_version,
+        "ffmpegPath": ffmpeg_path,
+        "tempDirectoryWritable": temp_writable,
+        "cookiesConfigured": _COOKIES_FILE is not None,
+        "youtubeEnabled": os.environ.get("ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT") == "true",
+        "maxUploadMb": MAX_MB,
+        "platform": sys.platform,
+        "pythonVersion": sys.version.split()[0],
+    }
 
 
 @app.post("/analyze")
@@ -151,6 +238,31 @@ async def analyze(
 
 
 # ---------------------------------------------------------------------------
+# Scoring-only endpoint — accepts a pre-computed AudioAnalysisResult JSON
+# and returns scores without re-downloading or re-analyzing the audio.
+# Used by the Node.js cache layer when audio was already analyzed for this URL.
+# ---------------------------------------------------------------------------
+
+class ScoreRequest(BaseModel):
+    analysis: dict
+    lyrics_context: str = ""
+
+
+@app.post("/score")
+async def score_only(body: ScoreRequest):
+    """
+    Re-score a pre-computed AudioAnalysisResult (e.g. from DB cache) with
+    an optional lyricsContext.  No audio file required.
+    """
+    try:
+        scores = compute_scores(body.analysis, body.lyrics_context)
+        return JSONResponse(scores)
+    except Exception as exc:
+        log.error("Scoring failed: %s", exc)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
 # Shared yt-dlp helper — used by all YouTube endpoints
 # ---------------------------------------------------------------------------
 
@@ -160,73 +272,99 @@ def _download_youtube_audio(url: str, tmpdir: str) -> str:
     Download YouTube audio to tmpdir using yt-dlp.
     Returns the path to the downloaded audio file.
     Raises HTTPException on failure.
+
+    Logs comprehensive diagnostics: tool versions, paths, timing, exit code,
+    file size, and the full yt-dlp stdout/stderr for Railway debugging.
     """
     output_template = os.path.join(tmpdir, "audio.%(ext)s")
-    log.info("Downloading YouTube audio from %s (cookies=%s)", url, "yes" if _COOKIES_FILE else "no")
 
+    # ── Tool diagnostics ──────────────────────────────────────────────────
+    ytdlp_path  = shutil.which("yt-dlp")
+    ffmpeg_path = shutil.which("ffmpeg")
+    ytdlp_ver   = _get_tool_version(["yt-dlp", "--version"])
+    ffmpeg_ver  = _get_tool_version(["ffmpeg", "-version"])
+
+    log.info("=== YouTube download start ===")
+    log.info("  URL:           %s", url)
+    log.info("  yt-dlp path:   %s (version: %s)", ytdlp_path or "NOT FOUND", ytdlp_ver or "?")
+    log.info("  ffmpeg path:   %s (version: %s)", ffmpeg_path or "NOT FOUND",
+             ffmpeg_ver.splitlines()[0] if ffmpeg_ver else "?")
+    log.info("  Cookies:       %s", "yes" if _COOKIES_FILE else "no (unauthenticated)")
+
+    # ── Build command ─────────────────────────────────────────────────────
     cmd = [
         "yt-dlp",
-        "-x",                                        # audio only
-        "--audio-format", "mp3",
-        "--audio-quality", "0",                      # best quality
+        "-x",                           # audio-only extraction
+        "--audio-format", "mp3",        # convert to mp3 via ffmpeg
+        "--audio-quality", "0",         # highest quality VBR
         "--no-playlist",
-        "--socket-timeout", "30",                    # fail fast on stalled connections
+        "--socket-timeout", "30",       # fail fast on stalled connections
         "--retries", "2",
         "--fragment-retries", "0",
         "-o", output_template,
     ]
 
     if _COOKIES_FILE and os.path.isfile(_COOKIES_FILE):
-        # With authenticated cookies: use tv_embedded client.
-        # - Supports cookie authentication (unlike ios)
-        # - Uses simpler URL formats that bypass the nsig JavaScript challenge
-        # - Less bot-detection than the web client on cloud IPs
-        cmd += ["--cookies", _COOKIES_FILE]
-        cmd += ["--extractor-args", "youtube:player_client=mweb"]
+        # With authenticated cookies: use mweb client.
+        # Supports cookie auth; bypasses SABR / nsig challenges on cloud IPs.
+        cmd += ["--cookies", _COOKIES_FILE, "--extractor-args", "youtube:player_client=mweb"]
     else:
         # Without cookies: ios client avoids the SABR streaming experiment that
-        # causes 403s on Railway IPs when android is included.
+        # causes 403s on Railway IPs when the android client is included.
         cmd += ["--extractor-args", "youtube:player_client=ios"]
 
     cmd.append(url)
 
+    log.info("  Command:       yt-dlp %s … (client=%s)",
+             " ".join(cmd[1:4]), "mweb" if _COOKIES_FILE else "ios")
+
+    # ── Run ───────────────────────────────────────────────────────────────
+    t_start = time.monotonic()
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            timeout=120,   # fail faster when yt-dlp hangs
-            text=True,
-        )
+        result = subprocess.run(cmd, capture_output=True, timeout=120, text=True)
     except FileNotFoundError:
+        log.error("yt-dlp binary not found — path was: %s", ytdlp_path)
         raise HTTPException(
             status_code=503,
-            detail="yt-dlp is not installed. Run: pip install yt-dlp",
+            detail="yt-dlp is not installed in the Python worker. Run: pip install yt-dlp",
         )
     except subprocess.TimeoutExpired:
-        raise HTTPException(
-            status_code=504,
-            detail="YouTube download timed out (>120 s)",
-        )
+        log.error("yt-dlp timed out after 120 s for URL: %s", url)
+        raise HTTPException(status_code=504, detail="YouTube download timed out (>120 s)")
+
+    elapsed = time.monotonic() - t_start
+    log.info("  Exit code:     %d  (%.1f s)", result.returncode, elapsed)
+
+    # Log output for Railway debugging (last 2000 chars each to stay readable)
+    if result.stdout.strip():
+        log.info("  yt-dlp stdout:\n%s", result.stdout[-2000:])
+    if result.stderr.strip():
+        log.info("  yt-dlp stderr:\n%s", result.stderr[-2000:])
 
     if result.returncode != 0:
-        log.error("yt-dlp failed:\n%s", result.stderr)
-        # 422 (not 502) so the Node.js proxy does NOT auto-retry this.
-        # 502 is reserved for Railway cold-start; retrying a yt-dlp 429/403 just
-        # accelerates rate-limiting.
-        raise HTTPException(
-            status_code=422,
-            detail=f"yt-dlp failed: {result.stderr[:600] if result.stderr else 'unknown error'}",
-        )
+        # Classify the error to produce a user-facing message.
+        # Use 422 (not 502) so the Node.js proxy does NOT auto-retry.
+        # 502 is reserved for Railway cold-start; retrying a 429/403 from YouTube
+        # just accelerates rate-limiting.
+        status_code, message = _classify_ytdlp_error(result.stderr or "", result.returncode)
+        log.error("Download failed (will return HTTP %d): %s", status_code, message)
+        raise HTTPException(status_code=422, detail=message)
 
+    # ── Locate output file ────────────────────────────────────────────────
     audio_files = [
         f for f in os.listdir(tmpdir)
         if not f.endswith(".part") and not f.endswith(".ytdl")
     ]
     if not audio_files:
+        log.error("yt-dlp exited 0 but no audio file found in %s", tmpdir)
         raise HTTPException(status_code=422, detail="yt-dlp ran but produced no audio file")
 
     audio_path = os.path.join(tmpdir, audio_files[0])
-    log.info("Downloaded: %s (%d bytes)", audio_files[0], os.path.getsize(audio_path))
+    file_size  = os.path.getsize(audio_path)
+    file_ext   = Path(audio_path).suffix
+    log.info("  Output:        %s (%d bytes, format=%s, total=%.1f s)",
+             audio_files[0], file_size, file_ext, elapsed)
+    log.info("=== YouTube download complete ===")
     return audio_path
 
 

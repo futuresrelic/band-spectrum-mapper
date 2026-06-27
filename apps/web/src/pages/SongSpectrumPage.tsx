@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SCORE_AXES, AXIS_LABELS } from '@band-spectrum-mapper/shared';
 import type {
@@ -13,6 +14,7 @@ import type {
 } from '@band-spectrum-mapper/shared';
 import { songSpectrumApi } from '../api/songSpectrum';
 import { api } from '../lib/api';
+import { pushCinemaHandoff, type CinemaAudioContext } from '../cinema/cinemaHandoff';
 import WaveformViz from '../components/songSpectrum/WaveformViz';
 import SpectrogramViz from '../components/songSpectrum/SpectrogramViz';
 import SectionTimeline from '../components/songSpectrum/SectionTimeline';
@@ -1066,6 +1068,7 @@ type Step = 'identity' | 'upload' | 'results';
 
 export default function SongSpectrumPage() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
 
   // Feature availability
   const { data: status } = useQuery({
@@ -1453,6 +1456,15 @@ export default function SongSpectrumPage() {
                     </span>
                   </div>
 
+                  {/* Legal boundary */}
+                  <p className="text-xs text-surface-500 border border-surface-700/40 rounded px-3 py-2 bg-surface-800/40">
+                    Only analyze audio you have the right to use (music you own, royalty-free
+                    recordings, or content you have explicit permission for). BSM extracts and
+                    stores analysis data — tempo, key, spectral features — not the original audio
+                    file. The downloaded audio is processed in memory and deleted immediately after
+                    analysis.
+                  </p>
+
                   {!status?.youtubeAudio && (
                     <p className="text-xs text-surface-500">
                       Set <code className="text-amber-400">ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT=true</code> on
@@ -1542,6 +1554,35 @@ export default function SongSpectrumPage() {
                       title="Copy these scores (÷10) to the linked library song's Core spectrum"
                     >
                       {pushSuccess ? '✓ Pushed' : pushMutation.isPending ? 'Pushing…' : '↑ Push to Library'}
+                    </button>
+                  )}
+                  {activeAnalysis.audioAnalysis && (
+                    <button
+                      className="px-3 py-1.5 bg-violet-800 hover:bg-violet-700 text-xs text-white rounded transition-colors"
+                      title="Open this song's audio context in Cinema Mode"
+                      onClick={() => {
+                        const aa = activeAnalysis.audioAnalysis!;
+                        const ctx: CinemaAudioContext = {
+                          songTitle:       activeAnalysis.songTitle,
+                          artistName:      activeAnalysis.artistName,
+                          bpm:             aa.bpm,
+                          bpmConfidence:   aa.bpmConfidence,
+                          key:             aa.key,
+                          duration:        aa.duration,
+                          loudnessMeanDb:  aa.loudness.meanDb,
+                          dynamicRange:    aa.loudness.dynamicRange,
+                          spectralCentroid: aa.features.spectralCentroid,
+                          rhythmicDensity: aa.features.rhythmicDensity,
+                        };
+                        pushCinemaHandoff({
+                          label: `${activeAnalysis.songTitle} — ${activeAnalysis.artistName}`,
+                          bandIds: [],
+                          audioContext: ctx,
+                        });
+                        navigate('/cinema');
+                      }}
+                    >
+                      ▶ Cinema Mode
                     </button>
                   )}
                   <button

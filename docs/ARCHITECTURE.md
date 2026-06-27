@@ -725,3 +725,85 @@ CompletionReport overlay (full-screen modal with stats)
 
 Score 0–100; shown inline in the admin Adventures tab via the `🏥 Health` button.
 
+
+## Song Spectrum Analyzer — Audio Pipeline (Phase Z.7, 2026-06-27)
+
+### Service topology
+
+```
+Browser (SongSpectrumPage)
+  ↓ POST /api/audio/analyze-youtube-full
+Node.js API (songSpectrum.ts route)
+  ↓ AUDIO_WORKER_URL/analyze-youtube-full
+Python worker (apps/audio-worker/main.py)
+  ↓ subprocess: yt-dlp → mp3
+  ↓ librosa: analyze_audio()
+  ↓ scorer: compute_scores()
+  ↑ { analysis, scores, rhythm }
+Node.js API → SongSpectrumAnalysis (DB) → browser
+```
+
+### Feature gate
+
+Both the Node.js API and Python worker must have `ENABLE_LOCAL_YOUTUBE_AUDIO_IMPORT=true`.
+This is defense-in-depth: the Node.js gate rejects before touching the worker, and the
+Python gate rejects if someone calls the worker directly.
+
+### Caching layer (Phase Z.7)
+
+`analyzeAudioFromYouTube()` in `songSpectrumService.ts` checks the DB for an existing
+`SongSpectrumAnalysis` row with the same `youtubeUrl` and a populated `audioAnalysis` field,
+within a 30-day TTL. On cache hit:
+1. The `audioAnalysis` (waveform, BPM, key, FFT, spectral features) is returned from DB.
+2. `POST /score` on the Python worker re-scores with the current `lyricsContext`.
+3. The yt-dlp download and librosa analysis are skipped entirely.
+
+The original audio file is never permanently stored — it is written to a tmpfs directory and
+deleted after analysis.
+
+### Diagnostics
+
+`GET /api/audio/diagnostics` (admin-only) proxies to `GET /diagnostics` on the Python worker
+and returns a JSON object with:
+- `ytDlpInstalled`, `ytDlpVersion`, `ytDlpPath`
+- `ffmpegInstalled`, `ffmpegVersion`, `ffmpegPath`
+- `tempDirectoryWritable`, `cookiesConfigured`, `youtubeEnabled`
+- `workerUrl`, `workerReachable`, `nodeYoutubeAudioEnabled`
+
+Use this endpoint to verify Railway configuration before debugging yt-dlp failures.
+
+### Error classification
+
+`_classify_ytdlp_error()` in the Python worker maps yt-dlp stderr patterns to HTTP status codes:
+
+| Pattern | Status | Meaning |
+|---|---|---|
+| HTTP 429 / "too many requests" | 429 | Rate-limited; try later or add cookies |
+| HTTP 403 / "sign in" / "bot" | 403 | Bot-detected; requires YTDLP_COOKIES_CONTENT |
+| "Video unavailable" / "private" | 404 | Video removed or private |
+| "not available in your country" | 451 | Geographic restriction |
+| "copyright" / "takedown" | 451 | DMCA blocked |
+| Everything else | 422 | Generic yt-dlp failure |
+
+All YouTube errors return 422 to the Node.js layer (not 502), preventing the cold-start
+retry in `workerFetch()` from hammering YouTube's rate-limit on yt-dlp failures.
+
+### Cinema Mode audio handoff
+
+After analysis, the user can click "Cinema Mode" in the results header. This:
+1. Creates a `CinemaAudioContext` (BPM, key, duration, loudness, spectral features).
+2. Pushes it to `CinemaHandoff` in localStorage alongside `bandIds: []`.
+3. Navigates to `/cinema`.
+
+CinemaPage reads the handoff on mount, applies `speedMultiplier = BPM / 120` (clamped
+to 0.3–2.0), and shows an audio context row in the handoff banner.
+
+### Legal boundary
+
+The Song Spectrum YouTube analysis section displays a disclaimer:
+> Only analyze audio you have the right to use. BSM extracts and stores analysis data
+> (tempo, key, spectral features) — not the original audio file.
+
+The downloaded audio is deleted from the Python worker's temp directory after analysis
+regardless of success or failure (guaranteed by `tempfile.TemporaryDirectory` context
+manager).

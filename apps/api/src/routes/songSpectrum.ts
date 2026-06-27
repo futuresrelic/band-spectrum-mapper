@@ -32,6 +32,7 @@ import {
   isAudioWorkerConfigured,
   isYouTubeConfigured,
   isYouTubeAudioEnabled,
+  getWorkerDiagnostics,
 } from '../services/songSpectrumService.js';
 
 export const songSpectrumRouter = Router();
@@ -56,6 +57,19 @@ songSpectrumRouter.get('/status', (_req, res): void => {
     youtubeApi: isYouTubeConfigured(),
     youtubeAudio: isYouTubeAudioEnabled(),
   });
+});
+
+// ---------------------------------------------------------------------------
+// Worker diagnostics — for Railway debugging
+// GET /api/audio/diagnostics
+// Returns yt-dlp, ffmpeg, and environment status from the Python worker.
+// ---------------------------------------------------------------------------
+
+songSpectrumRouter.get('/diagnostics', async (_req, res, next): Promise<void> => {
+  try {
+    const diag = await getWorkerDiagnostics();
+    res.json(diag);
+  } catch (err) { next(err); }
 });
 
 // ---------------------------------------------------------------------------
