@@ -4,6 +4,40 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.9 — Classic Archive Mode: Living Fragments + Visitor NPCs (2026-07-01)
+
+### Added
+
+**Classic Archive Mode enhancements — `BandRpgGame.tsx`:**
+
+- **Fragment behaviors**: each run now randomly assigns `static` / `drift` / `escape` behaviors to lyric fragments
+  - `drift` — bounces off walls continuously
+  - `escape` — flees the player when they get within ~3.5 tiles
+  - `static` — stays put (original behavior)
+- **Archive Visitor NPCs**: 2–3 colored visitor NPCs wander the map during the fragment-hunt phase
+  - Visitors can randomly grab a nearby fragment (carry it away from player)
+  - Carried fragments float above the visitor's head with a ♪ indicator
+  - Player recovers a carried fragment by pressing **E** near the carrying visitor
+  - Visitors reset each new run
+- **Listening Booth encounter**: a fixed-position booth appears on the map during find_fragments
+  - Draws a stylized podium + screen graphic; pulses during active phase
+  - First-time use (E near booth) triggers brief dialogue and auto-delivers one nearby fragment
+  - Only usable once per run — prevents abuse
+- **Delta-time physics**: game loop tracks `dtMs` via `lastFrameTimeRef` to keep drift/visitor speeds consistent across frame rates
+- **Games page navigation fix**: Band RPG card in GamesPage now links to `/play/band-rpg` (mode selection) instead of jumping directly into Adventures, preserving the "Classic Archive vs Adventures" choice
+
+### Technical
+
+- `LyricFragment` extended: `behavior: FragBehavior`, `vx`, `vy`, `carriedById: number | null`
+- `ArchiveVisitor` interface with `state: VisitorState` (`wandering | chasing | carrying`), color, speed, wander target
+- `initVisitors()` spawns visitors at valid floor tiles with randomized speed/color
+- `visitorsRef`, `boothUsedRef`, `lastFrameTimeRef` added as React refs
+- `drawVisitor()` and `drawBooth()` canvas draw functions
+- `resetGame()` now resets visitors, booth, and frame-time tracking per run
+- `handleInteract()` handles both booth dialogue and visitor-fragment recovery before falling through to direct pickup
+
+---
+
 ## Phase Z.8 — Guided Adventure Builder (2026-07-01)
 
 ### Added

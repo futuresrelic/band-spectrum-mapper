@@ -1230,6 +1230,8 @@ function ImportStep({ jsonText, onBack, onImported }: {
 
 export default function CampaignGenerator() {
   const draft = loadDraft();
+  const { user } = useAuth();
+  const isAdmin = user?.isAdmin === true;
 
   const [mode, setMode] = useState<'quick' | 'guided'>('quick');
   const [step, setStep]                     = useState<Step>('settings');
@@ -1387,29 +1389,31 @@ export default function CampaignGenerator() {
 
   return (
     <div className="space-y-4">
-      {/* Mode selector */}
-      <div className="flex items-center gap-1 p-1 bg-surface-100 rounded-lg w-fit">
-        <button
-          type="button"
-          onClick={() => setMode('quick')}
-          className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-            mode === 'quick' ? 'bg-white text-surface-900 shadow-sm' : 'text-surface-500 hover:text-surface-700'
-          }`}
-        >
-          Quick Generate
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode('guided')}
-          className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-            mode === 'guided' ? 'bg-white text-indigo-700 shadow-sm' : 'text-surface-500 hover:text-surface-700'
-          }`}
-        >
-          ✦ Guided Builder
-        </button>
-      </div>
+      {/* Mode selector — Guided Builder only visible to admins */}
+      {isAdmin && (
+        <div className="flex items-center gap-1 p-1 bg-surface-100 rounded-lg w-fit">
+          <button
+            type="button"
+            onClick={() => setMode('quick')}
+            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              mode === 'quick' ? 'bg-white text-surface-900 shadow-sm' : 'text-surface-500 hover:text-surface-700'
+            }`}
+          >
+            Quick Generate
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('guided')}
+            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              mode === 'guided' ? 'bg-white text-indigo-700 shadow-sm' : 'text-surface-500 hover:text-surface-700'
+            }`}
+          >
+            ✦ Guided Builder
+          </button>
+        </div>
+      )}
 
-      {mode === 'guided' && (
+      {mode === 'guided' && isAdmin && (
         <GuidedAdventureBuilder onComplete={() => setMode('quick')} />
       )}
 

@@ -45,6 +45,19 @@ const COLLECT_R  = 28;
 const NPC_POS   = { x: 11 * TILE + TILE / 2, y: 3  * TILE + TILE / 2 };
 const SPAWN_POS = { x: 11 * TILE + TILE / 2, y: 15 * TILE + TILE / 2 };
 
+// ── Visitor & fragment-behavior constants ─────────────────────────────────────
+const VISITOR_COLORS = ['#60a5fa', '#f472b6', '#a78bfa', '#34d399', '#fbbf24'];
+const VISITOR_SPEED_SLOW = 0.7;
+const VISITOR_SPEED_FAST = 1.2;
+const VISITOR_GRAB_CHANCE = 0.0025; // per frame chance visitor grabs a nearby fragment
+const VISITOR_GRAB_RADIUS = TILE * 2;
+const FRAGMENT_DRIFT_SPEED = 0.55;
+const FRAGMENT_ESCAPE_SPEED = 1.6;
+const ESCAPE_RADIUS = TILE * 3.5;
+
+// Listening booth — fixed position in the open area bottom-right
+const BOOTH_POS = { x: 19 * TILE + TILE / 2, y: 13 * TILE + TILE / 2 };
+
 // ── Tile map  0=wall  1=floor  2=bookshelf (impassable) ─────────────────────
 
 const MAP: number[][] = [
@@ -169,11 +182,32 @@ interface Player   { x: number; y: number; facing: Facing }
 interface Input    { up: boolean; down: boolean; left: boolean; right: boolean }
 interface DlgState { lines: DlgLine[]; idx: number; onDone: () => void }
 
+type FragBehavior = 'static' | 'drift' | 'escape';
+
 interface LyricFragment {
-  id:        string;
-  text:      string;
-  pos:       { x: number; y: number };
-  collected: boolean;
+  id:          string;
+  text:        string;
+  pos:         { x: number; y: number };
+  collected:   boolean;
+  behavior:    FragBehavior;
+  vx:          number;
+  vy:          number;
+  carriedById: number | null; // id of ArchiveVisitor carrying this fragment
+}
+
+type VisitorState = 'wandering' | 'chasing' | 'carrying';
+
+interface ArchiveVisitor {
+  id:              number;
+  x:               number;
+  y:               number;
+  speed:           number;
+  tx:              number;  // target x
+  ty:              number;  // target y
+  state:           VisitorState;
+  carryingFragId:  string | null;
+  wanderCooldown:  number;  // ms countdown, pick new target when ≤ 0
+  color:           string;
 }
 
 interface Effect {
@@ -433,6 +467,81 @@ function drawVinyl(
   ctx.fillStyle = '#c4b5fd';
   ctx.fillText(songTitle ? `🎵 ${songTitle}` : 'RECOVERED VINYL', sx, sy + bob - 26);
   if (nearPlayer) drawPrompt(ctx, sx, sy + bob - 36, isMobileHint ? 'Tap E' : '[E] Collect');
+}
+
+function drawVisitor(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number,
+  v: ArchiveVisitor,
+  nearPlayer: boolean,
+) {
+  const sx = v.x - cx;
+  const sy = v.y - cy;
+  const now = performance.now();
+  const bob = Math.sin(now / 600 + v.id * 1.7) * 2;
+
+  ctx.shadowColor = v.color; ctx.shadowBlur = nearPlayer ? 14 : 5;
+  ctx.fillStyle = v.color;
+  ctx.beginPath(); ctx.arc(sx, sy + bob, 10, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(sx, sy + bob, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+
+  // Carrying indicator
+  if (v.state === 'carrying') {
+    ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fbbf24'; ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = 10;
+    ctx.fillText('♪', sx, sy + bob - 18);
+    ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+  }
+
+  if (nearPlayer && v.state === 'carrying') {
+    drawPrompt(ctx, sx, sy + bob - 28, isMobileHint ? 'Tap E' : '[E] Recover');
+  }
+
+  ctx.font = '9px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = v.color + 'aa';
+  ctx.fillText('visitor', sx, sy + bob - 17);
+}
+
+function drawBooth(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number,
+  phase: QuestPhase,
+  boothUsed: boolean,
+) {
+  const sx = BOOTH_POS.x - cx;
+  const sy = BOOTH_POS.y - cy;
+  if (boothUsed || phase === 'pre_quest' || phase === 'complete') return;
+
+  const now = performance.now();
+  const pulse = Math.sin(now / 500) * 0.3 + 0.7;
+
+  // Podium base
+  ctx.fillStyle = '#1e3a5f';
+  ctx.fillRect(sx - 14, sy - 8, 28, 18);
+  ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 1.5;
+  ctx.strokeRect(sx - 14, sy - 8, 28, 18);
+
+  // Screen
+  ctx.fillStyle = `rgba(37,99,235,${pulse * 0.8})`;
+  ctx.beginPath(); ctx.roundRect(sx - 10, sy - 20, 20, 14, 3); ctx.fill();
+  ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = 1;
+  ctx.strokeRect(sx - 10, sy - 20, 20, 14);
+
+  // Label
+  ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#93c5fd';
+  ctx.fillText('BOOTH', sx, sy + 3);
+
+  // Pulsing outer ring during find_fragments
+  if (phase === 'find_fragments') {
+    ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.4 + pulse * 0.3;
+    ctx.shadowColor = '#3b82f6'; ctx.shadowBlur = 12;
+    ctx.beginPath(); ctx.arc(sx, sy, 28, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+  }
 }
 
 function drawPrompt(ctx: CanvasRenderingContext2D, sx: number, sy: number, text: string) {
@@ -1029,12 +1138,22 @@ export default function BandRpgGame({
   const fragmentsRef      = useRef<LyricFragment[]>([]);
   const collectedCountRef = useRef(0);
 
+  // Visitors & booth
+  const visitorsRef       = useRef<ArchiveVisitor[]>([]);
+  const boothUsedRef      = useRef(false);
+  const lastFrameTimeRef  = useRef<number>(0);
+
   // Guess / identification tracking
   const guessedCorrectlyRef = useRef(false);
   const guessBonusRef       = useRef(0);
   const rarityBonusRef      = useRef(0);
 
   const dialogueRef = useRef(buildQuestLines(selectedBand.name, session.songTitle));
+
+  const boothDialogue: DlgLine[] = [
+    { speaker: 'Listening Booth', text: 'A fragment has been left here for study. Approach and it will be transferred to your journal.' },
+    { speaker: 'Listening Booth', text: 'Fragment acquired. Check your journal — only two remain.' },
+  ];
 
   // React UI state
   const [questPhase,         setQuestPhase]         = useState<QuestPhase>('pre_quest');
@@ -1065,16 +1184,54 @@ export default function BandRpgGame({
 
   function initFragments(sess: BandRpgSession): LyricFragment[] {
     const positions = getSpreadSpawnPositions(3);
-    return sess.fragments.map((frag, i) => ({
-      id:        frag.id,
-      text:      frag.text,
-      pos:       positions[i] ?? randomVinylPos(),
-      collected: false,
-    }));
+    // Shuffle behavior assignment so it's different each run
+    const behaviors: FragBehavior[] = ['static', 'drift', 'escape'];
+    for (let i = behaviors.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = behaviors[i]!; behaviors[i] = behaviors[j]!; behaviors[j] = t;
+    }
+    return sess.fragments.map((frag, i) => {
+      const angle = Math.random() * Math.PI * 2;
+      const behavior = behaviors[i] ?? 'static';
+      return {
+        id:          frag.id,
+        text:        frag.text,
+        pos:         { ...(positions[i] ?? randomVinylPos()) },
+        collected:   false,
+        behavior,
+        vx:          behavior === 'drift' ? Math.cos(angle) * FRAGMENT_DRIFT_SPEED : 0,
+        vy:          behavior === 'drift' ? Math.sin(angle) * FRAGMENT_DRIFT_SPEED : 0,
+        carriedById: null,
+      };
+    });
+  }
+
+  function initVisitors(): ArchiveVisitor[] {
+    const count = 2 + Math.floor(Math.random() * 2); // 2-3 visitors
+    const candidates = getValidSpawnTiles({
+      minDistFromPlayerPx: TILE * 6,
+      minDistFromNpcPx: TILE * 4,
+      allowedTiles: [1],
+    });
+    return Array.from({ length: count }, (_, i) => {
+      const pos = candidates[Math.floor(Math.random() * candidates.length)] ?? VINYL_FALLBACK;
+      const target = candidates[Math.floor(Math.random() * candidates.length)] ?? VINYL_FALLBACK;
+      return {
+        id: i + 1,
+        x: pos.x, y: pos.y,
+        tx: target.x, ty: target.y,
+        speed: VISITOR_SPEED_SLOW + Math.random() * (VISITOR_SPEED_FAST - VISITOR_SPEED_SLOW),
+        state: 'wandering' as VisitorState,
+        carryingFragId: null,
+        wanderCooldown: 2000 + Math.random() * 3000,
+        color: VISITOR_COLORS[i % VISITOR_COLORS.length] ?? '#60a5fa',
+      };
+    });
   }
 
   useEffect(() => {
     fragmentsRef.current = initFragments(session);
+    visitorsRef.current  = initVisitors();
     dialogueRef.current  = buildQuestLines(selectedBand.name, session.songTitle);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1294,8 +1451,33 @@ export default function BandRpgGame({
     }
 
     if (questPhaseRef.current === 'find_fragments') {
+      // Booth interaction — delivers one fragment via dialogue
+      if (!boothUsedRef.current && dist(p.x, p.y, BOOTH_POS.x, BOOTH_POS.y) < INTERACT_R) {
+        boothUsedRef.current = true;
+        const uncollected = fragmentsRef.current.find(f => !f.collected && f.carriedById === null);
+        if (uncollected) {
+          openDlg(boothDialogue, () => { collectFragment(uncollected); });
+        }
+        return;
+      }
+
+      // Recover a fragment carried by a nearby visitor
+      for (const v of visitorsRef.current) {
+        if (v.state === 'carrying' && dist(p.x, p.y, v.x, v.y) < INTERACT_R) {
+          const cf = fragmentsRef.current.find(f => f.id === v.carryingFragId);
+          if (cf) {
+            cf.carriedById = null;
+            v.carryingFragId = null;
+            v.state = 'wandering';
+            collectFragment(cf);
+          }
+          return;
+        }
+      }
+
+      // Direct fragment pickup
       for (const frag of fragmentsRef.current) {
-        if (!frag.collected && dist(p.x, p.y, frag.pos.x, frag.pos.y) < INTERACT_R) {
+        if (!frag.collected && frag.carriedById === null && dist(p.x, p.y, frag.pos.x, frag.pos.y) < INTERACT_R) {
           collectFragment(frag);
           return;
         }
@@ -1395,10 +1577,101 @@ export default function BandRpgGame({
               isWalkable(p.x - P_HALF, ny + P_HALF) && isWalkable(p.x + P_HALF, ny + P_HALF)) p.y = ny;
         }
 
-        // Auto-collect fragments
+        const now2 = performance.now();
+        const dtMs = Math.min(now2 - (lastFrameTimeRef.current || now2), 50);
+        lastFrameTimeRef.current = now2;
+
+        // ── Fragment behaviors ─────────────────────────────────────────────
         if (questPhaseRef.current === 'find_fragments') {
           for (const frag of fragmentsRef.current) {
-            if (!frag.collected && dist(p.x, p.y, frag.pos.x, frag.pos.y) < COLLECT_R) {
+            if (frag.collected || frag.carriedById !== null) continue;
+            if (frag.behavior === 'drift') {
+              let nx = frag.pos.x + frag.vx;
+              let ny = frag.pos.y + frag.vy;
+              if (!isWalkable(nx, frag.pos.y)) { frag.vx *= -1; nx = frag.pos.x; }
+              if (!isWalkable(frag.pos.x, ny)) { frag.vy *= -1; ny = frag.pos.y; }
+              frag.pos.x = nx;
+              frag.pos.y = ny;
+            } else if (frag.behavior === 'escape') {
+              const dx = frag.pos.x - p.x;
+              const dy = frag.pos.y - p.y;
+              const d = Math.hypot(dx, dy);
+              if (d < ESCAPE_RADIUS && d > 0) {
+                const ex = (dx / d) * FRAGMENT_ESCAPE_SPEED;
+                const ey = (dy / d) * FRAGMENT_ESCAPE_SPEED;
+                const nx = frag.pos.x + ex;
+                const ny = frag.pos.y + ey;
+                if (isWalkable(nx, frag.pos.y)) frag.pos.x = nx;
+                if (isWalkable(frag.pos.x, ny)) frag.pos.y = ny;
+              }
+            }
+          }
+        }
+
+        // ── Visitor updates ────────────────────────────────────────────────
+        const visitors = visitorsRef.current;
+        for (const v of visitors) {
+          // Move visitor toward target
+          const dx = v.tx - v.x;
+          const dy = v.ty - v.y;
+          const d = Math.hypot(dx, dy);
+          if (d < 4) {
+            // Reached target — pick new one
+            v.wanderCooldown -= dtMs;
+            if (v.wanderCooldown <= 0) {
+              const cands = getValidSpawnTiles({ minDistFromPlayerPx: 0, minDistFromNpcPx: 0, allowedTiles: [1] });
+              const next = cands[Math.floor(Math.random() * cands.length)];
+              if (next) { v.tx = next.x; v.ty = next.y; }
+              v.wanderCooldown = 2000 + Math.random() * 4000;
+              if (v.state === 'chasing') v.state = 'wandering';
+            }
+          } else {
+            const spd = v.speed;
+            const mx = (dx / d) * spd;
+            const my = (dy / d) * spd;
+            const nx = v.x + mx;
+            const ny = v.y + my;
+            if (isWalkable(nx, v.y)) v.x = nx;
+            else if (isWalkable(v.x, ny)) v.y = ny;
+            else {
+              // Unstuck: pick random new target
+              const cands = getValidSpawnTiles({ minDistFromPlayerPx: 0, minDistFromNpcPx: 0, allowedTiles: [1] });
+              const next = cands[Math.floor(Math.random() * cands.length)];
+              if (next) { v.tx = next.x; v.ty = next.y; }
+            }
+          }
+
+          // Fragment pickup logic (only during find_fragments)
+          if (questPhaseRef.current === 'find_fragments' && v.state !== 'carrying') {
+            for (const frag of fragmentsRef.current) {
+              if (frag.collected || frag.carriedById !== null) continue;
+              if (dist(v.x, v.y, frag.pos.x, frag.pos.y) < VISITOR_GRAB_RADIUS) {
+                if (Math.random() < VISITOR_GRAB_CHANCE) {
+                  // Visitor picks up this fragment
+                  frag.carriedById = v.id;
+                  v.carryingFragId = frag.id;
+                  v.state = 'carrying';
+                  // Pick a random new wander target
+                  const cands = getValidSpawnTiles({ minDistFromPlayerPx: 0, minDistFromNpcPx: 0, allowedTiles: [1] });
+                  const next = cands[Math.floor(Math.random() * cands.length)];
+                  if (next) { v.tx = next.x; v.ty = next.y; }
+                  break;
+                }
+              }
+            }
+          }
+
+          // Update carried fragment position to follow visitor
+          if (v.state === 'carrying' && v.carryingFragId) {
+            const cf = fragmentsRef.current.find(f => f.id === v.carryingFragId);
+            if (cf) { cf.pos.x = v.x; cf.pos.y = v.y; }
+          }
+        }
+
+        // Auto-collect fragments (not carried ones — those require E on visitor)
+        if (questPhaseRef.current === 'find_fragments') {
+          for (const frag of fragmentsRef.current) {
+            if (!frag.collected && frag.carriedById === null && dist(p.x, p.y, frag.pos.x, frag.pos.y) < COLLECT_R) {
               collectFragment(frag);
               break;
             }
@@ -1429,12 +1702,20 @@ export default function BandRpgGame({
       const nearVinyl = !vinylRef.current && questPhaseRef.current === 'find_vinyl'
                         && dist(p.x, p.y, vpos.x, vpos.y) < INTERACT_R;
 
+      // Booth
+      drawBooth(ctx, cam.x, cam.y, questPhaseRef.current, boothUsedRef.current);
+
       // Fragments visible during find_fragments only (all collected = none visible)
       if (questPhaseRef.current === 'find_fragments') {
         fragmentsRef.current.forEach((frag, i) => {
-          const nearFrag = !frag.collected && dist(p.x, p.y, frag.pos.x, frag.pos.y) < INTERACT_R;
+          const nearFrag = !frag.collected && frag.carriedById === null && dist(p.x, p.y, frag.pos.x, frag.pos.y) < INTERACT_R;
           drawFragment(ctx, cam.x, cam.y, frag, nearFrag, i);
         });
+        // Draw visitors (only meaningful during fragment phase)
+        for (const v of visitorsRef.current) {
+          const nearV = dist(p.x, p.y, v.x, v.y) < INTERACT_R;
+          drawVisitor(ctx, cam.x, cam.y, v, nearV);
+        }
       }
 
       // Vinyl visible after song reveal
@@ -1464,6 +1745,9 @@ export default function BandRpgGame({
     sessionRef.current          = newSession;
     dialogueRef.current         = buildQuestLines(selectedBand.name, newSession.songTitle);
     fragmentsRef.current        = initFragments(newSession);
+    visitorsRef.current         = initVisitors();
+    boothUsedRef.current        = false;
+    lastFrameTimeRef.current    = 0;
     collectedCountRef.current   = 0;
     guessedCorrectlyRef.current = false;
     guessBonusRef.current       = 0;
