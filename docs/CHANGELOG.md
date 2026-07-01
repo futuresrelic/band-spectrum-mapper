@@ -4,6 +4,49 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.11 — Band RPG Map Editor: Door Visibility and Management (2026-07-01)
+
+### Problem solved
+
+Doors/gates created by the AI campaign generator (stored in `BandRpgDoor` table) were invisible in the visual map editor. The game rendered them correctly; the editor showed nothing. This made it impossible to see, move, or remove doors without digging into the World Editor's text-input forms.
+
+### Added
+
+**Visual door overlay on map grid:**
+- All `BandRpgDoor` records for the level are fetched and overlaid on the map grid as red `D` markers (green when `openedByDefault`)
+- Doors are always visible regardless of the active tool — no longer hidden
+
+**Door placement tool:**
+- New `D Door` button in the Map Editor toolbar (red, alongside Spawn/Exit/NPC/Item)
+- Click empty tile → creates a new `Gate N` door at that position (type: `key_door`, locked)
+- Click existing door → selects it (shows yellow ring highlight)
+- Click any other tile while a door is selected → moves it there (calls `updateDoor` API)
+- Erase tool now also deletes a door when clicked on a door tile
+
+**DoorRow inline editor:**
+- Each placed door shows an expandable `Edit` panel: name, type, tile X/Y, "opened by default" checkbox
+- Inline warning if a door has a locking type but no lock condition set
+- Save updates door via API; delete button removes from DB
+
+**Door validation warnings panel:**
+- Automatically flags: doors with locking type but no `lockCondition`, doors placed outside map bounds, overlapping doors on the same tile
+
+**Map Stats:**
+- Door count in the stats panel now reflects the DB door count (not mapData entity count)
+
+### Technical
+
+- `EditorDoor` added to imports in `LevelEditor.tsx`
+- `door` entry added to `ENTITY_TOOLS` constant (red `#ef4444`)
+- `DOOR_TYPES` constant added for the inline type select
+- `ActiveTool` union extended with `'door'`
+- `DoorRow` component added (before `TileEditor`): uses its own `useMutation` + `useState` for per-door edit state
+- `TileEditor` gains: `useQuery(['editor-doors', levelId])`, `createDoorMutation`, `moveDoorMutation`, `deleteDoorMutation`, `movingDoorId` state
+- `applyTool` guards `activeTool === 'door'` early (door placement bypasses mapData)
+- Backward compat: `mapData.entities` items with `type: 'door'` (AI-authored) still render via the entity overlay path
+
+---
+
 ## Phase Z.10 — Classic Archive Mode: Visual Clarity, Crowd Rush, Onboarding (2026-07-01)
 
 ### Added
