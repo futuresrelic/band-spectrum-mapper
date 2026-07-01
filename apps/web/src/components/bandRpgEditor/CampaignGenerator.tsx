@@ -8,6 +8,7 @@ import { bandsApi } from '../../api/bands';
 import type { BandWithCounts } from '@band-spectrum-mapper/shared';
 import { MapPreview } from './MapPreview.js';
 import { MapFixer } from './MapFixer.js';
+import GuidedAdventureBuilder from './GuidedAdventureBuilder.js';
 
 // ── Draft persistence (localStorage) ─────────────────────────────────────────
 
@@ -1230,6 +1231,7 @@ function ImportStep({ jsonText, onBack, onImported }: {
 export default function CampaignGenerator() {
   const draft = loadDraft();
 
+  const [mode, setMode] = useState<'quick' | 'guided'>('quick');
   const [step, setStep]                     = useState<Step>('settings');
   const [settings, setSettings]             = useState<CampaignSettings>({ ...DEFAULT_SETTINGS, ...draft?.settings });
   const [blueprint, setBlueprint]           = useState(draft?.blueprint ?? '');
@@ -1385,6 +1387,33 @@ export default function CampaignGenerator() {
 
   return (
     <div className="space-y-4">
+      {/* Mode selector */}
+      <div className="flex items-center gap-1 p-1 bg-surface-100 rounded-lg w-fit">
+        <button
+          type="button"
+          onClick={() => setMode('quick')}
+          className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+            mode === 'quick' ? 'bg-white text-surface-900 shadow-sm' : 'text-surface-500 hover:text-surface-700'
+          }`}
+        >
+          Quick Generate
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('guided')}
+          className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+            mode === 'guided' ? 'bg-white text-indigo-700 shadow-sm' : 'text-surface-500 hover:text-surface-700'
+          }`}
+        >
+          ✦ Guided Builder
+        </button>
+      </div>
+
+      {mode === 'guided' && (
+        <GuidedAdventureBuilder onComplete={() => setMode('quick')} />
+      )}
+
+      {mode === 'quick' && <>
       <div className="flex items-start justify-between">
         <div>
           <h2 className="font-semibold text-surface-900">AI Campaign Generator</h2>
@@ -1487,6 +1516,7 @@ export default function CampaignGenerator() {
           onImported={(_result) => { /* result rendered inside ImportStep */ }}
         />
       )}
+      </>}
     </div>
   );
 }

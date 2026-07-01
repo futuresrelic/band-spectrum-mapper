@@ -3,7 +3,7 @@ import OpenAI from 'openai';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { HttpError } from '../middleware/errorHandler.js';
-import { pickTemplates, applyTransform, formatTemplateForPrompt } from '@band-spectrum-mapper/shared';
+import { pickTemplates, applyTransform, formatTemplateForPrompt, getTemplate, allTemplates } from '@band-spectrum-mapper/shared';
 import type { Transform } from '@band-spectrum-mapper/shared';
 
 export const campaignGeneratorRouter = Router();
@@ -705,5 +705,162 @@ Output ONLY the complete corrected JSON — no markdown, no explanation, no code
     }
 
     res.json({ json: parsed, raw, model: MODEL, attempt }); return;
+  } catch (err) { next(err); return; }
+});
+
+// ── Guided Adventure Builder ─────────────────────────────────────────────────
+
+interface GuidedNpc { name: string; role: string; dialogueHint: string; }
+interface GuidedItem { slug: string; name: string; type: string; rarity: string; purpose: string; }
+interface GuidedPuzzle { type: string; name: string; }
+interface GuidedLevelSpec {
+  order: number;
+  name: string;
+  slug: string;
+  description: string;
+  type: string;
+  mapTemplateId: string;
+  mapTransform: string;
+  npcs: GuidedNpc[];
+  items: GuidedItem[];
+  puzzle: GuidedPuzzle | null;
+  questName: string;
+  questEnabled: boolean;
+  nextLevelSlug: string;
+}
+interface GuidedSource { mode: 'band' | 'custom'; bandName: string; albumName: string; songName: string; customTheme: string; }
+interface GuidedAdventureSpec {
+  source: GuidedSource;
+  adventure: { name: string; slug: string; description: string; difficulty: string; tags: string[] };
+  levels: GuidedLevelSpec[];
+}
+
+function buildGuidedGeneratePrompt(spec: GuidedAdventureSpec): string {
+  const sourceCtx = spec.source.mode === 'band'
+    ? `Band: "${spec.source.bandName}", Album: "${spec.source.albumName || 'any'}", Song: "${spec.source.songName || 'any'}"`
+    : `Custom theme: "${spec.source.customTheme}"`;
+
+  const levelDetails = spec.levels.map(level => {
+    const template = getTemplate(level.mapTemplateId);
+    const slotSummary = template
+      ? Object.entries(template.slots).map(([k, v]) => `${k}:(${v.x},${v.y})`).join(' ')
+      : level.mapTemplateId;
+    const templateLine = template
+      ? `Map: "${template.name}" ${template.width}×${template.height} | Slots: ${slotSummary}`
+      : `Map: ${level.mapTemplateId}`;
+
+    const npcLines = level.npcs.length
+      ? level.npcs.map(n => `    {name:"${n.name}",role:"${n.role}",dialogueHint:"${n.dialogueHint}"}`).join('\n')
+      : '    (none)';
+    const itemLines = level.items.length
+      ? level.items.map(i => `    {slug:"${i.slug}",name:"${i.name}",type:"${i.type}",rarity:"${i.rarity}",purpose:"${i.purpose}"}`).join('\n')
+      : '    (none)';
+    const puzzleLine = level.puzzle
+      ? `Puzzle: "${level.puzzle.name}" (${level.puzzle.type})`
+      : 'No puzzle';
+    return [
+      `Level ${level.order}: "${level.name}" (slug: ${level.slug}, type: ${level.type})`,
+      `  ${templateLine}`,
+      `  Quest: ${level.questEnabled ? `"${level.questName}"` : 'none'}`,
+      `  Description: ${level.description}`,
+      `  NPCs:\n${npcLines}`,
+      `  Items:\n${itemLines}`,
+      `  ${puzzleLine}`,
+      `  Next: ${level.nextLevelSlug || '(final)'}`,
+    ].join('\n');
+  }).join('\n\n---\n\n');
+
+  return [
+    `You are generating a Band RPG adventure JSON payload.`,
+    `SOURCE: ${sourceCtx}`,
+    `ADVENTURE: "${spec.adventure.name}" (slug: ${spec.adventure.slug}, difficulty: ${spec.adventure.difficulty})`,
+    spec.adventure.description,
+    ``,
+    `The structure below is LOCKED. Do NOT change slugs, map templates, slot positions, NPC roles, item types, or puzzle types.`,
+    `Provide only: dialogue text, level/item/puzzle descriptions, quest descriptions, beat titles, thematic names.`,
+    ``,
+    `LEVELS:`,
+    levelDetails,
+    ``,
+    `Output valid Band RPG adventure JSON. Include: adventure metadata, levels[], quests[], items[], arcs[].`,
+    `Use each level's template slug positions for entity placement. Do not add extra levels.`,
+    `Output ONLY the JSON — no markdown, no explanation.`,
+  ].join('\n');
+}
+
+// ── /guided/suggest ──────────────────────────────────────────────────────────
+campaignGeneratorRouter.post('/guided/suggest', async (req, res, next): Promise<void> => {
+  try {
+    const { step, context } = req.body as { step: string; context: Record<string, unknown> };
+
+    const ctxStr = JSON.stringify(context);
+    const roleStr = typeof context['role'] === 'string' ? context['role'] : 'guide';
+    const typeStr = typeof context['type'] === 'string' ? context['type'] : 'key';
+
+    const prompts: Record<string, string> = {
+      'adventure-names':       `Suggest 5 short evocative adventure titles for a Band RPG based on: ${ctxStr}. Return JSON: {"suggestions":["...","...",...]}`,
+      'adventure-description': `Write 5 one-paragraph adventure descriptions for a Band RPG based on: ${ctxStr}. Return JSON: {"suggestions":["...",...]}`,
+      'level-names':           `Suggest 5 level names for a Band RPG level based on: ${ctxStr}. Return JSON: {"suggestions":["...",...]}`,
+      'npc-names':             `Suggest 5 NPC names for role "${roleStr}" in a Band RPG based on: ${ctxStr}. Return JSON: {"suggestions":["...",...]}`,
+      'item-names':            `Suggest 5 item names (type: "${typeStr}") for a Band RPG based on: ${ctxStr}. Return JSON: {"suggestions":["...",...]}`,
+      'quest-names':           `Suggest 5 quest names for a Band RPG based on: ${ctxStr}. Return JSON: {"suggestions":["...",...]}`,
+      'door-names':            `Suggest 5 door or gate names for a Band RPG level based on: ${ctxStr}. Return JSON: {"suggestions":["...",...]}`,
+      'adventure-tags':        `Suggest 5 short tags (1-2 words) for categorising a Band RPG adventure based on: ${ctxStr}. Return JSON: {"suggestions":["...",...]}`,
+      'npc-dialogue':          `Write 5 short NPC dialogue lines for a character named "${String(context['name'] ?? 'NPC')}" in a Band RPG. Context: ${ctxStr}. Return JSON: {"suggestions":["...",...]}`,
+      'puzzle-flavour':        `Write 5 short flavour descriptions for a puzzle named "${String(context['name'] ?? 'puzzle')}" in a Band RPG. Return JSON: {"suggestions":["...",...]}`,
+    };
+
+    const prompt = prompts[step];
+    if (!prompt) { res.status(400).json({ error: `Unknown suggest step: ${step}` }); return; }
+
+    const client = getClient();
+    const response = await client.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: 'system', content: 'You are a creative Band RPG adventure writer. Return only valid JSON.' },
+        { role: 'user', content: prompt },
+      ],
+      max_tokens: 600,
+      temperature: 0.85,
+      response_format: { type: 'json_object' },
+    });
+
+    const raw = response.choices[0]?.message?.content?.trim() ?? '{}';
+    const parsed = JSON.parse(raw) as { suggestions?: unknown };
+    res.json({ suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [] }); return;
+  } catch (err) { next(err); return; }
+});
+
+// ── /guided/generate ─────────────────────────────────────────────────────────
+campaignGeneratorRouter.post('/guided/generate', async (req, res, next): Promise<void> => {
+  try {
+    const spec = req.body as GuidedAdventureSpec;
+
+    if (!spec.adventure?.name || !Array.isArray(spec.levels) || spec.levels.length === 0) {
+      res.status(400).json({ error: 'spec.adventure.name and spec.levels[] are required' }); return;
+    }
+
+    const userPrompt = buildGuidedGeneratePrompt(spec);
+
+    const client = getClient();
+    const response = await client.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: 'system', content: buildSystemPrompt() },
+        { role: 'user', content: userPrompt },
+      ],
+      max_tokens: 12000,
+      temperature: 0.3,
+      response_format: { type: 'json_object' },
+    });
+
+    const raw = response.choices[0]?.message?.content?.trim() ?? '';
+    if (!raw) { res.status(502).json({ error: 'GPT returned empty response' }); return; }
+
+    let parsed: unknown;
+    try { parsed = JSON.parse(raw); }
+    catch { res.status(502).json({ error: 'GPT returned invalid JSON', raw }); return; }
+
+    res.json({ json: parsed, raw, model: MODEL }); return;
   } catch (err) { next(err); return; }
 });

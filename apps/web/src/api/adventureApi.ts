@@ -240,6 +240,45 @@ export interface CampaignPingResult {
   message: string;
 }
 
+// ── Guided Adventure Builder types ──────────────────────────────────────────
+
+export interface GuidedSource {
+  mode: 'band' | 'custom';
+  bandName: string;
+  albumName: string;
+  songName: string;
+  customTheme: string;
+}
+
+export interface GuidedNpc { name: string; role: string; dialogueHint: string; }
+export interface GuidedItem { slug: string; name: string; type: string; rarity: string; purpose: string; }
+export interface GuidedPuzzle { type: string; name: string; }
+
+export interface GuidedLevelSpec {
+  order: number;
+  name: string;
+  slug: string;
+  description: string;
+  type: string;
+  mapTemplateId: string;
+  mapTransform: string;
+  npcs: GuidedNpc[];
+  items: GuidedItem[];
+  puzzle: GuidedPuzzle | null;
+  questName: string;
+  questEnabled: boolean;
+  nextLevelSlug: string;
+}
+
+export interface GuidedAdventureSpec {
+  source: GuidedSource;
+  adventure: { name: string; slug: string; description: string; difficulty: string; tags: string[] };
+  levels: GuidedLevelSpec[];
+}
+
+export interface GuidedSuggestResult { suggestions: string[]; }
+export interface GuidedGenerateResult { json: unknown; raw: string; model: string; }
+
 export const campaignGeneratorApi = {
   ping: () =>
     httpApi.get<CampaignPingResult>(`${CAMPAIGN_BASE}/ping`),
@@ -255,4 +294,10 @@ export const campaignGeneratorApi = {
 
   repairReachability: (json: unknown, errors: Array<{ path?: string; message: string }>, attempt: number) =>
     httpApi.post<RepairResult>(`${CAMPAIGN_BASE}/repair-reachability`, { json, errors, attempt }),
+
+  guidedSuggest: (step: string, context: Record<string, unknown>) =>
+    httpApi.post<GuidedSuggestResult>(`${CAMPAIGN_BASE}/guided/suggest`, { step, context }),
+
+  guidedGenerate: (spec: GuidedAdventureSpec) =>
+    httpApi.post<GuidedGenerateResult>(`${CAMPAIGN_BASE}/guided/generate`, spec),
 };

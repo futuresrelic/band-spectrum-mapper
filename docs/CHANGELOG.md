@@ -4,6 +4,76 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.8 — Guided Adventure Builder (2026-07-01)
+
+### Added
+
+**Guided Adventure Builder — new mode in the Band RPG Campaign Generator:**
+
+- Mode selector at the top of the Campaign Generator tab: **Quick Generate** (existing) | **Guided Builder** (new)
+- Guided Builder is a 7-step wizard where the human controls structure and AI only writes content
+- Steps: Source → Identity → Levels → Flow Preview → Generate → Validate → Import
+- AI never changes slugs, map templates, NPC roles, item types, or puzzle types — it only writes dialogue, descriptions, and flavour text
+
+**Step 1 — Source Selection:**
+- Pick from BSM band library (with optional album/song focus) or enter a custom theme
+- Band picker pulls from the live bands API
+
+**Step 2 — Identity:**
+- Adventure name with AI suggestions (`/guided/suggest` step=`adventure-names`)
+- Auto-generated slug from name
+- Difficulty picker (easy/medium/hard/expert)
+- Description with AI suggestions
+- Tag management with AI tag suggestions
+- Level count slider (1–8 levels)
+
+**Step 3 — Levels (per-level sub-wizard):**
+- Level name, slug, type (standard/puzzle/stealth/exploration/boss/hub)
+- Map template picker — all 10 pre-validated templates with plain-language descriptions
+- Safety validation: warns if map has a door but no key item; warns if quest enabled but no quest_giver NPC
+- NPC editor: name (with AI name suggestions), role (7 roles: quest_giver/clue_giver/gatekeeper/archivist/trickster/witness/final_guide), dialogue hint
+- Item editor: name (with AI suggestions), type, rarity, purpose
+- Puzzle editor: type (10 puzzle types), name (with AI flavour suggestions)
+- Quest toggle with quest name and AI suggestions
+- Next-level slug auto-wired on step advance
+
+**Step 4 — Flow Preview:**
+- Reads back the full adventure as a flowchart: map, slots, NPCs, items, puzzle, quest, next arrow
+- Warns if: single level, all levels same type, no NPCs anywhere
+- Last chance to go back and adjust before committing to generation
+
+**Step 5 — Generate:**
+- Sends full `GuidedAdventureSpec` to `POST /api/band-rpg/campaign/guided/generate`
+- GPT receives a constrained prompt with locked template tile/slot data; only asked for content
+- Raw JSON displayed in editable textarea; regenerate button available
+- Uses `max_tokens: 12000` and `temperature: 0.3` for precise output
+
+**Step 6 — Validate:**
+- Runs existing `adventureApi.validate()` against the generated JSON
+- Shows validation errors with paths
+- AI Repair button available if validation fails (delegates to existing `/repair` endpoint)
+- Blocks import until valid
+
+**Step 7 — Import:**
+- Mode selector: create / update / replace
+- Calls `adventureApi.import()` with the validated JSON
+- Shows success state with adventure name and first level slug
+- "Done" button returns to Quick Generate mode
+
+**New API endpoints (`/api/band-rpg/campaign/`):**
+- `POST /guided/suggest` — returns 5 AI suggestions for a given step; supports: adventure-names, adventure-description, level-names, npc-names, item-names, quest-names, door-names, adventure-tags, npc-dialogue, puzzle-flavour
+- `POST /guided/generate` — takes `GuidedAdventureSpec`, builds constrained prompt with locked template data, calls GPT-4o, returns `{ json, raw, model }`
+
+**New types exported from `adventureApi.ts`:**
+- `GuidedSource`, `GuidedNpc`, `GuidedItem`, `GuidedPuzzle`, `GuidedLevelSpec`, `GuidedAdventureSpec`
+- `GuidedSuggestResult`, `GuidedGenerateResult`
+- `campaignGeneratorApi.guidedSuggest()`, `campaignGeneratorApi.guidedGenerate()`
+
+### Not changed
+- Quick Generate mode is unchanged — all existing steps (Settings → Blueprint → JSON → Validate → Import) continue to work exactly as before
+
+---
+
 ## Phase Z.7 — YouTube Audio Pipeline Audit & Improvement (2026-06-27)
 
 ### Added
