@@ -45,18 +45,42 @@ const COLLECT_R  = 28;
 const NPC_POS   = { x: 11 * TILE + TILE / 2, y: 3  * TILE + TILE / 2 };
 const SPAWN_POS = { x: 11 * TILE + TILE / 2, y: 15 * TILE + TILE / 2 };
 
-// ── Visitor & fragment-behavior constants ─────────────────────────────────────
-const VISITOR_COLORS = ['#60a5fa', '#f472b6', '#a78bfa', '#34d399', '#fbbf24'];
-const VISITOR_SPEED_SLOW = 0.7;
-const VISITOR_SPEED_FAST = 1.2;
-const VISITOR_GRAB_CHANCE = 0.0025; // per frame chance visitor grabs a nearby fragment
-const VISITOR_GRAB_RADIUS = TILE * 2;
-const FRAGMENT_DRIFT_SPEED = 0.55;
-const FRAGMENT_ESCAPE_SPEED = 1.6;
-const ESCAPE_RADIUS = TILE * 3.5;
+// ── Archive tuning — all difficulty values in one place ───────────────────────
+const ARCHIVE_TUNING = {
+  // Normal visitors
+  visitorSpeedSlow:    0.7,
+  visitorSpeedFast:    1.2,
+  visitorGrabChance:   0.0025,     // per-frame probability
+  visitorGrabRadius:   TILE * 2,
+  // Fragment behaviors
+  fragmentDriftSpeed:  0.55,
+  fragmentEscapeSpeed: 1.6,
+  escapeRadius:        TILE * 3.5,
+  // Crowd Rush encounter
+  crowdRushDuration:       12000,  // ms
+  crowdRushVisitorCount:   4,
+  crowdRushSpeed:          2.1,
+  crowdRushGrabChance:     0.008,
+  crowdRushGrabRadius:     TILE * 1.8,
+} as const;
+
+// Derived shortcuts (use ARCHIVE_TUNING as source of truth above)
+const VISITOR_COLORS        = ['#60a5fa', '#f472b6', '#a78bfa', '#34d399', '#fbbf24'];
+const CROWD_RUSH_COLORS     = ['#f97316', '#ef4444', '#ec4899', '#dc2626', '#fb923c'];
+const VISITOR_SPEED_SLOW    = ARCHIVE_TUNING.visitorSpeedSlow;
+const VISITOR_SPEED_FAST    = ARCHIVE_TUNING.visitorSpeedFast;
+const VISITOR_GRAB_CHANCE   = ARCHIVE_TUNING.visitorGrabChance;
+const VISITOR_GRAB_RADIUS   = ARCHIVE_TUNING.visitorGrabRadius;
+const FRAGMENT_DRIFT_SPEED  = ARCHIVE_TUNING.fragmentDriftSpeed;
+const FRAGMENT_ESCAPE_SPEED = ARCHIVE_TUNING.fragmentEscapeSpeed;
+const ESCAPE_RADIUS         = ARCHIVE_TUNING.escapeRadius;
 
 // Listening booth — fixed position in the open area bottom-right
 const BOOTH_POS = { x: 19 * TILE + TILE / 2, y: 13 * TILE + TILE / 2 };
+
+// LocalStorage keys
+const ARCHIVE_LS_RUN_KEY  = 'bsm-archive-runs';
+const ARCHIVE_LS_HINT_KEY = 'bsm-archive-hint-seen';
 
 // ── Tile map  0=wall  1=floor  2=bookshelf (impassable) ─────────────────────
 
@@ -80,6 +104,25 @@ const MAP: number[][] = [
   [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
   [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
 ];
+
+// ── Progression helpers ───────────────────────────────────────────────────────
+
+function getArchiveRunCount(): number {
+  try { return Math.max(0, parseInt(localStorage.getItem(ARCHIVE_LS_RUN_KEY) ?? '0') || 0); }
+  catch { return 0; }
+}
+function incrementArchiveRunCount(): void {
+  try { localStorage.setItem(ARCHIVE_LS_RUN_KEY, String(getArchiveRunCount() + 1)); }
+  catch { /* ignore */ }
+}
+function archiveHintSeen(): boolean {
+  try { return localStorage.getItem(ARCHIVE_LS_HINT_KEY) === '1'; }
+  catch { return false; }
+}
+function markArchiveHintSeen(): void {
+  try { localStorage.setItem(ARCHIVE_LS_HINT_KEY, '1'); }
+  catch { /* ignore */ }
+}
 
 // ── Spawn system ─────────────────────────────────────────────────────────────
 
@@ -202,12 +245,14 @@ interface ArchiveVisitor {
   x:               number;
   y:               number;
   speed:           number;
-  tx:              number;  // target x
-  ty:              number;  // target y
+  tx:              number;
+  ty:              number;
   state:           VisitorState;
   carryingFragId:  string | null;
-  wanderCooldown:  number;  // ms countdown, pick new target when ≤ 0
+  wanderCooldown:  number;
   color:           string;
+  noticedFragId:   string | null; // fragment nearby (not yet grabbed) — shows "!" cue
+  isCrowdRusher:   boolean;       // crowd rush visitors behave and render differently
 }
 
 interface Effect {
@@ -219,6 +264,18 @@ interface Effect {
   color:     string;
   startTime: number;
   duration:  number;
+}
+
+interface EventToast {
+  id:      number;
+  message: string;
+}
+
+interface CrowdRushState {
+  active:          boolean;
+  timeRemainingMs: number;
+  rushers:         ArchiveVisitor[];
+  fragsSaved:      number;
 }
 
 interface BannerData {
@@ -376,33 +433,90 @@ function drawFragment(
   index: number,
 ) {
   if (frag.collected) return;
+
+  // Carried fragments: render as a small glowing note floating above the visitor
+  if (frag.carriedById !== null) {
+    const sx = frag.pos.x - cx;
+    const sy = frag.pos.y - cy - 22;
+    const now2 = performance.now();
+    const bob2 = Math.sin(now2 / 400 + index) * 2;
+    ctx.globalAlpha = 0.9;
+    ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = 10;
+    ctx.fillStyle = '#92400e';
+    ctx.beginPath(); ctx.arc(sx, sy + bob2, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath(); ctx.arc(sx, sy + bob2, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.font = 'bold 7px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#1c1917';
+    ctx.fillText('♪', sx, sy + bob2);
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+    return;
+  }
+
   const sx = frag.pos.x - cx;
   const sy = frag.pos.y - cy;
   const now = performance.now();
-  const bob   = Math.sin(now / 500 + index * 1.3) * 3;
-  const pulse = Math.sin(now / 800 + index * 0.9);
+  const bob = Math.sin(now / 500 + index * 1.3) * 3;
 
-  ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.5;
+  // Per-behavior color scheme
+  const glowColor = frag.behavior === 'escape' ? '#ef4444'
+                  : frag.behavior === 'drift'   ? '#38bdf8'
+                  :                               '#f59e0b';
+  const coreColor = frag.behavior === 'escape' ? '#7f1d1d'
+                  : frag.behavior === 'drift'   ? '#0c4a6e'
+                  :                               '#78350f';
+  const dotColor  = frag.behavior === 'escape' ? '#fca5a5'
+                  : frag.behavior === 'drift'   ? '#bae6fd'
+                  :                               '#fbbf24';
+
+  // Drift: draw a motion trail behind velocity direction
+  if (frag.behavior === 'drift' && (frag.vx !== 0 || frag.vy !== 0)) {
+    const len = Math.hypot(frag.vx, frag.vy) || 1;
+    const ndx = -(frag.vx / len) * 10;
+    const ndy = -(frag.vy / len) * 10;
+    for (let t = 1; t <= 2; t++) {
+      ctx.globalAlpha = 0.18 - t * 0.05;
+      ctx.fillStyle = glowColor;
+      ctx.beginPath(); ctx.arc(sx + ndx * t, sy + ndy * t + bob, 9 - t * 2, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Escape: nervous shake offset
+  let shakeX = 0, shakeY = 0;
+  if (frag.behavior === 'escape') {
+    shakeX = Math.sin(now / 80 + index * 2.1) * 1.8;
+    shakeY = Math.cos(now / 60 + index * 1.7) * 1.8;
+  }
+
+  const pulsePeriod = frag.behavior === 'escape' ? 300 : 800;
+  const pulse = Math.sin(now / pulsePeriod + index * 0.9);
+  const sx2 = sx + shakeX;
+  const sy2 = sy + bob + shakeY;
+
+  ctx.strokeStyle = glowColor; ctx.lineWidth = 1.5;
   ctx.globalAlpha = 0.25 + pulse * 0.15;
-  ctx.shadowColor = '#f59e0b'; ctx.shadowBlur = 16;
-  ctx.beginPath(); ctx.arc(sx, sy + bob, 22, 0, Math.PI * 2); ctx.stroke();
+  ctx.shadowColor = glowColor; ctx.shadowBlur = 16;
+  ctx.beginPath(); ctx.arc(sx2, sy2, 22, 0, Math.PI * 2); ctx.stroke();
   ctx.globalAlpha = 1;
 
-  ctx.shadowColor = '#f59e0b'; ctx.shadowBlur = 16 + pulse * 6;
-  ctx.fillStyle = '#78350f';
-  ctx.beginPath(); ctx.arc(sx, sy + bob, 14, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#fbbf24';
-  ctx.beginPath(); ctx.arc(sx, sy + bob, 8, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowColor = glowColor; ctx.shadowBlur = 16 + pulse * 6;
+  ctx.fillStyle = coreColor;
+  ctx.beginPath(); ctx.arc(sx2, sy2, 14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = dotColor;
+  ctx.beginPath(); ctx.arc(sx2, sy2, 8, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#fde68a';
-  ctx.beginPath(); ctx.arc(sx - 3, sy + bob - 3, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(sx2 - 3, sy2 - 3, 3, 0, Math.PI * 2); ctx.fill();
   ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
 
   ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#1c1917';
-  ctx.fillText('♪', sx, sy + bob);
+  ctx.fillText('♪', sx2, sy2);
 
-  ctx.font = 'bold 8px sans-serif'; ctx.fillStyle = '#fcd34d';
-  ctx.fillText(`FRAGMENT ${index + 1}`, sx, sy + bob - 24);
+  // Behavior label prefix makes each type visually distinct at a glance
+  const prefix = frag.behavior === 'drift' ? '〜 ' : frag.behavior === 'escape' ? '! ' : '';
+  ctx.font = 'bold 8px sans-serif'; ctx.fillStyle = dotColor;
+  ctx.fillText(`${prefix}FRAGMENT ${index + 1}`, sx2, sy2 - 24);
 
   if (nearPlayer) {
     const maxW = 180;
@@ -419,13 +533,13 @@ function drawFragment(
     if (cur) lines.push(cur);
 
     const boxW = maxW + 16; const boxH = lines.length * lineH + 14;
-    const bx = sx - boxW / 2; const by = sy + bob - 48 - boxH;
+    const bx = sx2 - boxW / 2; const by = sy2 - 48 - boxH;
     ctx.fillStyle = 'rgba(0,0,0,0.78)';
     ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 6); ctx.fill();
     ctx.fillStyle = '#fde68a';
-    lines.forEach((l, li) => ctx.fillText(l, sx, by + 8 + li * lineH));
+    lines.forEach((l, li) => ctx.fillText(l, sx2, by + 8 + li * lineH));
 
-    drawPrompt(ctx, sx, sy + bob - 36, isMobileHint ? 'Tap E' : '[E] Collect');
+    drawPrompt(ctx, sx2, sy2 - 36, isMobileHint ? 'Tap E' : '[E] Collect');
   }
 }
 
@@ -479,29 +593,57 @@ function drawVisitor(
   const sy = v.y - cy;
   const now = performance.now();
   const bob = Math.sin(now / 600 + v.id * 1.7) * 2;
+  const radius = v.isCrowdRusher ? 12 : 10;
 
-  ctx.shadowColor = v.color; ctx.shadowBlur = nearPlayer ? 14 : 5;
+  // Crowd rusher: pulsing orange ring
+  if (v.isCrowdRusher) {
+    const p = Math.sin(now / 200) * 0.3 + 0.7;
+    ctx.strokeStyle = v.color; ctx.lineWidth = 2;
+    ctx.globalAlpha = p * 0.6;
+    ctx.shadowColor = v.color; ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(sx, sy + bob, radius + 5, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.shadowColor = v.color; ctx.shadowBlur = nearPlayer ? 14 : (v.isCrowdRusher ? 10 : 5);
   ctx.fillStyle = v.color;
-  ctx.beginPath(); ctx.arc(sx, sy + bob, 10, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(sx, sy + bob, radius, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#ffffff';
-  ctx.beginPath(); ctx.arc(sx, sy + bob, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(sx, sy + bob, radius / 2, 0, Math.PI * 2); ctx.fill();
   ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
 
-  // Carrying indicator
-  if (v.state === 'carrying') {
-    ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#fbbf24'; ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = 10;
-    ctx.fillText('♪', sx, sy + bob - 18);
+  // "!" attention cue when visitor has noticed a fragment (not yet grabbed)
+  if (v.noticedFragId !== null && v.state !== 'carrying') {
+    const excBob = Math.sin(now / 180 + v.id) * 2;
+    ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fbbf24'; ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = 8;
+    ctx.fillText('!', sx, sy + bob - radius - 10 + excBob);
     ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
   }
 
-  if (nearPlayer && v.state === 'carrying') {
-    drawPrompt(ctx, sx, sy + bob - 28, isMobileHint ? 'Tap E' : '[E] Recover');
+  // Carrying indicator — glow + floating note
+  if (v.state === 'carrying') {
+    const glowPulse = Math.sin(now / 250) * 0.2 + 0.8;
+    ctx.globalAlpha = glowPulse;
+    ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2;
+    ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = 16;
+    ctx.beginPath(); ctx.arc(sx, sy + bob, radius + 4, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
   }
 
-  ctx.font = '9px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (nearPlayer && v.state === 'carrying') {
+    const promptText = v.isCrowdRusher
+      ? (isMobileHint ? 'Tap E — Recover!' : '[E] Recover Fragment!')
+      : (isMobileHint ? 'Tap E' : '[E] Recover');
+    drawPrompt(ctx, sx, sy + bob - radius - 18, promptText);
+  }
+
+  // Label
+  const label = v.isCrowdRusher ? 'RUSH' : 'visitor';
+  ctx.font = `${v.isCrowdRusher ? 'bold ' : ''}9px sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = v.color + 'aa';
-  ctx.fillText('visitor', sx, sy + bob - 17);
+  ctx.fillText(label, sx, sy + bob - radius - 2);
 }
 
 function drawBooth(
@@ -509,38 +651,55 @@ function drawBooth(
   cx: number, cy: number,
   phase: QuestPhase,
   boothUsed: boolean,
+  nearPlayer: boolean,
 ) {
   const sx = BOOTH_POS.x - cx;
   const sy = BOOTH_POS.y - cy;
-  if (boothUsed || phase === 'pre_quest' || phase === 'complete') return;
+  if (phase === 'pre_quest' || phase === 'complete') return;
 
   const now = performance.now();
   const pulse = Math.sin(now / 500) * 0.3 + 0.7;
+  const alpha = boothUsed ? 0.35 : 1;
+
+  ctx.globalAlpha = alpha;
 
   // Podium base
-  ctx.fillStyle = '#1e3a5f';
+  ctx.fillStyle = boothUsed ? '#111827' : '#1e3a5f';
   ctx.fillRect(sx - 14, sy - 8, 28, 18);
-  ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 1.5;
+  ctx.strokeStyle = boothUsed ? '#374151' : '#2563eb'; ctx.lineWidth = 1.5;
   ctx.strokeRect(sx - 14, sy - 8, 28, 18);
 
   // Screen
-  ctx.fillStyle = `rgba(37,99,235,${pulse * 0.8})`;
+  ctx.fillStyle = boothUsed ? 'rgba(55,65,81,0.5)' : `rgba(37,99,235,${pulse * 0.8})`;
   ctx.beginPath(); ctx.roundRect(sx - 10, sy - 20, 20, 14, 3); ctx.fill();
-  ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = 1;
+  ctx.strokeStyle = boothUsed ? '#4b5563' : '#60a5fa'; ctx.lineWidth = 1;
   ctx.strokeRect(sx - 10, sy - 20, 20, 14);
 
-  // Label
   ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#93c5fd';
-  ctx.fillText('BOOTH', sx, sy + 3);
+  ctx.fillStyle = boothUsed ? '#6b7280' : '#93c5fd';
+  ctx.fillText(boothUsed ? 'USED' : 'BOOTH', sx, sy + 3);
 
-  // Pulsing outer ring during find_fragments
-  if (phase === 'find_fragments') {
+  // "LISTENING BOOTH" label above
+  ctx.font = 'bold 7px sans-serif';
+  ctx.fillStyle = boothUsed ? '#6b7280' : '#60a5fa';
+  ctx.fillText('LISTENING BOOTH', sx, sy - 30);
+
+  ctx.globalAlpha = 1;
+
+  // Pulsing outer ring during find_fragments (not used)
+  if (phase === 'find_fragments' && !boothUsed) {
     ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5;
     ctx.globalAlpha = 0.4 + pulse * 0.3;
     ctx.shadowColor = '#3b82f6'; ctx.shadowBlur = 12;
     ctx.beginPath(); ctx.arc(sx, sy, 28, 0, Math.PI * 2); ctx.stroke();
     ctx.globalAlpha = 1; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+  }
+
+  if (nearPlayer && !boothUsed && phase === 'find_fragments') {
+    drawPrompt(ctx, sx, sy - 40, isMobileHint ? 'Tap E — Free Clue' : '[E] Use Listening Booth');
+  }
+  if (nearPlayer && boothUsed) {
+    drawPrompt(ctx, sx, sy - 40, 'Booth already used this run');
   }
 }
 
@@ -1095,6 +1254,71 @@ function InteractBtn({ onInteract }: { onInteract: () => void }) {
   );
 }
 
+function ArchiveHintPanel({ onDismiss }: { onDismiss: () => void }) {
+  useEffect(() => {
+    const t = window.setTimeout(onDismiss, 9000);
+    return () => window.clearTimeout(t);
+  }, [onDismiss]);
+  return (
+    <div className="absolute bottom-20 inset-x-0 flex justify-center pointer-events-none z-30">
+      <div className="bg-gray-950/96 border border-blue-500/40 rounded-xl px-5 py-3 max-w-sm mx-4 pointer-events-auto shadow-2xl">
+        <div className="flex items-start gap-3">
+          <span className="text-blue-400 text-lg shrink-0 mt-0.5">📋</span>
+          <div className="flex-1 text-xs text-gray-300 leading-relaxed space-y-1.5">
+            <p className="text-blue-300 font-bold text-sm mb-0.5">Archive Tips</p>
+            <p>
+              <span className="text-amber-300 font-semibold">♪ Gold</span> = static ·{' '}
+              <span className="text-sky-300 font-semibold">♪ Blue</span> = drifting ·{' '}
+              <span className="text-red-300 font-semibold">♪ Red</span> = escaping
+            </p>
+            <p>Visitors may <span className="text-amber-300">grab fragments</span>. Press <kbd className="bg-white/10 border border-white/20 rounded px-1 font-mono text-white">E</kbd> near a carrying visitor to recover it.</p>
+            <p>Use the <span className="text-blue-300 font-semibold">Listening Booth</span> once per run for a free clue.</p>
+          </div>
+          <button
+            onClick={onDismiss}
+            className="text-gray-500 hover:text-white transition-colors shrink-0 text-sm leading-none mt-0.5"
+            title="Dismiss"
+          >✕</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EventToastList({ toasts }: { toasts: EventToast[] }) {
+  if (toasts.length === 0) return null;
+  return (
+    <div className="absolute bottom-20 right-2 flex flex-col gap-1 items-end pointer-events-none z-20">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className="bg-gray-900/90 border border-gray-700/50 text-gray-300 text-xs px-3 py-1.5 rounded-lg shadow-lg"
+        >
+          {t.message}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CrowdRushOverlay({ timeSec, fragsSaved }: { timeSec: number; fragsSaved: number }) {
+  return (
+    <div className="absolute top-14 inset-x-0 flex justify-center pointer-events-none z-30">
+      <div className="bg-red-950/95 border-2 border-red-500/70 rounded-xl px-6 py-3 text-center shadow-2xl">
+        <p className="text-red-400 font-bold text-sm tracking-widest uppercase">⚡ Crowd Rush!</p>
+        <p className="text-gray-300 text-xs mt-0.5">
+          Press <span className="text-white font-bold">[E]</span> near rush visitors to recover fragments
+        </p>
+        <div className="flex items-center justify-center gap-4 mt-1.5">
+          <span className="text-red-300 font-mono text-sm font-bold">{timeSec}s</span>
+          <span className="text-gray-600 text-xs">•</span>
+          <span className="text-emerald-300 text-xs font-semibold">Recovered: {fragsSaved}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface BandRpgGameProps {
@@ -1143,6 +1367,16 @@ export default function BandRpgGame({
   const boothUsedRef      = useRef(false);
   const lastFrameTimeRef  = useRef<number>(0);
 
+  // Crowd Rush encounter
+  const crowdRushRef          = useRef<CrowdRushState>({ active: false, timeRemainingMs: 0, rushers: [], fragsSaved: 0 });
+  const crowdRushTriggeredRef = useRef(false);
+  const crowdRushLastSecRef   = useRef(0);
+  const runCountRef           = useRef(getArchiveRunCount());
+
+  // Event toasts
+  const toastIdRef   = useRef(0);
+  const lastToastRef = useRef({ msg: '', time: 0 });
+
   // Guess / identification tracking
   const guessedCorrectlyRef = useRef(false);
   const guessBonusRef       = useRef(0);
@@ -1151,8 +1385,8 @@ export default function BandRpgGame({
   const dialogueRef = useRef(buildQuestLines(selectedBand.name, session.songTitle));
 
   const boothDialogue: DlgLine[] = [
-    { speaker: 'Listening Booth', text: 'A fragment has been left here for study. Approach and it will be transferred to your journal.' },
-    { speaker: 'Listening Booth', text: 'Fragment acquired. Check your journal — only two remain.' },
+    { speaker: 'Listening Booth', text: 'A recovered fragment has been catalogued here for study. It\'s yours — transferred directly to your journal.' },
+    { speaker: 'Listening Booth', text: 'Fragment acquired. The booth is now closed for this session — two more fragments remain in the archive.' },
   ];
 
   // React UI state
@@ -1172,6 +1406,11 @@ export default function BandRpgGame({
   const [revealedTitle,      setRevealedTitle]      = useState<string | null>(null);
   const [isNewCollection,    setIsNewCollection]    = useState<boolean | null>(null);
   const [albumRestored,      setAlbumRestored]      = useState<{ albumTitle: string } | null>(null);
+  const [crowdRushActive,    setCrowdRushActive]    = useState(false);
+  const [crowdRushTimeSec,   setCrowdRushTimeSec]   = useState(0);
+  const [crowdRushFragsSaved, setCrowdRushFragsSaved] = useState(0);
+  const [eventToasts,        setEventToasts]        = useState<EventToast[]>([]);
+  const [showArchiveHint,    setShowArchiveHint]    = useState(false);
 
   // Pre-fetch the band's song list for the guess dropdown
   const { data: bandSongs = [] } = useQuery({
@@ -1206,15 +1445,18 @@ export default function BandRpgGame({
     });
   }
 
-  function initVisitors(): ArchiveVisitor[] {
-    const count = 2 + Math.floor(Math.random() * 2); // 2-3 visitors
+  function initVisitors(runCount: number): ArchiveVisitor[] {
+    // Scale visitor count gently with experience
+    const count = runCount < 3 ? 1 + Math.floor(Math.random() * 2)   // 1–2 early
+                : runCount < 8 ? 2 + Math.floor(Math.random() * 2)   // 2–3 mid
+                :                3 + Math.floor(Math.random() * 2);  // 3–4 experienced
     const candidates = getValidSpawnTiles({
       minDistFromPlayerPx: TILE * 6,
       minDistFromNpcPx: TILE * 4,
       allowedTiles: [1],
     });
     return Array.from({ length: count }, (_, i) => {
-      const pos = candidates[Math.floor(Math.random() * candidates.length)] ?? VINYL_FALLBACK;
+      const pos    = candidates[Math.floor(Math.random() * candidates.length)] ?? VINYL_FALLBACK;
       const target = candidates[Math.floor(Math.random() * candidates.length)] ?? VINYL_FALLBACK;
       return {
         id: i + 1,
@@ -1225,13 +1467,15 @@ export default function BandRpgGame({
         carryingFragId: null,
         wanderCooldown: 2000 + Math.random() * 3000,
         color: VISITOR_COLORS[i % VISITOR_COLORS.length] ?? '#60a5fa',
+        noticedFragId: null,
+        isCrowdRusher: false,
       };
     });
   }
 
   useEffect(() => {
     fragmentsRef.current = initFragments(session);
-    visitorsRef.current  = initVisitors();
+    visitorsRef.current  = initVisitors(runCountRef.current);
     dialogueRef.current  = buildQuestLines(selectedBand.name, session.songTitle);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1265,6 +1509,54 @@ export default function BandRpgGame({
   });
 
   const dismissBanner = useCallback(() => setBanner(null), []);
+
+  const addToast = useCallback((message: string) => {
+    const now = performance.now();
+    if (lastToastRef.current.msg === message && now - lastToastRef.current.time < 3000) return;
+    lastToastRef.current = { msg: message, time: now };
+    const id = ++toastIdRef.current;
+    setEventToasts((prev) => [...prev.slice(-3), { id, message }]);
+    window.setTimeout(() => setEventToasts((prev) => prev.filter((t) => t.id !== id)), 3600);
+  }, []);
+
+  const startCrowdRush = useCallback(() => {
+    const candidates = getValidSpawnTiles({
+      minDistFromPlayerPx: TILE * 8, minDistFromNpcPx: TILE * 4, allowedTiles: [1],
+    });
+    const rushers: ArchiveVisitor[] = Array.from(
+      { length: ARCHIVE_TUNING.crowdRushVisitorCount },
+      (_, i) => {
+        const pos    = candidates[Math.floor(Math.random() * candidates.length)] ?? VINYL_FALLBACK;
+        const target = candidates[Math.floor(Math.random() * candidates.length)] ?? VINYL_FALLBACK;
+        return {
+          id: 100 + i,
+          x: pos.x, y: pos.y,
+          tx: target.x, ty: target.y,
+          speed: ARCHIVE_TUNING.crowdRushSpeed,
+          state: 'wandering' as VisitorState,
+          carryingFragId: null,
+          wanderCooldown: 0,
+          color: CROWD_RUSH_COLORS[i % CROWD_RUSH_COLORS.length] ?? '#f97316',
+          noticedFragId: null,
+          isCrowdRusher: true,
+        };
+      },
+    );
+    crowdRushRef.current = {
+      active: true,
+      timeRemainingMs: ARCHIVE_TUNING.crowdRushDuration,
+      rushers,
+      fragsSaved: 0,
+    };
+    crowdRushLastSecRef.current = Math.ceil(ARCHIVE_TUNING.crowdRushDuration / 1000);
+    setCrowdRushActive(true);
+    setCrowdRushTimeSec(crowdRushLastSecRef.current);
+    setCrowdRushFragsSaved(0);
+    addToast('⚡ Crowd Rush started!');
+    setBanner({ title: '⚡ Crowd Rush!', subtitle: 'Press E near rush visitors to recover fragments', color: 'amber' });
+    playTone(220, 0.18, 'sawtooth', 0.1);
+    window.setTimeout(() => playTone(330, 0.18, 'sawtooth', 0.09), 120);
+  }, [addToast]);
 
   const toggleMute = useCallback(() => {
     isMuted = !isMuted;
@@ -1303,6 +1595,12 @@ export default function BandRpgGame({
   const acceptQuest = useCallback(() => {
     questPhaseRef.current = 'find_fragments';
     setQuestPhase('find_fragments');
+    incrementArchiveRunCount();
+    runCountRef.current = getArchiveRunCount();
+    // Show onboarding hint for the first few runs
+    if (runCountRef.current <= 3 && !archiveHintSeen()) {
+      setShowArchiveHint(true);
+    }
     setBanner({ title: 'Quest Accepted!', subtitle: 'Find 3 lyric fragments hidden in The Archives', color: 'amber' });
     effectsRef.current.push({
       id: ++effectIdRef.current, wx: NPC_POS.x, wy: NPC_POS.y - 20,
@@ -1451,24 +1749,38 @@ export default function BandRpgGame({
     }
 
     if (questPhaseRef.current === 'find_fragments') {
-      // Booth interaction — delivers one fragment via dialogue
+      // Booth interaction — delivers one fragment via dialogue (once per run)
       if (!boothUsedRef.current && dist(p.x, p.y, BOOTH_POS.x, BOOTH_POS.y) < INTERACT_R) {
         boothUsedRef.current = true;
         const uncollected = fragmentsRef.current.find(f => !f.collected && f.carriedById === null);
         if (uncollected) {
-          openDlg(boothDialogue, () => { collectFragment(uncollected); });
+          openDlg(boothDialogue, () => {
+            addToast('Listening Booth revealed a clue.');
+            collectFragment(uncollected);
+          });
         }
         return;
       }
 
-      // Recover a fragment carried by a nearby visitor
-      for (const v of visitorsRef.current) {
+      // Recover fragment from any nearby carrying visitor (normal or crowd rush)
+      const allCarriers = [
+        ...visitorsRef.current,
+        ...crowdRushRef.current.rushers,
+      ];
+      for (const v of allCarriers) {
         if (v.state === 'carrying' && dist(p.x, p.y, v.x, v.y) < INTERACT_R) {
           const cf = fragmentsRef.current.find(f => f.id === v.carryingFragId);
           if (cf) {
             cf.carriedById = null;
             v.carryingFragId = null;
             v.state = 'wandering';
+            if (v.isCrowdRusher) {
+              crowdRushRef.current.fragsSaved++;
+              setCrowdRushFragsSaved(crowdRushRef.current.fragsSaved);
+              addToast('Fragment recovered from crowd rush!');
+            } else {
+              addToast('Fragment recovered.');
+            }
             collectFragment(cf);
           }
           return;
@@ -1488,7 +1800,7 @@ export default function BandRpgGame({
       const vpos = vinylPosRef.current;
       if (dist(p.x, p.y, vpos.x, vpos.y) < INTERACT_R) collectVinyl(vpos);
     }
-  }, [openDlg, acceptQuest, finishQuest, collectFragment, collectVinyl]);
+  }, [openDlg, acceptQuest, finishQuest, collectFragment, collectVinyl, addToast]);
 
   // Keyboard
   useEffect(() => {
@@ -1608,15 +1920,13 @@ export default function BandRpgGame({
           }
         }
 
-        // ── Visitor updates ────────────────────────────────────────────────
+        // ── Normal visitor updates ─────────────────────────────────────────
         const visitors = visitorsRef.current;
         for (const v of visitors) {
-          // Move visitor toward target
           const dx = v.tx - v.x;
           const dy = v.ty - v.y;
           const d = Math.hypot(dx, dy);
           if (d < 4) {
-            // Reached target — pick new one
             v.wanderCooldown -= dtMs;
             if (v.wanderCooldown <= 0) {
               const cands = getValidSpawnTiles({ minDistFromPlayerPx: 0, minDistFromNpcPx: 0, allowedTiles: [1] });
@@ -1626,32 +1936,41 @@ export default function BandRpgGame({
               if (v.state === 'chasing') v.state = 'wandering';
             }
           } else {
-            const spd = v.speed;
-            const mx = (dx / d) * spd;
-            const my = (dy / d) * spd;
-            const nx = v.x + mx;
-            const ny = v.y + my;
+            const mx = (dx / d) * v.speed;
+            const my = (dy / d) * v.speed;
+            const nx = v.x + mx; const ny = v.y + my;
             if (isWalkable(nx, v.y)) v.x = nx;
             else if (isWalkable(v.x, ny)) v.y = ny;
             else {
-              // Unstuck: pick random new target
               const cands = getValidSpawnTiles({ minDistFromPlayerPx: 0, minDistFromNpcPx: 0, allowedTiles: [1] });
               const next = cands[Math.floor(Math.random() * cands.length)];
               if (next) { v.tx = next.x; v.ty = next.y; }
             }
           }
 
-          // Fragment pickup logic (only during find_fragments)
+          // noticedFragId: show "!" when a fragment is close but not yet grabbed
+          if (v.state !== 'carrying') {
+            v.noticedFragId = null;
+            for (const frag of fragmentsRef.current) {
+              if (frag.collected || frag.carriedById !== null) continue;
+              if (dist(v.x, v.y, frag.pos.x, frag.pos.y) < VISITOR_GRAB_RADIUS * 1.6) {
+                v.noticedFragId = frag.id;
+                break;
+              }
+            }
+          }
+
+          // Fragment pickup (only during find_fragments)
           if (questPhaseRef.current === 'find_fragments' && v.state !== 'carrying') {
             for (const frag of fragmentsRef.current) {
               if (frag.collected || frag.carriedById !== null) continue;
               if (dist(v.x, v.y, frag.pos.x, frag.pos.y) < VISITOR_GRAB_RADIUS) {
                 if (Math.random() < VISITOR_GRAB_CHANCE) {
-                  // Visitor picks up this fragment
                   frag.carriedById = v.id;
                   v.carryingFragId = frag.id;
                   v.state = 'carrying';
-                  // Pick a random new wander target
+                  v.noticedFragId = null;
+                  addToast('A visitor picked up a fragment!');
                   const cands = getValidSpawnTiles({ minDistFromPlayerPx: 0, minDistFromNpcPx: 0, allowedTiles: [1] });
                   const next = cands[Math.floor(Math.random() * cands.length)];
                   if (next) { v.tx = next.x; v.ty = next.y; }
@@ -1661,14 +1980,118 @@ export default function BandRpgGame({
             }
           }
 
-          // Update carried fragment position to follow visitor
           if (v.state === 'carrying' && v.carryingFragId) {
             const cf = fragmentsRef.current.find(f => f.id === v.carryingFragId);
             if (cf) { cf.pos.x = v.x; cf.pos.y = v.y; }
           }
         }
 
-        // Auto-collect fragments (not carried ones — those require E on visitor)
+        // ── Crowd Rush trigger (once per run, after first frag collected) ──
+        if (
+          questPhaseRef.current === 'find_fragments' &&
+          !crowdRushTriggeredRef.current &&
+          collectedCountRef.current >= 1
+        ) {
+          crowdRushTriggeredRef.current = true;
+          const rushChance = runCountRef.current < 3 ? 0
+                           : runCountRef.current < 8 ? 0.2
+                           :                           0.35;
+          if (rushChance > 0 && Math.random() < rushChance) {
+            window.setTimeout(() => startCrowdRush(), 1500);
+          }
+        }
+
+        // ── Crowd Rush update ──────────────────────────────────────────────
+        const cr = crowdRushRef.current;
+        if (cr.active) {
+          cr.timeRemainingMs -= dtMs;
+          const newSec = Math.ceil(Math.max(0, cr.timeRemainingMs) / 1000);
+          if (newSec !== crowdRushLastSecRef.current) {
+            crowdRushLastSecRef.current = newSec;
+            setCrowdRushTimeSec(newSec);
+          }
+
+          for (const rusher of cr.rushers) {
+            // Chase nearest uncollected, uncarried fragment
+            if (rusher.state !== 'carrying') {
+              let nearestFrag: LyricFragment | null = null;
+              let nearestDist = Infinity;
+              for (const frag of fragmentsRef.current) {
+                if (frag.collected || frag.carriedById !== null) continue;
+                const fd = dist(rusher.x, rusher.y, frag.pos.x, frag.pos.y);
+                if (fd < nearestDist) { nearestDist = fd; nearestFrag = frag; }
+              }
+              if (nearestFrag) {
+                rusher.tx = nearestFrag.pos.x;
+                rusher.ty = nearestFrag.pos.y;
+                rusher.noticedFragId = nearestDist < TILE * 3 ? nearestFrag.id : null;
+              }
+            }
+
+            // Move rusher
+            const rdx = rusher.tx - rusher.x;
+            const rdy = rusher.ty - rusher.y;
+            const rd = Math.hypot(rdx, rdy);
+            if (rd > 2) {
+              const rmx = (rdx / rd) * rusher.speed;
+              const rmy = (rdy / rd) * rusher.speed;
+              const rnx = rusher.x + rmx; const rny = rusher.y + rmy;
+              if (isWalkable(rnx, rusher.y)) rusher.x = rnx;
+              else if (isWalkable(rusher.x, rny)) rusher.y = rny;
+            }
+
+            // Rush grab
+            if (rusher.state !== 'carrying') {
+              for (const frag of fragmentsRef.current) {
+                if (frag.collected || frag.carriedById !== null) continue;
+                if (dist(rusher.x, rusher.y, frag.pos.x, frag.pos.y) < ARCHIVE_TUNING.crowdRushGrabRadius) {
+                  if (Math.random() < ARCHIVE_TUNING.crowdRushGrabChance) {
+                    frag.carriedById = rusher.id;
+                    rusher.carryingFragId = frag.id;
+                    rusher.state = 'carrying';
+                    rusher.noticedFragId = null;
+                    addToast('⚡ Rush visitor grabbed a fragment!');
+                    break;
+                  }
+                }
+              }
+            }
+
+            // Carried fragment follows rusher
+            if (rusher.state === 'carrying' && rusher.carryingFragId) {
+              const cf = fragmentsRef.current.find(f => f.id === rusher.carryingFragId);
+              if (cf) { cf.pos.x = rusher.x; cf.pos.y = rusher.y; }
+            }
+          }
+
+          // Crowd Rush end — drop all carried fragments back to floor
+          if (cr.timeRemainingMs <= 0) {
+            for (const rusher of cr.rushers) {
+              if (rusher.carryingFragId) {
+                const cf = fragmentsRef.current.find(f => f.id === rusher.carryingFragId);
+                if (cf) {
+                  cf.carriedById = null;
+                  cf.behavior = 'static';
+                  cf.vx = 0; cf.vy = 0;
+                }
+                rusher.carryingFragId = null;
+              }
+            }
+            const saved = cr.fragsSaved;
+            cr.active = false;
+            cr.rushers = [];
+            setCrowdRushActive(false);
+            if (saved > 0) {
+              scoreRef.current += saved * 10;
+              setScore(scoreRef.current);
+              addToast(`Crowd Rush cleared! +${saved * 10} pts for ${saved} recovered.`);
+            } else {
+              addToast('Crowd Rush ended. Fragments returned to the archive floor.');
+            }
+          }
+        }
+
+        // Auto-collect fragments (not carried — those require E on visitor)
         if (questPhaseRef.current === 'find_fragments') {
           for (const frag of fragmentsRef.current) {
             if (!frag.collected && frag.carriedById === null && dist(p.x, p.y, frag.pos.x, frag.pos.y) < COLLECT_R) {
@@ -1701,20 +2124,28 @@ export default function BandRpgGame({
       const vpos      = vinylPosRef.current;
       const nearVinyl = !vinylRef.current && questPhaseRef.current === 'find_vinyl'
                         && dist(p.x, p.y, vpos.x, vpos.y) < INTERACT_R;
+      const nearBooth = !boothUsedRef.current && questPhaseRef.current === 'find_fragments'
+                        && dist(p.x, p.y, BOOTH_POS.x, BOOTH_POS.y) < INTERACT_R;
+      const boothNearUsed = boothUsedRef.current && questPhaseRef.current === 'find_fragments'
+                            && dist(p.x, p.y, BOOTH_POS.x, BOOTH_POS.y) < INTERACT_R;
 
-      // Booth
-      drawBooth(ctx, cam.x, cam.y, questPhaseRef.current, boothUsedRef.current);
+      drawBooth(ctx, cam.x, cam.y, questPhaseRef.current, boothUsedRef.current, nearBooth || boothNearUsed);
 
-      // Fragments visible during find_fragments only (all collected = none visible)
+      // Fragments + visitors during fragment-hunt phase
       if (questPhaseRef.current === 'find_fragments') {
         fragmentsRef.current.forEach((frag, i) => {
-          const nearFrag = !frag.collected && frag.carriedById === null && dist(p.x, p.y, frag.pos.x, frag.pos.y) < INTERACT_R;
+          const nearFrag = !frag.collected && frag.carriedById === null
+                           && dist(p.x, p.y, frag.pos.x, frag.pos.y) < INTERACT_R;
           drawFragment(ctx, cam.x, cam.y, frag, nearFrag, i);
         });
-        // Draw visitors (only meaningful during fragment phase)
         for (const v of visitorsRef.current) {
-          const nearV = dist(p.x, p.y, v.x, v.y) < INTERACT_R;
-          drawVisitor(ctx, cam.x, cam.y, v, nearV);
+          drawVisitor(ctx, cam.x, cam.y, v, dist(p.x, p.y, v.x, v.y) < INTERACT_R);
+        }
+        // Crowd rush visitors
+        if (crowdRushRef.current.active) {
+          for (const rusher of crowdRushRef.current.rushers) {
+            drawVisitor(ctx, cam.x, cam.y, rusher, dist(p.x, p.y, rusher.x, rusher.y) < INTERACT_R);
+          }
         }
       }
 
@@ -1732,7 +2163,7 @@ export default function BandRpgGame({
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [collectFragment, collectVinyl]);
+  }, [collectFragment, collectVinyl, addToast, startCrowdRush]);
 
   const handleJoystick = useCallback((dx: number, dy: number) => { joystickRef.current = { dx, dy }; }, []);
 
@@ -1742,13 +2173,16 @@ export default function BandRpgGame({
   }, []);
 
   const resetGame = useCallback((newSession: BandRpgSession) => {
-    sessionRef.current          = newSession;
-    dialogueRef.current         = buildQuestLines(selectedBand.name, newSession.songTitle);
-    fragmentsRef.current        = initFragments(newSession);
-    visitorsRef.current         = initVisitors();
-    boothUsedRef.current        = false;
-    lastFrameTimeRef.current    = 0;
-    collectedCountRef.current   = 0;
+    runCountRef.current          = getArchiveRunCount(); // sync after acceptQuest incremented it
+    sessionRef.current           = newSession;
+    dialogueRef.current          = buildQuestLines(selectedBand.name, newSession.songTitle);
+    fragmentsRef.current         = initFragments(newSession);
+    visitorsRef.current          = initVisitors(runCountRef.current);
+    boothUsedRef.current         = false;
+    lastFrameTimeRef.current     = 0;
+    crowdRushRef.current         = { active: false, timeRemainingMs: 0, rushers: [], fragsSaved: 0 };
+    crowdRushTriggeredRef.current = false;
+    collectedCountRef.current    = 0;
     guessedCorrectlyRef.current = false;
     guessBonusRef.current       = 0;
     rarityBonusRef.current      = 0;
@@ -1776,6 +2210,11 @@ export default function BandRpgGame({
     setRevealedTitle(null);
     setIsNewCollection(null);
     setAlbumRestored(null);
+    setCrowdRushActive(false);
+    setCrowdRushTimeSec(0);
+    setCrowdRushFragsSaved(0);
+    setEventToasts([]);
+    setShowArchiveHint(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBand.name]);
 
@@ -1842,6 +2281,16 @@ export default function BandRpgGame({
             <DialogueBox dlg={dlg} onNext={advanceDlg} />
           </div>
         )}
+
+        {crowdRushActive && !isComplete && (
+          <CrowdRushOverlay timeSec={crowdRushTimeSec} fragsSaved={crowdRushFragsSaved} />
+        )}
+
+        {showArchiveHint && !isComplete && (
+          <ArchiveHintPanel onDismiss={() => { setShowArchiveHint(false); markArchiveHintSeen(); }} />
+        )}
+
+        <EventToastList toasts={eventToasts} />
 
         {isPaused && !isComplete && <PauseMenu onResume={togglePause} onQuit={onExit} />}
 

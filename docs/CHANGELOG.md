@@ -4,6 +4,69 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.10 — Classic Archive Mode: Visual Clarity, Crowd Rush, Onboarding (2026-07-01)
+
+### Added
+
+**Visual clarity — fragments:**
+- Static fragments: unchanged gold glow
+- Drift fragments: blue glow + motion trail behind velocity vector (`〜 FRAGMENT N` label)
+- Escape fragments: red glow + rapid nervous shake offset (`! FRAGMENT N` label)
+- Carried fragments: render as a small glowing ♪ note floating above the visitor carrying them (instead of the full fragment sprite)
+
+**Visual clarity — visitors:**
+- Visitors show a pulsing `!` exclamation cue when they've noticed (but not yet grabbed) a nearby fragment
+- Carrying visitors: pulsing gold ring around them (in addition to the ♪ icon)
+- Crowd rush visitors: orange pulsing ring border + `RUSH` label — visually distinct from normal visitors
+- Nearby-carrying prompt upgraded: `[E] Recover Fragment!` (with emphasis) for crowd rushers
+
+**Visual clarity — Listening Booth:**
+- Now shows a `LISTENING BOOTH` label above the podium
+- Shows `[E] Use Listening Booth` prompt when player is within range and booth is unused
+- Shows `Booth already used this run` prompt when player is near the used booth
+- Used state: booth dims to gray with `USED` label (no longer pulses)
+
+**Onboarding hint panel:**
+- Shows on the first 3 runs (localStorage-gated — never shown after dismissed)
+- Auto-dismisses after 9 seconds; has an ✕ close button
+- Explains fragment color coding, visitor recovery, and Listening Booth in plain language
+
+**Crowd Rush encounter (new):**
+- Triggers once per run, 1.5s after first fragment is collected
+- Probability scales with experience: 0% (< 3 runs) → 20% (< 8 runs) → 35% (8+ runs)
+- Spawns 4 fast-moving orange rush visitors that chase the nearest loose fragment
+- Countdown timer overlay: `⚡ Crowd Rush!` banner + timer + "Recovered: N" counter
+- Player presses E near a rush visitor to recover a carried fragment (increments counter)
+- Encounter ends when timer hits 0: all still-carried fragments drop to the floor as static
+- Reward: +10 pts per fragment recovered from rushers; toast message on end
+
+**Event toast log:**
+- Small overlay (bottom-right) shows readable game events
+- Events: "A visitor picked up a fragment!", "Fragment recovered.", "Listening Booth revealed a clue.", "⚡ Crowd Rush started!", crowd rush end message
+- Throttled: same message won't re-appear within 3 seconds
+
+**Progression tuning config:**
+- All difficulty values centralized in `ARCHIVE_TUNING` const (one place to tune everything)
+- Visitor count scales by run count: 1–2 (early) → 2–3 (mid) → 3–4 (experienced)
+- Crowd Rush chance scales by run count (0% → 20% → 35%)
+- Progression tracked via localStorage `bsm-archive-runs`
+
+### Technical
+
+- `ARCHIVE_TUNING` const replaces all scattered magic numbers; derived shortcuts for backward compatibility
+- `ArchiveVisitor` extended: `noticedFragId: string | null`, `isCrowdRusher: boolean`
+- `EventToast` and `CrowdRushState` interfaces added
+- `initVisitors(runCount)` now takes run count for scaled spawning
+- `ArchiveHintPanel`, `EventToastList`, `CrowdRushOverlay` components added
+- `addToast` and `startCrowdRush` useCallbacks handle events cleanly
+- `crowdRushRef`, `crowdRushTriggeredRef`, `runCountRef`, `toastIdRef` refs added
+- `acceptQuest` increments run count in localStorage and conditionally shows hint
+- `resetGame` clears all crowd rush state and new UI state
+- Booth `drawBooth` now takes `nearPlayer: boolean` for prompt rendering
+- Game loop deps updated: `[collectFragment, collectVinyl, addToast, startCrowdRush]`
+
+---
+
 ## Phase Z.9 — Classic Archive Mode: Living Fragments + Visitor NPCs (2026-07-01)
 
 ### Added
