@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { bandRpgEditorApi, type EditorLevel, type MapData, type TileType, type MapEntity } from '../../api/bandRpgEditor';
+import { bandRpgEditorApi, type EditorLevel, type MapData, type TileType, type MapEntity, type EditorDoor } from '../../api/bandRpgEditor';
 import { bandsApi } from '../../api/bands';
 
 // ── Tile palette ──────────────────────────────────────────────────────────────
@@ -18,11 +18,14 @@ const ENTITY_TOOLS: Record<string, { label: string; bg: string; char: string }> 
   exit:  { label: 'Exit',   bg: '#3b82f6', char: 'X' },
   npc:   { label: 'NPC',    bg: '#a855f7', char: 'N' },
   item:  { label: 'Item',   bg: '#f59e0b', char: 'I' },
+  door:  { label: 'Door',   bg: '#ef4444', char: 'D' },
 };
+
+const DOOR_TYPES: EditorDoor['type'][] = ['free', 'key_door', 'quest_door', 'story_door', 'switch_door'];
 
 const CELL_SIZE = 16;
 
-type ActiveTool = TileType | 'spawn' | 'exit' | 'npc' | 'item' | 'erase';
+type ActiveTool = TileType | 'spawn' | 'exit' | 'npc' | 'item' | 'door' | 'erase';
 
 function makeDefaultMap(w = 40, h = 25): MapData {
   return {
@@ -43,6 +46,105 @@ function parseMapData(raw: unknown): MapData {
   return makeDefaultMap();
 }
 
+// ── DoorRow — inline door editor used inside the Placed Doors list ────────────
+
+function DoorRow({ door, levelId }: { door: EditorDoor; levelId: string }) {
+  const qc = useQueryClient();
+  const inv = useCallback(() => void qc.invalidateQueries({ queryKey: ['editor-doors', levelId] }), [qc, levelId]);
+
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(door.name);
+  const [type, setType] = useState<EditorDoor['type']>(door.type);
+  const [tileX, setTileX] = useState(door.tileX);
+  const [tileY, setTileY] = useState(door.tileY);
+  const [openedByDefault, setOpenedByDefault] = useState(door.openedByDefault);
+
+  const updateMutation = useMutation({
+    mutationFn: () => bandRpgEditorApi.updateDoor(levelId, door.id, { name, type, tileX, tileY, openedByDefault }),
+    onSuccess: () => { setEditing(false); inv(); },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: () => bandRpgEditorApi.deleteDoor(levelId, door.id),
+    onSuccess: inv,
+  });
+
+  const hasNoLockCondition = !door.openedByDefault && door.type !== 'free' && Object.keys(door.lockCondition).length === 0;
+
+  return (
+    <div className="rounded-lg border border-red-200 bg-red-50 p-2.5 space-y-2">
+      <div className="flex items-center gap-2 text-xs">
+        <span className="px-1.5 py-0.5 bg-red-500 text-white font-bold rounded flex-shrink-0">D</span>
+        <span className="font-medium text-surface-800 flex-1 truncate">{door.name}</span>
+        <span className="text-surface-400">({door.tileX},{door.tileY})</span>
+        <span className="px-1.5 py-0.5 bg-surface-100 text-surface-600 rounded">{door.type.replace(/_/g, ' ')}</span>
+        {door.openedByDefault && <span className="text-emerald-600 font-medium">open</span>}
+        {hasNoLockCondition && <span className="text-amber-600" title="No lock condition set">⚠</span>}
+        <button onClick={() => setEditing(v => !v)} className="text-indigo-600 hover:text-indigo-800 ml-1">Edit</button>
+        <button onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending} className="text-red-500 hover:text-red-700 ml-1">✕</button>
+      </div>
+      {editing && (
+        <div className="space-y-2 pt-2 border-t border-red-100">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-surface-600 font-medium block mb-0.5">Name</label>
+              <input
+                className="border border-surface-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:border-indigo-500"
+                value={name} onChange={e => setName(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-surface-600 font-medium block mb-0.5">Type</label>
+              <select
+                className="border border-surface-300 rounded px-2 py-1 text-xs w-full"
+                value={type} onChange={e => setType(e.target.value as EditorDoor['type'])}
+              >
+                {DOOR_TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-surface-600 font-medium block mb-0.5">Tile X</label>
+              <input
+                type="number" className="border border-surface-300 rounded px-2 py-1 text-xs w-full"
+                value={tileX} onChange={e => setTileX(Number(e.target.value))}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-surface-600 font-medium block mb-0.5">Tile Y</label>
+              <input
+                type="number" className="border border-surface-300 rounded px-2 py-1 text-xs w-full"
+                value={tileY} onChange={e => setTileY(Number(e.target.value))}
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox" id={`obd-${door.id}`}
+              checked={openedByDefault} onChange={e => setOpenedByDefault(e.target.checked)}
+              className="rounded"
+            />
+            <label htmlFor={`obd-${door.id}`} className="text-xs text-surface-700">Opened by default (no unlock required)</label>
+          </div>
+          {!openedByDefault && type !== 'free' && Object.keys(door.lockCondition).length === 0 && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+              No lock condition set — this door will stay closed forever. Set one in the World Editor Doors tab.
+            </p>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={() => updateMutation.mutate()}
+              disabled={!name.trim() || updateMutation.isPending}
+              className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold px-3 py-1 rounded-lg transition-colors"
+            >
+              {updateMutation.isPending ? 'Saving…' : 'Save Door'}
+            </button>
+            <button onClick={() => setEditing(false)} className="text-xs text-surface-500 hover:text-surface-700">Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── TileEditor ────────────────────────────────────────────────────────────────
 
 function TileEditor({ levelId, initial }: { levelId: string; initial: MapData }) {
@@ -51,6 +153,28 @@ function TileEditor({ levelId, initial }: { levelId: string; initial: MapData })
   const [activeTool, setActiveTool] = useState<ActiveTool>(1);
   const [isDirty, setIsDirty] = useState(false);
   const isDrawingRef = useRef(false);
+
+  // ── Door state (DB entities, separate from mapData) ─────────────────────────
+  const [movingDoorId, setMovingDoorId] = useState<string | null>(null);
+
+  const { data: doors = [] } = useQuery({
+    queryKey: ['editor-doors', levelId],
+    queryFn: () => bandRpgEditorApi.listDoors(levelId),
+    staleTime: 30_000,
+  });
+  const createDoorMutation = useMutation({
+    mutationFn: (data: Partial<EditorDoor>) => bandRpgEditorApi.createDoor(levelId, data),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['editor-doors', levelId] }),
+  });
+  const moveDoorMutation = useMutation({
+    mutationFn: ({ id, tileX, tileY }: { id: string; tileX: number; tileY: number }) =>
+      bandRpgEditorApi.updateDoor(levelId, id, { tileX, tileY }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['editor-doors', levelId] }),
+  });
+  const deleteDoorMutation = useMutation({
+    mutationFn: (id: string) => bandRpgEditorApi.deleteDoor(levelId, id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['editor-doors', levelId] }),
+  });
 
   const saveMutation = useMutation({
     mutationFn: () => bandRpgEditorApi.saveMap(levelId, mapData),
@@ -61,6 +185,7 @@ function TileEditor({ levelId, initial }: { levelId: string; initial: MapData })
   });
 
   const applyTool = useCallback((x: number, y: number) => {
+    if (activeTool === 'door') return; // doors are DB entities, handled in handleMouseDown
     setMapData(prev => {
       if (typeof activeTool === 'number') {
         const newTiles = prev.tiles.map((row, ry) =>
@@ -85,6 +210,33 @@ function TileEditor({ levelId, initial }: { levelId: string; initial: MapData })
   const handleMouseDown = (e: React.MouseEvent, x: number, y: number) => {
     e.preventDefault();
     isDrawingRef.current = true;
+
+    // ── Door tool: select → move, or create ────────────────────────────────
+    if (activeTool === 'door') {
+      const doorAtTile = doors.find(d => d.tileX === x && d.tileY === y);
+      if (doorAtTile) {
+        setMovingDoorId(prev => prev === doorAtTile.id ? null : doorAtTile.id);
+      } else if (movingDoorId) {
+        moveDoorMutation.mutate({ id: movingDoorId, tileX: x, tileY: y });
+        setMovingDoorId(null);
+      } else {
+        createDoorMutation.mutate({
+          name: `Gate ${doors.length + 1}`, tileX: x, tileY: y,
+          type: 'key_door', openedByDefault: false,
+        });
+      }
+      return;
+    }
+
+    // ── Erase: also removes a DB door at the tile ───────────────────────────
+    if (activeTool === 'erase') {
+      const doorAtTile = doors.find(d => d.tileX === x && d.tileY === y);
+      if (doorAtTile) {
+        deleteDoorMutation.mutate(doorAtTile.id);
+        return;
+      }
+    }
+
     applyTool(x, y);
   };
   const handleMouseEnter = (x: number, y: number) => {
@@ -156,6 +308,15 @@ function TileEditor({ levelId, initial }: { levelId: string; initial: MapData })
         </div>
       </div>
 
+      {/* Door tool tip */}
+      {activeTool === 'door' && (
+        <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
+          {movingDoorId
+            ? 'Door selected (yellow ring) — click a tile to move it. Click the same door to deselect.'
+            : 'Door tool — click an empty tile to create a door, or click an existing door (red D) to select it for moving.'}
+        </p>
+      )}
+
       {/* Grid */}
       <div
         className="overflow-auto rounded-lg border border-surface-300"
@@ -186,7 +347,7 @@ function TileEditor({ levelId, initial }: { levelId: string; initial: MapData })
               })
             )}
           </div>
-          {/* Entity overlay */}
+          {/* Entity overlay (mapData entities) */}
           <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
             {mapData.entities.map(ent => {
               const tool = ENTITY_TOOLS[ent.type];
@@ -215,6 +376,35 @@ function TileEditor({ levelId, initial }: { levelId: string; initial: MapData })
                 </div>
               );
             })}
+          </div>
+          {/* Door overlay (DB entities — always visible regardless of active tool) */}
+          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+            {doors.map(door => (
+              <div
+                key={door.id}
+                style={{
+                  position: 'absolute',
+                  left: door.tileX * CELL_SIZE,
+                  top: door.tileY * CELL_SIZE,
+                  width: CELL_SIZE,
+                  height: CELL_SIZE,
+                  backgroundColor: door.openedByDefault ? '#10b981' : '#ef4444',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 8,
+                  fontWeight: 700,
+                  color: '#fff',
+                  borderRadius: 2,
+                  opacity: 0.92,
+                  outline: movingDoorId === door.id ? '2px solid #fbbf24' : 'none',
+                  outlineOffset: 1,
+                  zIndex: 10,
+                }}
+              >
+                D
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -245,7 +435,7 @@ function TileEditor({ levelId, initial }: { levelId: string; initial: MapData })
               <span key={k}>{v.label}: {tileCount(Number(k))}</span>
             ))}
             {Object.entries(ENTITY_TOOLS).map(([k, v]) => (
-              <span key={k}>{v.label}: {mapData.entities.filter(e => e.type === k).length}</span>
+              <span key={k}>{v.label}: {k === 'door' ? doors.length : mapData.entities.filter(e => e.type === k).length}</span>
             ))}
           </div>
         </div>
@@ -289,6 +479,51 @@ function TileEditor({ levelId, initial }: { levelId: string; initial: MapData })
           </div>
         </div>
       )}
+
+      {/* Placed Doors (from DB) */}
+      {doors.length > 0 && (
+        <div className="rounded-lg border border-red-200 bg-white p-3">
+          <p className="text-xs font-semibold text-surface-700 mb-2">
+            Placed Doors <span className="font-normal text-surface-400">({doors.length}) — visible as red D on the grid</span>
+          </p>
+          <div className="space-y-2">
+            {doors.map(door => (
+              <DoorRow key={door.id} door={door} levelId={levelId} />
+            ))}
+          </div>
+          <p className="text-xs text-surface-400 mt-2">
+            To set lock conditions (which item/quest unlocks a door), use the World Editor → Doors tab.
+          </p>
+        </div>
+      )}
+
+      {/* Door validation warnings */}
+      {(() => {
+        const warnings: string[] = [];
+        const posMap = new Map<string, number>();
+        doors.forEach(d => {
+          const key = `${d.tileX},${d.tileY}`;
+          posMap.set(key, (posMap.get(key) ?? 0) + 1);
+          if (!d.openedByDefault && d.type !== 'free' && Object.keys(d.lockCondition).length === 0) {
+            warnings.push(`"${d.name}" has type ${d.type.replace(/_/g, ' ')} but no lock condition — it will stay permanently closed.`);
+          }
+          if (d.tileX < 0 || d.tileX >= mapData.width || d.tileY < 0 || d.tileY >= mapData.height) {
+            warnings.push(`"${d.name}" is outside map bounds at (${d.tileX},${d.tileY}).`);
+          }
+        });
+        posMap.forEach((count, key) => {
+          if (count > 1) warnings.push(`${count} doors overlap at tile (${key}).`);
+        });
+        if (warnings.length === 0) return null;
+        return (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-xs font-semibold text-amber-800 mb-1">Door Warnings</p>
+            <ul className="space-y-0.5">
+              {warnings.map((w, i) => <li key={i} className="text-xs text-amber-700">⚠ {w}</li>)}
+            </ul>
+          </div>
+        );
+      })()}
 
       {/* Current cell hover info */}
       <p className="text-xs text-surface-400">
