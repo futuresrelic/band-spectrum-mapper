@@ -120,6 +120,8 @@ export default function SetlistRarityTool() {
     },
   });
 
+  const [syncResult, setSyncResult] = useState<{ collectedUpdated: number; setlistUpdated: number } | null>(null);
+
   const applyMutation = useMutation({
     mutationFn: (entries: Array<{ songId: string; rarity: SongRarityValue }>) =>
       bandRpgApi.applySongRarities(entries),
@@ -128,6 +130,11 @@ export default function SetlistRarityTool() {
       setConfirmApply(false);
       setSelected(new Set());
     },
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: () => bandRpgApi.syncCollectionRarity(selectedBandId || undefined),
+    onSuccess:  (r) => setSyncResult(r),
   });
 
   const retryFetchMutation = useMutation({
@@ -526,6 +533,50 @@ export default function SetlistRarityTool() {
             )}
             {applyMutation.isError && (
               <p className="mt-3 text-sm text-red-600">Apply failed. Check server logs.</p>
+            )}
+            {applyResult && (
+              <div className="mt-3 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2 text-sm text-emerald-800 flex items-center gap-2">
+                <span className="text-base">✓</span>
+                <span>
+                  Applied rarity to <strong>{applyResult.updated}</strong> song{applyResult.updated !== 1 ? 's' : ''}.
+                  Archive and Setlists will now reflect the updated values.
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Sync existing archive */}
+          <div className="rounded-xl border border-surface-200 bg-white p-5">
+            <h3 className="font-semibold text-surface-900 mb-1">Sync Existing Archive</h3>
+            <p className="text-sm text-surface-500 mb-4">
+              If songs were collected before rarity was updated, their archived copies may show
+              an old rarity. Click below to backfill all archived songs and setlist entries with
+              the current canonical rarity from the song catalogue.
+              {selectedBandId && (
+                <span className="text-surface-600 font-medium"> Scoped to selected band.</span>
+              )}
+            </p>
+            <button
+              onClick={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending}
+              className="bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
+            >
+              {syncMutation.isPending ? 'Syncing…' : 'Sync Archive Rarities'}
+            </button>
+            {syncMutation.isError && (
+              <p className="mt-3 text-sm text-red-600">Sync failed. Check server logs.</p>
+            )}
+            {syncResult && (
+              <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-4 py-2 text-sm text-amber-800 flex items-center gap-2">
+                <span className="text-base">✓</span>
+                <span>
+                  Updated <strong>{syncResult.collectedUpdated}</strong> archived song
+                  {syncResult.collectedUpdated !== 1 ? 's' : ''} and{' '}
+                  <strong>{syncResult.setlistUpdated}</strong> setlist entr
+                  {syncResult.setlistUpdated !== 1 ? 'ies' : 'y'}.
+                  Refresh the player Archive to see the new values.
+                </span>
+              </div>
             )}
           </div>
 

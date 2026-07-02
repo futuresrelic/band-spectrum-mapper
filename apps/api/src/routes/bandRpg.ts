@@ -452,8 +452,21 @@ bandRpgRouter.get('/collection', requireAuth, async (req, res, next): Promise<vo
       },
     });
 
-    // Fetch live profiles for all collected songs (Phase V enrichment — optional)
+    // Always join canonical Song.rarity so stale snapshots never reach the UI
     const songIds     = [...new Set(entries.map((e) => e.songId))];
+    const canonicalRarities = songIds.length > 0
+      ? await prisma.song.findMany({
+          where:  { id: { in: songIds } },
+          select: { id: true, rarity: true },
+        })
+      : [];
+    const canonicalRarityMap = new Map(canonicalRarities.map((s) => [s.id, s.rarity as string]));
+    const entriesWithRarity = entries.map((e) => ({
+      ...e,
+      rarity: canonicalRarityMap.get(e.songId) ?? e.rarity,
+    }));
+
+    // Fetch live profiles for all collected songs (Phase V enrichment — optional)
     const liveProfiles = songIds.length > 0
       ? await prisma.bandRpgSongProfile.findMany({
           where:  { songId: { in: songIds } },
@@ -474,10 +487,10 @@ bandRpgRouter.get('/collection', requireAuth, async (req, res, next): Promise<vo
     };
     const bandMap = new Map<string, {
       bandId: string; bandName: string;
-      collected: Array<typeof entries[0] & { liveData: LiveDataShape | null }>;
+      collected: Array<typeof entriesWithRarity[0] & { liveData: LiveDataShape | null }>;
     }>();
 
-    for (const entry of entries) {
+    for (const entry of entriesWithRarity) {
       let group = bandMap.get(entry.bandId);
       if (!group) {
         group = { bandId: entry.bandId, bandName: entry.bandName, collected: [] };
@@ -771,24 +784,33 @@ bandRpgRouter.get('/setlists/:setlistId', requireAuth, async (req, res, next): P
 
     const songIds = setlist.songs.map((s) => s.songId);
     let albumCount = 0;
+    let canonicalSetlistRarities = new Map<string, string>();
+
     if (songIds.length > 0) {
-      const songsWithAlbums = await prisma.song.findMany({
-        where: { id: { in: songIds }, albumId: { not: null } },
-        select: { albumId: true },
+      const canonicalSongs = await prisma.song.findMany({
+        where:  { id: { in: songIds } },
+        select: { id: true, rarity: true, albumId: true },
       });
+      canonicalSetlistRarities = new Map(canonicalSongs.map((s) => [s.id, s.rarity as string]));
       albumCount = new Set(
-        songsWithAlbums.map((s) => s.albumId).filter((id): id is string => id !== null),
+        canonicalSongs.map((s) => s.albumId).filter((id): id is string => id !== null),
       ).size;
     }
 
-    const rarityValue    = setlist.songs.reduce((sum, s) => sum + (RARITY_VALUE[s.rarity] ?? 1), 0);
+    // Use canonical Song.rarity for scoring and display — not the stale snapshot
+    const songsWithCanonicalRarity = setlist.songs.map((s) => ({
+      ...s,
+      rarity: canonicalSetlistRarities.get(s.songId) ?? s.rarity,
+    }));
+
+    const rarityValue    = songsWithCanonicalRarity.reduce((sum, s) => sum + (RARITY_VALUE[s.rarity] ?? 1), 0);
     const diversityBonus = computeDiversityBonus(albumCount, setlist.songs.length, rarityValue);
     const grade          = computeGrade(rarityValue + diversityBonus);
 
     const rarityBreakdown: Record<string, number> = {
       Common: 0, Uncommon: 0, Rare: 0, Legendary: 0, Mythic: 0,
     };
-    for (const s of setlist.songs) {
+    for (const s of songsWithCanonicalRarity) {
       rarityBreakdown[s.rarity] = (rarityBreakdown[s.rarity] ?? 0) + 1;
     }
 
@@ -805,7 +827,7 @@ bandRpgRouter.get('/setlists/:setlistId', requireAuth, async (req, res, next): P
       rarityBreakdown,
       createdAt:     setlist.createdAt.toISOString(),
       updatedAt:     setlist.updatedAt.toISOString(),
-      songs: setlist.songs.map((s) => ({
+      songs: songsWithCanonicalRarity.map((s) => ({
         id:        s.id,
         songId:    s.songId,
         songTitle: s.songTitle,
@@ -878,16 +900,25 @@ bandRpgRouter.put('/setlists/:setlistId/songs', requireAuth, async (req, res, ne
 
     const collected = await prisma.bandRpgCollectedSong.findMany({
       where: { userId, songId: { in: songIds }, bandId: setlist.bandId },
-      select: { songId: true, songTitle: true, rarity: true },
+      select: { songId: true, songTitle: true },
     });
     const collectedMap = new Map(collected.map((s) => [s.songId, s]));
+
+    // Read canonical Song.rarity directly — never use the stale collected snapshot
+    const canonicalSongs = songIds.length > 0
+      ? await prisma.song.findMany({
+          where:  { id: { in: songIds } },
+          select: { id: true, rarity: true },
+        })
+      : [];
+    const canonicalRarityMap = new Map(canonicalSongs.map((s) => [s.id, s.rarity as string]));
 
     // Preserve the caller's order; skip uncollected / wrong-band songs
     const validSongs = songIds
       .filter((id) => collectedMap.has(id))
       .map((id, idx) => {
         const c = collectedMap.get(id)!;
-        return { songId: id, songTitle: c.songTitle, rarity: c.rarity, position: idx };
+        return { songId: id, songTitle: c.songTitle, rarity: canonicalRarityMap.get(id) ?? 'Common', position: idx };
       });
 
     await prisma.$transaction([
@@ -3300,8 +3331,63 @@ bandRpgRouter.post('/admin/apply-song-rarities', requireAuth, requireAdmin, asyn
         data:  { rarity },
       });
       updated += result.count;
+
+      // Cascade to snapshot tables so scores, sorting, and filter queries stay in sync.
+      // GET /collection and GET /setlists/:id now join Song.rarity dynamically, so these
+      // cascades are belt-and-suspenders — they keep snapshot fields consistent for any
+      // code paths (scoring, leaderboards) that still read from the snapshot columns.
+      await prisma.bandRpgCollectedSong.updateMany({
+        where: { songId: { in: ids } },
+        data:  { rarity },
+      });
+      await prisma.bandRpgSetlistSong.updateMany({
+        where: { songId: { in: ids } },
+        data:  { rarity },
+      });
     }
 
     res.json({ ok: true, updated });
+  } catch (e) { next(e); }
+});
+
+// ── POST /admin/sync-collection-rarity ────────────────────────────────────────
+// One-shot repair: copies Song.rarity → BandRpgCollectedSong.rarity and
+// BandRpgSetlistSong.rarity for every song in the catalogue so that all
+// snapshot tables match the canonical source.  Safe to re-run at any time.
+
+bandRpgRouter.post('/admin/sync-collection-rarity', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const bandId = typeof body['bandId'] === 'string' ? body['bandId'].trim() : null;
+
+    const songs = await prisma.song.findMany({
+      where:  bandId ? { bandId } : {},
+      select: { id: true, rarity: true },
+    });
+
+    // Group by rarity for efficient bulk updates (max 5 batches per table)
+    const byRarity = new Map<string, string[]>();
+    for (const s of songs) {
+      const existing = byRarity.get(s.rarity);
+      if (existing) { existing.push(s.id); }
+      else          { byRarity.set(s.rarity, [s.id]); }
+    }
+
+    let collectedUpdated = 0;
+    let setlistUpdated   = 0;
+    for (const [rarity, ids] of byRarity) {
+      const r1 = await prisma.bandRpgCollectedSong.updateMany({
+        where: { songId: { in: ids } },
+        data:  { rarity },
+      });
+      const r2 = await prisma.bandRpgSetlistSong.updateMany({
+        where: { songId: { in: ids } },
+        data:  { rarity },
+      });
+      collectedUpdated += r1.count;
+      setlistUpdated   += r2.count;
+    }
+
+    res.json({ ok: true, collectedUpdated, setlistUpdated, songsProcessed: songs.length });
   } catch (e) { next(e); }
 });

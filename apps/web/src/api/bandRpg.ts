@@ -1124,4 +1124,10 @@ export const bandRpgApi = {
 
   applySongRarities: (entries: Array<{ songId: string; rarity: SongRarityValue }>) =>
     api.post<{ ok: boolean; updated: number }>('/api/band-rpg/admin/apply-song-rarities', { entries }),
+
+  syncCollectionRarity: (bandId?: string) =>
+    api.post<{ ok: boolean; collectedUpdated: number; setlistUpdated: number; songsProcessed: number }>(
+      '/api/band-rpg/admin/sync-collection-rarity',
+      bandId ? { bandId } : {},
+    ),
 };

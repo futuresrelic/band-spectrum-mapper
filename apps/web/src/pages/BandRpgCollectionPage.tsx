@@ -425,13 +425,16 @@ function EmptyState({ icon, title, desc, action }: { icon: string; title: string
 type SortMode    = 'date_desc' | 'title_asc' | 'rarity_asc' | 'rarity_desc';
 type RarityFilter = 'all' | 'Common' | 'Uncommon' | 'Rare' | 'Legendary' | 'Mythic';
 
+// Live status labels are prefixed with "▸ Live" to distinguish them from game rarity badges.
+// "Common" live status → "▸ Frequent" (avoids confusion with Common game rarity).
+// "Rare" live status → "▸ Rare Live" (distinguishes from Rare game rarity).
 const LIVE_STATUS_STYLE: Record<string, { label: string; className: string }> = {
-  'Never Played':    { label: 'Never Played',    className: 'text-cyan-300 bg-cyan-900/40 border border-cyan-800/50' },
-  'Extremely Rare':  { label: 'Extremely Rare',  className: 'text-violet-300 bg-violet-900/40 border border-violet-800/50' },
-  'Rare':            { label: 'Rare Live',        className: 'text-indigo-300 bg-indigo-900/40 border border-indigo-800/50' },
-  'Occasional':      { label: 'Occasional',       className: 'text-blue-300/80 bg-blue-900/30 border border-blue-800/40' },
-  'Common':          { label: 'Common',           className: 'text-gray-400 bg-gray-800/50 border border-gray-700/40' },
-  'Staple':          { label: 'Staple',           className: 'text-gray-500 bg-gray-800/40 border border-gray-700/30' },
+  'Never Played':    { label: '▸ Never Played',   className: 'text-cyan-300 bg-cyan-900/40 border border-cyan-800/50' },
+  'Extremely Rare':  { label: '▸ Extremely Rare', className: 'text-violet-300 bg-violet-900/40 border border-violet-800/50' },
+  'Rare':            { label: '▸ Rare Live',       className: 'text-indigo-300 bg-indigo-900/40 border border-indigo-800/50' },
+  'Occasional':      { label: '▸ Occasional',      className: 'text-blue-300/80 bg-blue-900/30 border border-blue-800/40' },
+  'Common':          { label: '▸ Frequent',        className: 'text-gray-400 bg-gray-800/50 border border-gray-700/40' },
+  'Staple':          { label: '▸ Staple',          className: 'text-gray-500 bg-gray-800/40 border border-gray-700/30' },
 };
 
 function LiveStatusBadge({ liveStatus }: { liveStatus: string }) {
