@@ -74,6 +74,7 @@ import { adventureProgressRouter } from './routes/adventureProgressRoutes.js';
 import { campaignGeneratorRouter } from './routes/campaignGeneratorRoutes.js';
 import { readinessRouter } from './routes/readinessRoutes.js';
 import { runtimeRouter } from './routes/runtimeRoutes.js';
+import { wikiRouter } from './routes/wiki.js';
 import { songOgMiddleware } from './middleware/ogMeta.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -268,6 +269,9 @@ export function createApp() {
 
   // Runtime Engine — Phase Z.1 (auth required)
   app.use('/api/band-rpg/runtime', runtimeRouter);
+
+  // Music Wiki — public encyclopedic data (no auth required)
+  app.use('/api/wiki', wikiRouter);
 
   if (process.env['NODE_ENV'] === 'production') {
     // Serve the built React SPA. Path is relative to the compiled dist/ output.

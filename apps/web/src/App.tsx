@@ -95,6 +95,11 @@ import BandRpgCampaignPage from './pages/BandRpgCampaignPage';
 import BandRpgAdventureDetailPage from './pages/BandRpgAdventureDetailPage';
 import CommunityPage from './pages/CommunityPage';
 import AdminBandRpgPage from './pages/AdminBandRpgPage';
+import WikiIndexPage from './pages/wiki/WikiIndexPage';
+import WikiBandPage from './pages/wiki/WikiBandPage';
+import WikiAlbumPage from './pages/wiki/WikiAlbumPage';
+import WikiSongPage from './pages/wiki/WikiSongPage';
+import WikiArtistPage from './pages/wiki/WikiArtistPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -158,6 +163,13 @@ export default function App() {
         <Route path="/band-rpg/tour/:id"         element={<BandRpgPublicTourPage />} />
         {/* ── Community Discovery — Phase Y.2 ── */}
         <Route path="/community" element={<CommunityPage />} />
+
+        {/* ── Music Wiki — encyclopedic view of bands, albums, songs, artists ── */}
+        <Route path="/wiki" element={<WikiIndexPage />} />
+        <Route path="/wiki/bands/:slug" element={<WikiBandPage />} />
+        <Route path="/wiki/albums/:bandSlug/:albumSlug" element={<WikiAlbumPage />} />
+        <Route path="/wiki/songs/:songId" element={<WikiSongPage />} />
+        <Route path="/wiki/artists/:memberId" element={<WikiArtistPage />} />
 
         {/* ── USER: rating surface + game, any logged-in Google user ── */}
         <Route path="/my" element={<UserLayout />}>

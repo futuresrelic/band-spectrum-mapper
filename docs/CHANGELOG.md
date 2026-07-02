@@ -4,6 +4,80 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.15 — Music Wiki Foundation (2026-07-02)
+
+### Overview
+
+First pass of the Music Wiki — an encyclopedic, public-facing view of every
+band, album, song, and artist in the collection. Built as a modular framework
+that can be extended incrementally without touching existing pages.
+
+### New files
+
+**Backend**
+- `apps/api/src/routes/wiki.ts` — 5 public endpoints (no auth required):
+  - `GET /api/wiki/search?q=&limit=` — cross-entity search (bands + albums + songs)
+  - `GET /api/wiki/bands/:slug` — band overview with discography, members, live stats
+  - `GET /api/wiki/albums/:bandSlug/:albumSlug` — tracklist, avg spectrum, rarity breakdown
+  - `GET /api/wiki/songs/:songId` — song spectrum, live data, lyrics, album siblings
+  - `GET /api/wiki/artists/:memberId` — member + band discography
+
+**Frontend API client**
+- `apps/web/src/api/wiki.ts` — strict TypeScript types + fetch helpers for all 5 endpoints
+
+**Shared wiki components**
+- `apps/web/src/components/wiki/KnowledgeConfidenceBadge.tsx` — 5-level data confidence
+  indicator (Verified / Calculated / Community / AI / Estimated) with coloured dot + label
+- `apps/web/src/components/wiki/WikiModulePlaceholder.tsx` — empty-state tile for planned
+  modules; communicates intent without feeling broken
+- `apps/web/src/components/wiki/WikiLayout.tsx` — sticky 220px sidebar nav, two-column
+  layout, shared `WikiSection`, `WikiStat`, `SpectrumBar`, `WikiBreadcrumb` sub-components
+
+**Wiki pages**
+- `apps/web/src/pages/wiki/WikiIndexPage.tsx` — search landing with live debounced results
+  and browse-by-type entry tiles
+- `apps/web/src/pages/wiki/WikiBandPage.tsx` — discography grid, member list, live history
+  (most played + rarest), spectrum placeholder
+- `apps/web/src/pages/wiki/WikiAlbumPage.tsx` — artwork header, tracklist table with rarity
+  + live status columns, avg spectrum bars, rarity breakdown chips
+- `apps/web/src/pages/wiki/WikiSongPage.tsx` — album artwork + overview stats, 6-axis
+  spectrum bars, live performance data grid, primary lyrics, album context strip, notes
+- `apps/web/src/pages/wiki/WikiArtistPage.tsx` — member card, band discography, notes/bio
+
+### Route structure (all public, no auth)
+
+```
+/wiki                           WikiIndexPage
+/wiki/bands/:slug               WikiBandPage
+/wiki/albums/:bandSlug/:albumSlug WikiAlbumPage
+/wiki/songs/:songId             WikiSongPage
+/wiki/artists/:memberId         WikiArtistPage
+```
+
+### Updated files
+
+- `apps/api/src/app.ts` — registered `/api/wiki` router
+- `apps/web/src/App.tsx` — added 5 wiki route declarations in the public block
+- `apps/web/src/components/layout/SiteHeader.tsx` — added `Wiki → /wiki` to player nav;
+  extended `active` union type to include `'wiki'`
+- `docs/CHANGELOG.md` — this entry
+
+### Design
+
+Dark encyclopedic theme (gray-950 base), steel-blue/indigo-400 accent for wiki links,
+Knowledge Confidence badge re-uses BSM's rarity colour vocabulary (emerald/sky/violet/amber/gray).
+Two-column layout with sticky sidebar collapses gracefully on mobile.
+
+### Limitations
+
+- No browse-by-band/album/song index pages (`/wiki/bands`, `/wiki/albums`, `/wiki/songs`) yet —
+  entry is via search or clicking through from band → album → song pages
+- `WikiArtistPage` uses `member.visualNotes` as bio field (the only free-text field on
+  `BandMember`); a proper bio field would need a schema migration
+- Spectrum data displayed is read-only; editing remains in the existing admin pages
+
+---
+
 ## Phase Z.14 — Setlist.fm Data Audit, Alias System & Live Data Safeguards (2026-07-02)
 
 ### Root causes fixed
