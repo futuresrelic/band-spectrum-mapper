@@ -4,6 +4,108 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.14 — Setlist.fm Data Audit, Alias System & Live Data Safeguards (2026-07-02)
+
+### Root causes fixed
+
+**Status inconsistency ("Never fetched" but data exists)**
+`storeBandArtistMatch` was resetting `fetchStatus → 'never'`, `totalShows → 0`,
+`fetchedShows → 0` every time admin clicked "Select" after searching artists —
+including when re-confirming the same artist. It did NOT reset `lastFetchedAt`.
+Result: status card showed "Never fetched / 0 shows / [old date]" while
+`BandRpgSongProfile` rows were intact and a Fetch would immediately succeed.
+Fix: re-linking the same MBID now preserves all fetch state. Only linking a
+different MBID resets the state (and deletes raw entries from the old artist).
+
+**"Cold & Ugly" showing zero plays / Mythic**
+`normTitle` converted `&` to a space, so `"Cold & Ugly"` → `"cold  ugly"`
+while `"Cold and Ugly"` → `"cold and ugly"` — they never matched.
+Fix: `&` and `+` are now replaced with `" and "` before other punctuation is
+stripped. All three variants now normalize to the same string.
+
+### New features
+
+**Raw setlist storage**
+`fetchBandLiveData` now stores every non-tape song appearance in the new
+`BandRpgRawSetlistEntry` table during the fetch (title, setlist ID, date, matched
+song ID). Partial fetches are preserved too. This is the foundation for local
+re-analysis.
+
+**Alias system (`BandRpgSongAlias`)**
+Admin can map any Setlist.fm title to a BSM song without re-fetching. Creating
+or deleting an alias immediately triggers local re-analysis to update play counts.
+A `null` songId means "ignore this title" (useful for cover songs, sound checks, etc.)
+
+**Local re-analysis (`reanalyzeLiveData`)**
+New `POST /api/band-rpg/admin/reanalyze-live-data` endpoint recomputes all song
+profiles from stored raw entries using current titles + aliases. Never calls
+Setlist.fm. Alias changes take effect in seconds.
+
+**Data Audit panel (Live Data → Data Audit tab)**
+New `LiveDataAuditPanel` component shows:
+- Match coverage: total Setlist.fm titles / matched % / unmatched count
+- Unmatched Setlist.fm titles with fuzzy BSM song suggestions (Jaccard similarity)
+- BSM songs with zero plays flagged as suspicious (`&` in title, fuzzy candidates)
+- Active alias list with remove button
+- "Re-analyze Local Setlist Data" button
+
+**API safeguards**
+- Confirmation dialog before Force Re-fetch when data already exists
+- "Fetch & Link" and "Data Audit" section tabs in Live Data panel
+- "↻ Refresh Status" button reads DB without calling Setlist.fm
+- Status inconsistency detected and explained with recovery steps
+- Fetch panel de-emphasized and relabeled when data already exists
+
+**`needs_review` confidence in Song Rarity**
+Zero-play songs where unmatched Setlist.fm titles score ≥50% Jaccard similarity
+against the song name now show `⚠ Needs review` (red) instead of `No data`
+(grey) in the Song Rarity suggestions table. Hover to see the warning.
+
+**Data source labels**
+Live Data tab header now explains Live Frequency vs Game Rarity. Data Audit
+glossary defines Setlist.fm title, BSM song, alias, fuzzy score, and
+re-analyze. Separate visual identities prevent further confusion.
+
+### Schema additions (auto-applied via `prisma db push` on Railway)
+- `BandRpgRawSetlistEntry` — per-song-appearance raw data from Setlist.fm
+- `BandRpgSongAlias` — admin-defined Setlist.fm title → BSM song mappings
+
+### Files changed
+- `prisma/schema.prisma` — 2 new models + relation fields on Band and Song
+- `apps/api/src/services/setlistIntelligenceService.ts` — normTitle fix,
+  storeBandArtistMatch fix, fetchBandLiveData raw entry storage, reanalyzeLiveData,
+  tokenSimilarity, bulkInsertRawEntries, upsertSongProfiles (extracted helper)
+- `apps/api/src/routes/bandRpg.ts` — 5 new endpoints, updated rarity-suggestions
+  confidence, fixed req.params typing
+- `apps/web/src/api/bandRpg.ts` — new types + 5 new API methods
+- `apps/web/src/components/bandRpgEditor/LiveDataAuditPanel.tsx` — new component
+- `apps/web/src/components/bandRpgEditor/SetlistRarityTool.tsx` — needs_review style
+- `apps/web/src/pages/AdminBandRpgPage.tsx` — LiveDataTab rewrite
+
+### Navigation structure proposal (Issue 8)
+
+Proposed admin grouping (no code changes yet — low-risk implementation pending):
+
+**Live Data Admin** (expand Live Data tab into its own tab group or page):
+- Setlist.fm Link (current: Find on Setlist.fm)
+- Fetch Status + History
+- Data Audit (new: raw data coverage and unmatched titles)
+- Song Matching / Aliases (new)
+- Rarity Suggestions (current Song Rarity tab)
+
+**Content Admin** (existing /library, /imports, /discography, etc.):
+- Bands / Albums / Songs / Lyrics / Metadata
+
+**Game Admin** (existing Band RPG tabs):
+- Levels / Objectives / Quests / Storyline / Characters / Items / Adventures
+
+**Visual/Media Admin**:
+- Graphics / Cinema / Social Assets
+
+Player-side Wiki structure was noted but deferred — no UI changes made.
+
+---
+
 ## Phase Z.13 — Rarity Data Flow: Canonical Rarity Propagation (2026-07-02)
 
 ### Problem solved
