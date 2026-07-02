@@ -4,6 +4,60 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.13 — Rarity Data Flow: Canonical Rarity Propagation (2026-07-02)
+
+### Problem solved
+
+After applying rarity suggestions in the admin Song Rarity tab, the player-facing Archive
+and Setlist views still showed the old (usually "Common") rarity after a full page refresh.
+Root cause: `BandRpgCollectedSong.rarity` and `BandRpgSetlistSong.rarity` are snapshot fields
+frozen at the moment a song is collected or added to a setlist. Admin changes to `Song.rarity`
+never propagated back to those snapshots.
+
+A secondary confusion: `liveStatus = 'Common'` (a Setlist.fm play-frequency label) displayed
+identically to `Song.rarity = 'Common'` (the game tier), making it impossible to tell them apart
+in the Archive UI.
+
+### Fixed
+
+**Canonical rarity propagation — three layers:**
+
+1. **Dynamic join at read time** — `GET /collection` and `GET /setlists/:setlistId` now fetch
+   `Song.rarity` for all song IDs in a single extra query and override the stale snapshot field
+   before sending the response. Player Archive and Setlist views always reflect the current
+   canonical rarity without needing a migration.
+
+2. **Cascade at write time** — `POST /admin/apply-song-rarities` now runs `updateMany` on
+   `BandRpgCollectedSong` and `BandRpgSetlistSong` after updating `Song.rarity`, keeping the
+   snapshots in sync going forward.
+
+3. **New add-to-setlist path** — `PUT /setlists/:id/songs` now reads `Song.rarity` directly
+   when inserting new setlist songs, rather than copying from the collected-song snapshot.
+
+**Backfill tool for existing data:**
+
+- New `POST /api/band-rpg/admin/sync-collection-rarity` endpoint reads all current
+  `Song.rarity` values, groups by rarity tier, and runs `updateMany` on both snapshot tables.
+  Accepts optional `bandId` to scope to a single band. Returns `{ collectedUpdated, setlistUpdated, songsProcessed }`.
+- "Sync Archive Rarities" panel added to the Song Rarity tab in admin: one click updates all
+  stale snapshots and shows how many rows were repaired.
+
+**Rarity badge disambiguation:**
+
+- `liveStatus = 'Common'` in the Archive now renders as "▸ Frequent" to eliminate visual
+  confusion with `Song.rarity = 'Common'`. All live-status badges are prefixed with "▸" to
+  distinguish them from game-rarity badges at a glance.
+
+### Files changed
+- `apps/api/src/routes/bandRpg.ts` — dynamic join in GET /collection and GET /setlists/:id,
+  cascade in POST /admin/apply-song-rarities, new POST /admin/sync-collection-rarity
+- `apps/web/src/api/bandRpg.ts` — new `syncCollectionRarity()` method
+- `apps/web/src/components/bandRpgEditor/SetlistRarityTool.tsx` — apply-result confirmation
+  banner, Sync Archive Rarities panel with success feedback
+- `apps/web/src/pages/BandRpgCollectionPage.tsx` — renamed "Common" liveStatus badge to "▸ Frequent"
+
+---
+
 ## Phase Z.12 — Setlist.fm Song Rarity Tool (2026-07-01)
 
 ### Problem solved
