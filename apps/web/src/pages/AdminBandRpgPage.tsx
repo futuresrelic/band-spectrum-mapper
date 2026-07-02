@@ -351,6 +351,15 @@ function TestingTab() {
   );
 }
 
+function fmtNum(v: number | null | undefined): string {
+  return typeof v === 'number' ? v.toLocaleString() : '—';
+}
+function fmtDate(v: string | null | undefined): string {
+  if (!v) return 'Never';
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString();
+}
+
 const STATUS_COLOR: Record<string, string> = {
   never:       'text-surface-400',
   in_progress: 'text-blue-600',
@@ -363,6 +372,10 @@ const STATUS_LABEL: Record<string, string> = {
   complete:    'Complete',
   failed:      'Failed',
 };
+
+function liveDataHasPartialData(s: { fetchStatus: string; fetchedShows: number | null | undefined }) {
+  return s.fetchStatus === 'failed' && (s.fetchedShows ?? 0) > 0;
+}
 
 function LiveDataTab() {
   const [selectedBandId, setSelectedBandId] = useState('');
@@ -459,11 +472,11 @@ function LiveDataTab() {
                   <div className="text-xs text-surface-400 mt-1">Song profiles</div>
                 </div>
                 <div className="rounded-lg bg-surface-50 border border-surface-200 p-3 text-center">
-                  <div className="text-lg font-bold text-surface-700">{status.totalShows.toLocaleString()}</div>
+                  <div className="text-lg font-bold text-surface-700">{fmtNum(status.totalShows)}</div>
                   <div className="text-xs text-surface-400 mt-1">Total shows</div>
                 </div>
                 <div className="rounded-lg bg-surface-50 border border-surface-200 p-3 text-center">
-                  <div className="text-lg font-bold text-surface-700">{status.fetchedShows.toLocaleString()}</div>
+                  <div className="text-lg font-bold text-surface-700">{fmtNum(status.fetchedShows)}</div>
                   <div className="text-xs text-surface-400 mt-1">Shows analyzed</div>
                 </div>
               </div>
@@ -475,8 +488,15 @@ function LiveDataTab() {
               )}
               {status.lastFetchedAt && (
                 <p className="text-xs text-surface-400 mt-1">
-                  Last fetched: {new Date(status.lastFetchedAt).toLocaleString()}
+                  Last fetched: {fmtDate(status.lastFetchedAt)}
                 </p>
+              )}
+              {liveDataHasPartialData(status) && (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Fetch failed but <strong>{fmtNum(status.fetchedShows)}</strong> shows were analyzed before the error.
+                  Partial data is usable for rarity suggestions.
+                  Re-run the fetch below to get more complete data.
+                </div>
               )}
               {status.errorMessage && (
                 <p className="text-xs text-red-600 mt-2">Error: {status.errorMessage}</p>
@@ -572,7 +592,7 @@ function LiveDataTab() {
             <div className="mt-4 rounded-lg bg-white border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
               <div className="font-semibold mb-1">Fetch complete</div>
               <div>Songs updated: <strong>{fetchResult.songsUpdated}</strong></div>
-              <div>Shows analyzed: <strong>{fetchResult.fetchedShows.toLocaleString()}</strong> of {fetchResult.totalShows.toLocaleString()} total</div>
+              <div>Shows analyzed: <strong>{fmtNum(fetchResult.fetchedShows)}</strong> of {fmtNum(fetchResult.totalShows)} total</div>
               {fetchResult.message && <div className="mt-1 text-xs text-surface-500">{fetchResult.message}</div>}
             </div>
           )}

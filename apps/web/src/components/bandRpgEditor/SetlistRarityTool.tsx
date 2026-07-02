@@ -3,6 +3,19 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { bandRpgApi, type RaritySuggestion, type RarityThresholds, type SongRarityValue } from '../../api/bandRpg';
 import { bandsApi } from '../../api/bands';
 
+// ── Safe formatting helpers ───────────────────────────────────────────────────
+
+function fmtNum(v: number | null | undefined): string {
+  return typeof v === 'number' ? v.toLocaleString() : '—';
+}
+function fmtDate(v: string | null | undefined): string {
+  if (!v) return 'Never';
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
 const SONG_RARITIES: SongRarityValue[] = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
 
 const RARITY_BADGE: Record<SongRarityValue, string> = {
@@ -28,6 +41,8 @@ const CONFIDENCE_STYLE: Record<string, string> = {
 };
 
 const DEFAULT_THRESHOLDS: RarityThresholds = { common: 30, uncommon: 10, rare: 3, legendary: 0.5 };
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 
 function RarityBadge({ value }: { value: SongRarityValue | null }) {
   if (!value) return <span className="text-surface-400 text-xs">—</span>;
@@ -64,15 +79,17 @@ function ThresholdInput({
   );
 }
 
+// ── Main component ────────────────────────────────────────────────────────────
+
 export default function SetlistRarityTool() {
-  const [selectedBandId, setSelectedBandId]   = useState('');
-  const [thresholds, setThresholds]           = useState<RarityThresholds>(DEFAULT_THRESHOLDS);
-  const [showThresholds, setShowThresholds]   = useState(false);
-  const [filter, setFilter]                   = useState<'all' | 'changed' | 'unmatched'>('all');
-  const [selected, setSelected]               = useState<Set<string>>(new Set());
-  const [overrides, setOverrides]             = useState<Map<string, SongRarityValue>>(new Map());
-  const [confirmApply, setConfirmApply]       = useState(false);
-  const [applyResult, setApplyResult]         = useState<{ updated: number } | null>(null);
+  const [selectedBandId, setSelectedBandId] = useState('');
+  const [thresholds, setThresholds]         = useState<RarityThresholds>(DEFAULT_THRESHOLDS);
+  const [showThresholds, setShowThresholds] = useState(false);
+  const [filter, setFilter]                 = useState<'all' | 'changed' | 'unmatched'>('all');
+  const [selected, setSelected]             = useState<Set<string>>(new Set());
+  const [overrides, setOverrides]           = useState<Map<string, SongRarityValue>>(new Map());
+  const [confirmApply, setConfirmApply]     = useState(false);
+  const [applyResult, setApplyResult]       = useState<{ updated: number } | null>(null);
 
   const { data: bands = [] } = useQuery({
     queryKey: ['bands'],
@@ -80,7 +97,7 @@ export default function SetlistRarityTool() {
     staleTime: 5 * 60_000,
   });
 
-  const { data: liveStatus } = useQuery({
+  const { data: liveStatus, refetch: refetchLiveStatus } = useQuery({
     queryKey: ['live-data-status', selectedBandId],
     queryFn:  () => bandRpgApi.getLiveDataStatus(selectedBandId),
     enabled:  !!selectedBandId,
@@ -88,14 +105,14 @@ export default function SetlistRarityTool() {
   });
 
   const {
-    mutate:     loadSuggestions,
-    data:       suggestions,
-    isPending:  isLoading,
-    isError:    isLoadError,
-    reset:      resetSuggestions,
+    mutate:    loadSuggestions,
+    data:      suggestions,
+    isPending: isLoading,
+    isError:   isLoadError,
+    reset:     resetSuggestions,
   } = useMutation({
     mutationFn: () => bandRpgApi.getRaritySuggestions(selectedBandId, thresholds),
-    onSuccess:  () => {
+    onSuccess: () => {
       setSelected(new Set());
       setOverrides(new Map());
       setConfirmApply(false);
@@ -112,6 +129,20 @@ export default function SetlistRarityTool() {
       setSelected(new Set());
     },
   });
+
+  const retryFetchMutation = useMutation({
+    mutationFn: () => bandRpgApi.fetchBandLiveData(selectedBandId),
+    onSettled:  () => { void refetchLiveStatus(); },
+  });
+
+  // Gate logic: allow suggestions whenever fetchedShows > 0 (partial data is OK)
+  const fetchedShows   = liveStatus?.fetchedShows ?? 0;
+  const totalShows     = liveStatus?.totalShows   ?? 0;
+  const fetchStatus    = liveStatus?.fetchStatus  ?? 'never';
+  const hasUsableData  = fetchedShows > 0;
+  const isPartialData  = fetchStatus === 'failed' && hasUsableData;
+  const isNeverFetched = fetchStatus === 'never' || (!liveStatus && selectedBandId);
+  const isFetching     = fetchStatus === 'in_progress';
 
   const effectiveRarity = (s: RaritySuggestion): SongRarityValue | null =>
     overrides.get(s.songId) ?? s.suggestedRarity ?? null;
@@ -141,15 +172,15 @@ export default function SetlistRarityTool() {
     }
   }
 
-  const hasLiveData = liveStatus && liveStatus.fetchStatus === 'complete' && liveStatus.fetchedShows > 0;
-
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="rounded-xl border border-surface-200 bg-white p-6">
         <h2 className="font-semibold text-surface-900 mb-1">Song Rarity — Setlist.fm Suggestions</h2>
         <p className="text-sm text-surface-500 leading-relaxed">
           Uses real performance history to suggest a rarity tier for each song.
           Requires live data to have been fetched for the band first (Live Data tab).
+          Partial data is usable — even a failed fetch with some shows analyzed will produce suggestions.
         </p>
       </div>
 
@@ -175,94 +206,144 @@ export default function SetlistRarityTool() {
 
       {selectedBandId && (
         <>
-          {/* Live data gate */}
-          {liveStatus === undefined ? (
+          {/* Live data status */}
+          {liveStatus === undefined && selectedBandId ? (
             <p className="text-sm text-surface-400 animate-pulse">Checking live data status…</p>
           ) : !liveStatus ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
               No live data record for this band. Go to the <strong>Live Data</strong> tab to connect a
               Setlist.fm artist and fetch performance history first.
             </div>
-          ) : liveStatus.fetchStatus !== 'complete' ? (
+          ) : isNeverFetched ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-              Live data status: <strong>{liveStatus.fetchStatus}</strong>. Suggestions require a completed
-              fetch. Go to the <strong>Live Data</strong> tab to run the fetch.
+              Live data has never been fetched. Go to the <strong>Live Data</strong> tab to run the fetch.
+            </div>
+          ) : isFetching ? (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+              Live data fetch is in progress. Wait for it to complete, then come back.
+            </div>
+          ) : !hasUsableData ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+              <strong>No usable data.</strong> The fetch {fetchStatus === 'failed' ? 'failed' : 'completed'} with 0 shows analyzed.
+              Go to the <strong>Live Data</strong> tab and run the fetch again.
             </div>
           ) : null}
 
-          {/* Shows analyzed line */}
-          {liveStatus && (
-            <div className="flex items-center gap-4 text-sm text-surface-500">
+          {/* Partial data warning + retry */}
+          {isPartialData && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="text-sm text-amber-800">
+                  <strong>Partial data available.</strong> The fetch failed after analyzing{' '}
+                  <strong>{fmtNum(fetchedShows)}</strong> of <strong>{fmtNum(totalShows)}</strong> shows.
+                  Suggestions will be less accurate for songs only in the unanalyzed portion.
+                  {liveStatus?.errorMessage && (
+                    <span className="block mt-1 text-xs text-amber-700">Error: {liveStatus.errorMessage}</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => retryFetchMutation.mutate()}
+                  disabled={retryFetchMutation.isPending}
+                  className="flex-shrink-0 text-xs font-semibold bg-amber-700 hover:bg-amber-800 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  {retryFetchMutation.isPending ? 'Fetching…' : 'Retry Fetch'}
+                </button>
+              </div>
+              {retryFetchMutation.isSuccess && (
+                <p className="mt-2 text-xs text-emerald-700 font-medium">Fetch complete. Refresh status above.</p>
+              )}
+              {retryFetchMutation.isError && (
+                <p className="mt-2 text-xs text-red-700">Retry failed. Check server logs.</p>
+              )}
+            </div>
+          )}
+
+          {/* Shows analyzed line (safe) */}
+          {liveStatus && hasUsableData && (
+            <div className="flex items-center gap-4 text-sm text-surface-500 flex-wrap">
               <span>
                 Shows analyzed:{' '}
-                <strong className="text-surface-800">{liveStatus.fetchedShows.toLocaleString()}</strong>
-                {' / '}{liveStatus.totalShows.toLocaleString()} total
+                <strong className="text-surface-800">{fmtNum(fetchedShows)}</strong>
+                {' / '}{fmtNum(totalShows)} total
+                {isPartialData && <span className="ml-1 text-amber-600 font-medium">(partial)</span>}
               </span>
               {liveStatus.lastFetchedAt && (
                 <span className="text-surface-400 text-xs">
-                  Last fetched: {new Date(liveStatus.lastFetchedAt).toLocaleDateString()}
+                  Last fetched: {fmtDate(liveStatus.lastFetchedAt)}
                 </span>
               )}
             </div>
           )}
 
           {/* Threshold configurator */}
-          <div className="rounded-xl border border-surface-200 bg-white p-4">
-            <button
-              onClick={() => setShowThresholds((v) => !v)}
-              className="flex items-center gap-2 text-sm font-medium text-surface-700 hover:text-surface-900"
-            >
-              <span>{showThresholds ? '▾' : '▸'}</span>
-              Rarity Thresholds (% of shows)
-              {!showThresholds && (
-                <span className="text-xs text-surface-400 font-normal ml-2">
-                  Common≥{thresholds.common}% · Uncommon≥{thresholds.uncommon}% · Rare≥{thresholds.rare}% · Legendary≥{thresholds.legendary}%
-                </span>
+          {hasUsableData && (
+            <div className="rounded-xl border border-surface-200 bg-white p-4">
+              <button
+                onClick={() => setShowThresholds((v) => !v)}
+                className="flex items-center gap-2 text-sm font-medium text-surface-700 hover:text-surface-900"
+              >
+                <span>{showThresholds ? '▾' : '▸'}</span>
+                Rarity Thresholds (% of shows)
+                {!showThresholds && (
+                  <span className="text-xs text-surface-400 font-normal ml-2">
+                    Common≥{thresholds.common}% · Uncommon≥{thresholds.uncommon}% · Rare≥{thresholds.rare}% · Legendary≥{thresholds.legendary}%
+                  </span>
+                )}
+              </button>
+              {showThresholds && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs text-surface-500 mb-3">
+                    A song played in ≥X% of analyzed shows gets that rarity. Songs below all thresholds → Mythic.
+                  </p>
+                  <ThresholdInput label="Common (≥)" value={thresholds.common} onChange={(v) => setThresholds((t) => ({ ...t, common: v }))} />
+                  <ThresholdInput label="Uncommon (≥)" value={thresholds.uncommon} onChange={(v) => setThresholds((t) => ({ ...t, uncommon: v }))} />
+                  <ThresholdInput label="Rare (≥)" value={thresholds.rare} onChange={(v) => setThresholds((t) => ({ ...t, rare: v }))} />
+                  <ThresholdInput label="Legendary (≥)" value={thresholds.legendary} onChange={(v) => setThresholds((t) => ({ ...t, legendary: v }))} />
+                  <p className="text-xs text-surface-400 mt-1">Below {thresholds.legendary}% (or never played) → <strong>Mythic</strong></p>
+                  <button
+                    onClick={() => setThresholds(DEFAULT_THRESHOLDS)}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 underline"
+                  >
+                    Reset to defaults
+                  </button>
+                </div>
               )}
-            </button>
-            {showThresholds && (
-              <div className="mt-3 space-y-2">
-                <p className="text-xs text-surface-500 mb-3">
-                  A song played in ≥X% of analyzed shows gets that rarity. Songs below all thresholds → Mythic.
-                </p>
-                <ThresholdInput label="Common (≥)" value={thresholds.common} onChange={(v) => setThresholds((t) => ({ ...t, common: v }))} />
-                <ThresholdInput label="Uncommon (≥)" value={thresholds.uncommon} onChange={(v) => setThresholds((t) => ({ ...t, uncommon: v }))} />
-                <ThresholdInput label="Rare (≥)" value={thresholds.rare} onChange={(v) => setThresholds((t) => ({ ...t, rare: v }))} />
-                <ThresholdInput label="Legendary (≥)" value={thresholds.legendary} onChange={(v) => setThresholds((t) => ({ ...t, legendary: v }))} />
-                <p className="text-xs text-surface-400 mt-1">Below {thresholds.legendary}% (or never played) → <strong>Mythic</strong></p>
-                <button
-                  onClick={() => setThresholds(DEFAULT_THRESHOLDS)}
-                  className="text-xs text-indigo-600 hover:text-indigo-800 underline"
-                >
-                  Reset to defaults
-                </button>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Load button */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => loadSuggestions()}
-              disabled={isLoading || !hasLiveData}
-              title={!hasLiveData ? 'Fetch live data first in the Live Data tab' : undefined}
-              className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
-            >
-              {isLoading ? 'Loading…' : suggestions ? 'Recalculate' : 'Load Suggestions'}
-            </button>
-            {isLoading && (
-              <span className="text-xs text-surface-400 animate-pulse">Analyzing performance data…</span>
-            )}
-            {isLoadError && (
-              <span className="text-sm text-red-600">Failed to load. Check server logs.</span>
-            )}
-          </div>
+          {hasUsableData && (
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={() => loadSuggestions()}
+                disabled={isLoading}
+                className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
+              >
+                {isLoading ? 'Loading…' : suggestions ? 'Recalculate' : 'Load Suggestions'}
+              </button>
+              {isLoading && (
+                <span className="text-xs text-surface-400 animate-pulse">Analyzing performance data…</span>
+              )}
+              {isLoadError && (
+                <span className="text-sm text-red-600">Failed to load. Check server logs.</span>
+              )}
+            </div>
+          )}
         </>
       )}
 
       {/* Results */}
       {suggestions && (
         <>
+          {/* Partial data warning above results */}
+          {isPartialData && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              ⚠ Suggestions are based on <strong>{fmtNum(fetchedShows)}</strong> of{' '}
+              <strong>{fmtNum(totalShows)}</strong> shows and may be incomplete.
+              Songs only played in the unanalyzed portion will appear as Mythic.
+            </div>
+          )}
+
           {/* Summary stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
@@ -373,10 +454,10 @@ export default function SetlistRarityTool() {
                           )}
                         </td>
                         <td className="px-3 py-2 text-right text-surface-600 tabular-nums">
-                          {s.hasProfile ? s.totalPerformances : '—'}
+                          {s.hasProfile ? fmtNum(s.totalPerformances) : '—'}
                         </td>
                         <td className="px-3 py-2 text-right text-surface-600 tabular-nums">
-                          {s.hasProfile ? `${s.performancePct.toFixed(1)}%` : '—'}
+                          {s.hasProfile ? `${typeof s.performancePct === 'number' ? s.performancePct.toFixed(1) : '—'}%` : '—'}
                         </td>
                         <td className={`px-3 py-2 ${CONFIDENCE_STYLE[s.confidence] ?? 'text-surface-400'}`}>
                           {CONFIDENCE_LABEL[s.confidence] ?? '—'}

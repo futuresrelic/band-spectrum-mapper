@@ -3065,16 +3065,23 @@ bandRpgRouter.get('/admin/live-data-status', requireAuth, requireAdmin, async (r
     if (!bandId) { res.status(400).json({ error: 'bandId query param required' }); return; }
 
     const cache = await prisma.bandLiveDataCache.findUnique({ where: { bandId } });
-    res.json(cache ? {
+    if (!cache) { res.json(null); return; }
+
+    const profileCount = await prisma.bandRpgSongProfile.count({
+      where: { song: { bandId } },
+    });
+
+    res.json({
       bandId:        cache.bandId,
       setlistFmMbid: cache.setlistFmMbid  ?? null,
       setlistFmName: cache.setlistFmName  ?? null,
-      totalShows:    cache.totalShows,
-      fetchedShows:  cache.fetchedShows,
+      totalShows:    cache.totalShows    ?? 0,
+      fetchedShows:  cache.fetchedShows  ?? 0,
       lastFetchedAt: cache.lastFetchedAt?.toISOString() ?? null,
       fetchStatus:   cache.fetchStatus,
-      errorMessage:  cache.errorMessage   ?? null,
-    } : null);
+      errorMessage:  cache.errorMessage  ?? null,
+      profileCount,
+    });
   } catch (e) { next(e); }
 });
 
@@ -3112,7 +3119,13 @@ bandRpgRouter.post('/admin/fetch-live-data', requireAuth, requireAdmin, async (r
     if (!bandId) { res.status(400).json({ error: 'bandId is required' }); return; }
 
     const result = await fetchBandLiveData(bandId);
-    res.json({ ok: !result.error, ...result });
+    res.json({
+      ok:           !result.error,
+      totalShows:   result.totalShows,
+      fetchedShows: result.processedShows,
+      songsUpdated: result.updatedSongs,
+      ...(result.error ? { message: result.error } : {}),
+    });
   } catch (e) { next(e); }
 });
 
