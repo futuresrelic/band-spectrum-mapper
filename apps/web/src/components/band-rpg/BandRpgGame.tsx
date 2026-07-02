@@ -1141,12 +1141,12 @@ function PauseMenu({ onResume, onQuit }: { onResume: () => void; onQuit: () => v
 }
 
 function CompleteScreen({
-  score, rank, bandName, characterName, songTitle, songRarity,
+  score, rank, bandName, characterName, songTitle, songRarity, songId,
   guessedCorrectly, guessBonus, rarityBonus, isNewCollection, albumRestored,
   onPlayAgain, onChangeBand, onLeaderboard, onViewCollection,
 }: {
   score: number; rank: number | null; bandName: string; characterName: string;
-  songTitle: string | null; songRarity: string | null;
+  songTitle: string | null; songRarity: string | null; songId: string | null;
   guessedCorrectly: boolean; guessBonus: number; rarityBonus: number;
   isNewCollection: boolean | null; albumRestored: { albumTitle: string } | null;
   onPlayAgain: () => void; onChangeBand: () => void; onLeaderboard: () => void; onViewCollection: () => void;
@@ -1195,6 +1195,19 @@ function CompleteScreen({
         )}
         <div className="flex flex-col gap-3">
           <button onClick={onPlayAgain}      className="bg-emerald-700 hover:bg-emerald-600 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors">Play Again</button>
+          {songId && (
+            <div>
+              <a
+                href={`/wiki/songs/${songId}${isNewCollection === true ? '?unlocked=1' : ''}`}
+                className="block w-full text-center bg-indigo-700/60 hover:bg-indigo-600/80 text-indigo-200 font-semibold px-6 py-2.5 rounded-lg transition-colors"
+              >
+                {isNewCollection === true ? '✦ View Song Card' : 'View Song Card'}
+              </a>
+              <p className="text-[10px] text-gray-600 mt-1.5 text-center leading-relaxed px-2">
+                Song Cards collect live history, rarity, lyrics, spectrum, and discovery stats in one place.
+              </p>
+            </div>
+          )}
           <button onClick={onViewCollection} className="bg-amber-700/60 hover:bg-amber-700 text-amber-200 font-semibold px-6 py-2.5 rounded-lg transition-colors">View Collection</button>
           <button onClick={onChangeBand}     className="bg-violet-700/60 hover:bg-violet-700 text-violet-200 font-semibold px-6 py-2.5 rounded-lg transition-colors">Change Band</button>
           <button onClick={onLeaderboard}    className="bg-white/10 hover:bg-white/20 text-gray-300 font-semibold px-6 py-2.5 rounded-lg transition-colors">View Leaderboard</button>
@@ -2302,6 +2315,7 @@ export default function BandRpgGame({
             characterName={selectedCharacter.name}
             songTitle={revealedTitle}
             songRarity={sessionRef.current.songRarity}
+            songId={sessionRef.current.songId}
             guessedCorrectly={guessedCorrectlyRef.current}
             guessBonus={guessBonusRef.current}
             rarityBonus={rarityBonusRef.current}
