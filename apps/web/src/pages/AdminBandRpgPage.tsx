@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, Component, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { bandRpgApi } from '../api/bandRpg';
 import { bandRpgEditorApi } from '../api/bandRpgEditor';
@@ -15,6 +15,7 @@ import AdventureEditor from '../components/bandRpgEditor/AdventureEditor';
 import CampaignGenerator from '../components/bandRpgEditor/CampaignGenerator';
 import PlaytestChecklist from '../components/bandRpgEditor/PlaytestChecklist';
 import ReadinessDashboard from '../components/bandRpgEditor/ReadinessDashboard';
+import SetlistRarityTool from '../components/bandRpgEditor/SetlistRarityTool';
 
 type Tab =
   | 'overview'
@@ -34,7 +35,8 @@ type Tab =
   | 'playtest'
   | 'testing'
   | 'live'
-  | 'readiness';
+  | 'readiness'
+  | 'rarity';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'overview',    label: 'Overview',    icon: '🗺️'  },
@@ -55,7 +57,38 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'testing',     label: 'Testing',     icon: '🧪'  },
   { id: 'live',        label: 'Live Data',   icon: '🌐'  },
   { id: 'readiness',   label: 'v1 Launch',   icon: '🚀'  },
+  { id: 'rarity',      label: 'Song Rarity', icon: '💎'  },
 ];
+
+class TabErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-8 text-center">
+          <p className="text-red-700 font-semibold mb-2">This tab encountered an error and could not render.</p>
+          <p className="text-xs text-red-500 font-mono mt-1 mb-4">{this.state.error?.message}</p>
+          <button
+            onClick={() => this.setState({ hasError: false, error: null })}
+            className="text-sm bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded-lg"
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function ComingSoonPlaceholder({ title, desc }: { title: string; desc: string }) {
   return (
@@ -585,47 +618,50 @@ export default function AdminBandRpgPage() {
       </div>
 
       {/* Tab content */}
-      {tab === 'overview'    && <OverviewTab />}
-      {tab === 'levels'      && <LevelEditor />}
-      {tab === 'objectives'  && <ObjectivesTab />}
-      {tab === 'quests'      && <QuestEditor />}
-      {tab === 'storyline'   && <StoryEditor />}
-      {tab === 'timeline'    && <TimelineEditor />}
-      {tab === 'characters'  && (
-        <div className="space-y-6">
-          <NpcEditor />
-          <div className="rounded-xl border border-surface-200 bg-surface-50 p-5">
-            <h3 className="font-semibold text-surface-800 mb-1">Avatar System 2.0</h3>
-            <p className="text-sm text-surface-500 mb-3">
-              Manage character portraits, reference images, and AI-generated sprites in Vinyl Runner Skins.
-            </p>
-            <a href="/admin/platformer" className="text-sm font-medium text-indigo-600 hover:text-indigo-800 underline">
-              Open Vinyl Runner — Skins &amp; Config →
-            </a>
+      <TabErrorBoundary key={tab}>
+        {tab === 'overview'    && <OverviewTab />}
+        {tab === 'levels'      && <LevelEditor />}
+        {tab === 'objectives'  && <ObjectivesTab />}
+        {tab === 'quests'      && <QuestEditor />}
+        {tab === 'storyline'   && <StoryEditor />}
+        {tab === 'timeline'    && <TimelineEditor />}
+        {tab === 'characters'  && (
+          <div className="space-y-6">
+            <NpcEditor />
+            <div className="rounded-xl border border-surface-200 bg-surface-50 p-5">
+              <h3 className="font-semibold text-surface-800 mb-1">Avatar System 2.0</h3>
+              <p className="text-sm text-surface-500 mb-3">
+                Manage character portraits, reference images, and AI-generated sprites in Vinyl Runner Skins.
+              </p>
+              <a href="/admin/platformer" className="text-sm font-medium text-indigo-600 hover:text-indigo-800 underline">
+                Open Vinyl Runner — Skins &amp; Config →
+              </a>
+            </div>
           </div>
-        </div>
-      )}
-      {tab === 'items'       && <ItemEditor />}
-      {tab === 'world'       && <WorldEditor />}
-      {tab === 'adventures'  && <AdventureEditor />}
-      {tab === 'campaign-ai' && <CampaignGenerator />}
-      {tab === 'playtest'    && <PlaytestChecklist />}
-      {tab === 'graphics'    && (
-        <ComingSoonPlaceholder
-          title="Graphics & Theme"
-          desc="Background and atmosphere settings are configured per-level in the Level Editor's Map tab. Global palette settings coming in a future update."
-        />
-      )}
-      {tab === 'settings'    && (
-        <ComingSoonPlaceholder
-          title="Game Settings"
-          desc="Configure lives, health system, timer, score multipliers, movement speed, controls, quest log, minimap, inventory, dialogue speed, difficulty, and save progress options."
-        />
-      )}
-      {tab === 'leaderboard' && <LeaderboardTab />}
-      {tab === 'testing'     && <TestingTab />}
-      {tab === 'live'        && <LiveDataTab />}
-      {tab === 'readiness'   && <ReadinessDashboard />}
+        )}
+        {tab === 'items'       && <ItemEditor />}
+        {tab === 'world'       && <WorldEditor />}
+        {tab === 'adventures'  && <AdventureEditor />}
+        {tab === 'campaign-ai' && <CampaignGenerator />}
+        {tab === 'playtest'    && <PlaytestChecklist />}
+        {tab === 'graphics'    && (
+          <ComingSoonPlaceholder
+            title="Graphics & Theme"
+            desc="Background and atmosphere settings are configured per-level in the Level Editor's Map tab. Global palette settings coming in a future update."
+          />
+        )}
+        {tab === 'settings'    && (
+          <ComingSoonPlaceholder
+            title="Game Settings"
+            desc="Configure lives, health system, timer, score multipliers, movement speed, controls, quest log, minimap, inventory, dialogue speed, difficulty, and save progress options."
+          />
+        )}
+        {tab === 'leaderboard' && <LeaderboardTab />}
+        {tab === 'testing'     && <TestingTab />}
+        {tab === 'live'        && <LiveDataTab />}
+        {tab === 'readiness'   && <ReadinessDashboard />}
+        {tab === 'rarity'      && <SetlistRarityTool />}
+      </TabErrorBoundary>
     </div>
   );
 }

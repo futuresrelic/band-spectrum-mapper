@@ -79,6 +79,35 @@ export interface SongLiveData {
   firstPerformanceDate: string | null;
 }
 
+export type SongRarityValue = 'Common' | 'Uncommon' | 'Rare' | 'Legendary' | 'Mythic';
+
+export interface RaritySuggestion {
+  songId: string;
+  songTitle: string;
+  albumTitle: string | null;
+  currentRarity: SongRarityValue;
+  suggestedRarity: SongRarityValue | null;
+  hasProfile: boolean;
+  performancePct: number;
+  totalPerformances: number;
+  confidence: 'high' | 'medium' | 'low' | 'none';
+  changed: boolean;
+}
+
+export interface RaritySuggestionsResponse {
+  totalSongs: number;
+  matchedSongs: number;
+  unmatchedSongs: number;
+  songs: RaritySuggestion[];
+}
+
+export interface RarityThresholds {
+  common: number;
+  uncommon: number;
+  rare: number;
+  legendary: number;
+}
+
 export interface BandLiveDataStatus {
   bandId: string;
   fetchStatus: string;      // never | in_progress | complete | failed
@@ -1081,4 +1110,18 @@ export const bandRpgApi = {
 
   getMyFollowing: () =>
     api.get<FollowingEntry[]>('/api/band-rpg/appreciation/following'),
+
+  getRaritySuggestions: (bandId: string, thresholds?: RarityThresholds) => {
+    const qs = new URLSearchParams({ bandId });
+    if (thresholds) {
+      qs.set('common',    String(thresholds.common));
+      qs.set('uncommon',  String(thresholds.uncommon));
+      qs.set('rare',      String(thresholds.rare));
+      qs.set('legendary', String(thresholds.legendary));
+    }
+    return api.get<RaritySuggestionsResponse>(`/api/band-rpg/admin/rarity-suggestions?${qs.toString()}`);
+  },
+
+  applySongRarities: (entries: Array<{ songId: string; rarity: SongRarityValue }>) =>
+    api.post<{ ok: boolean; updated: number }>('/api/band-rpg/admin/apply-song-rarities', { entries }),
 };

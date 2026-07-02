@@ -3086,7 +3086,7 @@ bandRpgRouter.post('/admin/search-setlistfm', requireAuth, requireAdmin, async (
     if (!artistName) { res.status(400).json({ error: 'artistName is required' }); return; }
 
     const artists = await searchArtistOnSetlistFm(artistName);
-    res.json({ artists });
+    res.json({ results: artists });
   } catch (e) { next(e); }
 });
 
@@ -3161,5 +3161,134 @@ bandRpgRouter.post('/admin/randomize-rarities', requireAuth, requireAdmin, async
     );
 
     res.json({ ok: true, updated: songs.length });
+  } catch (e) { next(e); }
+});
+
+// ── GET /admin/rarity-suggestions ─────────────────────────────────────────────
+// Returns per-song rarity suggestions based on Setlist.fm performance data.
+// Query: bandId (required), common, uncommon, rare, legendary (optional pct thresholds)
+
+const VALID_RARITIES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'] as const;
+type SongRarityValue = typeof VALID_RARITIES[number];
+
+function pctToRarity(
+  pct: number,
+  thresholds: { common: number; uncommon: number; rare: number; legendary: number },
+): SongRarityValue {
+  if (pct >= thresholds.common)   return 'Common';
+  if (pct >= thresholds.uncommon) return 'Uncommon';
+  if (pct >= thresholds.rare)     return 'Rare';
+  if (pct >= thresholds.legendary) return 'Legendary';
+  return 'Mythic';
+}
+
+bandRpgRouter.get('/admin/rarity-suggestions', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const bandId = typeof req.query['bandId'] === 'string' ? req.query['bandId'] : null;
+    if (!bandId) { res.status(400).json({ error: 'bandId query param required' }); return; }
+
+    const common    = parseFloat(typeof req.query['common']    === 'string' ? req.query['common']    : '30');
+    const uncommon  = parseFloat(typeof req.query['uncommon']  === 'string' ? req.query['uncommon']  : '10');
+    const rare      = parseFloat(typeof req.query['rare']      === 'string' ? req.query['rare']      : '3');
+    const legendary = parseFloat(typeof req.query['legendary'] === 'string' ? req.query['legendary'] : '0.5');
+    const thresholds = { common, uncommon, rare, legendary };
+
+    const songs = await prisma.song.findMany({
+      where: { bandId },
+      select: {
+        id: true,
+        title: true,
+        rarity: true,
+        album: { select: { title: true } },
+        bandRpgProfile: {
+          select: {
+            performancePct: true,
+            totalPerformances: true,
+            liveStatus: true,
+          },
+        },
+      },
+      orderBy: { title: 'asc' },
+    });
+
+    const items = songs.map((s) => {
+      const profile = s.bandRpgProfile;
+      const hasProfile = !!profile;
+      const performancePct    = profile?.performancePct    ?? 0;
+      const totalPerformances = profile?.totalPerformances ?? 0;
+
+      let suggestedRarity: SongRarityValue | null = null;
+      let confidence: 'high' | 'medium' | 'low' | 'none' = 'none';
+
+      if (hasProfile) {
+        suggestedRarity = pctToRarity(performancePct, thresholds);
+        if (totalPerformances >= 50)       confidence = 'high';
+        else if (totalPerformances >= 10)  confidence = 'medium';
+        else if (totalPerformances >= 1)   confidence = 'low';
+        else                               confidence = 'none';
+      }
+
+      return {
+        songId:             s.id,
+        songTitle:          s.title,
+        albumTitle:         s.album?.title ?? null,
+        currentRarity:      s.rarity as SongRarityValue,
+        suggestedRarity,
+        hasProfile,
+        performancePct,
+        totalPerformances,
+        confidence,
+        changed:            suggestedRarity !== null && suggestedRarity !== s.rarity,
+      };
+    });
+
+    const matchedSongs   = items.filter((s) => s.hasProfile).length;
+    const unmatchedSongs = items.length - matchedSongs;
+
+    res.json({
+      totalSongs:    items.length,
+      matchedSongs,
+      unmatchedSongs,
+      songs:         items,
+    });
+  } catch (e) { next(e); }
+});
+
+// ── POST /admin/apply-song-rarities ───────────────────────────────────────────
+// Bulk-updates Song.rarity for the provided entries. Groups by rarity to minimise
+// DB queries (at most 5 updateMany calls regardless of song count).
+
+bandRpgRouter.post('/admin/apply-song-rarities', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const entries = Array.isArray(body['entries']) ? body['entries'] as Array<{ songId: unknown; rarity: unknown }> : [];
+
+    if (entries.length === 0) { res.status(400).json({ error: 'entries array is required and must be non-empty' }); return; }
+
+    const valid: Array<{ songId: string; rarity: SongRarityValue }> = [];
+    for (const e of entries) {
+      if (typeof e.songId !== 'string' || !VALID_RARITIES.includes(e.rarity as SongRarityValue)) continue;
+      valid.push({ songId: e.songId, rarity: e.rarity as SongRarityValue });
+    }
+
+    if (valid.length === 0) { res.status(400).json({ error: 'No valid entries provided' }); return; }
+
+    const byRarity = new Map<SongRarityValue, string[]>();
+    for (const { songId, rarity } of valid) {
+      const existing = byRarity.get(rarity);
+      if (existing) { existing.push(songId); }
+      else          { byRarity.set(rarity, [songId]); }
+    }
+
+    let updated = 0;
+    for (const [rarity, ids] of byRarity) {
+      const result = await prisma.song.updateMany({
+        where: { id: { in: ids } },
+        data:  { rarity },
+      });
+      updated += result.count;
+    }
+
+    res.json({ ok: true, updated });
   } catch (e) { next(e); }
 });
