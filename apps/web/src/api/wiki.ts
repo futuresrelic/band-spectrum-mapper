@@ -1,4 +1,5 @@
 // Music Wiki API client — types and fetch helpers.
+import { api } from '../lib/api';
 
 export type WikiBand = {
   id: string;
@@ -148,6 +149,28 @@ export async function getWikiAlbum(bandSlug: string, albumSlug: string): Promise
 
 // ── Song page ─────────────────────────────────────────────────────────────────
 
+export type WikiSongRelated = {
+  id: string;
+  title: string;
+  slug: string;
+  rarity: string;
+  album: { title: string; slug: string; year: number | null } | null;
+  bandRpgProfile: { liveStatus: string; totalPerformances: number } | null;
+};
+
+export type WikiSongSibling = {
+  id: string;
+  title: string;
+  slug: string;
+  trackNumber: number | null;
+  rarity: string;
+};
+
+export type WikiBandRarityCount = {
+  rarity: string;
+  _count: { id: number };
+};
+
 export type WikiSongPageData = {
   song: {
     id: string;
@@ -158,7 +181,8 @@ export type WikiSongPageData = {
     isRemix: boolean;
     durationSeconds: number | null;
     notes: string | null;
-    band: { id: string; name: string; slug: string };
+    bandId: string;
+    band: { id: string; name: string; slug: string; logoUrl: string | null };
     album: { id: string; title: string; slug: string; year: number | null; artworkUrl: string | null } | null;
     score: WikiAxisScore | null;
     bandRpgProfile: WikiSongProfile | null;
@@ -166,13 +190,33 @@ export type WikiSongPageData = {
     _count: { ratings: number };
   };
   collectedCount: number;
-  albumSiblings: Array<{ id: string; title: string; slug: string; trackNumber: number | null }>;
+  albumSiblings: WikiSongSibling[];
+  bandRarityCounts: WikiBandRarityCount[];
+  relatedByRarity: WikiSongRelated[];
+  liveCache: { fetchedShows: number; totalShows: number } | null;
 };
 
 export async function getWikiSong(songId: string): Promise<WikiSongPageData> {
   const res = await fetch(`/api/wiki/songs/${encodeURIComponent(songId)}`);
   if (!res.ok) throw new Error('Song not found');
   return res.json() as Promise<WikiSongPageData>;
+}
+
+// ── Player context (requires auth — uses api.get so Bearer token is included) ─
+
+export type WikiSongPlayerContext = {
+  collected: boolean;
+  collectedAt: string | null;
+  frozenRarity: string | null;
+  guessedCorrectly: boolean | null;
+  scoreEarned: number | null;
+  bandProgress: { owned: number; total: number };
+  albumProgress: { owned: number; total: number } | null;
+  rarityProgress: Record<string, { owned: number; total: number }>;
+};
+
+export async function getWikiSongPlayerContext(songId: string): Promise<WikiSongPlayerContext> {
+  return api.get<WikiSongPlayerContext>(`/api/wiki/songs/${encodeURIComponent(songId)}/player-context`);
 }
 
 // ── Artist page ───────────────────────────────────────────────────────────────

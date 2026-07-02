@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
+import { requireAuth } from '../middleware/requireAuth.js';
 
 // Music Wiki — public read-only endpoints.
 // No authentication required. Returns curated data for the encyclopedic wiki view.
@@ -219,7 +220,7 @@ wikiRouter.get('/songs/:songId', async (req, res, next) => {
     const song = await prisma.song.findUnique({
       where: { id: songId },
       include: {
-        band: { select: { id: true, name: true, slug: true } },
+        band: { select: { id: true, name: true, slug: true, logoUrl: true } },
         album: { select: { id: true, title: true, slug: true, year: true, artworkUrl: true } },
         score: true,
         bandRpgProfile: true,
@@ -234,22 +235,126 @@ wikiRouter.get('/songs/:songId', async (req, res, next) => {
 
     if (!song) { res.status(404).json({ error: 'Song not found' }); return; }
 
-    // How many players have collected this song
-    const collectedCount = await prisma.bandRpgCollectedSong.count({
-      where: { songId },
+    const [
+      collectedCount,
+      albumSiblings,
+      bandRarityCounts,
+      relatedByRarity,
+      liveCache,
+    ] = await Promise.all([
+      // How many players have collected this song
+      prisma.bandRpgCollectedSong.count({ where: { songId } }),
+
+      // Sibling songs on the same album
+      song.albumId
+        ? prisma.song.findMany({
+            where: { albumId: song.albumId, id: { not: songId } },
+            select: { id: true, title: true, slug: true, trackNumber: true, rarity: true },
+            orderBy: [{ trackNumber: 'asc' }, { title: 'asc' }],
+            take: 20,
+          })
+        : Promise.resolve([]),
+
+      // Rarity distribution across the band (for collection progress display)
+      prisma.song.groupBy({
+        by: ['rarity'],
+        where: { bandId: song.bandId },
+        _count: { id: true },
+      }),
+
+      // Other songs with the same game rarity from same band (for "Related by rarity")
+      prisma.song.findMany({
+        where: { bandId: song.bandId, rarity: song.rarity, id: { not: songId } },
+        select: {
+          id: true,
+          title: true,
+          slug: true,
+          rarity: true,
+          album: { select: { title: true, slug: true, year: true } },
+          bandRpgProfile: { select: { liveStatus: true, totalPerformances: true } },
+        },
+        take: 6,
+        orderBy: { title: 'asc' },
+      }),
+
+      // Band live data cache — needed for "why rare" denominator
+      prisma.bandLiveDataCache.findUnique({
+        where: { bandId: song.bandId },
+        select: { fetchedShows: true, totalShows: true },
+      }),
+    ]);
+
+    res.json({ song, collectedCount, albumSiblings, bandRarityCounts, relatedByRarity, liveCache });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Song player context — requires auth; returns collection + progress data
+// ---------------------------------------------------------------------------
+wikiRouter.get('/songs/:songId/player-context', requireAuth, async (req, res, next): Promise<void> => {
+  try {
+    const songId = req.params['songId'];
+    if (!songId) { res.status(400).json({ error: 'songId required' }); return; }
+
+    const userId = req.user!.userId;
+
+    const song = await prisma.song.findUnique({
+      where: { id: songId },
+      select: { bandId: true, albumId: true },
+    });
+    if (!song) { res.status(404).json({ error: 'Song not found' }); return; }
+
+    // Collection status for this specific song
+    const collected = await prisma.bandRpgCollectedSong.findUnique({
+      where: { userId_songId: { userId, songId } },
     });
 
-    // Sibling songs on the same album (for context strip)
-    const albumSiblings = song.albumId
-      ? await prisma.song.findMany({
-          where: { albumId: song.albumId, id: { not: songId } },
-          select: { id: true, title: true, slug: true, trackNumber: true },
-          orderBy: [{ trackNumber: 'asc' }, { title: 'asc' }],
-          take: 20,
-        })
-      : [];
+    // All songs in the band (for progress computation)
+    const bandSongs = await prisma.song.findMany({
+      where: { bandId: song.bandId },
+      select: { id: true, rarity: true, albumId: true },
+    });
 
-    res.json({ song, collectedCount, albumSiblings });
+    // User's collected song IDs for this band
+    const userBandCollected = await prisma.bandRpgCollectedSong.findMany({
+      where: { userId, bandId: song.bandId },
+      select: { songId: true },
+    });
+    const userCollectedIds = new Set(userBandCollected.map((c) => c.songId));
+
+    // Per-rarity progress (using current Song.rarity, not frozen collect rarity)
+    const rarityProgress: Record<string, { owned: number; total: number }> = {};
+    for (const s of bandSongs) {
+      const tier = s.rarity;
+      if (!rarityProgress[tier]) rarityProgress[tier] = { owned: 0, total: 0 };
+      rarityProgress[tier].total++;
+      if (userCollectedIds.has(s.id)) rarityProgress[tier].owned++;
+    }
+
+    // Album progress
+    let albumProgress: { owned: number; total: number } | null = null;
+    if (song.albumId) {
+      const albumSongIds = bandSongs
+        .filter((s) => s.albumId === song.albumId)
+        .map((s) => s.id);
+      albumProgress = {
+        owned: albumSongIds.filter((id) => userCollectedIds.has(id)).length,
+        total: albumSongIds.length,
+      };
+    }
+
+    res.json({
+      collected: !!collected,
+      collectedAt: collected?.recoveredAt ?? null,
+      frozenRarity: collected?.rarity ?? null,
+      guessedCorrectly: collected?.guessedCorrectly ?? null,
+      scoreEarned: collected?.scoreEarned ?? null,
+      bandProgress: { owned: userCollectedIds.size, total: bandSongs.length },
+      albumProgress,
+      rarityProgress,
+    });
   } catch (e) {
     next(e);
   }
