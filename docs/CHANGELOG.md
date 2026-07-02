@@ -4,6 +4,59 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.12 — Setlist.fm Song Rarity Tool (2026-07-01)
+
+### Problem solved
+
+The Setlist.fm admin tool was showing a completely white page. Root cause: the server
+was sending `{ artists }` but the client API expected `{ results }`, causing
+`undefined.length` to throw during the first render with no error boundary to catch it.
+
+### Fixed
+
+- **White page bug**: `POST /admin/search-setlistfm` now returns `{ results: [...] }` to
+  match the client-side contract. The previous `{ artists }` key was silently swallowed as
+  `undefined` and crashed the Live Data tab on every load.
+- **TabErrorBoundary**: Added a React class error boundary that wraps all tab content in
+  `AdminBandRpgPage`. Any future tab render error now shows a friendly message + Try again
+  button instead of a white page.
+
+### Added
+
+**Song Rarity tab (💎) in Band RPG Admin:**
+- Band picker with live data status gate — shows a helpful message if live data hasn't
+  been fetched yet, rather than offering suggestions with no data
+- Collapsible threshold configurator: Common≥30%, Uncommon≥10%, Rare≥3%, Legendary≥0.5%,
+  Mythic for everything else (all thresholds adjustable, with "Reset to defaults" link)
+- Load Suggestions button (user-triggered, not auto-fetch) with Recalculate option
+- Summary stats: total songs / matched / unmatched / have changes
+- Scrollable song table with: checkbox, song title, album, current rarity (colored badge),
+  suggested rarity, raw play count, performance %, confidence level, per-row override select
+- Filter tabs: All / Has changes / Unmatched
+- Select all with suggestions / Deselect all toggle
+- Two-step apply: "Apply N Changes" → confirmation prompt → "Yes, Apply" / Cancel
+- Apply result toast on success
+- Unmatched songs notice explaining why songs may be missing Setlist.fm data
+
+**New server endpoints:**
+- `GET /api/band-rpg/admin/rarity-suggestions?bandId=...` — joins Song records with
+  `BandRpgSongProfile`, applies configurable `performancePct` thresholds to compute
+  `suggestedRarity` and `confidence` per song
+- `POST /api/band-rpg/admin/apply-song-rarities` — bulk-updates `Song.rarity` using
+  `updateMany` grouped by rarity (max 5 DB queries regardless of song count), validates
+  all rarity values against the `SongRarity` enum
+
+**New client types:** `SongRarityValue`, `RaritySuggestion`, `RaritySuggestionsResponse`,
+`RarityThresholds` in `apps/web/src/api/bandRpg.ts`
+
+### Files changed
+- `apps/api/src/routes/bandRpg.ts` — bug fix + 2 new endpoints
+- `apps/web/src/api/bandRpg.ts` — new types + 2 new API methods
+- `apps/web/src/components/bandRpgEditor/SetlistRarityTool.tsx` — new component
+- `apps/web/src/pages/AdminBandRpgPage.tsx` — TabErrorBoundary + Song Rarity tab
+
+---
+
 ## Phase Z.11 — Band RPG Map Editor: Door Visibility and Management (2026-07-01)
 
 ### Problem solved
