@@ -16,6 +16,7 @@ import CampaignGenerator from '../components/bandRpgEditor/CampaignGenerator';
 import PlaytestChecklist from '../components/bandRpgEditor/PlaytestChecklist';
 import ReadinessDashboard from '../components/bandRpgEditor/ReadinessDashboard';
 import SetlistRarityTool from '../components/bandRpgEditor/SetlistRarityTool';
+import LiveDataAuditPanel from '../components/bandRpgEditor/LiveDataAuditPanel';
 
 type Tab =
   | 'overview'
@@ -383,6 +384,8 @@ function LiveDataTab() {
   const [searchResults,  setSearchResults]  = useState<Array<{ mbid: string; name: string; sortName: string; disambiguation?: string }>>([]);
   const [fetchResult,    setFetchResult]    = useState<{ ok: boolean; songsUpdated: number; totalShows: number; fetchedShows: number; message?: string } | null>(null);
   const [storeMessage,   setStoreMessage]   = useState<string | null>(null);
+  const [confirmFetch,   setConfirmFetch]   = useState(false);
+  const [activeSection,  setActiveSection]  = useState<'fetch' | 'audit'>('fetch');
 
   const { data: bands = [] } = useQuery({
     queryKey: ['bands'],
@@ -390,7 +393,7 @@ function LiveDataTab() {
     staleTime: 5 * 60_000,
   });
 
-  const { data: status, refetch: refetchStatus } = useQuery({
+  const { data: status, refetch: refetchStatus, isFetching: isRefreshingStatus } = useQuery({
     queryKey: ['live-data-status', selectedBandId],
     queryFn:  () => bandRpgApi.getLiveDataStatus(selectedBandId),
     enabled:  !!selectedBandId,
@@ -407,7 +410,7 @@ function LiveDataTab() {
     mutationFn: ({ mbid, name }: { mbid: string; name: string }) =>
       bandRpgApi.storeBandArtistMatch(selectedBandId, mbid, name),
     onSuccess: () => {
-      setStoreMessage('Artist linked successfully.');
+      setStoreMessage('Artist linked. Fetch state preserved (same artist re-confirmed).');
       setSearchResults([]);
       void refetchStatus();
     },
@@ -416,22 +419,51 @@ function LiveDataTab() {
 
   const fetchMutation = useMutation({
     mutationFn: () => bandRpgApi.fetchBandLiveData(selectedBandId),
-    onSuccess:  (r) => { setFetchResult(r); void refetchStatus(); },
+    onSuccess:  (r) => { setFetchResult(r); setConfirmFetch(false); void refetchStatus(); },
+    onError:    () => setConfirmFetch(false),
   });
 
   const selectedBandName = bands.find((b) => b.id === selectedBandId)?.name ?? '';
 
+  // Derive display state
+  const hasExistingData = status ? (status.fetchStatus === 'complete' || (status.fetchedShows ?? 0) > 0) : false;
+  const isStatusInconsistent = status
+    ? status.fetchStatus === 'never' && ((status.profileCount ?? 0) > 0 || !!status.lastFetchedAt)
+    : false;
+
+  function getStatusLabel(s: typeof status): string {
+    if (!s) return '—';
+    if (isStatusInconsistent) return 'Needs Verification';
+    return STATUS_LABEL[s.fetchStatus] ?? s.fetchStatus;
+  }
+  function getStatusColor(s: typeof status): string {
+    if (!s) return 'text-surface-400';
+    if (isStatusInconsistent) return 'text-amber-600';
+    return STATUS_COLOR[s.fetchStatus] ?? 'text-surface-600';
+  }
+
   return (
     <div className="space-y-6">
+      {/* Terminology callout */}
       <div className="rounded-xl border border-surface-200 bg-white p-6">
         <h2 className="font-semibold text-surface-900 mb-1">Live Intelligence — Setlist.fm</h2>
-        <p className="text-sm text-surface-500 mb-5 leading-relaxed">
+        <p className="text-sm text-surface-500 mb-2 leading-relaxed">
           Connect each band to their Setlist.fm artist profile to download real performance history.
-          Band RPG uses this data to compute Live Rarity, Live Value, and Concert Realism scores.
-          Requires a valid <code className="bg-surface-100 px-1 rounded text-xs">SETLISTFM_API_KEY</code> environment variable.
+          Band RPG uses this data to compute <strong>Live Frequency</strong> (how often a song appears in setlists)
+          and <strong>Game Rarity</strong> (the tier used in Band RPG: Common / Uncommon / Rare / Legendary / Mythic).
+          These are separate systems — Live Frequency is the raw data; Game Rarity is the admin-assigned tier.
+          Requires a valid <code className="bg-surface-100 px-1 rounded text-xs">SETLISTFM_API_KEY</code>.
         </p>
+        <div className="flex flex-wrap gap-3 text-xs mt-3">
+          <span className="bg-blue-50 border border-blue-200 text-blue-800 rounded px-2 py-1">
+            <strong>Live Frequency</strong> = Setlist.fm play rate (Staple / Common / Occasional / Rare / Extremely Rare / Never Played)
+          </span>
+          <span className="bg-indigo-50 border border-indigo-200 text-indigo-800 rounded px-2 py-1">
+            <strong>Game Rarity</strong> = Band RPG tier (Common → Mythic) set in Song Rarity tab
+          </span>
+        </div>
 
-        <div>
+        <div className="mt-5">
           <label className="block text-xs font-medium text-surface-700 mb-1">Select band</label>
           <select
             value={selectedBandId}
@@ -440,6 +472,8 @@ function LiveDataTab() {
               setSearchResults([]);
               setStoreMessage(null);
               setFetchResult(null);
+              setConfirmFetch(false);
+              setActiveSection('fetch');
             }}
             className="border border-surface-300 bg-white rounded-lg px-3 py-2 text-sm text-surface-800 focus:outline-none focus:border-indigo-500 min-w-56"
           >
@@ -449,23 +483,42 @@ function LiveDataTab() {
         </div>
       </div>
 
+      {/* Status card */}
       {selectedBandId && status !== undefined && (
         <div className="rounded-xl border border-surface-200 bg-white p-6">
-          <h3 className="font-semibold text-surface-900 mb-3">
-            Live Data Status — {selectedBandName}
-          </h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-surface-900">
+              Live Data Status — {selectedBandName}
+            </h3>
+            <button
+              onClick={() => void refetchStatus()}
+              disabled={isRefreshingStatus}
+              className="text-xs text-indigo-600 hover:text-indigo-800 disabled:opacity-50 font-medium border border-indigo-200 rounded px-2.5 py-1"
+              title="Refresh status from DB — does not call Setlist.fm"
+            >
+              {isRefreshingStatus ? 'Refreshing…' : '↻ Refresh Status'}
+            </button>
+          </div>
           {!status ? (
             <p className="text-sm text-surface-400">
               No live data record yet. Search for the artist below to get started.
             </p>
           ) : (
             <>
+              {isStatusInconsistent && (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  <strong>Status inconsistency detected.</strong> The fetch status shows "Never fetched"
+                  but {status.profileCount > 0 ? `${status.profileCount} song profiles exist` : 'a previous fetch date is recorded'}.
+                  This usually happens when the artist link was re-confirmed after a successful fetch.
+                  Your data is intact — click <strong>Refresh Status</strong> or re-run Fetch to restore consistency.
+                </div>
+              )}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
                 <div className="rounded-lg bg-surface-50 border border-surface-200 p-3 text-center">
-                  <div className={`text-base font-bold ${STATUS_COLOR[status.fetchStatus] ?? 'text-surface-600'}`}>
-                    {STATUS_LABEL[status.fetchStatus] ?? status.fetchStatus}
+                  <div className={`text-base font-bold ${getStatusColor(status)}`}>
+                    {getStatusLabel(status)}
                   </div>
-                  <div className="text-xs text-surface-400 mt-1">Status</div>
+                  <div className="text-xs text-surface-400 mt-1">Fetch status</div>
                 </div>
                 <div className="rounded-lg bg-surface-50 border border-surface-200 p-3 text-center">
                   <div className="text-lg font-bold text-indigo-600">{status.profileCount}</div>
@@ -494,7 +547,7 @@ function LiveDataTab() {
               {liveDataHasPartialData(status) && (
                 <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   Fetch failed but <strong>{fmtNum(status.fetchedShows)}</strong> shows were analyzed before the error.
-                  Partial data is usable for rarity suggestions.
+                  Partial data is usable for rarity suggestions and Data Audit.
                   Re-run the fetch below to get more complete data.
                 </div>
               )}
@@ -506,100 +559,182 @@ function LiveDataTab() {
         </div>
       )}
 
+      {/* Section tabs: Fetch vs Audit */}
       {selectedBandId && (
-        <div className="rounded-xl border border-surface-200 bg-white p-6">
-          <h3 className="font-semibold text-surface-900 mb-1">Link Setlist.fm Artist</h3>
-          <p className="text-sm text-surface-500 mb-4">
-            Search by artist name, then click Select to link the correct result.
-          </p>
-
-          <div className="flex gap-2 mb-4">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && searchQuery.trim()) {
-                  setSearchResults([]);
-                  searchMutation.mutate(searchQuery.trim());
-                }
-              }}
-              placeholder={`e.g. "${selectedBandName}"`}
-              className="flex-1 border border-surface-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
-            />
+        <div className="flex gap-1 border-b border-surface-200 pb-px">
+          {(['fetch', 'audit'] as const).map((s) => (
             <button
-              onClick={() => { setSearchResults([]); if (searchQuery.trim()) searchMutation.mutate(searchQuery.trim()); }}
-              disabled={searchMutation.isPending || !searchQuery.trim()}
-              className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+              key={s}
+              onClick={() => setActiveSection(s)}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                activeSection === s
+                  ? 'bg-white border border-b-white border-surface-200 text-surface-900 -mb-px'
+                  : 'text-surface-500 hover:text-surface-800'
+              }`}
             >
-              {searchMutation.isPending ? 'Searching…' : 'Search'}
+              {s === 'fetch' ? '📡 Fetch & Link' : '🔍 Data Audit'}
             </button>
-          </div>
-
-          {searchResults.length > 0 && (
-            <div className="space-y-2">
-              {searchResults.map((r) => (
-                <div key={r.mbid} className="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3 bg-surface-50">
-                  <div>
-                    <span className="font-medium text-surface-900 text-sm">{r.name}</span>
-                    {r.disambiguation && (
-                      <span className="ml-2 text-xs text-surface-400">({r.disambiguation})</span>
-                    )}
-                    <div className="text-xs text-surface-400 mt-0.5">{r.mbid}</div>
-                  </div>
-                  <button
-                    onClick={() => { setStoreMessage(null); storeMutation.mutate({ mbid: r.mbid, name: r.name }); }}
-                    disabled={storeMutation.isPending}
-                    className="text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition-colors"
-                  >
-                    {storeMutation.isPending ? '…' : 'Select'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          {searchMutation.isError && (
-            <p className="text-sm text-red-600 mt-2">Search failed. Is SETLISTFM_API_KEY set?</p>
-          )}
-          {storeMessage && (
-            <p className="text-sm text-emerald-700 font-medium mt-3">{storeMessage}</p>
-          )}
+          ))}
         </div>
       )}
 
-      {selectedBandId && status?.setlistFmMbid && (
-        <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-6">
-          <h3 className="font-semibold text-indigo-900 mb-1">Fetch Live Performance Data</h3>
-          <p className="text-sm text-indigo-800 leading-relaxed mb-4">
-            Downloads up to 1,500 setlists for <strong>{status.setlistFmName}</strong> and updates
-            live rarity scores, Live Value, and performance history for every matched song.
-            For very large catalogs (Phish, Dead) this can take 2–3 minutes.
-            Re-running is safe and will overwrite previous results.
-          </p>
-          <button
-            onClick={() => { setFetchResult(null); fetchMutation.mutate(); }}
-            disabled={fetchMutation.isPending}
-            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
-          >
-            {fetchMutation.isPending ? 'Fetching… (please wait)' : 'Fetch Live Data Now'}
-          </button>
-          {fetchMutation.isPending && (
-            <p className="mt-3 text-xs text-indigo-600 animate-pulse">
-              Downloading setlists from Setlist.fm — this may take a couple of minutes…
+      {/* ── Fetch & Link section ── */}
+      {selectedBandId && activeSection === 'fetch' && (
+        <>
+          {/* Artist search */}
+          <div className="rounded-xl border border-surface-200 bg-white p-6">
+            <h3 className="font-semibold text-surface-900 mb-1">Link Setlist.fm Artist</h3>
+            <p className="text-sm text-surface-500 mb-4">
+              Search by artist name, then click Select to link the correct result.
+              Re-linking the same artist preserves existing fetch data.
+              Re-linking a <em>different</em> artist resets fetch state.
             </p>
-          )}
-          {fetchResult && (
-            <div className="mt-4 rounded-lg bg-white border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
-              <div className="font-semibold mb-1">Fetch complete</div>
-              <div>Songs updated: <strong>{fetchResult.songsUpdated}</strong></div>
-              <div>Shows analyzed: <strong>{fmtNum(fetchResult.fetchedShows)}</strong> of {fmtNum(fetchResult.totalShows)} total</div>
-              {fetchResult.message && <div className="mt-1 text-xs text-surface-500">{fetchResult.message}</div>}
+
+            <div className="flex gap-2 mb-4">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && searchQuery.trim()) {
+                    setSearchResults([]);
+                    searchMutation.mutate(searchQuery.trim());
+                  }
+                }}
+                placeholder={`e.g. "${selectedBandName}"`}
+                className="flex-1 border border-surface-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+              />
+              <button
+                onClick={() => { setSearchResults([]); if (searchQuery.trim()) searchMutation.mutate(searchQuery.trim()); }}
+                disabled={searchMutation.isPending || !searchQuery.trim()}
+                className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+              >
+                {searchMutation.isPending ? 'Searching…' : 'Search'}
+              </button>
+            </div>
+
+            {searchResults.length > 0 && (
+              <div className="space-y-2">
+                {searchResults.map((r) => (
+                  <div key={r.mbid} className="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3 bg-surface-50">
+                    <div>
+                      <span className="font-medium text-surface-900 text-sm">{r.name}</span>
+                      {r.disambiguation && (
+                        <span className="ml-2 text-xs text-surface-400">({r.disambiguation})</span>
+                      )}
+                      <div className="text-xs text-surface-400 mt-0.5">{r.mbid}</div>
+                    </div>
+                    <button
+                      onClick={() => { setStoreMessage(null); storeMutation.mutate({ mbid: r.mbid, name: r.name }); }}
+                      disabled={storeMutation.isPending}
+                      className="text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition-colors"
+                    >
+                      {storeMutation.isPending ? '…' : 'Select'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {searchMutation.isError && (
+              <p className="text-sm text-red-600 mt-2">Search failed. Is SETLISTFM_API_KEY set?</p>
+            )}
+            {storeMessage && (
+              <p className="text-sm text-emerald-700 font-medium mt-3">{storeMessage}</p>
+            )}
+          </div>
+
+          {/* Fetch panel */}
+          {status?.setlistFmMbid && (
+            <div className={`rounded-xl border p-6 ${hasExistingData ? 'border-surface-300 bg-surface-50' : 'border-indigo-200 bg-indigo-50'}`}>
+              <h3 className={`font-semibold mb-1 ${hasExistingData ? 'text-surface-900' : 'text-indigo-900'}`}>
+                Fetch Live Performance Data
+              </h3>
+              <p className={`text-sm leading-relaxed mb-4 ${hasExistingData ? 'text-surface-600' : 'text-indigo-800'}`}>
+                Downloads up to 1,500 setlists for <strong>{status.setlistFmName}</strong> and updates
+                Live Frequency scores and performance history for every matched song.
+                Raw appearances are stored locally for re-analysis without re-calling Setlist.fm.
+                For very large catalogs this can take 2–3 minutes.
+              </p>
+
+              {!confirmFetch ? (
+                <div className="flex flex-wrap gap-3">
+                  {hasExistingData ? (
+                    <>
+                      <button
+                        onClick={() => setConfirmFetch(true)}
+                        disabled={fetchMutation.isPending}
+                        className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
+                      >
+                        Force Re-fetch From Setlist.fm
+                      </button>
+                      <p className="text-xs text-surface-500 self-center">
+                        Data already exists. Re-fetching uses Setlist.fm API quota.
+                        Use <strong>Data Audit → Re-analyze</strong> to fix matching without API calls.
+                      </p>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => { setFetchResult(null); fetchMutation.mutate(); }}
+                      disabled={fetchMutation.isPending}
+                      className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
+                    >
+                      {fetchMutation.isPending ? 'Fetching… (please wait)' : 'Fetch Live Data Now'}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-amber-300 bg-amber-100 px-4 py-3 mb-4">
+                  <p className="text-sm font-semibold text-amber-900 mb-1">
+                    Confirm Force Re-fetch
+                  </p>
+                  <p className="text-xs text-amber-800 mb-3">
+                    <strong>{selectedBandName}</strong> already has {fmtNum(status.fetchedShows)} analyzed shows
+                    fetched on {fmtDate(status.lastFetchedAt)}.
+                    Re-fetching will use Setlist.fm API quota and overwrite existing data.
+                    Continue?
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setFetchResult(null); fetchMutation.mutate(); }}
+                      disabled={fetchMutation.isPending}
+                      className="bg-amber-700 hover:bg-amber-800 disabled:opacity-50 text-white text-sm font-semibold px-4 py-1.5 rounded-lg"
+                    >
+                      {fetchMutation.isPending ? 'Fetching…' : 'Yes, Re-fetch'}
+                    </button>
+                    <button onClick={() => setConfirmFetch(false)} className="text-sm text-surface-600 hover:text-surface-800">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {fetchMutation.isPending && (
+                <p className="mt-3 text-xs text-indigo-600 animate-pulse">
+                  Downloading setlists from Setlist.fm and storing raw appearances — this may take a couple of minutes…
+                </p>
+              )}
+              {fetchResult && (
+                <div className="mt-4 rounded-lg bg-white border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
+                  <div className="font-semibold mb-1">Fetch complete</div>
+                  <div>Songs updated: <strong>{fetchResult.songsUpdated}</strong></div>
+                  <div>Shows analyzed: <strong>{fmtNum(fetchResult.fetchedShows)}</strong> of {fmtNum(fetchResult.totalShows)} total</div>
+                  {fetchResult.message && <div className="mt-1 text-xs text-surface-500">{fetchResult.message}</div>}
+                  <p className="mt-2 text-xs text-emerald-600">
+                    Raw appearances stored. Switch to <strong>Data Audit</strong> to review matching and fix aliases.
+                  </p>
+                </div>
+              )}
+              {fetchMutation.isError && (
+                <p className="mt-3 text-sm text-red-700">Fetch failed. Check server logs for details.</p>
+              )}
             </div>
           )}
-          {fetchMutation.isError && (
-            <p className="mt-3 text-sm text-red-700">Fetch failed. Check server logs for details.</p>
-          )}
-        </div>
+        </>
+      )}
+
+      {/* ── Data Audit section ── */}
+      {selectedBandId && activeSection === 'audit' && (
+        <LiveDataAuditPanel bandId={selectedBandId} />
       )}
     </div>
   );

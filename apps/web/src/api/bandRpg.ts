@@ -90,8 +90,52 @@ export interface RaritySuggestion {
   hasProfile: boolean;
   performancePct: number;
   totalPerformances: number;
-  confidence: 'high' | 'medium' | 'low' | 'none';
+  confidence: 'high' | 'medium' | 'low' | 'none' | 'needs_review';
+  matchWarning?: string;
   changed: boolean;
+}
+
+export interface FuzzyMatch {
+  title?: string;
+  songId?: string;
+  songTitle?: string;
+  appearances?: number;
+  score: number;
+}
+
+export interface UnmatchedSetlistFmTitle {
+  title: string;
+  appearances: number;
+  possibleMatches: FuzzyMatch[];
+}
+
+export interface ZeroMatchBsmSong {
+  songId: string;
+  songTitle: string;
+  albumTitle: string | null;
+  suspiciousReasons: string[];
+  possibleSetlistFmMatches: FuzzyMatch[];
+  isSuspicious: boolean;
+}
+
+export interface SongAlias {
+  id: string;
+  setlistFmTitle: string;
+  songId: string | null;
+  songTitle: string | null;
+  note: string | null;
+}
+
+export interface LiveDataAuditResponse {
+  hasRawData: boolean;
+  totalRawEntries: number;
+  totalUniqueSetlistFmTitles: number;
+  matchedTitles: number;
+  unmatchedTitles: number;
+  bsmSongsWithZeroMatches: number;
+  unmatchedSetlistFmTitles: UnmatchedSetlistFmTitle[];
+  zeroMatchBsmSongs: ZeroMatchBsmSong[];
+  aliases: SongAlias[];
 }
 
 export interface RaritySuggestionsResponse {
@@ -1129,5 +1173,32 @@ export const bandRpgApi = {
     api.post<{ ok: boolean; collectedUpdated: number; setlistUpdated: number; songsProcessed: number }>(
       '/api/band-rpg/admin/sync-collection-rarity',
       bandId ? { bandId } : {},
+    ),
+
+  getLiveDataAudit: (bandId: string) =>
+    api.get<LiveDataAuditResponse>(
+      `/api/band-rpg/admin/live-data-audit?bandId=${encodeURIComponent(bandId)}`,
+    ),
+
+  reanalyzeLiveData: (bandId: string) =>
+    api.post<{ ok: boolean; updatedSongs: number; rawEntries: number }>(
+      '/api/band-rpg/admin/reanalyze-live-data',
+      { bandId },
+    ),
+
+  getSongAliases: (bandId: string) =>
+    api.get<SongAlias[]>(
+      `/api/band-rpg/admin/song-aliases?bandId=${encodeURIComponent(bandId)}`,
+    ),
+
+  createSongAlias: (bandId: string, setlistFmTitle: string, songId: string | null, note?: string) =>
+    api.post<{ ok: boolean; alias: SongAlias; reanalysis: { updatedSongs: number } }>(
+      '/api/band-rpg/admin/song-aliases',
+      { bandId, setlistFmTitle, ...(songId ? { songId } : {}), ...(note ? { note } : {}) },
+    ),
+
+  deleteSongAlias: (id: string) =>
+    api.delete<{ ok: boolean; reanalysis: { updatedSongs: number } }>(
+      `/api/band-rpg/admin/song-aliases/${encodeURIComponent(id)}`,
     ),
 };

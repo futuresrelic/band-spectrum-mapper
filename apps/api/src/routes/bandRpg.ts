@@ -7,6 +7,9 @@ import {
   searchArtistOnSetlistFm,
   storeBandArtistMatch,
   fetchBandLiveData,
+  reanalyzeLiveData,
+  normTitle,
+  tokenSimilarity,
   computeConcertRealism,
   computeFestivalRealism,
   computeHistoricalHighlights,
@@ -3255,21 +3258,48 @@ bandRpgRouter.get('/admin/rarity-suggestions', requireAuth, requireAdmin, async 
       orderBy: { title: 'asc' },
     });
 
+    // Load unmatched Setlist.fm titles so we can flag suspicious zero-match songs.
+    // A BSM song with 0 plays is potentially just a matching failure, not truly Never Played.
+    const rawEntries = await prisma.bandRpgRawSetlistEntry.findMany({
+      where:  { bandId, isTape: false, matchedSongId: null },
+      select: { setlistFmTitle: true },
+    });
+    const unmatchedSetlistFmTitles = [...new Set(rawEntries.map((e) => normTitle(e.setlistFmTitle)))];
+    const hasRawData = unmatchedSetlistFmTitles.length > 0;
+
     const items = songs.map((s) => {
       const profile = s.bandRpgProfile;
-      const hasProfile = !!profile;
+      const hasProfile        = !!profile;
       const performancePct    = profile?.performancePct    ?? 0;
       const totalPerformances = profile?.totalPerformances ?? 0;
 
       let suggestedRarity: SongRarityValue | null = null;
-      let confidence: 'high' | 'medium' | 'low' | 'none' = 'none';
+      let confidence: 'high' | 'medium' | 'low' | 'none' | 'needs_review' = 'none';
+      let matchWarning: string | null = null;
 
       if (hasProfile) {
         suggestedRarity = pctToRarity(performancePct, thresholds);
-        if (totalPerformances >= 50)       confidence = 'high';
-        else if (totalPerformances >= 10)  confidence = 'medium';
-        else if (totalPerformances >= 1)   confidence = 'low';
-        else                               confidence = 'none';
+        if (totalPerformances >= 50)      confidence = 'high';
+        else if (totalPerformances >= 10) confidence = 'medium';
+        else if (totalPerformances >= 1)  confidence = 'low';
+        else {
+          // 0 plays — check if any unmatched Setlist.fm title looks similar
+          if (hasRawData) {
+            const normSong = normTitle(s.title);
+            const bestScore = unmatchedSetlistFmTitles.reduce(
+              (max, t) => Math.max(max, tokenSimilarity(normSong, t)),
+              0,
+            );
+            if (bestScore >= 0.5) {
+              confidence  = 'needs_review';
+              matchWarning = 'Possible match in unmatched Setlist.fm titles — verify in Data Audit';
+            } else {
+              confidence = 'none';
+            }
+          } else {
+            confidence = 'none';
+          }
+        }
       }
 
       return {
@@ -3282,6 +3312,7 @@ bandRpgRouter.get('/admin/rarity-suggestions', requireAuth, requireAdmin, async 
         performancePct,
         totalPerformances,
         confidence,
+        ...(matchWarning ? { matchWarning } : {}),
         changed:            suggestedRarity !== null && suggestedRarity !== s.rarity,
       };
     });
@@ -3389,5 +3420,234 @@ bandRpgRouter.post('/admin/sync-collection-rarity', requireAuth, requireAdmin, a
     }
 
     res.json({ ok: true, collectedUpdated, setlistUpdated, songsProcessed: songs.length });
+  } catch (e) { next(e); }
+});
+
+// ── GET /admin/live-data-audit?bandId= ───────────────────────────────────────
+// Returns matching audit stats: unmatched Setlist.fm titles, BSM songs with zero
+// matches, fuzzy suggestions, and current aliases. All computed from local DB.
+// Does NOT call Setlist.fm.
+
+const FUZZY_SUGGEST_THRESHOLD = 0.4; // min Jaccard similarity to surface as a suggestion
+
+bandRpgRouter.get('/admin/live-data-audit', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const bandId = typeof req.query['bandId'] === 'string' ? req.query['bandId'] : null;
+    if (!bandId) { res.status(400).json({ error: 'bandId query param required' }); return; }
+
+    // Load raw entries
+    const rawRows = await prisma.bandRpgRawSetlistEntry.findMany({
+      where:  { bandId, isTape: false },
+      select: { setlistFmTitle: true, matchedSongId: true },
+    });
+
+    if (rawRows.length === 0) {
+      res.json({
+        hasRawData: false,
+        totalRawEntries: 0,
+        totalUniqueSetlistFmTitles: 0,
+        matchedTitles: 0,
+        unmatchedTitles: 0,
+        bsmSongsWithZeroMatches: 0,
+        unmatchedSetlistFmTitles: [],
+        zeroMatchBsmSongs: [],
+        aliases: [],
+      });
+      return;
+    }
+
+    // Aggregate raw entries: title → { appearances, isMatched }
+    const titleStats = new Map<string, { appearances: number; isMatched: boolean }>();
+    for (const row of rawRows) {
+      const t = row.setlistFmTitle;
+      const existing = titleStats.get(t);
+      if (existing) {
+        existing.appearances++;
+        if (row.matchedSongId) existing.isMatched = true;
+      } else {
+        titleStats.set(t, { appearances: 1, isMatched: !!row.matchedSongId });
+      }
+    }
+
+    const matchedTitles   = [...titleStats.values()].filter((v) => v.isMatched).length;
+    const unmatchedTitles = [...titleStats.values()].filter((v) => !v.isMatched).length;
+
+    // Load BSM songs for this band
+    const dbSongs = await prisma.song.findMany({
+      where:  { bandId },
+      select: {
+        id:    true,
+        title: true,
+        bandRpgProfile: { select: { totalPerformances: true } },
+        album: { select: { title: true } },
+      },
+      orderBy: { title: 'asc' },
+    });
+
+    // Load aliases
+    const aliases = await prisma.bandRpgSongAlias.findMany({
+      where:   { bandId },
+      select:  { id: true, setlistFmTitle: true, songId: true, note: true,
+                 song: { select: { title: true } } },
+      orderBy: { setlistFmTitle: 'asc' },
+    });
+
+    // Build set of aliased Setlist.fm titles (normalized)
+    const aliasedNorms = new Set(aliases.map((a) => normTitle(a.setlistFmTitle)));
+
+    // Unmatched Setlist.fm titles (not matched AND not already aliased)
+    const unmatchedItems = [...titleStats.entries()]
+      .filter(([title, stats]) => !stats.isMatched && !aliasedNorms.has(normTitle(title)))
+      .sort((a, b) => b[1].appearances - a[1].appearances)  // most frequent first
+      .slice(0, 100)                                         // cap for UI
+      .map(([title, stats]) => {
+        // Fuzzy-match against BSM songs
+        const normT = normTitle(title);
+        const possibleMatches = dbSongs
+          .map((s) => ({ songId: s.id, songTitle: s.title, score: tokenSimilarity(normT, normTitle(s.title)) }))
+          .filter((m) => m.score >= FUZZY_SUGGEST_THRESHOLD)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 5);
+        return { title, appearances: stats.appearances, possibleMatches };
+      });
+
+    // BSM songs with zero matches — suspicious if title contains & / + / punctuation
+    const bsmZeroMatch = dbSongs
+      .filter((s) => (s.bandRpgProfile?.totalPerformances ?? 0) === 0)
+      .map((s) => {
+        const suspiciousReasons: string[] = [];
+        if (/[&+]/.test(s.title))          suspiciousReasons.push('Title contains & or +');
+        if (/[^\w\s]/.test(s.title))       suspiciousReasons.push('Title has punctuation');
+        if (/\band\b/i.test(s.title))      suspiciousReasons.push('Title has "and" (might be & in Setlist.fm)');
+
+        // Fuzzy check against unmatched Setlist.fm titles
+        const normSong = normTitle(s.title);
+        const possibleSetlistFmMatches = [...titleStats.entries()]
+          .filter(([, stats]) => !stats.isMatched)
+          .map(([title, stats]) => ({ title, appearances: stats.appearances, score: tokenSimilarity(normSong, normTitle(title)) }))
+          .filter((m) => m.score >= FUZZY_SUGGEST_THRESHOLD)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 5);
+
+        if (possibleSetlistFmMatches.length > 0) {
+          suspiciousReasons.push(`Fuzzy match found in unmatched titles (score ${possibleSetlistFmMatches[0]!.score.toFixed(2)})`);
+        }
+
+        return {
+          songId:                  s.id,
+          songTitle:               s.title,
+          albumTitle:              s.album?.title ?? null,
+          suspiciousReasons,
+          possibleSetlistFmMatches,
+          isSuspicious:            suspiciousReasons.length > 0,
+        };
+      })
+      .sort((a, b) => (b.isSuspicious ? 1 : 0) - (a.isSuspicious ? 1 : 0));
+
+    res.json({
+      hasRawData:                  true,
+      totalRawEntries:             rawRows.length,
+      totalUniqueSetlistFmTitles:  titleStats.size,
+      matchedTitles,
+      unmatchedTitles,
+      bsmSongsWithZeroMatches:     bsmZeroMatch.length,
+      unmatchedSetlistFmTitles:    unmatchedItems,
+      zeroMatchBsmSongs:           bsmZeroMatch,
+      aliases: aliases.map((a) => ({
+        id:             a.id,
+        setlistFmTitle: a.setlistFmTitle,
+        songId:         a.songId   ?? null,
+        songTitle:      a.song?.title ?? null,
+        note:           a.note     ?? null,
+      })),
+    });
+  } catch (e) { next(e); }
+});
+
+// ── POST /admin/reanalyze-live-data ──────────────────────────────────────────
+// Re-runs local analysis using already-stored raw setlist entries.
+// Applies current song aliases and title normalisation without calling Setlist.fm.
+
+bandRpgRouter.post('/admin/reanalyze-live-data', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const body   = req.body as Record<string, unknown>;
+    const bandId = typeof body['bandId'] === 'string' ? body['bandId'].trim() : null;
+    if (!bandId) { res.status(400).json({ error: 'bandId is required' }); return; }
+
+    const result = await reanalyzeLiveData(bandId);
+    res.json({ ok: true, ...result });
+  } catch (e) { next(e); }
+});
+
+// ── GET /admin/song-aliases?bandId= ──────────────────────────────────────────
+
+bandRpgRouter.get('/admin/song-aliases', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const bandId = typeof req.query['bandId'] === 'string' ? req.query['bandId'] : null;
+    if (!bandId) { res.status(400).json({ error: 'bandId query param required' }); return; }
+
+    const aliases = await prisma.bandRpgSongAlias.findMany({
+      where:   { bandId },
+      select:  { id: true, setlistFmTitle: true, songId: true, note: true, createdAt: true,
+                 song: { select: { title: true } } },
+      orderBy: { setlistFmTitle: 'asc' },
+    });
+
+    res.json(aliases.map((a) => ({
+      id:             a.id,
+      setlistFmTitle: a.setlistFmTitle,
+      songId:         a.songId       ?? null,
+      songTitle:      a.song?.title  ?? null,
+      note:           a.note         ?? null,
+      createdAt:      a.createdAt.toISOString(),
+    })));
+  } catch (e) { next(e); }
+});
+
+// ── POST /admin/song-aliases ──────────────────────────────────────────────────
+// Creates an alias mapping a Setlist.fm title to a BSM song (or null = ignore).
+// Immediately triggers local re-analysis so play counts update without re-fetching.
+
+bandRpgRouter.post('/admin/song-aliases', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const body           = req.body as Record<string, unknown>;
+    const bandId         = typeof body['bandId']         === 'string' ? body['bandId'].trim()         : null;
+    const setlistFmTitle = typeof body['setlistFmTitle'] === 'string' ? body['setlistFmTitle'].trim()  : null;
+    const songId         = typeof body['songId']         === 'string' ? body['songId'].trim()          : null;
+    const note           = typeof body['note']           === 'string' ? body['note'].trim()            : null;
+
+    if (!bandId)         { res.status(400).json({ error: 'bandId is required' }); return; }
+    if (!setlistFmTitle) { res.status(400).json({ error: 'setlistFmTitle is required' }); return; }
+    // songId is optional: null means "ignore this title"
+
+    const alias = await prisma.bandRpgSongAlias.upsert({
+      where:  { bandId_setlistFmTitle: { bandId, setlistFmTitle } },
+      create: { bandId, setlistFmTitle, ...(songId ? { songId } : {}), ...(note ? { note } : {}) },
+      update: { ...(songId ? { songId } : { songId: null }), ...(note !== null ? { note } : {}) },
+    });
+
+    // Trigger local re-analysis so the new alias takes effect immediately
+    const reanalysis = await reanalyzeLiveData(bandId);
+
+    res.json({ ok: true, alias: { id: alias.id, setlistFmTitle: alias.setlistFmTitle, songId: alias.songId ?? null }, reanalysis });
+  } catch (e) { next(e); }
+});
+
+// ── DELETE /admin/song-aliases/:id ───────────────────────────────────────────
+
+bandRpgRouter.delete('/admin/song-aliases/:id', requireAuth, requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const aliasId = req.params['id'];
+    if (!aliasId) { res.status(400).json({ error: 'id param required' }); return; }
+
+    const alias = await prisma.bandRpgSongAlias.findUnique({ where: { id: aliasId } });
+    if (!alias) { res.status(404).json({ error: 'Alias not found' }); return; }
+
+    await prisma.bandRpgSongAlias.delete({ where: { id: aliasId } });
+
+    // Re-analyze so the removed alias stops affecting play counts
+    const reanalysis = await reanalyzeLiveData(alias.bandId);
+
+    res.json({ ok: true, reanalysis });
   } catch (e) { next(e); }
 });

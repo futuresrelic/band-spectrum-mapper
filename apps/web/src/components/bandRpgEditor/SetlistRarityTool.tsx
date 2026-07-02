@@ -27,17 +27,19 @@ const RARITY_BADGE: Record<SongRarityValue, string> = {
 };
 
 const CONFIDENCE_LABEL: Record<string, string> = {
-  high:   'High',
-  medium: 'Medium',
-  low:    'Low',
-  none:   'No data',
+  high:         'High',
+  medium:       'Medium',
+  low:          'Low',
+  none:         'No data',
+  needs_review: '⚠ Needs review',
 };
 
 const CONFIDENCE_STYLE: Record<string, string> = {
-  high:   'text-emerald-600 font-medium',
-  medium: 'text-amber-600',
-  low:    'text-orange-500',
-  none:   'text-surface-400',
+  high:         'text-emerald-600 font-medium',
+  medium:       'text-amber-600',
+  low:          'text-orange-500',
+  none:         'text-surface-400',
+  needs_review: 'text-red-600 font-medium',
 };
 
 const DEFAULT_THRESHOLDS: RarityThresholds = { common: 30, uncommon: 10, rare: 3, legendary: 0.5 };
@@ -467,7 +469,9 @@ export default function SetlistRarityTool() {
                           {s.hasProfile ? `${typeof s.performancePct === 'number' ? s.performancePct.toFixed(1) : '—'}%` : '—'}
                         </td>
                         <td className={`px-3 py-2 ${CONFIDENCE_STYLE[s.confidence] ?? 'text-surface-400'}`}>
-                          {CONFIDENCE_LABEL[s.confidence] ?? '—'}
+                          <span title={'matchWarning' in s && s.matchWarning ? String(s.matchWarning) : undefined}>
+                            {CONFIDENCE_LABEL[s.confidence] ?? '—'}
+                          </span>
                         </td>
                         <td className="px-3 py-2">
                           <select

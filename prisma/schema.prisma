@@ -33,7 +33,9 @@ model Band {
   contentSeries   ContentSeries[]
   members         BandMember[]
   characterSkins  PlatformerCharacterSkin[]
-  liveDataCache   BandLiveDataCache?
+  liveDataCache      BandLiveDataCache?
+  rawSetlistEntries  BandRpgRawSetlistEntry[]
+  bandRpgSongAliases BandRpgSongAlias[]
 
   @@map("bands")
 }
@@ -136,6 +138,7 @@ model Song {
   socialPosts        SocialPost[]
   tagProposals       TagProposal[]
   bandRpgProfile     BandRpgSongProfile?
+  bandRpgAliases     BandRpgSongAlias[]
 
   @@unique([bandId, slug])
   @@map("songs")
@@ -2067,6 +2070,41 @@ model BandLiveDataCache {
   band Band @relation(fields: [bandId], references: [id], onDelete: Cascade)
 
   @@map("band_live_data_caches")
+}
+
+// Raw song appearances from Setlist.fm — stored during fetch for local re-analysis.
+// Allows admins to fix song matching without making new API calls.
+model BandRpgRawSetlistEntry {
+  id             String   @id @default(cuid())
+  bandId         String
+  setlistFmId    String   // Setlist.fm setlist ID (e.g. "abc123")
+  eventDate      String   // "DD-MM-YYYY" as returned by Setlist.fm
+  setlistFmTitle String   // raw song title exactly as Setlist.fm returned it
+  isTape         Boolean  @default(false)
+  matchedSongId  String?  // null = unmatched at fetch time
+
+  band Band @relation(fields: [bandId], references: [id], onDelete: Cascade)
+
+  @@index([bandId])
+  @@index([bandId, setlistFmTitle])
+  @@map("band_rpg_raw_setlist_entries")
+}
+
+// Admin-defined aliases mapping Setlist.fm titles to canonical BSM songs.
+// When added, trigger a local re-analysis to update play counts without re-calling the API.
+model BandRpgSongAlias {
+  id             String   @id @default(cuid())
+  bandId         String
+  setlistFmTitle String   // raw title as it appears in Setlist.fm
+  songId         String?  // null = explicitly ignore this title
+  note           String?  // optional admin annotation
+  createdAt      DateTime @default(now())
+
+  band Band  @relation(fields: [bandId], references: [id], onDelete: Cascade)
+  song Song? @relation(fields: [songId], references: [id], onDelete: SetNull)
+
+  @@unique([bandId, setlistFmTitle])
+  @@map("band_rpg_song_aliases")
 }
 
 // ---------------------------------------------------------------------------
