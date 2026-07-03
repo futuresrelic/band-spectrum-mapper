@@ -311,6 +311,11 @@ wikiRouter.get('/songs/:songId/player-context', requireAuth, async (req, res, ne
       where: { userId_songId: { userId, songId } },
     });
 
+    // How many of the user's setlists feature this song
+    const setlistCount = await prisma.bandRpgSetlistSong.count({
+      where: { songId, setlist: { userId } },
+    });
+
     // All songs in the band (for progress computation)
     const bandSongs = await prisma.song.findMany({
       where: { bandId: song.bandId },
@@ -351,6 +356,7 @@ wikiRouter.get('/songs/:songId/player-context', requireAuth, async (req, res, ne
       frozenRarity: collected?.rarity ?? null,
       guessedCorrectly: collected?.guessedCorrectly ?? null,
       scoreEarned: collected?.scoreEarned ?? null,
+      setlistCount,
       bandProgress: { owned: userCollectedIds.size, total: bandSongs.length },
       albumProgress,
       rarityProgress,

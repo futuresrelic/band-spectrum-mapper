@@ -4,6 +4,81 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.16 — The Living Song Card (2026-07-03)
+
+### Overview
+
+The Song Card is redesigned as a museum exhibit: artifact first, placard second,
+provenance third, then the song's public life and your own relationship with it.
+Every sentence on the page is constructed from verified data — sentences with
+missing data are silently omitted, never invented. Mobile is the primary design
+target; desktop inherits the same column and adds a wayfinding rail.
+
+### New experience (all in `apps/web/src/pages/wiki/WikiSongPage.tsx`)
+
+- **Hero** — larger artwork (centered above the title on mobile, like an object
+  on a plinth), bigger title, richer artwork-color wash behind, provenance line
+  with track number / year / duration, and a "Not yet recovered" stamp instead
+  of empty space for undiscovered songs.
+- **The Story** — a short curated narrative set in serif type, assembled
+  sentence-by-sentence from facts: catalog position, live-rotation behaviour,
+  touring span, dormancy, and player recoveries. Deterministic, not AI.
+- **Provenance timeline** — Album release → First performed live → Most recent
+  performance → Recovered by you. Only real dates appear; fewer than two nodes
+  shows a quiet placeholder instead.
+- **Life on Stage** — concert-history stats plus two honest visualizations:
+  show-coverage bar (tier-colored) and a touring-span strip built from
+  first/latest years and distinct touring years.
+- **Your Journey** — recovery date, XP, identified-on-first-listen, and setlist
+  usage written as a sentence with supporting stats; undiscovered songs get an
+  explanation of how recovery works instead of an empty panel.
+- **Your Collection** — raw fractions replaced with sentences ("You have
+  recovered 17 of TOOL's 73 known songs") backed by smoothly filling bars and
+  the Live Frequency tier grid.
+- **What Next** — up to three computed goal cards (recover this song, complete
+  the album, hunt the rarest tier, finish the band; a completion card when
+  nothing remains). Signed-out visitors get an invitation instead.
+- **Related Songs** — same album + same tier as before, plus a reserved
+  "Often played together" slot for concert-graph analysis.
+- **Micro-interactions** — sections rise in reading order with a small stagger,
+  progress bars fill after mount, artwork fades in on load. All motion respects
+  `prefers-reduced-motion`.
+
+### Supporting changes
+
+- `apps/web/src/components/wiki/KnowledgeConfidenceBadge.tsx` — badges are now
+  tappable: a small popover explains what Verified / Calculated / Community /
+  AI / Estimated actually mean (title tooltips don't exist on touch screens).
+- `apps/web/src/components/wiki/WikiModulePlaceholder.tsx` — empty states
+  redesigned to look reserved rather than missing (icon well, corner glow,
+  "In preparation" tag).
+- `apps/api/src/routes/wiki.ts` — player-context now returns `setlistCount`
+  (one indexed count query) so the Journey panel can say how many of your
+  setlists feature the song.
+- `apps/web/src/api/wiki.ts` — types for `trackNumber` (already returned by the
+  API) and `setlistCount`.
+
+### Extension points for Phase Z.17
+
+- `FUTURE_MODULES` registry in `WikiSongPage.tsx` — eight reserved slots
+  (Song Spectrum, Rhythm Lab, Lyrics DNA, Trivia, Community, Media, Full
+  Timeline, Song Node). Z.17 replaces registry entries with live components;
+  the section renderer does not change.
+- The "Often played together" slot in Related Songs awaits concert
+  co-occurrence data.
+- `KnowledgeConfidenceBadge` popovers can later link to a methodology page.
+
+### Honest limitations
+
+- No per-year performance histogram exists yet, so the timeline uses only
+  first/latest dates and distinct-years density — nothing is fabricated.
+- "Times encountered" (game encounters vs. recoveries) is not tracked in the
+  schema and is therefore not shown.
+- Achievements are not yet surfaced on the Song Card (no per-song achievement
+  linkage exists).
+
+---
+
 ## Phase Z.15d — Live Frequency Unification + Unlock Animation Fix (2026-07-03)
 
 ### Overview

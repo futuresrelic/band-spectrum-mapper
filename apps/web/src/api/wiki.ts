@@ -179,6 +179,7 @@ export type WikiSongPageData = {
     rarity: string;
     isInstrumental: boolean;
     isRemix: boolean;
+    trackNumber: number | null;
     durationSeconds: number | null;
     notes: string | null;
     bandId: string;
@@ -210,6 +211,7 @@ export type WikiSongPlayerContext = {
   frozenRarity: string | null;
   guessedCorrectly: boolean | null;
   scoreEarned: number | null;
+  setlistCount: number;
   bandProgress: { owned: number; total: number };
   albumProgress: { owned: number; total: number } | null;
   rarityProgress: Record<string, { owned: number; total: number }>;
