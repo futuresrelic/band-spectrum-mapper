@@ -4,6 +4,70 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.15d — Live Frequency Unification + Unlock Animation Fix (2026-07-03)
+
+### Overview
+
+Eliminates the confusing dual-concept system ("Game Rarity" + "Live Frequency")
+and replaces it with **one canonical player-facing concept: Live Frequency**.
+
+New tier names: **Essential / Frequent / Occasional / Rare / Legendary / Mythic**
+
+The canonical source is real Setlist.fm data (`BandRpgSongProfile.liveStatus`).
+When live data isn't yet available, `Song.rarity` provides an estimated fallback.
+The estimation is clearly labelled "est." so players always know the data quality.
+
+Also fixes the Song Card unlock animation not playing when players clicked
+"View Song Card" before the collection save API call resolved.
+
+### New files
+
+- `apps/web/src/lib/liveFrequency.ts` — Shared derivation utility:
+  - `LiveFrequencyTier` type union
+  - `tierFromLiveStatus()` — maps old `liveStatus` strings to new tier names
+  - `tierFromRarity()` — `Song.rarity` fallback mapping
+  - `deriveLiveFrequency(liveStatus, fallbackRarity)` — canonical function returning `{ tier, source }`
+  - `LIVE_FREQUENCY_COLOR`, `LIVE_FREQUENCY_BG`, `LIVE_FREQUENCY_EMOJI` — design tokens
+  - `LIVE_FREQUENCY_SCORE_BONUS` — rarity bonus for Band RPG (keyed on new tiers)
+
+### Changed files
+
+**Backend**
+- `apps/api/src/routes/bandRpg.ts`: `start-session` now fetches `BandRpgSongProfile.liveStatus`
+  and returns it as `songLiveStatus` so the frontend can derive the correct display tier
+
+**Frontend API types**
+- `apps/web/src/api/bandRpg.ts`: `BandRpgSession` adds `songLiveStatus: string | null`
+
+**Band RPG game**
+- `apps/web/src/components/band-rpg/BandRpgGame.tsx`:
+  - `RARITY_SCORE_BONUS` / `RARITY_LABEL` / `RARITY_COLOR` constants replaced with
+    `LIVE_FREQUENCY_SCORE_BONUS`, `LIVE_FREQUENCY_EMOJI`, `LIVE_FREQUENCY_COLOR`
+  - `finishQuest()` uses `deriveLiveFrequency()` for score bonus calculation
+  - `CompleteScreen` shows unified tier label with emoji and `(est.)` when derived from catalog
+  - **Unlock animation race fix**: View Song Card button now shows "Saving…" while
+    `collectSong` is pending; the `?unlocked=1` link only appears once `isNewCollection`
+    resolves — guaranteeing the Song Card animation plays for every first discovery
+
+**Wiki**
+- `apps/web/src/pages/wiki/WikiSongPage.tsx`: Song Card now shows one "Live Frequency"
+  section instead of separate "Game Rarity" + "Live Frequency" rows; the rarity explainer
+  section renamed to "Live Frequency"; collection progress uses derived tier labels
+- `apps/web/src/pages/wiki/WikiAlbumPage.tsx`: tracklist column simplified to single
+  "Live Freq." column showing the derived tier
+- `apps/web/src/pages/wiki/WikiBandPage.tsx`: top-played and rarest-performed lists use
+  new tier labels via the shared utility
+
+**Collection**
+- `apps/web/src/pages/BandRpgCollectionPage.tsx`:
+  - Archive song badges replaced with unified `LiveFrequencyBadge` (live status + fallback)
+  - The separate `LiveStatusBadge` removed
+  - Filter dropdown updated: options are now Essential / Frequent / Occasional / Rare /
+    Legendary / Mythic; filtering uses derived tier (not raw `Song.rarity`)
+  - Sort by rarity now sorts on derived tier order
+
+---
+
 ## Phase Z.15 — Music Wiki Foundation (2026-07-02)
 
 ### Overview
