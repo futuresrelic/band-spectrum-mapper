@@ -8,6 +8,7 @@ import WikiLayout, {
 } from '../../components/wiki/WikiLayout';
 import KnowledgeConfidenceBadge from '../../components/wiki/KnowledgeConfidenceBadge';
 import WikiModulePlaceholder from '../../components/wiki/WikiModulePlaceholder';
+import { tierFromLiveStatus, LIVE_FREQUENCY_COLOR } from '../../lib/liveFrequency';
 
 export default function WikiBandPage() {
   const { slug = '' } = useParams<{ slug: string }>();
@@ -193,7 +194,7 @@ export default function WikiBandPage() {
                       <span className="text-[10px] tabular-nums text-gray-600 w-4 shrink-0">{i + 1}</span>
                       <span className="text-sm text-gray-300 group-hover:text-white transition-colors flex-1 truncate">{tp.song.title}</span>
                       <span className="text-xs tabular-nums text-gray-500">{tp.totalPerformances}×</span>
-                      <span className={`text-[10px] font-medium uppercase tracking-widest ${liveStatusColor(tp.liveStatus)}`}>{tp.liveStatus}</span>
+                      <span className={`text-[10px] font-medium uppercase tracking-widest ${liveStatusColor(tp.liveStatus)}`}>{liveStatusLabel(tp.liveStatus)}</span>
                     </Link>
                   ))}
                 </div>
@@ -211,7 +212,7 @@ export default function WikiBandPage() {
                       className="flex items-center gap-2 px-3 py-2 rounded bg-gray-900 hover:bg-gray-800 border border-gray-800 transition-colors group"
                     >
                       <span className="text-sm text-gray-300 group-hover:text-white flex-1 truncate">{rp.song.title}</span>
-                      <span className={`text-[10px] font-medium ${liveStatusColor(rp.liveStatus)}`}>{rp.liveStatus}</span>
+                      <span className={`text-[10px] font-medium ${liveStatusColor(rp.liveStatus)}`}>{liveStatusLabel(rp.liveStatus)}</span>
                     </Link>
                   ))}
                 </div>
@@ -241,15 +242,11 @@ export default function WikiBandPage() {
 }
 
 function liveStatusColor(status: string): string {
-  switch (status) {
-    case 'Staple':         return 'text-emerald-400';
-    case 'Common':         return 'text-sky-400';
-    case 'Occasional':     return 'text-blue-400';
-    case 'Rare':           return 'text-violet-400';
-    case 'Extremely Rare': return 'text-pink-400';
-    case 'Never Played':   return 'text-gray-600';
-    default:               return 'text-gray-500';
-  }
+  return LIVE_FREQUENCY_COLOR[tierFromLiveStatus(status)] ?? 'text-gray-500';
+}
+
+function liveStatusLabel(status: string): string {
+  return tierFromLiveStatus(status);
 }
 
 function LoadingShell() {

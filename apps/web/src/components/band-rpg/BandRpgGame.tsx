@@ -2,32 +2,12 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { bandRpgApi } from '../../api/bandRpg';
 import type { BandRpgSelectedBand, BandRpgSelectedCharacter, BandRpgSession, BandRpgSong } from '../../api/bandRpg';
-
-// ── Rarity system ────────────────────────────────────────────────────────────
-
-const RARITY_SCORE_BONUS: Record<string, number> = {
-  Common:    0,
-  Uncommon:  25,
-  Rare:      75,
-  Legendary: 200,
-  Mythic:    500,
-};
-
-const RARITY_LABEL: Record<string, string> = {
-  Common:    '⚪ Common',
-  Uncommon:  '🟢 Uncommon',
-  Rare:      '🔵 Rare',
-  Legendary: '🟣 Legendary',
-  Mythic:    '🟠 Mythic',
-};
-
-const RARITY_COLOR: Record<string, string> = {
-  Common:    'text-gray-400',
-  Uncommon:  'text-emerald-400',
-  Rare:      'text-blue-400',
-  Legendary: 'text-purple-400',
-  Mythic:    'text-orange-400',
-};
+import {
+  deriveLiveFrequency,
+  LIVE_FREQUENCY_COLOR,
+  LIVE_FREQUENCY_EMOJI,
+  LIVE_FREQUENCY_SCORE_BONUS,
+} from '../../lib/liveFrequency';
 
 // ── World constants ──────────────────────────────────────────────────────────
 
@@ -1141,18 +1121,21 @@ function PauseMenu({ onResume, onQuit }: { onResume: () => void; onQuit: () => v
 }
 
 function CompleteScreen({
-  score, rank, bandName, characterName, songTitle, songRarity, songId,
+  score, rank, bandName, characterName, songTitle, songRarity, songLiveStatus, songId,
   guessedCorrectly, guessBonus, rarityBonus, isNewCollection, albumRestored,
   onPlayAgain, onChangeBand, onLeaderboard, onViewCollection,
 }: {
   score: number; rank: number | null; bandName: string; characterName: string;
-  songTitle: string | null; songRarity: string | null; songId: string | null;
+  songTitle: string | null; songRarity: string | null; songLiveStatus: string | null; songId: string | null;
   guessedCorrectly: boolean; guessBonus: number; rarityBonus: number;
   isNewCollection: boolean | null; albumRestored: { albumTitle: string } | null;
   onPlayAgain: () => void; onChangeBand: () => void; onLeaderboard: () => void; onViewCollection: () => void;
 }) {
-  const rarityColor = songRarity ? (RARITY_COLOR[songRarity] ?? 'text-gray-400') : 'text-gray-400';
-  const rarityLabel = songRarity ? (RARITY_LABEL[songRarity] ?? songRarity) : null;
+  const { tier, source } = deriveLiveFrequency(songLiveStatus, songRarity);
+  const rarityColor = LIVE_FREQUENCY_COLOR[tier];
+  const rarityLabel = songRarity
+    ? `${LIVE_FREQUENCY_EMOJI[tier]} ${tier}${source === 'estimated' ? ' (est.)' : ''}`
+    : null;
 
   return (
     <div className="absolute inset-0 bg-black/80 flex items-center justify-center pointer-events-auto z-20">
@@ -1195,18 +1178,26 @@ function CompleteScreen({
         )}
         <div className="flex flex-col gap-3">
           <button onClick={onPlayAgain}      className="bg-emerald-700 hover:bg-emerald-600 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors">Play Again</button>
-          {songId && (
+          {songId && isNewCollection !== null && (
             <div>
               <a
-                href={`/wiki/songs/${songId}${isNewCollection === true ? '?unlocked=1' : ''}`}
+                href={`/wiki/songs/${songId}${isNewCollection ? '?unlocked=1' : ''}`}
                 className="block w-full text-center bg-indigo-700/60 hover:bg-indigo-600/80 text-indigo-200 font-semibold px-6 py-2.5 rounded-lg transition-colors"
               >
-                {isNewCollection === true ? '✦ View Song Card' : 'View Song Card'}
+                {isNewCollection ? '✦ View Song Card' : 'View Song Card'}
               </a>
               <p className="text-[10px] text-gray-600 mt-1.5 text-center leading-relaxed px-2">
-                Song Cards collect live history, rarity, lyrics, spectrum, and discovery stats in one place.
+                Song Cards collect live history, live frequency, lyrics, spectrum, and discovery stats.
               </p>
             </div>
+          )}
+          {songId && isNewCollection === null && (
+            <button
+              disabled
+              className="block w-full text-center bg-indigo-950/40 text-indigo-600 font-semibold px-6 py-2.5 rounded-lg cursor-wait opacity-60"
+            >
+              Saving…
+            </button>
           )}
           <button onClick={onViewCollection} className="bg-amber-700/60 hover:bg-amber-700 text-amber-200 font-semibold px-6 py-2.5 rounded-lg transition-colors">View Collection</button>
           <button onClick={onChangeBand}     className="bg-violet-700/60 hover:bg-violet-700 text-violet-200 font-semibold px-6 py-2.5 rounded-lg transition-colors">Change Band</button>
@@ -1657,9 +1648,10 @@ export default function BandRpgGame({
 
   const finishQuest = useCallback(() => {
     scoreRef.current += 100;
-    // Apply rarity bonus on top of quest completion
-    const rarity = sessionRef.current.songRarity ?? 'Common';
-    const rarityBonus = RARITY_SCORE_BONUS[rarity] ?? 0;
+    // Apply live frequency bonus on top of quest completion
+    const sess0 = sessionRef.current;
+    const { tier } = deriveLiveFrequency(sess0.songLiveStatus, sess0.songRarity);
+    const rarityBonus = LIVE_FREQUENCY_SCORE_BONUS[tier] ?? 0;
     if (rarityBonus > 0) {
       scoreRef.current += rarityBonus;
       rarityBonusRef.current = rarityBonus;
@@ -2315,6 +2307,7 @@ export default function BandRpgGame({
             characterName={selectedCharacter.name}
             songTitle={revealedTitle}
             songRarity={sessionRef.current.songRarity}
+            songLiveStatus={sessionRef.current.songLiveStatus}
             songId={sessionRef.current.songId}
             guessedCorrectly={guessedCorrectlyRef.current}
             guessBonus={guessBonusRef.current}

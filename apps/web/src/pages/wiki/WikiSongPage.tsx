@@ -12,37 +12,19 @@ import SiteHeader from '../../components/layout/SiteHeader';
 import KnowledgeConfidenceBadge from '../../components/wiki/KnowledgeConfidenceBadge';
 import WikiModulePlaceholder from '../../components/wiki/WikiModulePlaceholder';
 import { WikiBreadcrumb, SpectrumBar } from '../../components/wiki/WikiLayout';
+import {
+  deriveLiveFrequency,
+  LIVE_FREQUENCY_COLOR,
+  LIVE_FREQUENCY_BG,
+  LIVE_FREQUENCY_EMOJI,
+  type LiveFrequencyTier,
+} from '../../lib/liveFrequency';
 
-// ── Design tokens ─────────────────────────────────────────────────────────────
-
-const RARITY_ORDER = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'] as const;
-
-const RARITY = {
-  Mythic:    { text: 'text-pink-300',   bg: 'bg-pink-950/60',    border: 'border-pink-800/60',  glow: '0 0 40px rgba(244,114,182,0.15)' },
-  Legendary: { text: 'text-amber-300',  bg: 'bg-amber-950/60',   border: 'border-amber-800/60', glow: '0 0 40px rgba(251,191,36,0.15)'  },
-  Rare:      { text: 'text-violet-300', bg: 'bg-violet-950/60',  border: 'border-violet-800/60',glow: '0 0 40px rgba(167,139,250,0.12)' },
-  Uncommon:  { text: 'text-sky-300',    bg: 'bg-sky-950/60',     border: 'border-sky-800/60',   glow: ''                                },
-  Common:    { text: 'text-slate-300',  bg: 'bg-slate-900/60',   border: 'border-slate-700/60', glow: ''                                },
-} as const;
-type Rarity = keyof typeof RARITY;
-
-const LIVE_STATUS = {
-  Staple:          { text: 'text-emerald-400', label: 'Staple'          },
-  Common:          { text: 'text-sky-400',     label: 'Common Live'     },
-  Occasional:      { text: 'text-blue-400',    label: 'Occasional'      },
-  Rare:            { text: 'text-violet-400',  label: 'Rare Live'       },
-  'Extremely Rare':{ text: 'text-pink-400',    label: 'Extremely Rare'  },
-  'Never Played':  { text: 'text-gray-500',    label: 'Never Played'    },
-  Unknown:         { text: 'text-gray-600',    label: 'Unknown'         },
-} as const;
-
-function rr(rarity: string) {
-  return RARITY[rarity as Rarity] ?? RARITY.Common;
-}
-
-function ls(status: string) {
-  return (LIVE_STATUS as Record<string, typeof LIVE_STATUS[keyof typeof LIVE_STATUS]>)[status]
-    ?? { text: 'text-gray-500', label: status };
+// Helper: get the BG/border/glow style for a tier (returns object with text too)
+function tierStyle(tier: LiveFrequencyTier) {
+  const bg = LIVE_FREQUENCY_BG[tier];
+  const text = LIVE_FREQUENCY_COLOR[tier].replace('-400', '-300');
+  return { text, bg: bg.bg, border: bg.border, glow: bg.glow };
 }
 
 function fmtDuration(secs: number | null): string {
@@ -60,67 +42,70 @@ function fmtYear(d: string | null | undefined): string {
   return String(new Date(d).getFullYear());
 }
 
-// ── Rarity story ──────────────────────────────────────────────────────────────
+// ── Live Frequency story ───────────────────────────────────────────────────────
 
-function generateRarityStory(
+function generateFrequencyStory(
   data: WikiSongPageData,
 ): { headline: string; detail: string; confidence: 'calculated' | 'estimated' } {
   const { song, liveCache } = data;
   const lp = song.bandRpgProfile;
-  const g = song.rarity as Rarity;
   const shows = liveCache?.fetchedShows ?? 0;
+  const { tier } = deriveLiveFrequency(lp?.liveStatus, song.rarity);
 
   if (!lp || shows === 0) {
-    const lines: Record<Rarity, string> = {
-      Mythic:    'An ultra-rare collectible — one of the hardest cards to find in this collection.',
-      Legendary: 'A legendary find. Very few players have this in their archive.',
-      Rare:      'A rare discovery. Most players haven\'t found this one yet.',
-      Uncommon:  'Less common than the average song. Worth holding onto.',
-      Common:    'One of the more accessible songs in the collection.',
+    const lines: Partial<Record<LiveFrequencyTier, string>> = {
+      Mythic:        'An ultra-rare collectible — one of the hardest cards to find in this collection.',
+      Legendary:     'A legendary find. Very few players have this in their archive.',
+      Rare:          'A rare discovery. Most players haven\'t found this one yet.',
+      Occasional:    'Less common than the average song. Worth holding onto.',
+      Frequent:      'One of the more accessible songs in the collection.',
+      Essential:     'A cornerstone of the catalog — frequently encountered.',
+      Unclassified:  'Rarity data not yet available for this song.',
     };
-    return { headline: lines[g], detail: 'Live performance data not yet available.', confidence: 'estimated' };
+    return {
+      headline: lines[tier] ?? 'Rarity data not available.',
+      detail: 'Live performance data not yet available for this band.',
+      confidence: 'estimated',
+    };
   }
 
   const pct = lp.performancePct;
   const plays = lp.totalPerformances;
-  const status = lp.liveStatus;
 
   if (plays === 0) {
     return {
       headline: `No confirmed live performances found in ${shows.toLocaleString()} tracked concerts.`,
-      detail: g === 'Mythic' || g === 'Legendary'
-        ? 'Studio-only as far as Setlist.fm records show. Combined with its game rarity, this is an exceptionally elusive card.'
-        : 'This song may have been performed under a different title, or records may be incomplete.',
+      detail: 'This song may have been performed under a different title, or records may be incomplete.',
       confidence: 'calculated',
     };
   }
 
   const playLine = `Performed ${plays.toLocaleString()} time${plays !== 1 ? 's' : ''} across ${shows.toLocaleString()} tracked concerts (${pct.toFixed(1)}% show rate).`;
 
-  if (status === 'Staple') {
+  if (tier === 'Essential') {
     return {
       headline: `A guaranteed crowd moment — played at ${pct.toFixed(0)}% of concerts.`,
       detail: `${playLine} Easy to collect; almost impossible to miss live.`,
       confidence: 'calculated',
     };
   }
-  if (status === 'Common') {
+  if (tier === 'Frequent') {
     return {
       headline: `A regular in the rotation at ${pct.toFixed(0)}% of concerts.`,
       detail: playLine,
       confidence: 'calculated',
     };
   }
-  if (status === 'Occasional') {
+  if (tier === 'Occasional') {
     return {
       headline: `Heard occasionally — shows up in ${pct.toFixed(1)}% of setlists.`,
       detail: playLine,
       confidence: 'calculated',
     };
   }
-  if (status === 'Rare' || status === 'Extremely Rare') {
+  if (tier === 'Rare' || tier === 'Legendary') {
     return {
-      headline: `${playLine}`,
+      headline: playLine,
       detail: `A genuinely rare live event — fans who've seen this performed are in an exclusive group.`,
       confidence: 'calculated',
     };
@@ -169,15 +154,16 @@ export default function WikiSongPage() {
 
   const { song, collectedCount, albumSiblings, bandRarityCounts, relatedByRarity, liveCache } = data;
   const lp = song.bandRpgProfile;
-  const rStyle = rr(song.rarity);
-  const rarityStory = generateRarityStory(data);
+  const { tier, source: tierSource } = deriveLiveFrequency(lp?.liveStatus, song.rarity);
+  const tStyle = tierStyle(tier);
+  const frequencyStory = generateFrequencyStory(data);
   const totalShows = liveCache?.fetchedShows ?? 0;
   const primaryLyric = song.lyrics[0] ?? null;
   const axes = ['aggression', 'complexity', 'atmosphere', 'emotion', 'psychedelic', 'concept'] as const;
 
   const navItems = [
     { id: 'hero',       label: 'Overview'   },
-    { id: 'rarity',     label: 'Rarity'     },
+    { id: 'frequency',  label: 'Frequency'  },
     { id: 'live',       label: 'Live'       },
     ...(user ? [{ id: 'discovery', label: 'Discovery' }, { id: 'collection', label: 'Collection' }] : []),
     { id: 'related',    label: 'Related'    },
@@ -228,14 +214,9 @@ export default function WikiSongPage() {
 
               {/* Mini quick stats */}
               <div className="space-y-2">
-                <MiniStat label="Game Rarity" value={
-                  <span className={rStyle.text}>{song.rarity}</span>
+                <MiniStat label="Live Frequency" value={
+                  <span className={tStyle.text}>{tier}</span>
                 } />
-                {lp && lp.liveStatus !== 'Unknown' && (
-                  <MiniStat label="Live Freq." value={
-                    <span className={ls(lp.liveStatus).text}>{ls(lp.liveStatus).label}</span>
-                  } />
-                )}
                 {lp && lp.totalPerformances > 0 && (
                   <MiniStat label="Performances" value={lp.totalPerformances.toLocaleString()} />
                 )}
@@ -249,14 +230,14 @@ export default function WikiSongPage() {
             {/* Main content */}
             <main className="flex-1 min-w-0 space-y-10">
 
-              {/* ── Rarity explainer ── */}
-              <Section id="rarity" title="Why is this rare?">
-                <RarityExplainer song={song} story={rarityStory} totalShows={totalShows} />
+              {/* ── Live Frequency explainer ── */}
+              <Section id="frequency" title="Live Frequency">
+                <FrequencyExplainer song={song} story={frequencyStory} tier={tier} tierSource={tierSource} tStyle={tStyle} totalShows={totalShows} />
               </Section>
 
               {/* ── Quick stats grid ── */}
               <Section id="hero" title="At a Glance">
-                <QuickStatsGrid song={song} collectedCount={collectedCount} liveCache={liveCache} />
+                <QuickStatsGrid song={song} collectedCount={collectedCount} liveCache={liveCache} tier={tier} tierSource={tierSource} />
               </Section>
 
               {/* ── Live history ── */}
@@ -293,7 +274,7 @@ export default function WikiSongPage() {
                 <RelatedSongs
                   albumSiblings={albumSiblings}
                   relatedByRarity={relatedByRarity}
-                  currentRarity={song.rarity}
+                  currentTier={tier}
                   bandSlug={song.band.slug}
                   albumSlug={song.album?.slug}
                 />
@@ -374,8 +355,9 @@ function HeroSection({
   revealed: boolean;
   playerCtx: WikiSongPlayerContext | undefined;
 }) {
-  const rStyle = rr(song.rarity);
   const lp = song.bandRpgProfile;
+  const { tier, source } = deriveLiveFrequency(lp?.liveStatus, song.rarity);
+  const tStyle = tierStyle(tier);
   const artworkUrl = song.album?.artworkUrl;
 
   return (
@@ -442,25 +424,19 @@ function HeroSection({
 
             {/* Badge row */}
             <div className="flex flex-wrap items-center gap-2">
-              {/* Game rarity */}
+              {/* Live Frequency — unified single badge */}
               <span
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest border ${rStyle.bg} ${rStyle.border} ${rStyle.text}`}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest border ${tStyle.bg} ${tStyle.border} ${tStyle.text}`}
                 style={{
-                  boxShadow: rStyle.glow,
+                  boxShadow: tStyle.glow,
                   transition: 'transform 0.4s cubic-bezier(0.34,1.56,0.64,1)',
                   transform: fromGame && revealed ? 'scale(1)' : fromGame ? 'scale(1.12)' : 'scale(1)',
                 }}
               >
-                <RarityDiamond rarity={song.rarity} />
-                {song.rarity}
+                <FrequencyDiamond tier={tier} />
+                {tier}
+                {source === 'estimated' && <span className="opacity-50 text-[9px] normal-case tracking-normal">est.</span>}
               </span>
-
-              {/* Live status */}
-              {lp && lp.liveStatus !== 'Unknown' && (
-                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-800 bg-gray-900/60 ${ls(lp.liveStatus).text}`}>
-                  ◎ {ls(lp.liveStatus).label}
-                </span>
-              )}
 
               {/* Discovery stamp */}
               {playerCtx?.collected && (
@@ -505,29 +481,35 @@ function HeroSection({
   );
 }
 
-// ── Rarity explainer ──────────────────────────────────────────────────────────
+// ── Live Frequency explainer ──────────────────────────────────────────────────
 
-function RarityExplainer({
+function FrequencyExplainer({
   song,
   story,
+  tier,
+  tierSource,
+  tStyle,
   totalShows,
 }: {
   song: WikiSongPageData['song'];
-  story: ReturnType<typeof generateRarityStory>;
+  story: ReturnType<typeof generateFrequencyStory>;
+  tier: LiveFrequencyTier;
+  tierSource: 'live' | 'estimated';
+  tStyle: ReturnType<typeof tierStyle>;
   totalShows: number;
 }) {
-  const rStyle = rr(song.rarity);
   const lp = song.bandRpgProfile;
 
   return (
-    <div className={`rounded-xl border p-5 ${rStyle.bg} ${rStyle.border}`}>
+    <div className={`rounded-xl border p-5 ${tStyle.bg} ${tStyle.border}`}>
       <div className="flex items-start gap-4">
-        <div className={`text-3xl font-black leading-none mt-0.5 ${rStyle.text}`}>
-          {song.rarity[0]}
+        <div className={`text-3xl font-black leading-none mt-0.5 ${tStyle.text}`}>
+          {LIVE_FREQUENCY_EMOJI[tier]}
         </div>
         <div className="flex-1 min-w-0">
-          <div className={`text-[10px] uppercase tracking-widest font-bold mb-1 ${rStyle.text}`}>
-            {song.rarity} · {lp?.liveStatus ?? 'Live status unknown'}
+          <div className={`text-[10px] uppercase tracking-widest font-bold mb-1 ${tStyle.text}`}>
+            {tier}
+            {tierSource === 'estimated' && <span className="ml-1 opacity-60 normal-case tracking-normal font-normal">(estimated from catalog data)</span>}
           </div>
           <p className="text-sm text-gray-100 leading-relaxed font-medium">{story.headline}</p>
           {story.detail && (
@@ -544,7 +526,7 @@ function RarityExplainer({
             <span className="text-xs text-gray-500 w-24 shrink-0">Show coverage</span>
             <div className="flex-1 h-1.5 bg-black/30 rounded-full overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all ${rStyle.text.replace('text-', 'bg-').replace('-300', '-500')}`}
+                className={`h-full rounded-full transition-all ${LIVE_FREQUENCY_COLOR[tier].replace('text-', 'bg-').replace('-400', '-500')}`}
                 style={{ width: `${Math.min(lp.performancePct, 100)}%` }}
               />
             </div>
@@ -564,25 +546,23 @@ function QuickStatsGrid({
   song,
   collectedCount,
   liveCache,
+  tier,
+  tierSource,
 }: {
   song: WikiSongPageData['song'];
   collectedCount: number;
   liveCache: WikiSongPageData['liveCache'];
+  tier: LiveFrequencyTier;
+  tierSource: 'live' | 'estimated';
 }) {
   const lp = song.bandRpgProfile;
-  const rStyle = rr(song.rarity);
+  const tStyle = tierStyle(tier);
 
   const stats: Array<{ label: string; value: ReactNode; sub?: string; badge?: 'calculated' | 'estimated' }> = [
     {
-      label: 'Game Rarity',
-      value: <span className={`font-bold ${rStyle.text}`}>{song.rarity}</span>,
-    },
-    {
       label: 'Live Frequency',
-      value: lp
-        ? <span className={ls(lp.liveStatus).text}>{ls(lp.liveStatus).label}</span>
-        : <span className="text-gray-600">No data</span>,
-      badge: lp ? 'calculated' : 'estimated',
+      value: <span className={`font-bold ${tStyle.text}`}>{tier}</span>,
+      badge: tierSource === 'live' ? 'calculated' : 'estimated',
     },
     {
       label: 'Performances',
@@ -730,14 +710,15 @@ function DiscoveryPanel({
     );
   }
 
-  const rStyle = rr(playerCtx.frozenRarity ?? song.rarity);
+  const { tier: collectedTier } = deriveLiveFrequency(null, playerCtx.frozenRarity ?? song.rarity);
+  const cStyle = tierStyle(collectedTier);
 
   return (
-    <div className={`rounded-xl border p-5 ${rStyle.bg} ${rStyle.border}`}>
+    <div className={`rounded-xl border p-5 ${cStyle.bg} ${cStyle.border}`}>
       <div className="flex items-start gap-4">
         <div className="text-2xl leading-none">✓</div>
         <div className="flex-1 min-w-0">
-          <p className={`text-[10px] uppercase tracking-widest font-bold mb-1 ${rStyle.text}`}>
+          <p className={`text-[10px] uppercase tracking-widest font-bold mb-1 ${cStyle.text}`}>
             Discovered
           </p>
           <p className="text-sm font-semibold text-gray-100">
@@ -746,8 +727,8 @@ function DiscoveryPanel({
           <div className="flex flex-wrap gap-4 mt-3">
             {playerCtx.frozenRarity && (
               <div>
-                <p className="text-[10px] text-gray-500 uppercase tracking-widest">Rarity at collect</p>
-                <p className={`text-sm font-bold ${rr(playerCtx.frozenRarity).text}`}>{playerCtx.frozenRarity}</p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest">Frequency at collect</p>
+                <p className={`text-sm font-bold ${cStyle.text}`}>{collectedTier}</p>
               </div>
             )}
             {playerCtx.scoreEarned != null && playerCtx.scoreEarned > 0 && (
@@ -836,17 +817,18 @@ function CollectionPanel({
         </div>
       )}
 
-      {/* Rarity tier progress */}
+      {/* Live Frequency tier progress — grouped by derived tier from Song.rarity */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-        {RARITY_ORDER.map((tier) => {
-          const prog = ctx.rarityProgress[tier];
-          const total = bandRarityCounts.find((r) => r.rarity === tier)?._count.id ?? 0;
+        {(['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'] as const).map((rawRarity) => {
+          const prog = ctx.rarityProgress[rawRarity];
+          const total = bandRarityCounts.find((r) => r.rarity === rawRarity)?._count.id ?? 0;
           if (!total) return null;
           const owned = prog?.owned ?? 0;
-          const rStyle = rr(tier);
+          const { tier: t } = deriveLiveFrequency(null, rawRarity);
+          const tS = tierStyle(t);
           return (
-            <div key={tier} className={`rounded-xl border p-3 ${rStyle.bg} ${rStyle.border}`}>
-              <p className={`text-[10px] uppercase tracking-widest font-bold mb-1.5 ${rStyle.text}`}>{tier}</p>
+            <div key={rawRarity} className={`rounded-xl border p-3 ${tS.bg} ${tS.border}`}>
+              <p className={`text-[10px] uppercase tracking-widest font-bold mb-1.5 ${tS.text}`}>{t}</p>
               <p className="text-lg font-black tabular-nums text-gray-100 leading-none">
                 {owned} <span className="text-sm font-normal text-gray-500">/ {total}</span>
               </p>
@@ -863,13 +845,13 @@ function CollectionPanel({
 function RelatedSongs({
   albumSiblings,
   relatedByRarity,
-  currentRarity,
+  currentTier,
   bandSlug,
   albumSlug,
 }: {
   albumSiblings: WikiSongPageData['albumSiblings'];
   relatedByRarity: WikiSongPageData['relatedByRarity'];
-  currentRarity: string;
+  currentTier: LiveFrequencyTier;
   bandSlug: string;
   albumSlug?: string;
 }) {
@@ -881,7 +863,8 @@ function RelatedSongs({
           <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-2">On the same album</p>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
             {albumSiblings.slice(0, 9).map((s) => {
-              const rStyle = rr(s.rarity);
+              const { tier: sTier } = deriveLiveFrequency(null, s.rarity);
+              const sTStyle = tierStyle(sTier);
               return (
                 <Link
                   key={s.id}
@@ -892,7 +875,7 @@ function RelatedSongs({
                     <span className="text-[10px] tabular-nums text-gray-700 w-4 shrink-0">{s.trackNumber}</span>
                   )}
                   <span className="text-xs text-gray-300 group-hover:text-white truncate transition-colors flex-1">{s.title}</span>
-                  <span className={`text-[9px] uppercase font-bold shrink-0 ${rStyle.text}`}>{s.rarity[0]}</span>
+                  <span className={`text-[9px] uppercase font-bold shrink-0 ${sTStyle.text}`}>{sTier[0]}</span>
                 </Link>
               );
             })}
@@ -908,15 +891,16 @@ function RelatedSongs({
         </div>
       )}
 
-      {/* Same rarity */}
+      {/* Same Live Frequency tier */}
       {relatedByRarity.length > 0 && (
         <div>
           <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-2">
-            Other {currentRarity} songs from this band
+            Other {currentTier} songs from this band
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
             {relatedByRarity.map((s) => {
-              const liveStyle = s.bandRpgProfile ? ls(s.bandRpgProfile.liveStatus) : null;
+              const { tier: sTier } = deriveLiveFrequency(s.bandRpgProfile?.liveStatus, s.rarity);
+              const sTStyle = tierStyle(sTier);
               return (
                 <Link
                   key={s.id}
@@ -927,11 +911,11 @@ function RelatedSongs({
                     <p className="text-xs text-gray-300 group-hover:text-white truncate transition-colors">{s.title}</p>
                     {s.album && <p className="text-[10px] text-gray-600 truncate">{s.album.title}</p>}
                   </div>
-                  {liveStyle && s.bandRpgProfile && (
-                    <span className={`text-[10px] font-medium shrink-0 ${liveStyle.text}`}>
+                  {s.bandRpgProfile && (
+                    <span className={`text-[10px] font-medium shrink-0 ${sTStyle.text}`}>
                       {s.bandRpgProfile.totalPerformances > 0
                         ? `${s.bandRpgProfile.totalPerformances}×`
-                        : liveStyle.label}
+                        : sTier}
                     </span>
                   )}
                 </Link>
@@ -1003,11 +987,11 @@ function AdminPanel({
           <p className="text-gray-400 font-mono text-[11px] break-all">{song.id}</p>
         </div>
         <div>
-          <p className="text-gray-600 uppercase tracking-widest text-[10px] mb-0.5">Game Rarity</p>
-          <p className={`font-bold ${rr(song.rarity).text}`}>{song.rarity}</p>
+          <p className="text-gray-600 uppercase tracking-widest text-[10px] mb-0.5">DB Rarity</p>
+          <p className="text-gray-400 font-mono text-xs">{song.rarity}</p>
         </div>
         <div>
-          <p className="text-gray-600 uppercase tracking-widest text-[10px] mb-0.5">Live Match</p>
+          <p className="text-gray-600 uppercase tracking-widest text-[10px] mb-0.5">Live Profile</p>
           <p className={lp ? 'text-emerald-400' : 'text-gray-600'}>{lp ? 'Matched' : 'No profile'}</p>
         </div>
         {lp && (
@@ -1017,8 +1001,8 @@ function AdminPanel({
               <p className="text-gray-300">{lp.totalPerformances}</p>
             </div>
             <div>
-              <p className="text-gray-600 uppercase tracking-widest text-[10px] mb-0.5">Live Status</p>
-              <p className={ls(lp.liveStatus).text}>{lp.liveStatus}</p>
+              <p className="text-gray-600 uppercase tracking-widest text-[10px] mb-0.5">Raw Live Status</p>
+              <p className="text-gray-400 font-mono text-xs">{lp.liveStatus}</p>
             </div>
             <div>
               <p className="text-gray-600 uppercase tracking-widest text-[10px] mb-0.5">Rarity Index</p>
@@ -1099,11 +1083,17 @@ function MiniStat({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function RarityDiamond({ rarity }: { rarity: string }) {
-  const glyphs: Record<string, string> = {
-    Mythic: '◆', Legendary: '◇', Rare: '◈', Uncommon: '◉', Common: '○',
+function FrequencyDiamond({ tier }: { tier: LiveFrequencyTier }) {
+  const glyphs: Record<LiveFrequencyTier, string> = {
+    Mythic:        '◆',
+    Legendary:     '◇',
+    Rare:          '◈',
+    Occasional:    '◉',
+    Frequent:      '◎',
+    Essential:     '○',
+    Unclassified:  '·',
   };
-  return <span className="text-[10px]">{glyphs[rarity] ?? '○'}</span>;
+  return <span className="text-[10px]">{glyphs[tier]}</span>;
 }
 
 function Shell({ children }: { children: ReactNode }) {

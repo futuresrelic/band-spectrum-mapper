@@ -17,28 +17,39 @@ import type {
   BandRpgCuratorProfile, CuratorBadge,
   MySavedItem,
 } from '../api/bandRpg';
+import {
+  deriveLiveFrequency,
+  LIVE_FREQUENCY_EMOJI,
+  LIVE_FREQUENCY_TIER_ORDER,
+  type LiveFrequencyTier,
+} from '../lib/liveFrequency';
 
-// ── Rarity display ─────────────────────────────────────────────────────────────
+// ── Live Frequency display ─────────────────────────────────────────────────────
 
-const RARITY_ORDER: Record<string, number> = {
-  Common: 0, Uncommon: 1, Rare: 2, Legendary: 3, Mythic: 4,
+
+const LF_BADGE_CLASS: Record<LiveFrequencyTier, string> = {
+  Essential:     'text-emerald-400 bg-emerald-900/40',
+  Frequent:      'text-sky-400 bg-sky-900/40',
+  Occasional:    'text-blue-400 bg-blue-900/40',
+  Rare:          'text-violet-400 bg-violet-900/40',
+  Legendary:     'text-amber-400 bg-amber-900/40',
+  Mythic:        'text-pink-400 bg-pink-900/40',
+  Unclassified:  'text-gray-500 bg-gray-800',
 };
 
-const RARITY_BADGE: Record<string, { label: string; className: string }> = {
-  Common:    { label: '⚪ Common',    className: 'text-gray-400 bg-gray-800'         },
-  Uncommon:  { label: '🟢 Uncommon',  className: 'text-emerald-400 bg-emerald-900/40' },
-  Rare:      { label: '🔵 Rare',      className: 'text-blue-400 bg-blue-900/40'       },
-  Legendary: { label: '🟣 Legendary', className: 'text-purple-400 bg-purple-900/40'  },
-  Mythic:    { label: '🟠 Mythic',    className: 'text-orange-400 bg-orange-900/40'  },
-};
-
-function RarityBadge({ rarity }: { rarity: string }) {
-  const badge = RARITY_BADGE[rarity] ?? { label: rarity, className: 'text-gray-400 bg-gray-800' };
+function LiveFrequencyBadge({ liveStatus, rarity }: { liveStatus?: string | null; rarity: string }) {
+  const { tier } = deriveLiveFrequency(liveStatus, rarity);
+  const badgeClass = LF_BADGE_CLASS[tier];
   return (
-    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${badge.className}`}>
-      {badge.label}
+    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${badgeClass}`}>
+      {LIVE_FREQUENCY_EMOJI[tier]} {tier}
     </span>
   );
+}
+
+// Kept as alias so call sites that used RarityBadge still compile
+function RarityBadge({ rarity, liveStatus }: { rarity: string; liveStatus?: string | null }) {
+  return <LiveFrequencyBadge rarity={rarity} liveStatus={liveStatus} />;
 }
 
 function formatDate(iso: string): string {
@@ -423,29 +434,7 @@ function EmptyState({ icon, title, desc, action }: { icon: string; title: string
 // ── Songs tab ──────────────────────────────────────────────────────────────────
 
 type SortMode    = 'date_desc' | 'title_asc' | 'rarity_asc' | 'rarity_desc';
-type RarityFilter = 'all' | 'Common' | 'Uncommon' | 'Rare' | 'Legendary' | 'Mythic';
-
-// Live status labels are prefixed with "▸ Live" to distinguish them from game rarity badges.
-// "Common" live status → "▸ Frequent" (avoids confusion with Common game rarity).
-// "Rare" live status → "▸ Rare Live" (distinguishes from Rare game rarity).
-const LIVE_STATUS_STYLE: Record<string, { label: string; className: string }> = {
-  'Never Played':    { label: '▸ Never Played',   className: 'text-cyan-300 bg-cyan-900/40 border border-cyan-800/50' },
-  'Extremely Rare':  { label: '▸ Extremely Rare', className: 'text-violet-300 bg-violet-900/40 border border-violet-800/50' },
-  'Rare':            { label: '▸ Rare Live',       className: 'text-indigo-300 bg-indigo-900/40 border border-indigo-800/50' },
-  'Occasional':      { label: '▸ Occasional',      className: 'text-blue-300/80 bg-blue-900/30 border border-blue-800/40' },
-  'Common':          { label: '▸ Frequent',        className: 'text-gray-400 bg-gray-800/50 border border-gray-700/40' },
-  'Staple':          { label: '▸ Staple',          className: 'text-gray-500 bg-gray-800/40 border border-gray-700/30' },
-};
-
-function LiveStatusBadge({ liveStatus }: { liveStatus: string }) {
-  const cfg = LIVE_STATUS_STYLE[liveStatus];
-  if (!cfg) return null;
-  return (
-    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${cfg.className}`}>
-      {cfg.label}
-    </span>
-  );
-}
+type RarityFilter = 'all' | LiveFrequencyTier;
 
 function SongRow({ song }: { song: BandRpgCollectedSong }) {
   return (
@@ -456,10 +445,7 @@ function SongRow({ song }: { song: BandRpgCollectedSong }) {
         <p className="text-xs text-gray-500">{formatDate(song.recoveredAt)}</p>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        {song.liveData && song.liveData.liveStatus !== 'Unknown' && (
-          <LiveStatusBadge liveStatus={song.liveData.liveStatus} />
-        )}
-        <RarityBadge rarity={song.rarity} />
+        <LiveFrequencyBadge liveStatus={song.liveData?.liveStatus} rarity={song.rarity} />
         {song.guessedCorrectly && <span className="text-xs text-emerald-400 font-medium hidden sm:inline">Identified</span>}
         <span className="text-xs text-amber-400 font-mono">{song.scoreEarned} pts</span>
       </div>
@@ -467,16 +453,20 @@ function SongRow({ song }: { song: BandRpgCollectedSong }) {
   );
 }
 
+function songTierOrder(song: BandRpgCollectedSong): number {
+  const { tier } = deriveLiveFrequency(song.liveData?.liveStatus, song.rarity);
+  return LIVE_FREQUENCY_TIER_ORDER.indexOf(tier);
+}
+
 function sortSongs(songs: BandRpgCollectedSong[], mode: SortMode): BandRpgCollectedSong[] {
   const copy = [...songs];
   if (mode === 'date_desc')  return copy.sort((a, b) => new Date(b.recoveredAt).getTime() - new Date(a.recoveredAt).getTime());
   if (mode === 'title_asc')  return copy.sort((a, b) => a.songTitle.localeCompare(b.songTitle));
-  if (mode === 'rarity_asc') return copy.sort((a, b) => (RARITY_ORDER[a.rarity] ?? 0) - (RARITY_ORDER[b.rarity] ?? 0));
-  if (mode === 'rarity_desc')return copy.sort((a, b) => (RARITY_ORDER[b.rarity] ?? 0) - (RARITY_ORDER[a.rarity] ?? 0));
+  if (mode === 'rarity_asc') return copy.sort((a, b) => songTierOrder(a) - songTierOrder(b));
+  if (mode === 'rarity_desc')return copy.sort((a, b) => songTierOrder(b) - songTierOrder(a));
   return copy;
 }
 
-const NOTABLE_RARITIES = new Set(['Legendary', 'Mythic']);
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 function NotableRecoveriesBanner({ groups }: { groups: Array<{ collected: BandRpgCollectedSong[] }> }) {
@@ -484,7 +474,10 @@ function NotableRecoveriesBanner({ groups }: { groups: Array<{ collected: BandRp
     const now = Date.now();
     return groups
       .flatMap((g) => g.collected)
-      .filter((s) => NOTABLE_RARITIES.has(s.rarity) && now - new Date(s.recoveredAt).getTime() < SEVEN_DAYS_MS)
+      .filter((s) => {
+        const { tier } = deriveLiveFrequency(s.liveData?.liveStatus, s.rarity);
+        return (tier === 'Legendary' || tier === 'Mythic') && now - new Date(s.recoveredAt).getTime() < SEVEN_DAYS_MS;
+      })
       .sort((a, b) => new Date(b.recoveredAt).getTime() - new Date(a.recoveredAt).getTime())
       .slice(0, 5);
   }, [groups]);
@@ -499,12 +492,12 @@ function NotableRecoveriesBanner({ groups }: { groups: Array<{ collected: BandRp
       <div className="divide-y divide-gray-800/40">
         {notable.map((s) => (
           <div key={s.id} className="flex items-center gap-3 px-4 py-2">
-            <span className="text-base shrink-0">{s.rarity === 'Mythic' ? '🟠' : '🟣'}</span>
+            <span className="text-base shrink-0">{deriveLiveFrequency(s.liveData?.liveStatus, s.rarity).tier === 'Mythic' ? '🟠' : '🟡'}</span>
             <div className="flex-1 min-w-0">
               <p className="text-sm text-white truncate">{s.songTitle}</p>
               <p className="text-xs text-gray-600">{s.bandName} · {formatDate(s.recoveredAt)}</p>
             </div>
-            <RarityBadge rarity={s.rarity} />
+            <LiveFrequencyBadge rarity={s.rarity} liveStatus={s.liveData?.liveStatus} />
           </div>
         ))}
       </div>
@@ -527,7 +520,12 @@ function SongsTab() {
     return groups
       .map((g) => {
         let songs = g.collected;
-        if (rarityFilter !== 'all') songs = songs.filter((s) => s.rarity === rarityFilter);
+        if (rarityFilter !== 'all') {
+          songs = songs.filter((s) => {
+            const { tier } = deriveLiveFrequency(s.liveData?.liveStatus, s.rarity);
+            return tier === rarityFilter;
+          });
+        }
         if (search.trim()) {
           const q = search.toLowerCase();
           songs = songs.filter((s) => s.songTitle.toLowerCase().includes(q) || s.bandName.toLowerCase().includes(q));
@@ -571,11 +569,12 @@ function SongsTab() {
         </select>
         <select value={rarityFilter} onChange={(e) => setRarityFilter(e.target.value as RarityFilter)}
           className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-amber-500/60">
-          <option value="all">All rarities</option>
-          <option value="Common">⚪ Common</option>
-          <option value="Uncommon">🟢 Uncommon</option>
-          <option value="Rare">🔵 Rare</option>
-          <option value="Legendary">🟣 Legendary</option>
+          <option value="all">All frequencies</option>
+          <option value="Essential">⚪ Essential</option>
+          <option value="Frequent">🟢 Frequent</option>
+          <option value="Occasional">🔵 Occasional</option>
+          <option value="Rare">🟣 Rare</option>
+          <option value="Legendary">🟡 Legendary</option>
           <option value="Mythic">🟠 Mythic</option>
         </select>
       </div>

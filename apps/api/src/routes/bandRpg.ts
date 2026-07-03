@@ -82,7 +82,7 @@ bandRpgRouter.get('/start-session', async (req, res, next): Promise<void> => {
     });
 
     if (eligible.length === 0) {
-      res.json({ songId: null, songTitle: null, songRarity: null, fragments: [] });
+      res.json({ songId: null, songTitle: null, songRarity: null, songLiveStatus: null, fragments: [] });
       return;
     }
 
@@ -115,15 +115,22 @@ bandRpgRouter.get('/start-session', async (req, res, next): Promise<void> => {
       select: {
         id: true, title: true, rarity: true,
         lyrics: { where: { isPrimary: true }, take: 1, select: { text: true } },
+        bandRpgProfile: { select: { liveStatus: true } },
       },
     });
 
-    if (!song) { res.json({ songId: null, songTitle: null, songRarity: null, fragments: [] }); return; }
+    if (!song) { res.json({ songId: null, songTitle: null, songRarity: null, songLiveStatus: null, fragments: [] }); return; }
 
     const lyricText = song.lyrics[0]?.text ?? '';
     const fragments = extractFragments(lyricText, 3);
 
-    res.json({ songId: song.id, songTitle: song.title, songRarity: song.rarity, fragments });
+    res.json({
+      songId: song.id,
+      songTitle: song.title,
+      songRarity: song.rarity,
+      songLiveStatus: song.bandRpgProfile?.liveStatus ?? null,
+      fragments,
+    });
   } catch (e) { next(e); }
 });
 

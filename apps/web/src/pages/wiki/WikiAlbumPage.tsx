@@ -8,30 +8,9 @@ import WikiLayout, {
   SpectrumBar,
 } from '../../components/wiki/WikiLayout';
 import KnowledgeConfidenceBadge from '../../components/wiki/KnowledgeConfidenceBadge';
+import { deriveLiveFrequency, LIVE_FREQUENCY_COLOR } from '../../lib/liveFrequency';
 
 const RARITY_ORDER = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
-
-function rarityColor(rarity: string): string {
-  switch (rarity) {
-    case 'Mythic':    return 'text-pink-400';
-    case 'Legendary': return 'text-yellow-400';
-    case 'Rare':      return 'text-violet-400';
-    case 'Uncommon':  return 'text-sky-400';
-    default:          return 'text-gray-500';
-  }
-}
-
-function liveStatusColor(status: string): string {
-  switch (status) {
-    case 'Staple':         return 'text-emerald-400';
-    case 'Common':         return 'text-sky-400';
-    case 'Occasional':     return 'text-blue-400';
-    case 'Rare':           return 'text-violet-400';
-    case 'Extremely Rare': return 'text-pink-400';
-    case 'Never Played':   return 'text-gray-600';
-    default:               return 'text-gray-500';
-  }
-}
 
 function fmt(secs: number | null): string {
   if (!secs) return '—';
@@ -118,12 +97,14 @@ export default function WikiAlbumPage() {
                 <th className="text-left py-2 pr-3 w-8">#</th>
                 <th className="text-left py-2 pr-3">Title</th>
                 <th className="text-right py-2 pr-3">Duration</th>
-                <th className="text-center py-2 pr-3">Rarity</th>
-                <th className="text-center py-2">Live</th>
+                <th className="text-center py-2">Live Freq.</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-900">
-              {album.songs.map((s) => (
+              {album.songs.map((s) => {
+                const { tier } = deriveLiveFrequency(s.bandRpgProfile?.liveStatus, s.rarity);
+                const tierColor = LIVE_FREQUENCY_COLOR[tier];
+                return (
                 <tr key={s.id} className="group hover:bg-gray-900/50 transition-colors">
                   <td className="py-2.5 pr-3 text-gray-600 tabular-nums text-xs">
                     {s.trackNumber ?? '—'}
@@ -140,22 +121,14 @@ export default function WikiAlbumPage() {
                   <td className="py-2.5 pr-3 text-right tabular-nums text-gray-500 text-xs">
                     {fmt(s.durationSeconds)}
                   </td>
-                  <td className="py-2.5 pr-3 text-center">
-                    <span className={`text-[10px] font-medium uppercase tracking-widest ${rarityColor(s.rarity)}`}>
-                      {s.rarity}
+                  <td className="py-2.5 text-center">
+                    <span className={`text-[10px] font-medium uppercase tracking-widest ${tierColor}`}>
+                      {tier}
                     </span>
                   </td>
-                  <td className="py-2.5 text-center">
-                    {s.bandRpgProfile ? (
-                      <span className={`text-[10px] font-medium ${liveStatusColor(s.bandRpgProfile.liveStatus)}`}>
-                        {s.bandRpgProfile.liveStatus}
-                      </span>
-                    ) : (
-                      <span className="text-gray-700 text-xs">—</span>
-                    )}
-                  </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -177,19 +150,23 @@ export default function WikiAlbumPage() {
         )}
       </WikiSection>
 
-      {/* ── Rarity ── */}
-      <WikiSection id="rarity" title="Rarity Breakdown" badge={<KnowledgeConfidenceBadge level="calculated" />}>
+      {/* ── Live Frequency breakdown ── */}
+      <WikiSection id="rarity" title="Live Frequency Breakdown" badge={<KnowledgeConfidenceBadge level="calculated" />}>
         <div className="flex flex-wrap gap-3">
-          {RARITY_ORDER.filter((r) => rarityBreakdown[r]).map((r) => (
+          {RARITY_ORDER.filter((r) => rarityBreakdown[r]).map((r) => {
+            const { tier } = deriveLiveFrequency(null, r);
+            const tierColor = LIVE_FREQUENCY_COLOR[tier];
+            return (
             <div key={r} className="flex flex-col items-center gap-1 px-5 py-3 bg-gray-900 border border-gray-800 rounded-lg">
-              <span className={`text-xl font-bold tabular-nums ${rarityColor(r)}`}>
+              <span className={`text-xl font-bold tabular-nums ${tierColor}`}>
                 {rarityBreakdown[r]}
               </span>
-              <span className={`text-[10px] uppercase tracking-widest font-medium ${rarityColor(r)}`}>
-                {r}
+              <span className={`text-[10px] uppercase tracking-widest font-medium ${tierColor}`}>
+                {tier}
               </span>
             </div>
-          ))}
+            );
+          })}
         </div>
       </WikiSection>
     </WikiLayout>

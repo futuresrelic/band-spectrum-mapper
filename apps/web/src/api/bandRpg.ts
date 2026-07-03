@@ -26,6 +26,7 @@ export interface BandRpgSession {
   songId: string | null;
   songTitle: string | null;
   songRarity: string | null;
+  songLiveStatus: string | null;
   fragments: BandRpgLyricFragment[];
 }
 
