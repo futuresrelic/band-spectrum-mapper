@@ -4,6 +4,149 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.17.5 — Analysis Pipeline & Database Health (2026-07-03)
+
+### Overview
+
+Every song-analysis module (Spectrum, Rhythm, Theme, Genre, AI Summary,
+Lyrics, Live Data, Community, Trivia, Media, Metadata) now reports one
+consistent status shape instead of each Song Card button independently
+guessing "does this song have X." A server-side module registry
+(`songHealthService.ts`) is the single source of truth; the Song Card,
+Album page, Band page, the existing admin Data Health scanner, and a new
+"Analyze Song/Album/Band" pipeline all read from it.
+
+### Audit before building — found more than expected
+
+Before adding anything, audited what already existed for the modules the
+request named:
+- **Trivia**: real, but stateless — `GET /api/trivia/questions` generates a
+  quiz live from existing scores/lyrics on every request; nothing is
+  persisted per song. There is no "trivia exists for this song" concept to
+  track, so it's shown as "Available" and excluded from the health score
+  rather than faked as a generatable module.
+- **Media**: no song-level model exists at all (`MediaAsset` belongs to the
+  unrelated Social Media Manager subsystem). Shown as missing with no
+  action — there's nothing to generate against yet.
+- **Community**: `SongComment` + `/api/songs/:songId/comments` already
+  exist and work; the module status now reflects real comment counts.
+- **Node Graph**: no per-song stored artifact — `WordSongGraph` is a
+  cross-song word-frequency visualization computed on the fly. Excluded
+  from per-song health (it isn't a "this song" state to track).
+- Found an **already-built admin dashboard** doing ~80% of what "global
+  database health" asks for: `GET /api/admin/data-health` +
+  `DataHealthPage.tsx`. It tracked `SongAiSpectrum`, `SongThemeScore`,
+  `SongAiGenreSpectrum`, `SongResearch`, `SongContextAnalysis`, audio
+  analysis — but never the canonical `SongAxisScore` ("Core" score), never
+  Live Data, never Community. Extended it rather than building a
+  competing page.
+
+### New architecture
+
+- **`apps/api/src/services/songHealthService.ts`** — the module registry.
+  11 modules, each with a weight (0 = tracked but excluded from the score),
+  a pipeline order (or none), and a check against real data. Two entry
+  points: `computeSongHealth()` (single song, reuses data the caller
+  already loaded — no duplicate queries) and `computeAggregateHealth()`
+  (batched existence counts across an entire song-ID set — one query per
+  module regardless of set size, not one query per song).
+- **`apps/api/src/services/analysisJobService.ts`** — the job queue.
+  Single-process, DB-backed (`AnalysisJob` model). `enqueue()` writes a row
+  and returns immediately; processing continues in-process. Cancellation
+  is cooperative — checked before every pipeline stage of every song.
+  This is deliberately not a distributed worker ("no distributed worker
+  needed... simple is fine" was explicit) — the job table is the seam a
+  future phase can hand to a real worker without changing the public API
+  (`enqueue`/`retry`/`cancel`/`list` stay the same).
+- **Shared types** (`packages/shared/src/types.ts`): `ModuleDataStatus`,
+  `ModuleAdminActionDescriptor` (fully self-describing — `{kind, label,
+  to?, method?, path?}` — so the frontend never needs per-module knowledge
+  to render or execute an action), `SongHealth`, `AggregateHealth`,
+  `AnalysisJob`.
+
+### Schema
+
+- `AnalysisJob` model (migration `20260703150000_add_analysis_job`):
+  `scope`, `targetId`, `targetLabel`, `status`, `totalSteps`,
+  `completedSteps`, `currentStep`, `resultJson`, `errorMessage`,
+  `requestedBy`.
+
+### "One button" — Analyze Song / Album / Band
+
+`POST /api/admin/analysis-jobs/:scope/:targetId/run` enqueues a job that
+walks the 6 pipeline-eligible modules (Lyrics → Spectrum → Rhythm → Theme →
+Genre → AI Summary) in order, **skipping any module that already has
+data** — calling the exact same service functions the individual
+admin buttons already called (`aiLyricService.recallAndStore`,
+`aiAnalysisService.generateCoreScore`, `songMusicScoreService.getOrCreate`,
+`themeAnalysisService.getOrCreate`, `genreSpectrumService.getOrCreate`,
+`songResearchService.getOrCreate`) — no new generation logic, only new
+orchestration. Album/Band scope resolves to every song in scope and runs
+them sequentially. A confirmation prompt warns before starting an
+album/band-scope run, since it can mean many sequential AI calls.
+
+### Repair vs Generate
+
+Modules with a working regenerate endpoint (Spectrum, Rhythm, Theme,
+Genre, AI Summary) always expose their action — labelled "Generate X" when
+missing, "Repair X" when data already exists but an admin wants to redo
+it — both hitting the identical endpoint. Lyrics and Metadata intentionally
+do **not** offer a "repair" path once data exists: overwriting
+possibly-curated lyrics or metadata automatically would violate the
+project's "lyric revisions must be preserved, never silently discarded"
+rule.
+
+### Song Card
+
+- **Song Health section** (new, visible to all users — not admin-gated):
+  overall percentage + a module-by-module checklist. Admins additionally
+  see a fill-in action next to each incomplete module and an "Analyze
+  Song" button (enqueues + polls + refreshes).
+- The Z.17 client-side `buildModuleStatuses()` / `ModuleStatusRow` (which
+  guessed completion state in the browser) are removed entirely — the
+  Spectrum module, Rhythm Lab panel, and Song Health section all now
+  render the identical server-computed `SongHealth` object.
+- `RadarChart.tsx`, `ModuleAdminActionButton.tsx` extended (not
+  duplicated) to support the new server-authored action descriptor.
+
+### Album / Band pages
+
+- Both gained a "Health" section: overall percentage, per-module coverage
+  (`songsComplete / total`), and (admin-only) an "Analyze Album" /
+  "Analyze Band" button. Computed via `computeAggregateHealth()` — one
+  batched query per module across the whole song set.
+
+### Existing admin Data Health dashboard extended, not replaced
+
+`GET /api/admin/data-health` and `DataHealthPage.tsx` gained three columns
+that were real gaps: `hasCoreScore` (the canonical Spectrum was never
+tracked here before), `hasLiveProfile`, `hasComments`. The page also
+gained an **Analysis Jobs** panel — a monitor (list, retry, cancel) for
+jobs enqueued from the Song/Album/Band pages; it is not itself a new
+trigger point, to avoid a "whole catalog" job with no concurrency control.
+
+### Honest limitations
+
+- No live database or browser in this sandbox — verified by code review,
+  not by clicking through a running app.
+- The in-process job runner does not survive a server restart mid-job; a
+  job stuck in `running` after a crash needs a manual retry. A real queue
+  (BullMQ/Redis or similar) would fix this — deliberately deferred per
+  "no distributed worker needed... simple is fine."
+- `SongAiSpectrum` (secondary AI opinion), `SongContextAnalysis` /
+  Audience Profile (derivative/composite), and Node Graph are tracked in
+  the existing `data-health` scanner but intentionally excluded from the
+  new per-song `SongHealth` score, to avoid re-litigating Z.17's "one
+  clean spectrum" decision and to avoid double-counting derivative data
+  as if it were primary source data.
+- Trivia and Media are shown in the Song Health breakdown for visibility
+  but excluded from the percentage — Trivia because it has no persisted
+  per-song state to be "missing," Media because no backing system exists
+  yet and a module that can never be filled shouldn't permanently cap a
+  song's health below 100%.
+
+---
+
 ## Phase Z.17 — Song Spectrum Integration (2026-07-03)
 
 ### Overview

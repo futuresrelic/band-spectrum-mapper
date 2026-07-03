@@ -859,15 +859,89 @@ songs in the same band, server-side, and only includes results when at least 3
 comparable songs exist — otherwise the field is an empty array and the section
 doesn't render.
 
-### ModuleDataStatus — the data-completion pattern
+### ModuleDataStatus — superseded by the server-side registry (Z.17.5)
 
-`apps/web/src/lib/moduleDataStatus.ts` defines `ModuleDataStatus` (`moduleKey`,
-`hasData`, `status`, `source`, `lastUpdated`, `confidence`, `adminAction`) and
-`apps/web/src/components/wiki/ModuleAdminActionButton.tsx` renders the one action
-type says it has — either a link to an existing admin page (`kind: 'route'`) or an
-in-place call to an existing endpoint (`kind: 'handler'`, with its own pending/
-success/error state). The Song Card's admin panel builds one status per module
-(Spectrum, Lyrics, Live Data, Rhythm Lab) via `buildModuleStatuses()` — every action
-routes to a pre-existing endpoint or admin page; none duplicate logic that already
-lives elsewhere (e.g. Lyrics reuses the existing per-song AI-recall endpoint, Live
-Data links to the existing `/admin/band-rpg` audit page).
+The client-side `buildModuleStatuses()` described above (added in Z.17) was
+replaced in Phase Z.17.5 by a server-computed registry — see the next section.
+`ModuleDataStatus` now lives in `packages/shared/src/types.ts`, not a local
+web-only file, and the frontend never re-implements "does this song have X."
+
+
+## Analysis Pipeline & Database Health (Phase Z.17.5, 2026-07-03)
+
+### The module registry
+
+`apps/api/src/services/songHealthService.ts` is the single source of truth
+for "does this song have module X." 11 modules, each declared once with a
+score weight (0 = tracked/shown but excluded from the percentage — e.g.
+Trivia has no persisted per-song state, Media has no backing system yet)
+and, for 6 of them, a position in the auto-generate pipeline:
+
+```
+Lyrics → Spectrum → Rhythm → Theme → Genre → AI Summary
+```
+
+Metadata, Live Data, Community, Trivia, and Media are tracked but not
+pipeline-eligible (Metadata/Live Data require a human or a different
+existing tool; Community is user-authored; Trivia/Media have no
+generate path at all).
+
+Two entry points, both used by the Wiki routes:
+- `computeSongHealth(input)` — single song. Callers pass in whatever
+  they've already loaded (`wiki.ts`'s song endpoint already has
+  score/lyrics/bandRpgProfile/musicScore); this only fetches the pieces
+  nothing else needed yet (theme count, genre row, research row, comment
+  count — 4 small queries).
+- `computeAggregateHealth(songIds)` — Album/Band rollups. Batched
+  existence checks (`groupBy`/`findMany` across the whole ID set), so a
+  70-song discography costs the same handful of queries as one song, not
+  70× as many.
+
+`generateModule(moduleKey, songId)` is the single dispatch point every
+pipeline-eligible module's generation goes through — both the "Analyze
+Song" pipeline and any future caller use this one function, which simply
+calls the pre-existing service (`aiAnalysisService.generateCoreScore`,
+`songMusicScoreService.getOrCreate`, `themeAnalysisService.getOrCreate`,
+`genreSpectrumService.getOrCreate`, `songResearchService.getOrCreate`,
+`aiLyricService.recallAndStore`). No module's generation logic is
+duplicated between the per-module admin button and the pipeline.
+
+### Job queue
+
+`apps/api/src/services/analysisJobService.ts` + the `AnalysisJob` model —
+single-process, DB-backed. `enqueue(scope, targetId, requestedBy)`
+resolves the song set (one song, or every song in an album/band), writes
+a `waiting` row, and returns it immediately; `process()` continues
+in-process without blocking the HTTP response, walking `runSongPipeline()`
+per song and updating `completedSteps`/`currentStep`/`resultJson` as it
+goes. Cancellation is cooperative: the runner checks `job.status` before
+every pipeline stage of every song, so "Cancel" takes effect at the next
+stage/song boundary, not instantly.
+
+This is intentionally not a distributed worker — there's no Redis/BullMQ,
+no separate worker process. The `analysis_jobs` table is the seam: a
+future phase can point a real worker at `waiting` rows without changing
+`enqueue`/`retry`/`cancel`/`list`'s public shape. Known limitation: a
+server restart mid-job leaves it stuck in `running` until manually
+retried — acceptable for the current single-instance deployment, and
+explicitly deferred rather than solved with ad hoc reconnection logic.
+
+### Where each surface reads from this
+
+| Surface | Reads | Endpoint |
+|---|---|---|
+| Song Card health section | `SongHealth` | embedded in `GET /api/wiki/songs/:id` |
+| Album page health section | `AggregateHealth` | embedded in `GET /api/wiki/albums/:bandSlug/:albumSlug` |
+| Band page health section | `AggregateHealth` | embedded in `GET /api/wiki/bands/:slug` |
+| Admin Data Health scanner (`DataHealthPage.tsx`) | flat per-song boolean table (different shape, same underlying Prisma relations) | `GET /api/admin/data-health` |
+| Admin Analysis Jobs panel | `AnalysisJob[]` | `GET /api/admin/analysis-jobs` |
+| "Analyze Song/Album/Band" | enqueues, then polls | `POST /api/admin/analysis-jobs/:scope/:targetId/run` |
+
+The admin Data Health scanner and the Song Health registry deliberately
+stay as two shapes over shared truth rather than one forced-common shape:
+the scanner is a sortable/filterable table across the whole catalog (bulk
+audit use case), while `SongHealth` is a rich single-song breakdown with
+inline actions (in-context repair use case). Both agree on what "has data"
+means per module because both ultimately check the same Prisma relations
+— reconciling their differing shapes into one generic structure was judged
+not worth the complexity it would add to a working page.

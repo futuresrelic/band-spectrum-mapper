@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { bandsApi } from '../api/bands';
 import PageHeader from '../components/layout/PageHeader';
+import { listAnalysisJobs, retryAnalysisJob, cancelAnalysisJob } from '../api/analysisJobs';
+import type { AnalysisJob } from '@band-spectrum-mapper/shared';
 
 interface SongHealthRow {
   songId: string;
@@ -13,6 +15,9 @@ interface SongHealthRow {
   albumTitle: string | null;
   isInstrumental: boolean;
   hasLyrics: boolean;
+  hasCoreScore: boolean;
+  hasLiveProfile: boolean;
+  hasComments: boolean;
   hasAiAnalysis: boolean;
   hasAiSpectrum: boolean;
   hasMusicScore: boolean;
@@ -26,6 +31,9 @@ interface SongHealthRow {
 interface HealthSummary {
   total: number;
   hasLyrics: number;
+  hasCoreScore: number;
+  hasLiveProfile: number;
+  hasComments: number;
   hasAiAnalysis: number;
   hasAiSpectrum: number;
   hasMusicScore: number;
@@ -51,13 +59,16 @@ interface ColumnDef {
 
 const COLUMNS: ColumnDef[] = [
   { key: 'hasLyrics',        label: 'Lyrics',          short: 'Lyr',   batchJob: 'lyrics',    batchLabel: 'Lyrics Batch' },
+  { key: 'hasCoreScore',     label: 'Spectrum (Core)', short: 'Spct',  batchJob: 'spectrum',  batchLabel: 'AI Batch' },
+  { key: 'hasLiveProfile',   label: 'Live Data',       short: 'Live' },
+  { key: 'hasMusicScore',    label: 'Rhythm',          short: 'Rhy',   batchJob: 'musicScore',batchLabel: 'AI Batch' },
+  { key: 'hasGenreSpectrum', label: 'Genre',           short: 'Gen',   batchJob: 'genre',     batchLabel: 'AI Batch' },
+  { key: 'hasThemes',        label: 'Theme',           short: 'Thm',   batchJob: 'themes',    batchLabel: 'AI Batch' },
+  { key: 'hasResearch',      label: 'AI Summary',      short: 'Sum',   batchJob: 'research',  batchLabel: 'AI Batch' },
+  { key: 'hasComments',      label: 'Community',       short: 'Comm' },
   { key: 'hasAiAnalysis',    label: 'AI Analysis',     short: 'Ana',   batchJob: 'analysis',  batchLabel: 'AI Batch' },
-  { key: 'hasAiSpectrum',    label: 'AI Spectrum',     short: 'Spec',  batchJob: 'spectrum',  batchLabel: 'AI Batch' },
-  { key: 'hasMusicScore',    label: 'Music Score',     short: 'Mus',   batchJob: 'musicScore',batchLabel: 'AI Batch' },
-  { key: 'hasResearch',      label: 'Research',        short: 'Res',   batchJob: 'research',  batchLabel: 'AI Batch' },
+  { key: 'hasAiSpectrum',    label: 'AI Spectrum (secondary)', short: 'ASpc' },
   { key: 'hasContext',       label: 'Context',         short: 'Ctx',   batchJob: 'context',   batchLabel: 'AI Batch' },
-  { key: 'hasGenreSpectrum', label: 'Genre Spectrum',  short: 'Gen',   batchJob: 'genre',     batchLabel: 'AI Batch' },
-  { key: 'hasThemes',        label: 'Themes',          short: 'Thm',   batchJob: 'themes',    batchLabel: 'AI Batch' },
   { key: 'hasAudioAnalysis', label: 'Audio Analysis',  short: 'Aud' },
 ];
 
@@ -105,6 +116,83 @@ function SummaryCard({
           → Fetch in Lyrics Batch
         </Link>
       )}
+    </div>
+  );
+}
+
+const JOB_STATUS_STYLE: Record<AnalysisJob['status'], string> = {
+  waiting:   'bg-surface-100 text-surface-700',
+  running:   'bg-indigo-100 text-indigo-700',
+  completed: 'bg-emerald-100 text-emerald-700',
+  failed:    'bg-red-100 text-red-700',
+  cancelled: 'bg-surface-100 text-surface-500',
+};
+
+// Analysis pipeline job queue (Phase Z.17.5) — "Analyze Song/Album/Band"
+// enqueues here; this panel is a monitor + retry/cancel, not a new trigger
+// point (analysis is started from the Song/Album/Band pages themselves).
+function AnalysisJobsPanel() {
+  const queryClient = useQueryClient();
+
+  const { data: jobs = [] } = useQuery({
+    queryKey: ['analysis-jobs'],
+    queryFn: () => listAnalysisJobs(),
+    refetchInterval: (query) => {
+      const list = query.state.data ?? [];
+      return list.some((j) => j.status === 'waiting' || j.status === 'running') ? 2000 : 10000;
+    },
+  });
+
+  const refetch = () => queryClient.invalidateQueries({ queryKey: ['analysis-jobs'] });
+
+  if (jobs.length === 0) return null;
+
+  return (
+    <div className="card mb-6">
+      <p className="text-sm font-medium text-surface-700 mb-3">Analysis Jobs</p>
+      <div className="space-y-1.5">
+        {jobs.slice(0, 15).map((job) => (
+          <div key={job.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded border border-surface-100 text-sm">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${JOB_STATUS_STYLE[job.status]}`}>
+                  {job.status}
+                </span>
+                <span className="text-surface-900 font-medium truncate">
+                  {job.scope}: {job.targetLabel}
+                </span>
+              </div>
+              {job.currentStep && (
+                <p className="text-xs text-surface-500 mt-0.5">{job.currentStep}</p>
+              )}
+              {!job.currentStep && (
+                <p className="text-xs text-surface-500 mt-0.5">
+                  {job.completedSteps}/{job.totalSteps} songs
+                  {job.errorMessage && <span className="text-red-500 ml-1.5">— {job.errorMessage}</span>}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {(job.status === 'failed' || job.status === 'cancelled') && (
+                <button
+                  className="text-xs text-indigo-600 hover:underline"
+                  onClick={() => void retryAnalysisJob(job.id).then(refetch)}
+                >
+                  Retry
+                </button>
+              )}
+              {(job.status === 'waiting' || job.status === 'running') && (
+                <button
+                  className="text-xs text-surface-500 hover:underline"
+                  onClick={() => void cancelAnalysisJob(job.id).then(refetch)}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -228,6 +316,9 @@ export default function DataHealthPage() {
           </Link>
         </div>
       </div>
+
+      {/* Analysis pipeline queue */}
+      <AnalysisJobsPanel />
 
       {/* Song table */}
       {isLoading && <p className="text-sm text-surface-600">Scanning…</p>}

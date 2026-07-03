@@ -769,3 +769,82 @@ export interface LyricLabResult {
 
 // Re-export axis type for convenience
 export type { ScoreAxis, SourceType, ImportStatus };
+
+// ---------------------------------------------------------------------------
+// Module Data Status — Phase Z.17.5
+// One shape describing whether a song-analysis module has data and, if not,
+// the single action that fills it. Computed server-side (songHealthService)
+// so the frontend never re-implements "does this song have X" — it only
+// renders whatever the server reports. New modules plug in by adding one
+// entry to the server-side registry; no frontend changes required.
+// ---------------------------------------------------------------------------
+
+export type ModuleStatusValue = 'ready' | 'missing' | 'partial' | 'stale' | 'failed' | 'skipped';
+
+export type ModuleConfidence = 'verified' | 'calculated' | 'community' | 'ai' | 'estimated';
+
+/** Fully self-describing — the frontend needs zero per-module knowledge to render or execute this. */
+export interface ModuleAdminActionDescriptor {
+  /** 'route' navigates to an existing admin page; 'endpoint' calls the API directly. */
+  kind: 'route' | 'endpoint';
+  label: string;
+  to?: string;
+  method?: 'GET' | 'POST' | 'PUT';
+  path?: string;
+}
+
+export interface ModuleDataStatus {
+  moduleKey: string;
+  title: string;
+  status: ModuleStatusValue;
+  source: string | null;
+  confidence: ModuleConfidence | null;
+  lastUpdated: string | null;
+  hasData: boolean;
+  canGenerate: boolean;
+  canFetch: boolean;
+  canRepair: boolean;
+  /** 0-100 for modules with graded completion (e.g. theme coverage); null for boolean modules. */
+  progress: number | null;
+  notes: string | null;
+  adminAction: ModuleAdminActionDescriptor | null;
+}
+
+export interface SongHealth {
+  overallPct: number;
+  modules: ModuleDataStatus[];
+}
+
+/** Rollup shape for Album/Band health — module-by-module average completion across a song set. */
+export interface AggregateHealth {
+  overallPct: number;
+  songCount: number;
+  moduleCoverage: Array<{ moduleKey: string; title: string; pct: number; songsComplete: number }>;
+}
+
+export type AnalysisJobScope = 'song' | 'album' | 'band';
+export type AnalysisJobStatus = 'waiting' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface AnalysisJobStepResult {
+  songId: string;
+  songTitle: string;
+  moduleKey: string;
+  outcome: 'skipped' | 'generated' | 'failed';
+  error?: string;
+}
+
+export interface AnalysisJob {
+  id: string;
+  scope: AnalysisJobScope;
+  targetId: string;
+  targetLabel: string;
+  status: AnalysisJobStatus;
+  totalSteps: number;
+  completedSteps: number;
+  currentStep: string | null;
+  resultJson: AnalysisJobStepResult[] | null;
+  errorMessage: string | null;
+  requestedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

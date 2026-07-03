@@ -1,6 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getWikiAlbum } from '../../api/wiki';
+import { useAuth } from '../../contexts/AuthContext';
 import WikiLayout, {
   WikiSection,
   WikiStat,
@@ -9,6 +10,7 @@ import WikiLayout, {
 } from '../../components/wiki/WikiLayout';
 import KnowledgeConfidenceBadge from '../../components/wiki/KnowledgeConfidenceBadge';
 import RadarChart from '../../components/charts/RadarChart';
+import AnalyzeButton from '../../components/wiki/AnalyzeButton';
 import { AXIS_LABELS } from '@band-spectrum-mapper/shared';
 import { deriveLiveFrequency, LIVE_FREQUENCY_COLOR } from '../../lib/liveFrequency';
 
@@ -23,6 +25,8 @@ function fmt(secs: number | null): string {
 
 export default function WikiAlbumPage() {
   const { bandSlug = '', albumSlug = '' } = useParams<{ bandSlug: string; albumSlug: string }>();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['wiki', 'album', bandSlug, albumSlug],
@@ -34,14 +38,16 @@ export default function WikiAlbumPage() {
   if (isLoading) return <LoadingShell />;
   if (isError || !data) return <ErrorShell />;
 
-  const { band, album, avgSpectrum, strongestAxis, mostComplexTrack, mostAtmosphericTrack, rarityBreakdown } = data;
+  const { band, album, avgSpectrum, strongestAxis, mostComplexTrack, mostAtmosphericTrack, rarityBreakdown, health } = data;
   const axisKeys = ['aggression', 'complexity', 'atmosphere', 'emotion', 'psychedelic', 'concept'] as const;
+  const refetch = () => queryClient.invalidateQueries({ queryKey: ['wiki', 'album', bandSlug, albumSlug] });
 
   const nav = [
     { id: 'overview',  label: 'Overview' },
     { id: 'tracklist', label: 'Tracklist' },
     { id: 'spectrum',  label: 'Spectrum' },
     { id: 'rarity',    label: 'Rarity' },
+    { id: 'health',    label: 'Album Health' },
   ];
 
   return (
@@ -211,6 +217,33 @@ export default function WikiAlbumPage() {
             </div>
             );
           })}
+        </div>
+      </WikiSection>
+
+      {/* ── Album Health ── */}
+      <WikiSection id="health" title="Album Health" badge={<KnowledgeConfidenceBadge level="calculated" />}>
+        <div className="space-y-4">
+          <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm text-gray-300">
+                {health.songCount} song{health.songCount !== 1 ? 's' : ''} on this album
+              </p>
+              <span className={`text-2xl font-black tabular-nums ${health.overallPct >= 90 ? 'text-emerald-400' : health.overallPct >= 60 ? 'text-amber-400' : 'text-red-400'}`}>
+                {health.overallPct}%
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
+              {health.moduleCoverage.map((m) => (
+                <div key={m.moduleKey} className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-950/50 border border-gray-800">
+                  <span className="text-xs text-gray-400">{m.title}</span>
+                  <span className="text-xs font-semibold tabular-nums text-gray-300">{m.pct}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {user?.isAdmin && (
+            <AnalyzeButton scope="album" targetId={album.id} label="Analyze Album" onDone={refetch} />
+          )}
         </div>
       </WikiSection>
     </WikiLayout>

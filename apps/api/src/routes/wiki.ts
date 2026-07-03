@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { scoreService } from '../services/scoreService.js';
+import { computeSongHealth, computeAggregateHealth } from '../services/songHealthService.js';
 import { SCORE_AXES, type ScoreAxis } from '@band-spectrum-mapper/shared';
 
 // Music Wiki — public read-only endpoints.
@@ -203,7 +204,11 @@ wikiRouter.get('/bands/:slug', async (req, res, next) => {
       };
     }
 
-    res.json({ band, topPlayed, rarestPlayed, spectrumRollup });
+    // Database health rollup — module coverage across every song in the band
+    const bandSongIds = (await prisma.song.findMany({ where: { bandId: band.id }, select: { id: true } })).map((s) => s.id);
+    const health = await computeAggregateHealth(bandSongIds);
+
+    res.json({ band, topPlayed, rarestPlayed, spectrumRollup, health });
   } catch (e) {
     next(e);
   }
@@ -284,7 +289,9 @@ wikiRouter.get('/albums/:bandSlug/:albumSlug', async (req, res, next) => {
       rarityBreakdown[song.rarity] = (rarityBreakdown[song.rarity] ?? 0) + 1;
     }
 
-    res.json({ band, album, avgSpectrum, strongestAxis, mostComplexTrack, mostAtmosphericTrack, rarityBreakdown });
+    const health = await computeAggregateHealth(album.songs.map((s) => s.id));
+
+    res.json({ band, album, avgSpectrum, strongestAxis, mostComplexTrack, mostAtmosphericTrack, rarityBreakdown, health });
   } catch (e) {
     next(e);
   }
@@ -403,9 +410,24 @@ wikiRouter.get('/songs/:songId', async (req, res, next) => {
         .slice(0, 4);
     }
 
+    const health = await computeSongHealth({
+      songId,
+      albumId: song.albumId,
+      trackNumber: song.trackNumber,
+      durationSeconds: song.durationSeconds,
+      hasLyrics: song.lyrics.length > 0,
+      isInstrumental: song.isInstrumental,
+      hasScore: !!song.score,
+      scoreSource: song.score?.source ?? null,
+      scoreUpdatedAt: song.score?.updatedAt.toISOString() ?? null,
+      hasMusicScore: !!musicScore,
+      musicScoreUpdatedAt: musicScore?.updatedAt.toISOString() ?? null,
+      hasLiveProfile: !!song.bandRpgProfile,
+    });
+
     res.json({
       song, collectedCount, albumSiblings, bandRarityCounts, relatedByRarity, liveCache,
-      musicScore, relatedBySpectrum,
+      musicScore, relatedBySpectrum, health,
     });
   } catch (e) {
     next(e);

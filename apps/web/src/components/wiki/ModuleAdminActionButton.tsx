@@ -1,14 +1,18 @@
-// Renders the admin action described by a ModuleDataStatus — either a link
-// to an existing admin tool (route) or an in-place fetch/generate call
-// (handler), with its own pending/success/error state. One component so
-// every "fill this in" button across the Song Card behaves identically.
+// Renders the admin action described by a server-computed ModuleDataStatus —
+// either a link to an existing admin tool ('route') or a direct API call
+// ('endpoint'), with its own pending/success/error state. One component so
+// every "fill this in" button behaves identically, and new modules need
+// zero new frontend code: the server's ModuleAdminActionDescriptor is fully
+// self-describing (method + path), so this component can execute it without
+// knowing what it does.
 
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { ModuleAdminAction } from '../../lib/moduleDataStatus';
+import type { ModuleAdminActionDescriptor } from '@band-spectrum-mapper/shared';
+import { api } from '../../lib/api';
 
 interface Props {
-  action: ModuleAdminAction;
+  action: ModuleAdminActionDescriptor;
   onSuccess?: () => void;
   className?: string;
 }
@@ -18,7 +22,7 @@ export default function ModuleAdminActionButton({ action, onSuccess, className =
 
   const base = `inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${className}`;
 
-  if (action.kind === 'route') {
+  if (action.kind === 'route' && action.to) {
     return (
       <Link
         to={action.to}
@@ -30,11 +34,12 @@ export default function ModuleAdminActionButton({ action, onSuccess, className =
   }
 
   async function handleClick() {
-    if (action.kind !== 'handler') return;
-    if (action.confirmMessage && !window.confirm(action.confirmMessage)) return;
+    if (action.kind !== 'endpoint' || !action.path) return;
     setState('pending');
     try {
-      await action.onRun();
+      if (action.method === 'PUT') await api.put(action.path, {});
+      else if (action.method === 'GET') await api.get(action.path);
+      else await api.post(action.path, {});
       setState('done');
       onSuccess?.();
     } catch {

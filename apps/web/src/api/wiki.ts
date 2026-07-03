@@ -1,5 +1,8 @@
 // Music Wiki API client — types and fetch helpers.
 import { api } from '../lib/api';
+import type { SongHealth, AggregateHealth } from '@band-spectrum-mapper/shared';
+
+export type { SongHealth, AggregateHealth };
 
 export type WikiBand = {
   id: string;
@@ -129,6 +132,7 @@ export type WikiBandPageData = {
       mostAggressive: WikiTrackRef | null;
     };
   } | null;
+  health: AggregateHealth;
 };
 
 export async function getWikiBand(slug: string): Promise<WikiBandPageData> {
@@ -172,6 +176,7 @@ export type WikiAlbumPageData = {
   mostComplexTrack: WikiTrackRef | null;
   mostAtmosphericTrack: WikiTrackRef | null;
   rarityBreakdown: Record<string, number>;
+  health: AggregateHealth;
 };
 
 export async function getWikiAlbum(bandSlug: string, albumSlug: string): Promise<WikiAlbumPageData> {
@@ -236,6 +241,7 @@ export type WikiSongPageData = {
     album: { title: string; slug: string } | null;
     distance: number;
   }>;
+  health: SongHealth;
 };
 
 export async function getWikiSong(songId: string): Promise<WikiSongPageData> {

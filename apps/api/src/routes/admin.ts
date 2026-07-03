@@ -7,6 +7,8 @@ import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { adminKnowledgeService } from '../services/adminKnowledgeService.js';
+import { analysisJobService } from '../services/analysisJobService.js';
+import type { AnalysisJobScope } from '@band-spectrum-mapper/shared';
 import {
   startBatchJob,
   stopJob,
@@ -906,6 +908,7 @@ adminRouter.get('/data-health', async (req, res, next) => {
         band:   { select: { name: true } },
         album:  { select: { title: true } },
         lyrics:         { where: { isPrimary: true }, select: { id: true }, take: 1 },
+        score:          { select: { id: true } },
         aiAnalysis:     { select: { id: true } },
         aiSpectrum:     { select: { id: true } },
         musicScore:     { select: { id: true } },
@@ -913,6 +916,8 @@ adminRouter.get('/data-health', async (req, res, next) => {
         contextAnalysis:{ select: { id: true } },
         aiGenreSpectrum:{ select: { id: true } },
         themeScores:    { select: { id: true }, take: 1 },
+        bandRpgProfile: { select: { id: true } },
+        _count:         { select: { comments: true } },
         spectrumAnalyses: {
           select: { id: true, audioAnalysis: true },
           orderBy: { createdAt: 'desc' },
@@ -930,6 +935,9 @@ adminRouter.get('/data-health', async (req, res, next) => {
       albumTitle:      s.album?.title ?? null,
       isInstrumental:  s.isInstrumental,
       hasLyrics:       s.lyrics.length > 0,
+      hasCoreScore:    Boolean(s.score),
+      hasLiveProfile:  Boolean(s.bandRpgProfile),
+      hasComments:     s._count.comments > 0,
       hasAiAnalysis:   Boolean(s.aiAnalysis),
       hasAiSpectrum:   Boolean(s.aiSpectrum),
       hasMusicScore:   Boolean(s.musicScore),
@@ -945,6 +953,9 @@ adminRouter.get('/data-health', async (req, res, next) => {
     const summary = {
       total,
       hasLyrics:        rows.filter((r) => r.hasLyrics).length,
+      hasCoreScore:     rows.filter((r) => r.hasCoreScore).length,
+      hasLiveProfile:   rows.filter((r) => r.hasLiveProfile).length,
+      hasComments:      rows.filter((r) => r.hasComments).length,
       hasAiAnalysis:    rows.filter((r) => r.hasAiAnalysis).length,
       hasAiSpectrum:    rows.filter((r) => r.hasAiSpectrum).length,
       hasMusicScore:    rows.filter((r) => r.hasMusicScore).length,
@@ -956,5 +967,50 @@ adminRouter.get('/data-health', async (req, res, next) => {
     };
 
     res.json({ summary, songs: rows });
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// Analysis pipeline — "Analyze Song/Album/Band" one-button + job queue
+// (Phase Z.17.5). Single-process, DB-backed — see analysisJobService.ts.
+// ---------------------------------------------------------------------------
+
+const VALID_SCOPES: AnalysisJobScope[] = ['song', 'album', 'band'];
+
+adminRouter.post('/analysis-jobs/:scope/:targetId/run', async (req, res, next) => {
+  try {
+    const scope = req.params['scope'] as AnalysisJobScope;
+    if (!VALID_SCOPES.includes(scope)) {
+      res.status(400).json({ error: 'scope must be one of: song, album, band' });
+      return;
+    }
+    const job = await analysisJobService.enqueue(scope, req.params['targetId']!, req.user!.userId);
+    res.status(201).json(job);
+  } catch (e) { next(e); }
+});
+
+adminRouter.get('/analysis-jobs', async (_req, res, next) => {
+  try {
+    res.json(await analysisJobService.list());
+  } catch (e) { next(e); }
+});
+
+adminRouter.get('/analysis-jobs/:jobId', async (req, res, next) => {
+  try {
+    const job = await analysisJobService.get(req.params['jobId']!);
+    if (!job) { res.status(404).json({ error: 'Job not found' }); return; }
+    res.json(job);
+  } catch (e) { next(e); }
+});
+
+adminRouter.post('/analysis-jobs/:jobId/retry', async (req, res, next) => {
+  try {
+    res.json(await analysisJobService.retry(req.params['jobId']!));
+  } catch (e) { next(e); }
+});
+
+adminRouter.post('/analysis-jobs/:jobId/cancel', async (req, res, next) => {
+  try {
+    res.json(await analysisJobService.cancel(req.params['jobId']!));
   } catch (e) { next(e); }
 });

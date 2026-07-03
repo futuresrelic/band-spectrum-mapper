@@ -1013,6 +1013,33 @@ model SongMusicScore {
   @@map("song_music_scores")
 }
 
+// ---------------------------------------------------------------------------
+// Analysis pipeline job queue — Phase Z.17.5.
+// Single-process, DB-backed. No distributed worker: enqueue() writes the row
+// and kicks off in-process async processing; the row is the seam a future
+// phase can swap for a real worker without changing the API shape.
+// ---------------------------------------------------------------------------
+
+model AnalysisJob {
+  id             String    @id @default(cuid())
+  scope          String    // 'song' | 'album' | 'band'
+  targetId       String
+  targetLabel    String    // snapshotted title so the queue UI never needs a join
+  status         String    @default("waiting") // waiting | running | completed | failed | cancelled
+  totalSteps     Int       @default(1)          // number of songs in scope
+  completedSteps Int       @default(0)
+  currentStep    String?                        // e.g. "Song 3/12: Lyrics"
+  resultJson     Json?                           // per-song, per-module outcome log
+  errorMessage   String?
+  requestedBy    String?                        // userId
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status])
+  @@index([scope, targetId])
+  @@map("analysis_jobs")
+}
+
 model PromptTemplate {
   id          String         @id @default(cuid())
   name        String

@@ -17,9 +17,6 @@ import {
   getWikiSong,
   getWikiSongPlayerContext,
   updateSongSpectrum,
-  generateSongSpectrum,
-  generateMusicScore,
-  fetchSongLyricsAi,
   type WikiSongPageData,
   type WikiSongPlayerContext,
   type ScoreAxisKey,
@@ -28,11 +25,11 @@ import SiteHeader from '../../components/layout/SiteHeader';
 import KnowledgeConfidenceBadge from '../../components/wiki/KnowledgeConfidenceBadge';
 import WikiModulePlaceholder from '../../components/wiki/WikiModulePlaceholder';
 import ModuleAdminActionButton from '../../components/wiki/ModuleAdminActionButton';
+import AnalyzeButton from '../../components/wiki/AnalyzeButton';
 import { WikiBreadcrumb } from '../../components/wiki/WikiLayout';
 import RadarChart from '../../components/charts/RadarChart';
 import { SCORE_AXES, AXIS_LABELS, AXIS_COLORS, AXIS_INFO, MUSIC_SCORE_AXES, MUSIC_AXIS_LABELS } from '@band-spectrum-mapper/shared';
-import { deriveSpectrumConfidence } from '../../lib/spectrumConfidence';
-import type { ModuleDataStatus } from '../../lib/moduleDataStatus';
+import type { ModuleDataStatus, SongHealth } from '@band-spectrum-mapper/shared';
 import {
   deriveLiveFrequency,
   LIVE_FREQUENCY_COLOR,
@@ -346,7 +343,7 @@ export default function WikiSongPage() {
   if (isLoading) return <Shell><LoadingState /></Shell>;
   if (isError || !data) return <Shell><ErrorState /></Shell>;
 
-  const { song, collectedCount, albumSiblings, bandRarityCounts, relatedByRarity, liveCache, musicScore, relatedBySpectrum } = data;
+  const { song, collectedCount, albumSiblings, bandRarityCounts, relatedByRarity, liveCache, musicScore, relatedBySpectrum, health } = data;
   const lp = song.bandRpgProfile;
   const { tier, source: tierSource } = deriveLiveFrequency(lp?.liveStatus, song.rarity);
   const tStyle = tierStyle(tier);
@@ -364,6 +361,7 @@ export default function WikiSongPage() {
     { id: 'related',    label: 'Related'    },
     ...(primaryLyric ? [{ id: 'lyrics', label: 'Lyrics' }] : []),
     { id: 'goals',      label: 'What Next'  },
+    { id: 'health',     label: 'Song Health'},
   ];
 
   // Section stagger counter — each Section rises in reading order
@@ -413,6 +411,7 @@ export default function WikiSongPage() {
               </nav>
 
               <div className="space-y-2">
+                <MiniStat label="Song Health" value={<span className={healthColor(health.overallPct)}>{health.overallPct}%</span>} />
                 <MiniStat label="Live Frequency" value={<span className={tStyle.text}>{tier}</span>} />
                 {lp && lp.totalPerformances > 0 && (
                   <MiniStat label="Performances" value={lp.totalPerformances.toLocaleString()} />
@@ -470,11 +469,16 @@ export default function WikiSongPage() {
 
               {/* 6 · Song Spectrum — the musical fingerprint */}
               <Section id="spectrum" title="Song Spectrum" index={nextIndex()}
-                badge={song.score ? <KnowledgeConfidenceBadge level={deriveSpectrumConfidence(song.score.source).level} /> : undefined}
+                badge={
+                  health.modules.find((m) => m.moduleKey === 'spectrum')?.confidence
+                    ? <KnowledgeConfidenceBadge level={health.modules.find((m) => m.moduleKey === 'spectrum')!.confidence!} />
+                    : undefined
+                }
               >
                 <SpectrumModule
                   song={song}
                   musicScore={musicScore}
+                  health={health}
                   isAdmin={!!user?.isAdmin}
                   onChanged={refetchSong}
                 />
@@ -520,10 +524,21 @@ export default function WikiSongPage() {
                 </div>
               </Section>
 
+              {/* 11 · Song Health — how complete our knowledge of this song is.
+                     Shown to everyone; admins additionally see fill-in actions. */}
+              <Section id="health" title="Song Health" index={nextIndex()}>
+                <SongHealthPanel
+                  health={health}
+                  songId={song.id}
+                  isAdmin={!!user?.isAdmin}
+                  onChanged={refetchSong}
+                />
+              </Section>
+
               {/* Admin — deliberately last, deliberately plain */}
               {user?.isAdmin && (
                 <Section id="admin" title="Admin" index={nextIndex()}>
-                  <AdminPanel song={song} lp={lp} musicScore={musicScore} onChanged={refetchSong} />
+                  <AdminPanel song={song} lp={lp} />
                 </Section>
               )}
 
@@ -1044,16 +1059,20 @@ function CollectionStory({
 function SpectrumModule({
   song,
   musicScore,
+  health,
   isAdmin,
   onChanged,
 }: {
   song: WikiSongPageData['song'];
   musicScore: WikiSongPageData['musicScore'];
+  health: SongHealth;
   isAdmin: boolean;
   onChanged: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const score = song.score;
+  const spectrumStatus = health.modules.find((m) => m.moduleKey === 'spectrum')!;
+  const rhythmStatus = health.modules.find((m) => m.moduleKey === 'rhythm')!;
 
   if (!score) {
     return (
@@ -1063,22 +1082,15 @@ function SpectrumModule({
           title="Song Spectrum not analyzed yet"
           description="This section will show the song's musical fingerprint once analysis is available."
         />
-        {isAdmin && (
-          <ModuleAdminActionButton
-            action={{
-              kind: 'handler',
-              label: 'Generate Song Spectrum',
-              onRun: () => generateSongSpectrum(song.id),
-            }}
-            onSuccess={onChanged}
-          />
+        {isAdmin && spectrumStatus.adminAction && (
+          <ModuleAdminActionButton action={spectrumStatus.adminAction} onSuccess={onChanged} />
         )}
-        <RhythmLabPanel songId={song.id} musicScore={musicScore} isAdmin={isAdmin} onChanged={onChanged} />
+        <RhythmLabPanel musicScore={musicScore} moduleStatus={rhythmStatus} isAdmin={isAdmin} onChanged={onChanged} />
       </div>
     );
   }
 
-  const confidence = deriveSpectrumConfidence(score.source);
+  const confidence = { level: spectrumStatus.confidence ?? 'estimated', label: spectrumStatus.notes ?? 'Confidence unknown.' } as const;
   const interpretation = buildSpectrumInterpretation(score);
   const radarScores = {
     aggression: score.aggression, complexity: score.complexity, atmosphere: score.atmosphere,
@@ -1127,10 +1139,9 @@ function SpectrumModule({
 
       {isAdmin && (
         <div className="flex flex-wrap items-center gap-2">
-          <ModuleAdminActionButton
-            action={{ kind: 'handler', label: 'Regenerate via AI', onRun: () => generateSongSpectrum(song.id) }}
-            onSuccess={onChanged}
-          />
+          {spectrumStatus.adminAction && (
+            <ModuleAdminActionButton action={spectrumStatus.adminAction} onSuccess={onChanged} />
+          )}
           <button
             type="button"
             onClick={() => setEditing((e) => !e)}
@@ -1148,7 +1159,7 @@ function SpectrumModule({
         />
       )}
 
-      <RhythmLabPanel songId={song.id} musicScore={musicScore} isAdmin={isAdmin} onChanged={onChanged} />
+      <RhythmLabPanel musicScore={musicScore} moduleStatus={rhythmStatus} isAdmin={isAdmin} onChanged={onChanged} />
     </div>
   );
 }
@@ -1230,13 +1241,13 @@ function SpectrumAdminEditor({
 // emotionally. Read-only display of existing data; never triggers AI
 // generation from a page view — only the explicit admin action does.
 function RhythmLabPanel({
-  songId,
   musicScore,
+  moduleStatus,
   isAdmin,
   onChanged,
 }: {
-  songId: string;
   musicScore: WikiSongPageData['musicScore'];
+  moduleStatus: ModuleDataStatus;
   isAdmin: boolean;
   onChanged: () => void;
 }) {
@@ -1249,11 +1260,8 @@ function RhythmLabPanel({
           description="Analysis will appear after rhythm extraction."
           comingSoon
         />
-        {isAdmin && (
-          <ModuleAdminActionButton
-            action={{ kind: 'handler', label: 'Analyze Rhythm', onRun: () => generateMusicScore(songId) }}
-            onSuccess={onChanged}
-          />
+        {isAdmin && moduleStatus.adminAction && (
+          <ModuleAdminActionButton action={moduleStatus.adminAction} onSuccess={onChanged} />
         )}
       </div>
     );
@@ -1276,12 +1284,9 @@ function RhythmLabPanel({
       {musicScore.rationale && (
         <p className="text-xs text-gray-500 leading-relaxed italic pt-3 border-t border-gray-800">{musicScore.rationale}</p>
       )}
-      {isAdmin && (
+      {isAdmin && moduleStatus.adminAction && (
         <div className="mt-3">
-          <ModuleAdminActionButton
-            action={{ kind: 'handler', label: 'Re-analyze Rhythm', onRun: () => generateMusicScore(songId) }}
-            onSuccess={onChanged}
-          />
+          <ModuleAdminActionButton action={moduleStatus.adminAction} onSuccess={onChanged} />
         </div>
       )}
     </div>
@@ -1469,75 +1474,59 @@ function LyricsPanel({ lyric }: { lyric: WikiSongPageData['song']['lyrics'][0] }
 
 // ── Admin panel ───────────────────────────────────────────────────────────────
 
-// The Song Card as a control panel for filling data gaps — one status per
-// module, each knowing whether it has data, where it came from, and what an
-// admin can do about it. Reuses existing admin tools/endpoints; never
-// duplicates their logic.
-function buildModuleStatuses(
-  song: WikiSongPageData['song'],
-  lp: WikiSongPageData['song']['bandRpgProfile'],
-  musicScore: WikiSongPageData['musicScore'],
-): ModuleDataStatus[] {
-  const spectrumConfidence = song.score ? deriveSpectrumConfidence(song.score.source) : null;
-  return [
-    {
-      moduleKey: 'spectrum',
-      hasData: !!song.score,
-      status: song.score ? 'ready' : 'missing',
-      source: song.score?.source ?? null,
-      lastUpdated: song.score?.updatedAt ?? null,
-      confidence: spectrumConfidence?.level ?? null,
-      adminAction: song.score
-        ? null // edit affordance lives inline in the Spectrum section itself
-        : { kind: 'handler', label: 'Generate Song Spectrum', onRun: () => generateSongSpectrum(song.id) },
-    },
-    {
-      moduleKey: 'lyrics',
-      hasData: song.lyrics.length > 0,
-      status: song.lyrics.length > 0 ? 'ready' : 'missing',
-      source: song.lyrics[0]?.sourceType ?? null,
-      lastUpdated: null,
-      confidence: song.lyrics.length > 0 ? 'verified' : null,
-      adminAction: song.lyrics.length > 0
-        ? null
-        : { kind: 'handler', label: 'Fetch Lyrics (AI recall)', onRun: () => fetchSongLyricsAi(song.id) },
-    },
-    {
-      moduleKey: 'liveData',
-      hasData: !!lp && lp.totalPerformances > 0,
-      status: lp ? 'ready' : 'missing',
-      source: lp ? 'calculated' : null,
-      lastUpdated: null,
-      confidence: lp ? 'calculated' : null,
-      adminAction: lp ? null : { kind: 'route', label: 'Fetch Live Data', to: '/admin/band-rpg' },
-    },
-    {
-      moduleKey: 'rhythmLab',
-      hasData: !!musicScore,
-      status: musicScore ? 'ready' : 'missing',
-      source: musicScore ? 'ai' : null,
-      lastUpdated: musicScore?.updatedAt ?? null,
-      confidence: musicScore ? 'ai' : null,
-      adminAction: musicScore
-        ? null
-        : { kind: 'handler', label: 'Analyze Rhythm', onRun: () => generateMusicScore(song.id) },
-    },
-  ];
+// ── Song Health ────────────────────────────────────────────────────────────────
+// One panel, two audiences. Everyone sees what BSM's knowledge of this song
+// looks like; admins additionally see the action that fills each gap. The
+// module list itself is entirely server-computed (songHealthService) — this
+// component only renders it.
+
+function healthColor(pct: number): string {
+  return pct >= 90 ? 'text-emerald-400' : pct >= 60 ? 'text-amber-400' : 'text-red-400';
 }
 
-function ModuleStatusRow({ status, onChanged }: { status: ModuleDataStatus; onChanged: () => void }) {
-  const MODULE_TITLES: Record<string, string> = {
-    spectrum: 'Song Spectrum', lyrics: 'Lyrics', liveData: 'Live Data', rhythmLab: 'Rhythm Lab',
-  };
+function SongHealthPanel({
+  health,
+  songId,
+  isAdmin,
+  onChanged,
+}: {
+  health: SongHealth;
+  songId: string;
+  isAdmin: boolean;
+  onChanged: () => void;
+}) {
   return (
-    <div className="flex items-center justify-between gap-3 py-2 border-b border-gray-900 last:border-0">
-      <div className="flex items-center gap-2 min-w-0">
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${status.hasData ? 'bg-emerald-500' : 'bg-gray-600'}`} />
-        <span className="text-xs text-gray-300 truncate">{MODULE_TITLES[status.moduleKey] ?? status.moduleKey}</span>
-        {status.confidence && <KnowledgeConfidenceBadge level={status.confidence} />}
+    <div className="space-y-4">
+      <div className="bg-gray-900/70 border border-[#1a2332] rounded-xl p-5 sm:p-6">
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-sm text-gray-300 leading-relaxed" style={{ fontFamily: SERIF }}>
+            How complete is our knowledge of this song?
+          </p>
+          <span className={`text-3xl font-black tabular-nums leading-none shrink-0 ml-4 ${healthColor(health.overallPct)}`}>
+            {health.overallPct}%
+          </span>
+        </div>
+        <FillBar pct={health.overallPct} barClass={health.overallPct >= 90 ? 'bg-emerald-600' : health.overallPct >= 60 ? 'bg-amber-600' : 'bg-red-600'} />
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-5">
+          {health.modules.map((m) => (
+            <div key={m.moduleKey} className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-gray-950/50 border border-gray-900">
+              <div className="flex items-center gap-2 min-w-0">
+                <span aria-hidden className={`text-sm shrink-0 ${m.hasData ? 'text-emerald-400' : m.status === 'skipped' ? 'text-gray-600' : 'text-gray-600'}`}>
+                  {m.hasData ? '✓' : m.status === 'skipped' ? '—' : '○'}
+                </span>
+                <span className="text-xs text-gray-300 truncate">{m.title}</span>
+              </div>
+              {isAdmin && m.adminAction && !m.hasData && (
+                <ModuleAdminActionButton action={m.adminAction} onSuccess={onChanged} className="shrink-0" />
+              )}
+            </div>
+          ))}
+        </div>
       </div>
-      {status.adminAction && (
-        <ModuleAdminActionButton action={status.adminAction} onSuccess={onChanged} className="shrink-0" />
+
+      {isAdmin && (
+        <AnalyzeButton scope="song" targetId={songId} label="Analyze Song" onDone={onChanged} />
       )}
     </div>
   );
@@ -1546,24 +1535,12 @@ function ModuleStatusRow({ status, onChanged }: { status: ModuleDataStatus; onCh
 function AdminPanel({
   song,
   lp,
-  musicScore,
-  onChanged,
 }: {
   song: WikiSongPageData['song'];
   lp: WikiSongPageData['song']['bandRpgProfile'];
-  musicScore: WikiSongPageData['musicScore'];
-  onChanged: () => void;
 }) {
-  const statuses = buildModuleStatuses(song, lp, musicScore);
   return (
     <div className="bg-amber-950/20 border border-amber-900/40 rounded-xl p-5">
-      <p className="text-[10px] uppercase tracking-widest text-amber-700 mb-3 font-bold">Data Completion</p>
-      <div className="mb-4">
-        {statuses.map((s) => (
-          <ModuleStatusRow key={s.moduleKey} status={s} onChanged={onChanged} />
-        ))}
-      </div>
-
       <p className="text-[10px] uppercase tracking-widest text-amber-700 mb-3 font-bold">Admin Quick Access</p>
       <div className="flex flex-wrap gap-2 mb-4">
         <AdminLink to="/admin/band-rpg" label="Live Data Audit" />

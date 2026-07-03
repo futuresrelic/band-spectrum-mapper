@@ -1,6 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getWikiBand } from '../../api/wiki';
+import { useAuth } from '../../contexts/AuthContext';
 import WikiLayout, {
   WikiSection,
   WikiStat,
@@ -10,11 +11,14 @@ import WikiLayout, {
 import KnowledgeConfidenceBadge from '../../components/wiki/KnowledgeConfidenceBadge';
 import WikiModulePlaceholder from '../../components/wiki/WikiModulePlaceholder';
 import RadarChart from '../../components/charts/RadarChart';
+import AnalyzeButton from '../../components/wiki/AnalyzeButton';
 import { SCORE_AXES, AXIS_LABELS } from '@band-spectrum-mapper/shared';
 import { tierFromLiveStatus, LIVE_FREQUENCY_COLOR } from '../../lib/liveFrequency';
 
 export default function WikiBandPage() {
   const { slug = '' } = useParams<{ slug: string }>();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['wiki', 'band', slug],
@@ -26,7 +30,7 @@ export default function WikiBandPage() {
   if (isLoading) return <LoadingShell />;
   if (isError || !data) return <ErrorShell />;
 
-  const { band, topPlayed, rarestPlayed, spectrumRollup } = data;
+  const { band, topPlayed, rarestPlayed, spectrumRollup, health } = data;
   const studioAlbums = band.albums.filter((a) =>
     !a.albumType || ['studio', 'lp', 'ep'].includes(a.albumType),
   );
@@ -36,6 +40,7 @@ export default function WikiBandPage() {
 
   const liveData = band.liveDataCache;
   const hasLiveData = liveData && liveData.fetchedShows > 0;
+  const refetch = () => queryClient.invalidateQueries({ queryKey: ['wiki', 'band', slug] });
 
   const nav = [
     { id: 'overview',    label: 'Overview' },
@@ -43,6 +48,7 @@ export default function WikiBandPage() {
     { id: 'members',     label: 'Members' },
     { id: 'live',        label: 'Live History' },
     { id: 'spectrum',    label: 'Spectrum' },
+    { id: 'health',      label: 'Database Health' },
   ];
 
   return (
@@ -324,6 +330,35 @@ export default function WikiBandPage() {
             comingSoon
           />
         )}
+      </WikiSection>
+
+      {/* ── Database Health ── */}
+      <WikiSection id="health" title="Database Health" badge={<KnowledgeConfidenceBadge level="calculated" />}>
+        <div className="space-y-4">
+          <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm text-gray-300">
+                How complete is our knowledge of {band.name}? · {health.songCount} song{health.songCount !== 1 ? 's' : ''}
+              </p>
+              <span className={`text-2xl font-black tabular-nums ${health.overallPct >= 90 ? 'text-emerald-400' : health.overallPct >= 60 ? 'text-amber-400' : 'text-red-400'}`}>
+                {health.overallPct}%
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
+              {health.moduleCoverage.map((m) => (
+                <div key={m.moduleKey} className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-950/50 border border-gray-800">
+                  <span className="text-xs text-gray-400">{m.title}</span>
+                  <span className="text-xs font-semibold tabular-nums text-gray-300">
+                    {m.songsComplete}/{health.songCount} · {m.pct}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {user?.isAdmin && (
+            <AnalyzeButton scope="band" targetId={band.id} label="Analyze Band" onDone={refetch} />
+          )}
+        </div>
       </WikiSection>
     </WikiLayout>
   );
