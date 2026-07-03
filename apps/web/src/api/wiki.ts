@@ -56,6 +56,26 @@ export type WikiAxisScore = {
   psychedelic: number;
   concept: number;
   notes: string | null;
+  source: 'ai' | 'manual' | 'import' | 'audio' | null;
+  updatedAt: string;
+};
+
+export type ScoreAxisKey = 'aggression' | 'complexity' | 'atmosphere' | 'emotion' | 'psychedelic' | 'concept';
+
+export type WikiTrackRef = { id: string; title: string; slug: string; value: number };
+
+export type WikiMusicScore = {
+  id: string;
+  songId: string;
+  rhythmicComplexity: number;
+  harmonicDepth: number;
+  structuralComplexity: number;
+  sonicDensity: number;
+  tempoEnergy: number;
+  tonalDarkness: number;
+  rationale: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 // ── Search ────────────────────────────────────────────────────────────────────
@@ -99,6 +119,16 @@ export type WikiBandPageData = {
     liveStatus: string;
     song: { id: string; title: string; slug: string; album: { title: string; slug: string } | null };
   }>;
+  spectrumRollup: {
+    avgSpectrum: Record<ScoreAxisKey, number>;
+    strongestAxis: { axis: ScoreAxisKey; average: number } | null;
+    albumsByComplexity: Array<{ albumId: string; title: string; avgComplexity: number; songCount: number }>;
+    extremeTracks: {
+      mostComplex: WikiTrackRef | null;
+      mostAtmospheric: WikiTrackRef | null;
+      mostAggressive: WikiTrackRef | null;
+    };
+  } | null;
 };
 
 export async function getWikiBand(slug: string): Promise<WikiBandPageData> {
@@ -138,6 +168,9 @@ export type WikiAlbumPageData = {
     songs: WikiAlbumSong[];
   };
   avgSpectrum: WikiAxisScore | null;
+  strongestAxis: { axis: ScoreAxisKey; average: number } | null;
+  mostComplexTrack: WikiTrackRef | null;
+  mostAtmosphericTrack: WikiTrackRef | null;
   rarityBreakdown: Record<string, number>;
 };
 
@@ -195,12 +228,48 @@ export type WikiSongPageData = {
   bandRarityCounts: WikiBandRarityCount[];
   relatedByRarity: WikiSongRelated[];
   liveCache: { fetchedShows: number; totalShows: number } | null;
+  musicScore: WikiMusicScore | null;
+  relatedBySpectrum: Array<{
+    id: string;
+    title: string;
+    slug: string;
+    album: { title: string; slug: string } | null;
+    distance: number;
+  }>;
 };
 
 export async function getWikiSong(songId: string): Promise<WikiSongPageData> {
   const res = await fetch(`/api/wiki/songs/${encodeURIComponent(songId)}`);
   if (!res.ok) throw new Error('Song not found');
   return res.json() as Promise<WikiSongPageData>;
+}
+
+// ── Song Spectrum admin actions (auth required — uses api.* for Bearer token) ─
+
+export type UpsertSpectrumInput = {
+  aggression: number;
+  complexity: number;
+  atmosphere: number;
+  emotion: number;
+  psychedelic: number;
+  concept: number;
+  notes?: string | null;
+};
+
+export async function updateSongSpectrum(songId: string, data: UpsertSpectrumInput): Promise<WikiAxisScore> {
+  return api.put<WikiAxisScore>(`/api/songs/${encodeURIComponent(songId)}/score`, data);
+}
+
+export async function generateSongSpectrum(songId: string): Promise<WikiAxisScore> {
+  return api.post<WikiAxisScore>(`/api/analysis/ai/${encodeURIComponent(songId)}/core-score/generate`, {});
+}
+
+export async function generateMusicScore(songId: string): Promise<WikiMusicScore> {
+  return api.post<WikiMusicScore>(`/api/analysis/ai/${encodeURIComponent(songId)}/music-score/regenerate`, {});
+}
+
+export async function fetchSongLyricsAi(songId: string): Promise<unknown> {
+  return api.post(`/api/songs/${encodeURIComponent(songId)}/ai-lyrics`, {});
 }
 
 // ── Player context (requires auth — uses api.get so Bearer token is included) ─

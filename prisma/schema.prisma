@@ -205,6 +205,9 @@ model SongAxisScore {
   psychedelic Float    @default(0)
   concept     Float    @default(0)
   notes       String?
+  // Provenance — null on rows written before this field existed.
+  // 'ai' | 'manual' | 'import' | 'audio'
+  source      String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

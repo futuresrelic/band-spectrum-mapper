@@ -459,6 +459,7 @@ async function writePhase2(songId: string, bandId: string, p2: Phase2Output): Pr
         psychedelic: coreScore.psychedelic,
         concept:     coreScore.concept,
         notes: coreScore.rationale,
+        source: 'ai',
       },
       update: {
         aggression:  coreScore.aggression,
@@ -468,6 +469,7 @@ async function writePhase2(songId: string, bandId: string, p2: Phase2Output): Pr
         psychedelic: coreScore.psychedelic,
         concept:     coreScore.concept,
         notes: coreScore.rationale,
+        source: 'ai',
       },
     }),
 

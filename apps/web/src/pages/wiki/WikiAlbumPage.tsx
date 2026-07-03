@@ -8,6 +8,8 @@ import WikiLayout, {
   SpectrumBar,
 } from '../../components/wiki/WikiLayout';
 import KnowledgeConfidenceBadge from '../../components/wiki/KnowledgeConfidenceBadge';
+import RadarChart from '../../components/charts/RadarChart';
+import { AXIS_LABELS } from '@band-spectrum-mapper/shared';
 import { deriveLiveFrequency, LIVE_FREQUENCY_COLOR } from '../../lib/liveFrequency';
 
 const RARITY_ORDER = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'];
@@ -32,7 +34,7 @@ export default function WikiAlbumPage() {
   if (isLoading) return <LoadingShell />;
   if (isError || !data) return <ErrorShell />;
 
-  const { band, album, avgSpectrum, rarityBreakdown } = data;
+  const { band, album, avgSpectrum, strongestAxis, mostComplexTrack, mostAtmosphericTrack, rarityBreakdown } = data;
   const axisKeys = ['aggression', 'complexity', 'atmosphere', 'emotion', 'psychedelic', 'concept'] as const;
 
   const nav = [
@@ -137,11 +139,53 @@ export default function WikiAlbumPage() {
       {/* ── Spectrum ── */}
       <WikiSection id="spectrum" title="Average Spectrum" badge={<KnowledgeConfidenceBadge level="calculated" />}>
         {avgSpectrum ? (
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-5 space-y-3">
-            {axisKeys.map((ax) => (
-              <SpectrumBar key={ax} label={ax} value={avgSpectrum[ax]} />
-            ))}
-            <p className="text-[10px] text-gray-600 mt-2">
+          <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">
+            <div className="grid sm:grid-cols-[minmax(0,220px)_1fr] gap-5 items-start">
+              <div className="max-w-[220px] mx-auto sm:mx-0 w-full">
+                <RadarChart
+                  datasets={[{ label: 'Average', scores: avgSpectrum, color: '#a78bfa' }]}
+                  dark
+                  outline
+                  height={220}
+                />
+              </div>
+              <div className="space-y-3 min-w-0">
+                {axisKeys.map((ax) => (
+                  <SpectrumBar key={ax} label={ax} value={avgSpectrum[ax]} />
+                ))}
+              </div>
+            </div>
+
+            {(strongestAxis || mostComplexTrack || mostAtmosphericTrack) && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5 pt-5 border-t border-gray-800">
+                {strongestAxis && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-0.5">Strongest axis</p>
+                    <p className="text-sm font-semibold text-gray-200">
+                      {AXIS_LABELS[strongestAxis.axis]} <span className="text-gray-500 font-normal">({strongestAxis.average.toFixed(1)})</span>
+                    </p>
+                  </div>
+                )}
+                {mostComplexTrack && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-0.5">Most complex track</p>
+                    <Link to={`/wiki/songs/${mostComplexTrack.id}`} className="text-sm font-semibold text-indigo-300 hover:text-indigo-200 transition-colors">
+                      {mostComplexTrack.title}
+                    </Link>
+                  </div>
+                )}
+                {mostAtmosphericTrack && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-0.5">Most atmospheric track</p>
+                    <Link to={`/wiki/songs/${mostAtmosphericTrack.id}`} className="text-sm font-semibold text-indigo-300 hover:text-indigo-200 transition-colors">
+                      {mostAtmosphericTrack.title}
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <p className="text-[10px] text-gray-600 mt-3">
               Average across {album.songs.filter((s) => s.score).length} scored songs.
             </p>
           </div>

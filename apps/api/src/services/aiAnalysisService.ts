@@ -293,8 +293,8 @@ Return ONLY valid JSON:
     // Persist to SongAxisScore (Core)
     await prisma.songAxisScore.upsert({
       where: { songId },
-      create: { songId, bandId: song.bandId, ...scores, notes: rationale },
-      update: { ...scores, notes: rationale },
+      create: { songId, bandId: song.bandId, ...scores, notes: rationale, source: 'ai' },
+      update: { ...scores, notes: rationale, source: 'ai' },
     });
 
     return { ...scores, rationale };

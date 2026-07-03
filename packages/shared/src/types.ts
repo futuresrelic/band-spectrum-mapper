@@ -77,6 +77,8 @@ export interface SongAxisScore {
   psychedelic: number;
   concept: number;
   notes: string | null;
+  /** Provenance — null on rows written before this field existed. */
+  source: 'ai' | 'manual' | 'import' | 'audio' | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -155,8 +155,8 @@ export const scoreImportService = {
 
       await prisma.songAxisScore.upsert({
         where: { songId: song.id },
-        create: { songId: song.id, bandId, ...scores },
-        update: scores,
+        create: { songId: song.id, bandId, ...scores, source: 'import' },
+        update: { ...scores, source: 'import' },
       });
 
       result.matched++;

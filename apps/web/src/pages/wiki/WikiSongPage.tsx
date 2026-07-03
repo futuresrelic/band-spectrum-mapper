@@ -11,18 +11,28 @@
 
 import { useState, useEffect, type ReactNode, type CSSProperties } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   getWikiSong,
   getWikiSongPlayerContext,
+  updateSongSpectrum,
+  generateSongSpectrum,
+  generateMusicScore,
+  fetchSongLyricsAi,
   type WikiSongPageData,
   type WikiSongPlayerContext,
+  type ScoreAxisKey,
 } from '../../api/wiki';
 import SiteHeader from '../../components/layout/SiteHeader';
 import KnowledgeConfidenceBadge from '../../components/wiki/KnowledgeConfidenceBadge';
 import WikiModulePlaceholder from '../../components/wiki/WikiModulePlaceholder';
-import { WikiBreadcrumb, SpectrumBar } from '../../components/wiki/WikiLayout';
+import ModuleAdminActionButton from '../../components/wiki/ModuleAdminActionButton';
+import { WikiBreadcrumb } from '../../components/wiki/WikiLayout';
+import RadarChart from '../../components/charts/RadarChart';
+import { SCORE_AXES, AXIS_LABELS, AXIS_COLORS, AXIS_INFO, MUSIC_SCORE_AXES, MUSIC_AXIS_LABELS } from '@band-spectrum-mapper/shared';
+import { deriveSpectrumConfidence } from '../../lib/spectrumConfidence';
+import type { ModuleDataStatus } from '../../lib/moduleDataStatus';
 import {
   deriveLiveFrequency,
   LIVE_FREQUENCY_COLOR,
@@ -248,14 +258,12 @@ function buildGoals(
   return goals.slice(0, 3);
 }
 
-// ── Future modules — extension points for Phase Z.17 ─────────────────────────
+// ── Future modules — extension points for Phase Z.18+ ─────────────────────────
 // Each entry reserves wall space for a module that will hang here later.
-// Z.17 replaces entries in this registry with live components; the section
-// renderer below does not need to change.
+// Song Spectrum (Z.17) and Rhythm Lab (Z.17, via SongMusicScore) graduated
+// out of this registry into live sections — this list is what's left.
 
 const FUTURE_MODULES: Array<{ id: string; icon: string; title: string; description: string }> = [
-  { id: 'song-spectrum', icon: '🎛', title: 'Song Spectrum',  description: 'Audio character analysis from uploaded and linked recordings.' },
-  { id: 'rhythm-lab',    icon: '🥁', title: 'Rhythm Lab',     description: 'Analysis will appear after rhythm extraction.' },
   { id: 'lyrics-dna',    icon: '🧬', title: 'Lyrics DNA',     description: 'Waiting for linguistic analysis.' },
   { id: 'trivia',        icon: '❓', title: 'Trivia',         description: 'Questions about this song will surface as the trivia bank grows.' },
   { id: 'community',     icon: '💬', title: 'Community',      description: 'No discussions yet. The first word is yours.' },
@@ -264,12 +272,48 @@ const FUTURE_MODULES: Array<{ id: string; icon: string; title: string; descripti
   { id: 'node-graph',    icon: '🕸', title: 'Song Node',      description: 'Connections to other songs, mapped as a living graph.' },
 ];
 
+// ── Song Spectrum interpretation ──────────────────────────────────────────────
+// A single deterministic sentence built only from real axis values — never
+// hallucinated. Reports the highest axis/axes, and the lowest if it's a real
+// outlier, using plain descriptive bands (high/moderate/low) rather than
+// invented commentary.
+
+function buildSpectrumInterpretation(score: WikiSongPageData['song']['score']): string | null {
+  if (!score) return null;
+  const values = SCORE_AXES.map((axis) => ({ axis, value: score[axis] }));
+  const sorted = [...values].sort((a, b) => b.value - a.value);
+  const top = sorted.filter((v) => v.value >= 7);
+  const low = sorted[sorted.length - 1];
+
+  const band = (v: number) => (v >= 7 ? 'high' : v >= 4 ? 'moderate' : 'low');
+
+  if (top.length === 0) {
+    // Nothing stands out sharply — describe the two strongest axes plainly
+    const [a, b] = sorted;
+    if (!a || !b) return null;
+    return `This song sits at a ${band(a.value)} level in ${AXIS_LABELS[a.axis].toLowerCase()} and a ${band(b.value)} level in ${AXIS_LABELS[b.axis].toLowerCase()}, without a single axis dominating.`;
+  }
+
+  const topLabels = top.slice(0, 2).map((v) => AXIS_LABELS[v.axis].toLowerCase());
+  const topPhrase = topLabels.length === 2 ? `${topLabels[0]} and ${topLabels[1]}` : topLabels[0];
+
+  let sentence = `This song leans high in ${topPhrase}`;
+  if (low && !top.some((v) => v.axis === low.axis) && low.value <= 3) {
+    sentence += `, with low ${AXIS_LABELS[low.axis].toLowerCase()}`;
+  } else {
+    const middle = sorted.find((v) => !top.some((t) => t.axis === v.axis));
+    if (middle) sentence += `, with moderate ${AXIS_LABELS[middle.axis].toLowerCase()}`;
+  }
+  return `${sentence}.`;
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function WikiSongPage() {
   const { songId = '' } = useParams<{ songId: string }>();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const fromGame = searchParams.get('unlocked') === '1';
   const [revealed, setRevealed] = useState(!fromGame);
 
@@ -279,6 +323,8 @@ export default function WikiSongPage() {
     enabled: !!songId,
     staleTime: 5 * 60 * 1000,
   });
+
+  const refetchSong = () => queryClient.invalidateQueries({ queryKey: ['wiki', 'song', songId] });
 
   const { data: playerCtx } = useQuery({
     queryKey: ['wiki', 'song-player', songId],
@@ -300,7 +346,7 @@ export default function WikiSongPage() {
   if (isLoading) return <Shell><LoadingState /></Shell>;
   if (isError || !data) return <Shell><ErrorState /></Shell>;
 
-  const { song, collectedCount, albumSiblings, bandRarityCounts, relatedByRarity, liveCache } = data;
+  const { song, collectedCount, albumSiblings, bandRarityCounts, relatedByRarity, liveCache, musicScore, relatedBySpectrum } = data;
   const lp = song.bandRpgProfile;
   const { tier, source: tierSource } = deriveLiveFrequency(lp?.liveStatus, song.rarity);
   const tStyle = tierStyle(tier);
@@ -308,15 +354,14 @@ export default function WikiSongPage() {
   const goals = buildGoals(data, playerCtx);
   const totalShows = liveCache?.fetchedShows ?? 0;
   const primaryLyric = song.lyrics[0] ?? null;
-  const axes = ['aggression', 'complexity', 'atmosphere', 'emotion', 'psychedelic', 'concept'] as const;
 
   const navItems = [
     { id: 'story',      label: 'Story'      },
     { id: 'provenance', label: 'Timeline'   },
     { id: 'live',       label: 'Live'       },
     ...(user ? [{ id: 'journey', label: 'Your Journey' }, { id: 'collection', label: 'Collection' }] : []),
-    { id: 'related',    label: 'Related'    },
     { id: 'spectrum',   label: 'Spectrum'   },
+    { id: 'related',    label: 'Related'    },
     ...(primaryLyric ? [{ id: 'lyrics', label: 'Lyrics' }] : []),
     { id: 'goals',      label: 'What Next'  },
   ];
@@ -423,39 +468,28 @@ export default function WikiSongPage() {
                 </Section>
               )}
 
-              {/* 6 · If this interested you… */}
+              {/* 6 · Song Spectrum — the musical fingerprint */}
+              <Section id="spectrum" title="Song Spectrum" index={nextIndex()}
+                badge={song.score ? <KnowledgeConfidenceBadge level={deriveSpectrumConfidence(song.score.source).level} /> : undefined}
+              >
+                <SpectrumModule
+                  song={song}
+                  musicScore={musicScore}
+                  isAdmin={!!user?.isAdmin}
+                  onChanged={refetchSong}
+                />
+              </Section>
+
+              {/* 7 · If this interested you… */}
               <Section id="related" title="Related Songs" index={nextIndex()}>
                 <RelatedSongs
                   albumSiblings={albumSiblings}
                   relatedByRarity={relatedByRarity}
+                  relatedBySpectrum={relatedBySpectrum}
                   currentTier={tier}
                   bandSlug={song.band.slug}
                   albumSlug={song.album?.slug}
                 />
-              </Section>
-
-              {/* 7 · Spectrum analysis */}
-              <Section id="spectrum" title="Spectrum Analysis" index={nextIndex()}
-                badge={<KnowledgeConfidenceBadge level={song.score ? 'calculated' : 'estimated'} />}
-              >
-                {song.score ? (
-                  <div className="bg-gray-900/70 border border-[#1a2332] rounded-xl p-5 space-y-3">
-                    {axes.map((ax) => (
-                      <SpectrumBar key={ax} label={ax} value={song.score![ax]} />
-                    ))}
-                    {song.score.notes && (
-                      <p className="text-xs text-gray-500 mt-3 pt-3 border-t border-gray-800 leading-relaxed">
-                        {song.score.notes}
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <WikiModulePlaceholder
-                    icon="📊"
-                    title="Awaiting analysis"
-                    description="This song has not yet been mapped across the six-axis spectrum."
-                  />
-                )}
               </Section>
 
               {/* 8 · Lyrics */}
@@ -489,7 +523,7 @@ export default function WikiSongPage() {
               {/* Admin — deliberately last, deliberately plain */}
               {user?.isAdmin && (
                 <Section id="admin" title="Admin" index={nextIndex()}>
-                  <AdminPanel song={song} lp={lp} />
+                  <AdminPanel song={song} lp={lp} musicScore={musicScore} onChanged={refetchSong} />
                 </Section>
               )}
 
@@ -1001,17 +1035,272 @@ function CollectionStory({
   );
 }
 
+// ── Song Spectrum module ───────────────────────────────────────────────────────
+// The musical fingerprint. Radar for shape at a glance, bars for exact values
+// and axis meaning, a deterministic one-sentence interpretation, and — for
+// admins — the tools to generate or hand-correct it. Never shows a value
+// that isn't real.
+
+function SpectrumModule({
+  song,
+  musicScore,
+  isAdmin,
+  onChanged,
+}: {
+  song: WikiSongPageData['song'];
+  musicScore: WikiSongPageData['musicScore'];
+  isAdmin: boolean;
+  onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const score = song.score;
+
+  if (!score) {
+    return (
+      <div className="space-y-4">
+        <WikiModulePlaceholder
+          icon="🎛"
+          title="Song Spectrum not analyzed yet"
+          description="This section will show the song's musical fingerprint once analysis is available."
+        />
+        {isAdmin && (
+          <ModuleAdminActionButton
+            action={{
+              kind: 'handler',
+              label: 'Generate Song Spectrum',
+              onRun: () => generateSongSpectrum(song.id),
+            }}
+            onSuccess={onChanged}
+          />
+        )}
+        <RhythmLabPanel songId={song.id} musicScore={musicScore} isAdmin={isAdmin} onChanged={onChanged} />
+      </div>
+    );
+  }
+
+  const confidence = deriveSpectrumConfidence(score.source);
+  const interpretation = buildSpectrumInterpretation(score);
+  const radarScores = {
+    aggression: score.aggression, complexity: score.complexity, atmosphere: score.atmosphere,
+    emotion: score.emotion, psychedelic: score.psychedelic, concept: score.concept,
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-gray-900/70 border border-[#1a2332] rounded-xl p-5 sm:p-6">
+        <div className="grid sm:grid-cols-[minmax(0,240px)_1fr] gap-6 items-start">
+          <div className="max-w-[240px] mx-auto sm:mx-0 w-full">
+            <RadarChart datasets={[{ label: 'Spectrum', scores: radarScores, color: '#a78bfa' }]} dark outline height={240} />
+          </div>
+          <div className="min-w-0">
+            {interpretation && (
+              <p className="text-sm sm:text-base text-gray-200 leading-relaxed mb-4" style={{ fontFamily: SERIF }}>
+                {interpretation}
+              </p>
+            )}
+            <div className="space-y-2.5">
+              {SCORE_AXES.map((axis) => (
+                <div key={axis}>
+                  <div className="flex justify-between items-baseline mb-0.5">
+                    <span className="text-xs text-gray-400">{AXIS_LABELS[axis]}</span>
+                    <span className="text-xs font-bold tabular-nums" style={{ color: AXIS_COLORS[axis] }}>
+                      {score[axis].toFixed(1)}
+                    </span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none"
+                      style={{ width: `${Math.max(0, Math.min(score[axis], 10)) * 10}%`, backgroundColor: AXIS_COLORS[axis] }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-gray-600 mt-0.5">{AXIS_INFO[axis].lo} → {AXIS_INFO[axis].hi}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        {score.notes && (
+          <p className="text-xs text-gray-500 mt-4 pt-4 border-t border-gray-800 leading-relaxed italic">{score.notes}</p>
+        )}
+        <p className="text-[10px] text-gray-600 mt-3">{confidence.label}</p>
+      </div>
+
+      {isAdmin && (
+        <div className="flex flex-wrap items-center gap-2">
+          <ModuleAdminActionButton
+            action={{ kind: 'handler', label: 'Regenerate via AI', onRun: () => generateSongSpectrum(song.id) }}
+            onSuccess={onChanged}
+          />
+          <button
+            type="button"
+            onClick={() => setEditing((e) => !e)}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-800/60 border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors"
+          >
+            {editing ? 'Cancel edit' : 'Edit Spectrum'}
+          </button>
+        </div>
+      )}
+      {isAdmin && editing && (
+        <SpectrumAdminEditor
+          songId={song.id}
+          initial={score}
+          onSaved={() => { setEditing(false); onChanged(); }}
+        />
+      )}
+
+      <RhythmLabPanel songId={song.id} musicScore={musicScore} isAdmin={isAdmin} onChanged={onChanged} />
+    </div>
+  );
+}
+
+// Minimal manual-entry form — six numeric inputs + notes. Deliberately plain;
+// this is an admin repair tool, not a public-facing surface.
+function SpectrumAdminEditor({
+  songId,
+  initial,
+  onSaved,
+}: {
+  songId: string;
+  initial: NonNullable<WikiSongPageData['song']['score']>;
+  onSaved: () => void;
+}) {
+  const [values, setValues] = useState<Record<ScoreAxisKey, number>>({
+    aggression: initial.aggression, complexity: initial.complexity, atmosphere: initial.atmosphere,
+    emotion: initial.emotion, psychedelic: initial.psychedelic, concept: initial.concept,
+  });
+  const [notes, setNotes] = useState(initial.notes ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      await updateSongSpectrum(songId, { ...values, notes: notes.trim() || null });
+      onSaved();
+    } catch {
+      setError('Failed to save — check values and try again.');
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="bg-gray-900/70 border border-indigo-900/40 rounded-xl p-5 space-y-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {SCORE_AXES.map((axis) => (
+          <label key={axis} className="block">
+            <span className="text-[10px] uppercase tracking-widest text-gray-500">{AXIS_LABELS[axis]}</span>
+            <input
+              type="number"
+              min={0}
+              max={10}
+              step={0.1}
+              value={values[axis]}
+              onChange={(e) => setValues((v) => ({ ...v, [axis]: Math.max(0, Math.min(10, Number(e.target.value) || 0)) }))}
+              className="mt-1 w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm text-gray-100 focus:outline-none focus:border-indigo-500"
+            />
+          </label>
+        ))}
+      </div>
+      <label className="block">
+        <span className="text-[10px] uppercase tracking-widest text-gray-500">Notes</span>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={2}
+          maxLength={2000}
+          className="mt-1 w-full bg-gray-950 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 resize-y"
+        />
+      </label>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      <button
+        type="button"
+        onClick={() => void handleSave()}
+        disabled={saving}
+        className="text-xs font-semibold px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-wait text-white transition-colors"
+      >
+        {saving ? 'Saving…' : 'Save Spectrum'}
+      </button>
+    </div>
+  );
+}
+
+// Musical Structure ("Rhythm Lab") — a companion spectrum answering how the
+// music is BUILT (rhythm/harmony/structure) rather than how it feels
+// emotionally. Read-only display of existing data; never triggers AI
+// generation from a page view — only the explicit admin action does.
+function RhythmLabPanel({
+  songId,
+  musicScore,
+  isAdmin,
+  onChanged,
+}: {
+  songId: string;
+  musicScore: WikiSongPageData['musicScore'];
+  isAdmin: boolean;
+  onChanged: () => void;
+}) {
+  if (!musicScore) {
+    return (
+      <div className="space-y-3">
+        <WikiModulePlaceholder
+          icon="🥁"
+          title="Rhythm Lab"
+          description="Analysis will appear after rhythm extraction."
+          comingSoon
+        />
+        {isAdmin && (
+          <ModuleAdminActionButton
+            action={{ kind: 'handler', label: 'Analyze Rhythm', onRun: () => generateMusicScore(songId) }}
+            onSuccess={onChanged}
+          />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-gray-900/70 border border-[#1a2332] rounded-xl p-5 sm:p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Rhythm Lab · Musical Structure</p>
+        <KnowledgeConfidenceBadge level="ai" />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+        {MUSIC_SCORE_AXES.map((axis) => (
+          <div key={axis}>
+            <p className="text-[10px] text-gray-600 mb-0.5">{MUSIC_AXIS_LABELS[axis]}</p>
+            <p className="text-sm font-bold tabular-nums text-gray-200">{musicScore[axis].toFixed(1)}</p>
+          </div>
+        ))}
+      </div>
+      {musicScore.rationale && (
+        <p className="text-xs text-gray-500 leading-relaxed italic pt-3 border-t border-gray-800">{musicScore.rationale}</p>
+      )}
+      {isAdmin && (
+        <div className="mt-3">
+          <ModuleAdminActionButton
+            action={{ kind: 'handler', label: 'Re-analyze Rhythm', onRun: () => generateMusicScore(songId) }}
+            onSuccess={onChanged}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Related songs ─────────────────────────────────────────────────────────────
 
 function RelatedSongs({
   albumSiblings,
   relatedByRarity,
+  relatedBySpectrum,
   currentTier,
   bandSlug,
   albumSlug,
 }: {
   albumSiblings: WikiSongPageData['albumSiblings'];
   relatedByRarity: WikiSongPageData['relatedByRarity'];
+  relatedBySpectrum: WikiSongPageData['relatedBySpectrum'];
   currentTier: LiveFrequencyTier;
   bandSlug: string;
   albumSlug?: string;
@@ -1080,6 +1369,29 @@ function RelatedSongs({
                 </Link>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {relatedBySpectrum.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-2">Similar by Spectrum</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            {relatedBySpectrum.map((s) => (
+              <Link
+                key={s.id}
+                to={`/wiki/songs/${s.id}`}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-gray-900/60 border border-gray-800 hover:border-indigo-800/60 transition-colors group"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-300 group-hover:text-white truncate transition-colors">{s.title}</p>
+                  {s.album && <p className="text-[10px] text-gray-600 truncate">{s.album.title}</p>}
+                </div>
+                <span className="text-[10px] font-medium text-violet-400 shrink-0">
+                  {s.distance < 2 ? 'Very close' : s.distance < 4 ? 'Close' : 'Similar'}
+                </span>
+              </Link>
+            ))}
           </div>
         </div>
       )}
@@ -1157,15 +1469,101 @@ function LyricsPanel({ lyric }: { lyric: WikiSongPageData['song']['lyrics'][0] }
 
 // ── Admin panel ───────────────────────────────────────────────────────────────
 
+// The Song Card as a control panel for filling data gaps — one status per
+// module, each knowing whether it has data, where it came from, and what an
+// admin can do about it. Reuses existing admin tools/endpoints; never
+// duplicates their logic.
+function buildModuleStatuses(
+  song: WikiSongPageData['song'],
+  lp: WikiSongPageData['song']['bandRpgProfile'],
+  musicScore: WikiSongPageData['musicScore'],
+): ModuleDataStatus[] {
+  const spectrumConfidence = song.score ? deriveSpectrumConfidence(song.score.source) : null;
+  return [
+    {
+      moduleKey: 'spectrum',
+      hasData: !!song.score,
+      status: song.score ? 'ready' : 'missing',
+      source: song.score?.source ?? null,
+      lastUpdated: song.score?.updatedAt ?? null,
+      confidence: spectrumConfidence?.level ?? null,
+      adminAction: song.score
+        ? null // edit affordance lives inline in the Spectrum section itself
+        : { kind: 'handler', label: 'Generate Song Spectrum', onRun: () => generateSongSpectrum(song.id) },
+    },
+    {
+      moduleKey: 'lyrics',
+      hasData: song.lyrics.length > 0,
+      status: song.lyrics.length > 0 ? 'ready' : 'missing',
+      source: song.lyrics[0]?.sourceType ?? null,
+      lastUpdated: null,
+      confidence: song.lyrics.length > 0 ? 'verified' : null,
+      adminAction: song.lyrics.length > 0
+        ? null
+        : { kind: 'handler', label: 'Fetch Lyrics (AI recall)', onRun: () => fetchSongLyricsAi(song.id) },
+    },
+    {
+      moduleKey: 'liveData',
+      hasData: !!lp && lp.totalPerformances > 0,
+      status: lp ? 'ready' : 'missing',
+      source: lp ? 'calculated' : null,
+      lastUpdated: null,
+      confidence: lp ? 'calculated' : null,
+      adminAction: lp ? null : { kind: 'route', label: 'Fetch Live Data', to: '/admin/band-rpg' },
+    },
+    {
+      moduleKey: 'rhythmLab',
+      hasData: !!musicScore,
+      status: musicScore ? 'ready' : 'missing',
+      source: musicScore ? 'ai' : null,
+      lastUpdated: musicScore?.updatedAt ?? null,
+      confidence: musicScore ? 'ai' : null,
+      adminAction: musicScore
+        ? null
+        : { kind: 'handler', label: 'Analyze Rhythm', onRun: () => generateMusicScore(song.id) },
+    },
+  ];
+}
+
+function ModuleStatusRow({ status, onChanged }: { status: ModuleDataStatus; onChanged: () => void }) {
+  const MODULE_TITLES: Record<string, string> = {
+    spectrum: 'Song Spectrum', lyrics: 'Lyrics', liveData: 'Live Data', rhythmLab: 'Rhythm Lab',
+  };
+  return (
+    <div className="flex items-center justify-between gap-3 py-2 border-b border-gray-900 last:border-0">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${status.hasData ? 'bg-emerald-500' : 'bg-gray-600'}`} />
+        <span className="text-xs text-gray-300 truncate">{MODULE_TITLES[status.moduleKey] ?? status.moduleKey}</span>
+        {status.confidence && <KnowledgeConfidenceBadge level={status.confidence} />}
+      </div>
+      {status.adminAction && (
+        <ModuleAdminActionButton action={status.adminAction} onSuccess={onChanged} className="shrink-0" />
+      )}
+    </div>
+  );
+}
+
 function AdminPanel({
   song,
   lp,
+  musicScore,
+  onChanged,
 }: {
   song: WikiSongPageData['song'];
   lp: WikiSongPageData['song']['bandRpgProfile'];
+  musicScore: WikiSongPageData['musicScore'];
+  onChanged: () => void;
 }) {
+  const statuses = buildModuleStatuses(song, lp, musicScore);
   return (
     <div className="bg-amber-950/20 border border-amber-900/40 rounded-xl p-5">
+      <p className="text-[10px] uppercase tracking-widest text-amber-700 mb-3 font-bold">Data Completion</p>
+      <div className="mb-4">
+        {statuses.map((s) => (
+          <ModuleStatusRow key={s.moduleKey} status={s} onChanged={onChanged} />
+        ))}
+      </div>
+
       <p className="text-[10px] uppercase tracking-widest text-amber-700 mb-3 font-bold">Admin Quick Access</p>
       <div className="flex flex-wrap gap-2 mb-4">
         <AdminLink to="/admin/band-rpg" label="Live Data Audit" />
@@ -1201,11 +1599,6 @@ function AdminPanel({
               <p className="text-gray-300">{lp.rarityIndex.toFixed(0)} / 100</p>
             </div>
           </>
-        )}
-        {!song.score && (
-          <div className="sm:col-span-3">
-            <p className="text-amber-600 text-[11px]">⚠ No spectrum score — run AI batch scorer.</p>
-          </div>
         )}
       </div>
     </div>

@@ -161,7 +161,7 @@ songsRouter.get('/:songId/score', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-songsRouter.put('/:songId/score', validateBody(upsertScoreSchema), async (req, res, next) => {
+songsRouter.put('/:songId/score', requireAuth, requireAdmin, validateBody(upsertScoreSchema), async (req, res, next) => {
   try {
     res.json(await scoreService.upsert(req.params['songId']!, req.body));
   } catch (e) { next(e); }

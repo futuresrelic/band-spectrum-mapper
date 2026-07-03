@@ -5,9 +5,12 @@ import WikiLayout, {
   WikiSection,
   WikiStat,
   WikiBreadcrumb,
+  SpectrumBar,
 } from '../../components/wiki/WikiLayout';
 import KnowledgeConfidenceBadge from '../../components/wiki/KnowledgeConfidenceBadge';
 import WikiModulePlaceholder from '../../components/wiki/WikiModulePlaceholder';
+import RadarChart from '../../components/charts/RadarChart';
+import { SCORE_AXES, AXIS_LABELS } from '@band-spectrum-mapper/shared';
 import { tierFromLiveStatus, LIVE_FREQUENCY_COLOR } from '../../lib/liveFrequency';
 
 export default function WikiBandPage() {
@@ -23,7 +26,7 @@ export default function WikiBandPage() {
   if (isLoading) return <LoadingShell />;
   if (isError || !data) return <ErrorShell />;
 
-  const { band, topPlayed, rarestPlayed } = data;
+  const { band, topPlayed, rarestPlayed, spectrumRollup } = data;
   const studioAlbums = band.albums.filter((a) =>
     !a.albumType || ['studio', 'lp', 'ep'].includes(a.albumType),
   );
@@ -229,13 +232,98 @@ export default function WikiBandPage() {
       </WikiSection>
 
       {/* ── Spectrum ── */}
-      <WikiSection id="spectrum" title="Spectrum Analysis">
-        <WikiModulePlaceholder
-          icon="📊"
-          title="Band-level spectrum"
-          description="Aggregate spectrum heatmap across all albums will appear here once songs are scored."
-          comingSoon
-        />
+      <WikiSection id="spectrum" title="Spectrum Analysis" badge={spectrumRollup ? <KnowledgeConfidenceBadge level="calculated" /> : undefined}>
+        {spectrumRollup ? (
+          <div className="space-y-5">
+            <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">
+              <div className="grid sm:grid-cols-[minmax(0,220px)_1fr] gap-5 items-start">
+                <div className="max-w-[220px] mx-auto sm:mx-0 w-full">
+                  <RadarChart
+                    datasets={[{ label: 'Average', scores: spectrumRollup.avgSpectrum, color: '#a78bfa' }]}
+                    dark
+                    outline
+                    height={220}
+                  />
+                </div>
+                <div className="space-y-3 min-w-0">
+                  {SCORE_AXES.map((ax) => (
+                    <SpectrumBar key={ax} label={ax} value={spectrumRollup.avgSpectrum[ax]} />
+                  ))}
+                </div>
+              </div>
+              {spectrumRollup.strongestAxis && (
+                <p className="text-[10px] text-gray-600 mt-4 pt-4 border-t border-gray-800">
+                  Strongest axis across the catalog:{' '}
+                  <span className="text-gray-400 font-medium">
+                    {AXIS_LABELS[spectrumRollup.strongestAxis.axis]} ({spectrumRollup.strongestAxis.average.toFixed(1)})
+                  </span>
+                </p>
+              )}
+            </div>
+
+            {spectrumRollup.albumsByComplexity.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-3">Albums by Complexity</p>
+                <div className="space-y-1">
+                  {spectrumRollup.albumsByComplexity.map((a) => {
+                    const album = band.albums.find((al) => al.id === a.albumId);
+                    const content = (
+                      <>
+                        <span className="text-sm text-gray-300 group-hover:text-white transition-colors flex-1 truncate">{a.title}</span>
+                        <span className="text-xs tabular-nums text-violet-400">{a.avgComplexity.toFixed(1)}</span>
+                      </>
+                    );
+                    return album ? (
+                      <Link
+                        key={a.albumId}
+                        to={`/wiki/albums/${band.slug}/${album.slug}`}
+                        className="flex items-center gap-3 px-3 py-2 rounded hover:bg-gray-900 transition-colors group"
+                      >
+                        {content}
+                      </Link>
+                    ) : (
+                      <div key={a.albumId} className="flex items-center gap-3 px-3 py-2">{content}</div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {spectrumRollup.extremeTracks.mostComplex && (
+                <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+                  <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-1">Most Complex</p>
+                  <Link to={`/wiki/songs/${spectrumRollup.extremeTracks.mostComplex.id}`} className="text-sm font-semibold text-indigo-300 hover:text-indigo-200 transition-colors">
+                    {spectrumRollup.extremeTracks.mostComplex.title}
+                  </Link>
+                </div>
+              )}
+              {spectrumRollup.extremeTracks.mostAtmospheric && (
+                <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+                  <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-1">Most Atmospheric</p>
+                  <Link to={`/wiki/songs/${spectrumRollup.extremeTracks.mostAtmospheric.id}`} className="text-sm font-semibold text-indigo-300 hover:text-indigo-200 transition-colors">
+                    {spectrumRollup.extremeTracks.mostAtmospheric.title}
+                  </Link>
+                </div>
+              )}
+              {spectrumRollup.extremeTracks.mostAggressive && (
+                <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+                  <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-1">Most Aggressive</p>
+                  <Link to={`/wiki/songs/${spectrumRollup.extremeTracks.mostAggressive.id}`} className="text-sm font-semibold text-indigo-300 hover:text-indigo-200 transition-colors">
+                    {spectrumRollup.extremeTracks.mostAggressive.title}
+                  </Link>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <WikiModulePlaceholder
+            icon="📊"
+            title="Band-level spectrum"
+            description="Aggregate spectrum heatmap across all albums will appear here once songs are scored."
+            comingSoon
+          />
+        )}
       </WikiSection>
     </WikiLayout>
   );

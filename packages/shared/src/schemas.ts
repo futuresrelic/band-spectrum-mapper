@@ -141,6 +141,11 @@ export const upsertScoreSchema = z.object({
   psychedelic: axisScore.optional().default(0),
   concept: axisScore.optional().default(0),
   notes: z.string().max(2000).optional().nullable(),
+  // Optional so existing callers of this schema/route keep compiling.
+  // scoreService.upsert defaults it to 'manual' when omitted — the only
+  // HTTP client of this route is the admin manual-edit form; bulk AI/import/
+  // audio pipelines write SongAxisScore directly via Prisma with their own source.
+  source: z.literal('manual').optional(),
 });
 
 export type UpsertScoreInput = z.infer<typeof upsertScoreSchema>;

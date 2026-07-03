@@ -212,8 +212,8 @@ export const discographyImportService = {
           if (!dryRun && scoreAction !== 'unchanged') {
             await prisma.songAxisScore.upsert({
               where: { songId: existingSong.id },
-              create: { songId: existingSong.id, bandId, ...newScores },
-              update: newScores,
+              create: { songId: existingSong.id, bandId, ...newScores, source: 'import' },
+              update: { ...newScores, source: 'import' },
             });
           }
 
@@ -263,7 +263,7 @@ export const discographyImportService = {
               },
             });
             await prisma.songAxisScore.create({
-              data: { songId: song.id, bandId, ...newScores },
+              data: { songId: song.id, bandId, ...newScores, source: 'import' },
             });
           }
 

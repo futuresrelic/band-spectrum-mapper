@@ -1,10 +1,14 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { scoreService } from '../services/scoreService.js';
+import { SCORE_AXES, type ScoreAxis } from '@band-spectrum-mapper/shared';
 
 // Music Wiki — public read-only endpoints.
 // No authentication required. Returns curated data for the encyclopedic wiki view.
 export const wikiRouter = Router();
+
+type TrackRef = { id: string; title: string; slug: string; value: number };
 
 // ---------------------------------------------------------------------------
 // Search — bands + albums + songs
@@ -139,7 +143,67 @@ wikiRouter.get('/bands/:slug', async (req, res, next) => {
       },
     });
 
-    res.json({ band, topPlayed, rarestPlayed });
+    // Spectrum rollup — average per axis, albums by avg complexity, extreme tracks.
+    // Reuses scoreService (already the canonical averaging logic) rather than
+    // re-implementing it here.
+    const bandScoreAverages = await scoreService.averagesByBand(band.id);
+    const scoredSongsForRollup = bandScoreAverages.length > 0
+      ? await prisma.song.findMany({
+          where: { bandId: band.id, score: { isNot: null } },
+          select: {
+            id: true, title: true, slug: true, albumId: true,
+            album: { select: { title: true } },
+            score: true,
+          },
+        })
+      : [];
+
+    let spectrumRollup: {
+      avgSpectrum: Record<ScoreAxis, number>;
+      strongestAxis: { axis: ScoreAxis; average: number } | null;
+      albumsByComplexity: Array<{ albumId: string; title: string; avgComplexity: number; songCount: number }>;
+      extremeTracks: { mostComplex: TrackRef | null; mostAtmospheric: TrackRef | null; mostAggressive: TrackRef | null };
+    } | null = null;
+
+    if (bandScoreAverages.length > 0) {
+      const avgSpectrum = Object.fromEntries(
+        bandScoreAverages.map((a) => [a.axis, a.average]),
+      ) as Record<ScoreAxis, number>;
+
+      const strongest = [...bandScoreAverages].sort((a, b) => b.average - a.average)[0] ?? null;
+
+      // Group scored songs by album for the complexity rollup
+      const byAlbum = new Map<string, { title: string; total: number; count: number }>();
+      for (const s of scoredSongsForRollup) {
+        if (!s.albumId || !s.album) continue;
+        const entry = byAlbum.get(s.albumId) ?? { title: s.album.title, total: 0, count: 0 };
+        entry.total += s.score!.complexity;
+        entry.count += 1;
+        byAlbum.set(s.albumId, entry);
+      }
+      const albumsByComplexity = [...byAlbum.entries()]
+        .map(([albumId, v]) => ({ albumId, title: v.title, avgComplexity: v.total / v.count, songCount: v.count }))
+        .sort((a, b) => b.avgComplexity - a.avgComplexity)
+        .slice(0, 5);
+
+      const topBy = (axis: 'complexity' | 'atmosphere' | 'aggression'): TrackRef | null => {
+        const top = [...scoredSongsForRollup].sort((a, b) => b.score![axis] - a.score![axis])[0];
+        return top ? { id: top.id, title: top.title, slug: top.slug, value: top.score![axis] } : null;
+      };
+
+      spectrumRollup = {
+        avgSpectrum,
+        strongestAxis: strongest ? { axis: strongest.axis as ScoreAxis, average: strongest.average } : null,
+        albumsByComplexity,
+        extremeTracks: {
+          mostComplex: topBy('complexity'),
+          mostAtmospheric: topBy('atmosphere'),
+          mostAggressive: topBy('aggression'),
+        },
+      };
+    }
+
+    res.json({ band, topPlayed, rarestPlayed, spectrumRollup });
   } catch (e) {
     next(e);
   }
@@ -197,13 +261,30 @@ wikiRouter.get('/albums/:bandSlug/:albumSlug', async (req, res, next) => {
           }
         : null;
 
+    // Strongest axis + extreme tracks — cheap, computed from songs already loaded above
+    let strongestAxis: { axis: ScoreAxis; average: number } | null = null;
+    let mostComplexTrack: TrackRef | null = null;
+    let mostAtmosphericTrack: TrackRef | null = null;
+    if (avgSpectrum) {
+      strongestAxis = SCORE_AXES
+        .map((axis) => ({ axis, average: avgSpectrum[axis] }))
+        .sort((a, b) => b.average - a.average)[0]!;
+
+      const topBy = (axis: 'complexity' | 'atmosphere'): TrackRef => {
+        const top = [...scoredSongs].sort((a, b) => b.score![axis] - a.score![axis])[0]!;
+        return { id: top.id, title: top.title, slug: top.slug, value: top.score![axis] };
+      };
+      mostComplexTrack = topBy('complexity');
+      mostAtmosphericTrack = topBy('atmosphere');
+    }
+
     // Rarity breakdown
     const rarityBreakdown: Record<string, number> = {};
     for (const song of album.songs) {
       rarityBreakdown[song.rarity] = (rarityBreakdown[song.rarity] ?? 0) + 1;
     }
 
-    res.json({ band, album, avgSpectrum, rarityBreakdown });
+    res.json({ band, album, avgSpectrum, strongestAxis, mostComplexTrack, mostAtmosphericTrack, rarityBreakdown });
   } catch (e) {
     next(e);
   }
@@ -241,6 +322,8 @@ wikiRouter.get('/songs/:songId', async (req, res, next) => {
       bandRarityCounts,
       relatedByRarity,
       liveCache,
+      musicScore,
+      bandScoredSongs,
     ] = await Promise.all([
       // How many players have collected this song
       prisma.bandRpgCollectedSong.count({ where: { songId } }),
@@ -282,9 +365,48 @@ wikiRouter.get('/songs/:songId', async (req, res, next) => {
         where: { bandId: song.bandId },
         select: { fetchedShows: true, totalShows: true },
       }),
+
+      // Musical Structure score (Rhythm Lab) — read-only lookup, never triggers
+      // AI generation from a public page view. Admins generate it explicitly
+      // via the admin action, which hits the existing analysis service directly.
+      prisma.songMusicScore.findUnique({ where: { songId } }),
+
+      // Other scored songs in the same band, for "Similar by Spectrum" —
+      // only meaningful (and only fetched) when this song itself has a score.
+      song.score
+        ? prisma.song.findMany({
+            where: { bandId: song.bandId, id: { not: songId }, score: { isNot: null } },
+            select: {
+              id: true, title: true, slug: true,
+              album: { select: { title: true, slug: true } },
+              score: true,
+            },
+          })
+        : Promise.resolve([]),
     ]);
 
-    res.json({ song, collectedCount, albumSiblings, bandRarityCounts, relatedByRarity, liveCache });
+    // "Similar by Spectrum" — Euclidean distance across the 6 axes. Requires
+    // at least 3 comparable (scored) songs in the band or the section stays
+    // as a placeholder rather than showing a token 1-2 item list.
+    let relatedBySpectrum: Array<{ id: string; title: string; slug: string; album: { title: string; slug: string } | null; distance: number }> = [];
+    if (song.score && bandScoredSongs.length >= 3) {
+      const base = song.score;
+      relatedBySpectrum = bandScoredSongs
+        .map((s) => {
+          const sc = s.score!;
+          const distance = Math.sqrt(
+            SCORE_AXES.reduce((sum, axis) => sum + (sc[axis] - base[axis]) ** 2, 0),
+          );
+          return { id: s.id, title: s.title, slug: s.slug, album: s.album, distance };
+        })
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 4);
+    }
+
+    res.json({
+      song, collectedCount, albumSiblings, bandRarityCounts, relatedByRarity, liveCache,
+      musicScore, relatedBySpectrum,
+    });
   } catch (e) {
     next(e);
   }

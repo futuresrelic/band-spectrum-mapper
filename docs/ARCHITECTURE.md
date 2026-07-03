@@ -807,3 +807,67 @@ The Song Spectrum YouTube analysis section displays a disclaimer:
 The downloaded audio is deleted from the Python worker's temp directory after analysis
 regardless of success or failure (guaranteed by `tempfile.TemporaryDirectory` context
 manager).
+
+
+## Song Spectrum on the Song Card (Phase Z.17, 2026-07-03)
+
+### Which model is canonical
+
+BSM has several song-scoring models; only one is the player-facing "Song Spectrum":
+
+| Model | Purpose | Surfaced on Song Card? |
+|---|---|---|
+| `SongAxisScore` | **Canonical.** 6-axis Core/Curator score (aggression, complexity, atmosphere, emotion, psychedelic, concept), 0–10, one row per song. | Yes — primary module |
+| `SongMusicScore` | Parallel "musical structure" spectrum (rhythm/harmony/structure), 0–10. | Yes — as "Rhythm Lab" |
+| `SongAiSpectrum`, `SongThemeScore`, `SongAiGenreSpectrum`, community/personal ratings | AI-only opinion, philosophical themes, genre appeal, crowd/individual ratings. | No — admin-facing only, via `SongSpectrumPanel.tsx` / `CoreSpectrumWidget.tsx` on the Library editor |
+
+`SongAxisScore.source` (`'ai' | 'manual' | 'import' | 'audio' | null`) tracks provenance —
+added in Z.17 since the row is written from four different pipelines
+(`aiAnalysisService`, `compoundAiService`, `discographyImportService` /
+`scoreImportService`, `songSpectrum.ts`'s audio-DSP path) with no prior way to tell
+which one produced a given score. `null` means the row predates this column.
+
+### Song Card rendering
+
+`WikiSongPage.tsx`'s `SpectrumModule`:
+- Outline-only radar (`RadarChart` with `dark outline` props — near-zero fill so it
+  never becomes an unreadable filled blob) + per-axis bars using the existing
+  `AXIS_INFO` lo/hi descriptions from `packages/shared`.
+- A deterministic one-sentence interpretation (`buildSpectrumInterpretation`) built
+  only from real axis values — never AI-generated commentary.
+- Confidence badge derived from `source` via `apps/web/src/lib/spectrumConfidence.ts`.
+- Admin-only: "Generate Song Spectrum" / "Regenerate via AI" (calls the existing
+  `POST /api/analysis/ai/:songId/core-score/generate`) and an inline manual-edit form
+  (calls the existing `PUT /api/songs/:songId/score`, now `requireAuth`+`requireAdmin`
+  after a Z.17 security fix — it previously had no auth middleware at all).
+- `RhythmLabPanel` shows `SongMusicScore` read-only (`findUnique`, no AI call on page
+  view) with an admin "Analyze Rhythm" button calling the existing
+  `POST /api/analysis/ai/:songId/music-score/regenerate`.
+
+### Rollups
+
+`scoreService.averagesByBand` / `averagesByAlbum` (pre-existing) back the Band and
+Album page spectrum sections. Album-level "strongest axis" / "most complex track" /
+"most atmospheric track" and Band-level "albums by complexity" / extreme tracks are
+computed server-side in `wiki.ts` from data already loaded for those pages — no new
+per-request cost beyond one extra indexed query on the Band page.
+
+### "Similar by Spectrum"
+
+Song endpoint computes Euclidean distance across the 6 axes against other scored
+songs in the same band, server-side, and only includes results when at least 3
+comparable songs exist — otherwise the field is an empty array and the section
+doesn't render.
+
+### ModuleDataStatus — the data-completion pattern
+
+`apps/web/src/lib/moduleDataStatus.ts` defines `ModuleDataStatus` (`moduleKey`,
+`hasData`, `status`, `source`, `lastUpdated`, `confidence`, `adminAction`) and
+`apps/web/src/components/wiki/ModuleAdminActionButton.tsx` renders the one action
+type says it has — either a link to an existing admin page (`kind: 'route'`) or an
+in-place call to an existing endpoint (`kind: 'handler'`, with its own pending/
+success/error state). The Song Card's admin panel builds one status per module
+(Spectrum, Lyrics, Live Data, Rhythm Lab) via `buildModuleStatuses()` — every action
+routes to a pre-existing endpoint or admin page; none duplicate logic that already
+lives elsewhere (e.g. Lyrics reuses the existing per-song AI-recall endpoint, Live
+Data links to the existing `/admin/band-rpg` audit page).

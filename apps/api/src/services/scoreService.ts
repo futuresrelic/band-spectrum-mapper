@@ -21,10 +21,12 @@ export const scoreService = {
         bandId: song.bandId,
         ...data,
         notes: data.notes ?? null,
+        source: data.source ?? 'manual',
       },
       update: {
         ...data,
         notes: data.notes ?? null,
+        source: data.source ?? 'manual',
       },
     });
   },

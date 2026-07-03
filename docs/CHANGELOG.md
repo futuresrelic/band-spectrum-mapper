@@ -4,6 +4,147 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.17 — Song Spectrum Integration (2026-07-03)
+
+### Overview
+
+Connects the Song Card to BSM's original "musical fingerprint" idea. Audited
+the existing spectrum infrastructure first (extensive — see below) rather
+than inventing a new model; `SongAxisScore` (the 6-axis Core/Curator score)
+is confirmed as the canonical Song Spectrum and is now shown with a proper
+radar + bars module, a deterministic interpretation sentence, a real
+confidence badge, admin edit/generate tools, and rollups on the Album and
+Band pages. No fake data anywhere — every empty state is honest, and every
+admin "fill this in" action calls an endpoint that already existed.
+
+### Audit findings (no schema changes made until this was understood)
+
+BSM already has a mature, if under-surfaced, scoring ecosystem:
+- **`SongAxisScore`** ("Core"/Curator score) — the canonical 6-axis spectrum
+  (aggression, complexity, atmosphere, emotion, psychedelic, concept; 0–10),
+  one row per song. Already used throughout the Wiki since Phase Z.15/Z.16.
+  Written from 4+ pipelines (AI batch analysis, discography import, manual
+  admin edit, audio DSP analysis) with **no provenance tracking** — a real
+  gap now closed (see below).
+- **`SongMusicScore`** — a parallel "musical structure" spectrum (rhythmic
+  complexity, harmonic depth, structural complexity, sonic density, tempo
+  energy, tonal darkness; 0–10), fully built with its own service and
+  admin-gated regenerate endpoint, but never surfaced on the Song Card. Now
+  wired into the "Rhythm Lab" module.
+- **`SongAiSpectrum`**, **`SongThemeScore`**, **`SongAiGenreSpectrum`**,
+  community/personal ratings — additional systems (AI-only opinion,
+  philosophical themes, genre appeal, crowd/individual ratings) surfaced
+  today via `SongSpectrumPanel.tsx`/`CoreSpectrumWidget.tsx` on the
+  admin-facing Library editor. Out of scope for the Song Card per "one clean
+  set, not 14 competing axes" — left untouched.
+- **`GET /api/songs/:songId/score`** and **`PUT /api/songs/:songId/score`**
+  (via `scoreService`) already existed as the manual-edit path — reused
+  directly. **Found and fixed a real security gap**: the PUT route had no
+  `requireAuth`/`requireAdmin` middleware, so any unauthenticated caller
+  could overwrite a song's spectrum.
+- **`POST /api/analysis/ai/:songId/core-score/generate`** (admin-only,
+  already existed) generates the Core Score via AI — reused directly for
+  the Song Card's "Generate Song Spectrum" action.
+- Radar chart infrastructure (`RadarChart.tsx`, Recharts-based) already
+  existed but was styled for light-theme admin pages only.
+
+### Schema change
+
+- `SongAxisScore.source` (nullable `String`) — tracks provenance:
+  `'ai' | 'manual' | 'import' | 'audio' | null` (null = written before this
+  column existed). Migration: `20260703120000_add_song_axis_score_source`.
+  All 6 existing write paths updated to set it; the manual-edit route
+  defaults to `'manual'` when omitted.
+
+### Security fix
+
+- `PUT /api/songs/:songId/score` now requires `requireAuth` + `requireAdmin`
+  (previously open to any caller).
+
+### Canonical model
+
+`SongAxisScore` / `SCORE_AXES` (aggression, complexity, atmosphere, emotion,
+psychedelic, concept) is the one Song Spectrum. No new axes introduced.
+
+### Song Card changes (`WikiSongPage.tsx`)
+
+- **Song Spectrum module** replaces the old bars-only "Spectrum Analysis":
+  outline radar chart (dark-themed, near-zero fill so it never becomes an
+  unreadable blob) alongside per-axis bars with their existing lo/hi
+  descriptions (`AXIS_INFO`, reused from `packages/shared`), a real
+  confidence badge derived from `source`, and a deterministic one-sentence
+  interpretation built only from actual axis values (e.g. "This song leans
+  high in atmosphere and complexity, with moderate aggression") — never
+  AI-generated commentary.
+- **Empty state**: "Song Spectrum not analyzed yet" + explanation; admins
+  additionally see a "Generate Song Spectrum" button.
+- **Admin tools**: "Regenerate via AI" (existing core-score/generate
+  endpoint) and an inline "Edit Spectrum" form (six numeric inputs + notes,
+  existing PUT endpoint) — both refresh the page's data on success.
+- **Rhythm Lab** graduated from a static placeholder to a live panel showing
+  `SongMusicScore` when it exists (read-only `findUnique` — viewing the Song
+  Card never triggers an AI call), with an admin "Analyze Rhythm" /
+  "Re-analyze Rhythm" button using the existing admin-gated regenerate
+  endpoint.
+- **Similar by Spectrum**: Euclidean distance across the 6 axes against
+  other scored songs in the same band, shown only when ≥3 comparable songs
+  exist (computed server-side, zero extra client-side cost); the separate
+  "Often played together" (concert co-occurrence) placeholder is untouched
+  since it's a different concept still awaiting Z.18+.
+- **Data Completion panel** (admin-only, inside the existing Admin section):
+  one status row per module (Spectrum, Lyrics, Live Data, Rhythm Lab) built
+  from the new `ModuleDataStatus` pattern, each showing whether it has data
+  and, if not, the one action that fills it — reusing the existing per-song
+  AI lyric recall endpoint and the existing Live Data Audit admin page
+  rather than duplicating any logic.
+
+### Album & Band page rollups
+
+- **Album** (`WikiAlbumPage.tsx`): average-spectrum section now shows an
+  outline radar next to the bars, plus "Strongest axis," "Most complex
+  track," and "Most atmospheric track" — all computed server-side from
+  songs already loaded for the page (zero extra queries).
+- **Band** (`WikiBandPage.tsx`): the previously-static "Band-level spectrum"
+  placeholder is now live — average spectrum (radar + bars, reusing the
+  existing `scoreService.averagesByBand`), "Albums by Complexity," and
+  "Most Complex / Atmospheric / Aggressive" track callouts (one additional
+  indexed query).
+
+### New shared pattern: `ModuleDataStatus`
+
+`apps/web/src/lib/moduleDataStatus.ts` — a lightweight descriptor
+(`moduleKey`, `hasData`, `status`, `source`, `lastUpdated`, `confidence`,
+`adminAction`) plus `apps/web/src/components/wiki/ModuleAdminActionButton.tsx`,
+one component that renders either a link to an existing admin page
+(`kind: 'route'`) or an in-place action with its own pending/success/error
+state (`kind: 'handler'`). Applied to Spectrum, Lyrics, Live Data, and
+Rhythm Lab this phase; the pattern is ready to extend to Trivia/Community/
+Media in a future phase without new infrastructure.
+
+### New files
+
+- `apps/web/src/lib/spectrumConfidence.ts` — `source` → Knowledge Confidence
+  Badge mapping (mirrors the `liveFrequency.ts` pattern from Z.15d)
+- `apps/web/src/lib/moduleDataStatus.ts` — the `ModuleDataStatus` type
+- `apps/web/src/components/wiki/ModuleAdminActionButton.tsx`
+- `prisma/migrations/20260703120000_add_song_axis_score_source/`
+
+### Honest limitations
+
+- No live-DB, no-browser environment in this session — states were verified
+  by code review (full/empty/partial-data branches, mobile grid collapse,
+  radar outline contrast) rather than clicking through a running app. Stated
+  explicitly rather than claimed as tested.
+- "Partial" spectrum data isn't really possible in the current schema — each
+  `SongAxisScore` row has all 6 axes with a default of 0, not per-axis
+  nullability, so a song either has a full row or none. The empty-state /
+  full-state split is the only state that exists.
+- `SongMusicScore` ("Rhythm Lab") got only a read + regenerate wiring this
+  phase, not a full radar/bars visualization — deliberately scoped down to
+  avoid a second full Song Spectrum inside the same page.
+
+---
+
 ## Phase Z.16.5 — Cohesion (2026-07-03)
 
 ### Overview

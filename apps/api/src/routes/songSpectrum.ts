@@ -404,6 +404,7 @@ songSpectrumRouter.post('/analyses/:id/push-to-library', async (req, res, next):
         psychedelic: toCore(item.scores['psychedelic']),
         concept:     toCore(item.scores['concept']),
         notes: `Pushed from Song Spectrum Analyzer (audio analysis of "${item.audioFileName ?? 'audio'}")`,
+        source: 'audio',
       },
       update: {
         aggression:  toCore(item.scores['aggression']),
@@ -413,6 +414,7 @@ songSpectrumRouter.post('/analyses/:id/push-to-library', async (req, res, next):
         psychedelic: toCore(item.scores['psychedelic']),
         concept:     toCore(item.scores['concept']),
         notes: `Pushed from Song Spectrum Analyzer (audio analysis of "${item.audioFileName ?? 'audio'}")`,
+        source: 'audio',
       },
     });
 
