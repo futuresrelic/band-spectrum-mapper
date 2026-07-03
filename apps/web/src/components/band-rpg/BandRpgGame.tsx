@@ -1167,7 +1167,7 @@ function CompleteScreen({
         </div>
         {songTitle && isNewCollection !== null && (
           <div className={`text-xs font-semibold mb-2 ${isNewCollection ? 'text-emerald-400' : 'text-gray-500'}`}>
-            {isNewCollection ? '✓ First Recovery — Added to collection!' : '● Already Catalogued'}
+            {isNewCollection ? '✓ First Recovery — Added to your collection!' : '● Already Recovered'}
           </div>
         )}
         {albumRestored && (
@@ -1390,7 +1390,7 @@ export default function BandRpgGame({
 
   const boothDialogue: DlgLine[] = [
     { speaker: 'Listening Booth', text: 'A recovered fragment has been catalogued here for study. It\'s yours — transferred directly to your journal.' },
-    { speaker: 'Listening Booth', text: 'Fragment acquired. The booth is now closed for this session — two more fragments remain in the archive.' },
+    { speaker: 'Listening Booth', text: 'Fragment recovered. The booth is now closed for this session — two more fragments remain in the archive.' },
   ];
 
   // React UI state

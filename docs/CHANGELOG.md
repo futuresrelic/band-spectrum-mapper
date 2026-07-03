@@ -4,6 +4,85 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.16.5 — Cohesion (2026-07-03)
+
+### Overview
+
+Not a feature phase. A full-app audit for the "feels like one team built
+this" problem — spacing, terminology, navigation, empty states — followed
+by targeted, low-risk fixes. No large rewrites; see
+`docs/DESIGN_SYSTEM.md` for the full audit findings, the canonical
+vocabulary and visual reference, and an honest list of what was
+deliberately deferred.
+
+### Fixed
+
+- **Navigation bug**: `CommunityPage.tsx` passed `active="games"` to
+  `SiteHeader` — `'community'` didn't even exist in the active-section type,
+  so the nav never highlighted correctly. Added `'community'` to
+  `SiteHeader`'s type union and corrected the prop.
+- **Orphaned page**: `/community` was a fully built page (curators,
+  festivals, tours, discover feed) reachable only by typing the URL — no nav
+  link pointed to it anywhere. Added "Community" to `SiteHeader`'s main nav.
+
+### Terminology normalized (player-facing only; admin wording untouched)
+
+One canonical verb per action: **Recover** for adding a song to your Band RPG
+archive, **Collection** as the noun for the resulting set, **Discover** kept
+separate for browsing new bands/community content, **Collect** kept as-is
+for the unrelated Vinyl Runner arcade mechanic.
+
+- `BandRpgGame.tsx`: CompleteScreen's "Added to collection! / Already
+  **Catalogued**" → "Already **Recovered**" (three verbs for one event → two,
+  used consistently); "Fragment **acquired**." → "Fragment **recovered**."
+  (now matches the identical event's phrasing elsewhere in the same file)
+- `BandRpgCollectionPage.tsx`: empty-state copy "add songs to your
+  collection" → "recover songs for your collection"
+- `CommunityPage.tsx`: stat label "Songs Found" → "Songs Recovered"
+- `OnboardingModal.tsx`: the "Song Recovery" slide said "you can **collect**
+  songs" (contradicting its own title) → "recover songs"; "complete quests,
+  **collect** items" → "recover items"
+
+### New shared components
+
+- `apps/web/src/components/ui/DarkLoadingRow.tsx` — small spinner + label,
+  replaces plain "Loading…" text on dark-theme pages
+- `apps/web/src/components/ui/DarkEmptyRow.tsx` — message + optional CTA
+  link, replaces ad hoc "No data yet" text blocks
+- Applied both to all five `LeaderboardPage.tsx` tabs (Album Art Quiz, Word
+  Hunt, Lyric Chain, Band 2048, Vinyl Runner) — ten previously-duplicated,
+  plain-text loading/empty blocks now share one component each
+
+### Accessibility
+
+- Added a site-wide `:focus-visible` outline in `index.css` (`@layer base`)
+  covering links, buttons, and form controls across the entire app — keyboard
+  navigation is now visibly trackable everywhere, with zero visual change for
+  mouse/touch users.
+
+### New documentation
+
+- `docs/DESIGN_SYSTEM.md` — product identity, the two-theme split (admin
+  light / player dark), dark-theme token reference, terminology table,
+  Knowledge Confidence Badge reference, empty-state philosophy, motion
+  philosophy, navigation rules, icon language, and an honest "known gaps"
+  list for future phases.
+
+### Honest limitations — deferred, not fixed
+
+No shared dark-theme `<Button>`/`<Card>`/`<SectionHeader>` components were
+built (retrofitting one everywhere would be exactly the "large rewrite" this
+phase was told to avoid); `CinemaPage.tsx` (6,655 lines, no header, no
+consistent card styling) and `ExplorePage.tsx` (1,888 lines, smallest radius
+in the app, double header) were audited but not touched — both need
+component decomposition before a design pass can safely reach them, and
+Cinema in particular can't be visually verified in this environment without
+risking a WebGL regression. `LandingPage.tsx` remains the one page with a
+bespoke light-theme header instead of `SiteHeader`. Full list with reasoning
+in `docs/DESIGN_SYSTEM.md`'s "Known gaps" section.
+
+---
+
 ## Phase Z.16 — The Living Song Card (2026-07-03)
 
 ### Overview

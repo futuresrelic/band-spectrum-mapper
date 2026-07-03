@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 interface SiteHeaderProps {
   theme?: 'dark' | 'light';
   /** Optional active section for highlighted nav link */
-  active?: 'discover' | 'library' | 'explore' | 'cinema' | 'games' | 'leaderboard' | 'playlist' | 'wiki';
+  active?: 'discover' | 'library' | 'explore' | 'cinema' | 'games' | 'leaderboard' | 'playlist' | 'wiki' | 'community';
 }
 
 const NAV = [
@@ -16,6 +16,7 @@ const NAV = [
   { label: 'Leaderboard', to: '/leaderboard' },
   { label: 'Playlist',    to: '/playlist'    },
   { label: 'Wiki',        to: '/wiki'        },
+  { label: 'Community',   to: '/community'   },
 ] as const;
 
 export default function SiteHeader({ theme = 'dark', active }: SiteHeaderProps) {

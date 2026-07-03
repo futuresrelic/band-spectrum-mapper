@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import SiteHeader from '../components/layout/SiteHeader';
+import DarkLoadingRow from '../components/ui/DarkLoadingRow';
+import DarkEmptyRow from '../components/ui/DarkEmptyRow';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -111,15 +113,12 @@ function QuizTab() {
       </div>
 
       {isLoading ? (
-        <p className="text-center text-gray-600 text-sm py-10">Loading…</p>
+        <DarkLoadingRow />
       ) : entries.length === 0 ? (
-        <p className="text-center text-gray-600 text-sm py-10">
-          No scores yet —{' '}
-          <Link to="/play" className="text-indigo-400 hover:underline">
-            be the first
-          </Link>
-          !
-        </p>
+        <DarkEmptyRow
+          message="No scores yet"
+          cta={{ label: 'be the first!', to: '/play', accentClassName: 'text-indigo-400' }}
+        />
       ) : (
         <div className="divide-y divide-gray-800">
           {entries.map((e, i) => (
@@ -166,15 +165,12 @@ function WordHuntTab() {
       </div>
 
       {isLoading ? (
-        <p className="text-center text-gray-600 text-sm py-10">Loading…</p>
+        <DarkLoadingRow />
       ) : entries.length === 0 ? (
-        <p className="text-center text-gray-600 text-sm py-10">
-          No scores yet —{' '}
-          <Link to="/play/word-hunt" className="text-emerald-400 hover:underline">
-            be the first
-          </Link>
-          !
-        </p>
+        <DarkEmptyRow
+          message="No scores yet"
+          cta={{ label: 'be the first!', to: '/play/word-hunt', accentClassName: 'text-emerald-400' }}
+        />
       ) : (
         <div className="divide-y divide-gray-800">
           {entries.map((e) => (
@@ -236,15 +232,12 @@ function LyricChainTab() {
       </div>
 
       {isLoading ? (
-        <p className="text-center text-gray-600 text-sm py-10">Loading…</p>
+        <DarkLoadingRow />
       ) : entries.length === 0 ? (
-        <p className="text-center text-gray-600 text-sm py-10">
-          No scores yet —{' '}
-          <Link to="/play/lyric-chain" className="text-violet-400 hover:underline">
-            be the first
-          </Link>
-          !
-        </p>
+        <DarkEmptyRow
+          message="No scores yet"
+          cta={{ label: 'be the first!', to: '/play/lyric-chain', accentClassName: 'text-violet-400' }}
+        />
       ) : (
         <div className="divide-y divide-gray-800">
           {entries.map((e) => (
@@ -295,15 +288,12 @@ function Band2048Tab() {
       </div>
 
       {isLoading ? (
-        <p className="text-center text-gray-600 text-sm py-10">Loading…</p>
+        <DarkLoadingRow />
       ) : entries.length === 0 ? (
-        <p className="text-center text-gray-600 text-sm py-10">
-          No scores yet —{' '}
-          <Link to="/play/2048" className="text-purple-400 hover:underline">
-            be the first
-          </Link>
-          !
-        </p>
+        <DarkEmptyRow
+          message="No scores yet"
+          cta={{ label: 'be the first!', to: '/play/2048', accentClassName: 'text-purple-400' }}
+        />
       ) : (
         <div className="divide-y divide-gray-800">
           {entries.map((e) => (
@@ -353,15 +343,12 @@ function VinylRunnerTab() {
       </div>
 
       {isLoading ? (
-        <p className="text-center text-gray-600 text-sm py-10">Loading…</p>
+        <DarkLoadingRow />
       ) : entries.length === 0 ? (
-        <p className="text-center text-gray-600 text-sm py-10">
-          No scores yet —{' '}
-          <Link to="/play/platformer" className="text-violet-400 hover:underline">
-            be the first
-          </Link>
-          !
-        </p>
+        <DarkEmptyRow
+          message="No scores yet"
+          cta={{ label: 'be the first!', to: '/play/platformer', accentClassName: 'text-violet-400' }}
+        />
       ) : (
         <div className="divide-y divide-gray-800">
           {entries.map((e) => (

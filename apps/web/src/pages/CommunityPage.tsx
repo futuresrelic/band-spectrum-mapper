@@ -154,7 +154,7 @@ function OverviewTab({ hub, onSurprise, isSurprising }: {
           { label: 'Curators',    value: stats.publicCurators.toLocaleString() },
           { label: 'Festivals',   value: stats.publicFestivals.toLocaleString() },
           { label: 'Tours',       value: stats.publicTours.toLocaleString() },
-          { label: 'Songs Found', value: stats.totalSongsRecovered.toLocaleString() },
+          { label: 'Songs Recovered', value: stats.totalSongsRecovered.toLocaleString() },
           { label: 'Challenges',  value: stats.totalChallengesCompleted.toLocaleString() },
         ]).map(({ label, value }) => (
           <div key={label} className="flex flex-col items-center gap-0.5 bg-gray-900/60 border border-gray-800 rounded-xl px-3 py-3">
@@ -441,7 +441,7 @@ export default function CommunityPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-950">
-      <SiteHeader theme="dark" active="games" />
+      <SiteHeader theme="dark" active="community" />
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-4 py-8 flex flex-col gap-6">

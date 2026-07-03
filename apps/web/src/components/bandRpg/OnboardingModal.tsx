@@ -22,12 +22,12 @@ const SLIDES: Slide[] = [
   {
     icon: '🎵',
     title: 'Song Recovery',
-    body: 'As you explore, you can collect songs, albums, and musical artifacts. These count toward your curator score and unlock new storylines tied to real-world music history.',
+    body: 'As you explore, you can recover songs, albums, and musical artifacts. These count toward your curator score and unlock new storylines tied to real-world music history.',
   },
   {
     icon: '🏆',
     title: 'Curator Progression',
-    body: 'Your curator level grows as you complete quests, collect items, and discover content. Higher curator levels unlock new adventures, badges, and community features.',
+    body: 'Your curator level grows as you complete quests, recover items, and discover content. Higher curator levels unlock new adventures, badges, and community features.',
   },
   {
     icon: '🎪',

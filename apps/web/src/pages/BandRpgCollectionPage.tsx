@@ -544,7 +544,7 @@ function SongsTab() {
       <EmptyState
         icon="📂"
         title="No songs recovered yet"
-        desc="Play Band RPG and complete quests to add songs to your collection."
+        desc="Play Band RPG and complete quests to recover songs for your collection."
       />
     );
   }
