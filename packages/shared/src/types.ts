@@ -779,7 +779,11 @@ export type { ScoreAxis, SourceType, ImportStatus };
 // entry to the server-side registry; no frontend changes required.
 // ---------------------------------------------------------------------------
 
-export type ModuleStatusValue = 'ready' | 'missing' | 'partial' | 'stale' | 'failed' | 'skipped';
+// needs_review/broken/private/removed are Media-specific (Phase Z.17.6) —
+// other modules only ever use ready/missing/partial/stale/failed/skipped.
+export type ModuleStatusValue =
+  | 'ready' | 'missing' | 'partial' | 'stale' | 'failed' | 'skipped'
+  | 'needs_review' | 'broken' | 'private' | 'removed';
 
 export type ModuleConfidence = 'verified' | 'calculated' | 'community' | 'ai' | 'estimated';
 
@@ -845,6 +849,24 @@ export interface AnalysisJob {
   resultJson: AnalysisJobStepResult[] | null;
   errorMessage: string | null;
   requestedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Song media (YouTube) — Phase Z.17.6
+// ---------------------------------------------------------------------------
+
+export type SongMediaStatus = 'available' | 'needs_review' | 'broken' | 'private' | 'removed';
+
+export interface SongMedia {
+  id: string;
+  songId: string;
+  youtubeVideoId: string;
+  sourceUrl: string;
+  title: string | null;
+  status: SongMediaStatus;
+  addedBy: string | null;
   createdAt: string;
   updatedAt: string;
 }

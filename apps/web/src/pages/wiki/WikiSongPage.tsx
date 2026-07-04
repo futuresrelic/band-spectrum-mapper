@@ -17,6 +17,9 @@ import {
   getWikiSong,
   getWikiSongPlayerContext,
   updateSongSpectrum,
+  upsertSongMedia,
+  patchSongMedia,
+  removeSongMedia,
   type WikiSongPageData,
   type WikiSongPlayerContext,
   type ScoreAxisKey,
@@ -28,7 +31,7 @@ import ModuleAdminActionButton from '../../components/wiki/ModuleAdminActionButt
 import AnalyzeButton from '../../components/wiki/AnalyzeButton';
 import { WikiBreadcrumb } from '../../components/wiki/WikiLayout';
 import RadarChart from '../../components/charts/RadarChart';
-import { SCORE_AXES, AXIS_LABELS, AXIS_COLORS, AXIS_INFO, MUSIC_SCORE_AXES, MUSIC_AXIS_LABELS } from '@band-spectrum-mapper/shared';
+import { SCORE_AXES, AXIS_LABELS, AXIS_COLORS, AXIS_INFO, MUSIC_SCORE_AXES, MUSIC_AXIS_LABELS, normalizeYouTubeUrl } from '@band-spectrum-mapper/shared';
 import type { ModuleDataStatus, SongHealth } from '@band-spectrum-mapper/shared';
 import {
   deriveLiveFrequency,
@@ -258,13 +261,13 @@ function buildGoals(
 // ── Future modules — extension points for Phase Z.18+ ─────────────────────────
 // Each entry reserves wall space for a module that will hang here later.
 // Song Spectrum (Z.17) and Rhythm Lab (Z.17, via SongMusicScore) graduated
-// out of this registry into live sections — this list is what's left.
+// out of this registry into live sections; Media (Z.17.6) did too — this
+// list is what's left.
 
 const FUTURE_MODULES: Array<{ id: string; icon: string; title: string; description: string }> = [
   { id: 'lyrics-dna',    icon: '🧬', title: 'Lyrics DNA',     description: 'Waiting for linguistic analysis.' },
   { id: 'trivia',        icon: '❓', title: 'Trivia',         description: 'Questions about this song will surface as the trivia bank grows.' },
   { id: 'community',     icon: '💬', title: 'Community',      description: 'No discussions yet. The first word is yours.' },
-  { id: 'media',         icon: '🎬', title: 'Media',          description: 'Live footage and known recordings will be catalogued here.' },
   { id: 'timeline',      icon: '📜', title: 'Full Timeline',  description: 'A fuller performance chronology is being assembled.' },
   { id: 'node-graph',    icon: '🕸', title: 'Song Node',      description: 'Connections to other songs, mapped as a living graph.' },
 ];
@@ -359,6 +362,7 @@ export default function WikiSongPage() {
     ...(user ? [{ id: 'journey', label: 'Your Journey' }, { id: 'collection', label: 'Collection' }] : []),
     { id: 'spectrum',   label: 'Spectrum'   },
     { id: 'related',    label: 'Related'    },
+    { id: 'media',      label: 'Media'      },
     ...(primaryLyric ? [{ id: 'lyrics', label: 'Lyrics' }] : []),
     { id: 'goals',      label: 'What Next'  },
     { id: 'health',     label: 'Song Health'},
@@ -496,7 +500,19 @@ export default function WikiSongPage() {
                 />
               </Section>
 
-              {/* 8 · Lyrics */}
+              {/* 8 · Media — the official video */}
+              <Section id="media" title="Media" index={nextIndex()}
+                badge={song.media?.status === 'available' ? <KnowledgeConfidenceBadge level="verified" /> : undefined}
+              >
+                <SongMediaPanel
+                  media={song.media}
+                  songId={song.id}
+                  isAdmin={!!user?.isAdmin}
+                  onChanged={refetchSong}
+                />
+              </Section>
+
+              {/* 9 · Lyrics */}
               {(primaryLyric || song.isInstrumental) && (
                 <Section id="lyrics" title="Lyrics" index={nextIndex()}>
                   {song.isInstrumental ? (
@@ -1289,6 +1305,277 @@ function RhythmLabPanel({
           <ModuleAdminActionButton action={moduleStatus.adminAction} onSuccess={onChanged} />
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Media (the official YouTube video) ────────────────────────────────────────
+// Admins add/replace/edit/remove; players only ever watch, open on YouTube,
+// or share. A flagged video (needs_review/broken/private) never auto-plays
+// for anyone — the thumbnail is disabled and a caution label takes its place.
+
+const MEDIA_FLAG_LABEL: Record<string, string> = {
+  needs_review: 'Flagged for review',
+  broken: 'Link reported broken',
+  private: 'May be private or unlisted',
+};
+
+function SongMediaPanel({
+  media,
+  songId,
+  isAdmin,
+  onChanged,
+}: {
+  media: WikiSongPageData['song']['media'];
+  songId: string;
+  isAdmin: boolean;
+  onChanged: () => void;
+}) {
+  const [mode, setMode] = useState<'view' | 'add' | 'edit'>('view');
+  const [showPlayer, setShowPlayer] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const hasVideo = !!media && media.status !== 'removed';
+
+  async function handleShare() {
+    const url = window.location.href;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: document.title, url });
+        return;
+      }
+    } catch {
+      // fall through to clipboard
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard unavailable — nothing more we can do without a new dependency
+    }
+  }
+
+  if (!hasVideo) {
+    return (
+      <div className="space-y-3">
+        <WikiModulePlaceholder
+          icon="🎬"
+          title="No official video has been linked yet."
+          description="Once an admin links this song's official video, it will play here."
+        />
+        {isAdmin && mode === 'view' && (
+          <button
+            type="button"
+            onClick={() => setMode('add')}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-950/40 border border-amber-900/50 text-amber-300 hover:bg-amber-900/40 transition-colors"
+          >
+            + Add YouTube Video
+          </button>
+        )}
+        {isAdmin && mode === 'add' && (
+          <SongMediaEditForm
+            songId={songId}
+            onSaved={() => { setMode('view'); onChanged(); }}
+            onCancel={() => setMode('view')}
+          />
+        )}
+      </div>
+    );
+  }
+
+  const flagged = media.status !== 'available';
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-gray-900/70 border border-[#1a2332] rounded-xl overflow-hidden">
+        <div className="relative aspect-video bg-black">
+          {showPlayer && !flagged ? (
+            <iframe
+              src={`https://www.youtube-nocookie.com/embed/${media.youtubeVideoId}`}
+              title={media.title ?? 'Official video'}
+              className="absolute inset-0 w-full h-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => { if (!flagged) setShowPlayer(true); }}
+              disabled={flagged}
+              className="absolute inset-0 w-full h-full group disabled:cursor-not-allowed"
+              aria-label={flagged ? MEDIA_FLAG_LABEL[media.status] : 'Play video'}
+            >
+              <img
+                src={`https://i.ytimg.com/vi/${media.youtubeVideoId}/hqdefault.jpg`}
+                alt=""
+                className={`w-full h-full object-cover transition-opacity ${flagged ? 'opacity-40' : 'opacity-90 group-hover:opacity-100'}`}
+              />
+              {!flagged ? (
+                <span className="absolute inset-0 flex items-center justify-center">
+                  <span className="w-16 h-16 rounded-full bg-black/60 border border-white/30 flex items-center justify-center text-2xl text-white group-hover:scale-105 transition-transform motion-reduce:transition-none">
+                    ▶
+                  </span>
+                </span>
+              ) : (
+                <span className="absolute inset-0 flex items-center justify-center bg-black/40">
+                  <span className="text-xs text-amber-300 font-medium px-3 py-1.5 rounded-full bg-black/70 border border-amber-800/50">
+                    {MEDIA_FLAG_LABEL[media.status]}
+                  </span>
+                </span>
+              )}
+            </button>
+          )}
+        </div>
+        <div className="p-4 flex items-center justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            {media.title && <p className="text-sm text-gray-200 truncate">{media.title}</p>}
+            <p className="text-[10px] text-gray-600 mt-0.5">Official video · YouTube</p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <a
+              href={`https://www.youtube.com/watch?v=${media.youtubeVideoId}`}
+              target="_blank" rel="noopener noreferrer"
+              className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+            >
+              Open on YouTube ↗
+            </a>
+            <button
+              type="button"
+              onClick={() => void handleShare()}
+              className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
+            >
+              {copied ? 'Copied!' : 'Share'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {isAdmin && mode === 'view' && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setMode('edit')}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-800/60 border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors"
+          >
+            Replace
+          </button>
+          {!flagged && (
+            <button
+              type="button"
+              onClick={() => void patchSongMedia(songId, { status: 'needs_review' }).then(onChanged)}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-800/60 border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors"
+            >
+              Flag for review
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => { if (window.confirm('Remove this video? It can be re-added later.')) void removeSongMedia(songId).then(onChanged); }}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-950/30 border border-red-900/40 text-red-300 hover:bg-red-900/30 transition-colors"
+          >
+            Remove
+          </button>
+        </div>
+      )}
+      {isAdmin && mode === 'edit' && (
+        <SongMediaEditForm
+          songId={songId}
+          initialUrl={`https://www.youtube.com/watch?v=${media.youtubeVideoId}`}
+          initialTitle={media.title}
+          onSaved={() => { setMode('view'); onChanged(); }}
+          onCancel={() => setMode('view')}
+        />
+      )}
+    </div>
+  );
+}
+
+// Minimal add/replace form — client-side normalization gives instant
+// feedback, but the server independently re-validates and is the only
+// thing that actually enforces "YouTube only, no arbitrary embeds."
+function SongMediaEditForm({
+  songId,
+  initialUrl,
+  initialTitle,
+  onSaved,
+  onCancel,
+}: {
+  songId: string;
+  initialUrl?: string;
+  initialTitle?: string | null;
+  onSaved: () => void;
+  onCancel: () => void;
+}) {
+  const [url, setUrl] = useState(initialUrl ?? '');
+  const [title, setTitle] = useState(initialTitle ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const preview = url.trim() ? normalizeYouTubeUrl(url) : null;
+  const showInvalid = url.trim().length > 0 && !preview;
+
+  async function handleSave() {
+    if (!preview) { setError('Enter a valid YouTube URL first.'); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      await upsertSongMedia(songId, url.trim(), title.trim() || null);
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save — check the URL and try again.');
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="bg-gray-900/70 border border-indigo-900/40 rounded-xl p-5 space-y-3">
+      <label className="block">
+        <span className="text-[10px] uppercase tracking-widest text-gray-500">YouTube URL</span>
+        <input
+          type="text"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://www.youtube.com/watch?v=…"
+          className={`mt-1 w-full bg-gray-950 border rounded px-2 py-1.5 text-sm text-gray-100 focus:outline-none ${showInvalid ? 'border-red-800 focus:border-red-600' : 'border-gray-700 focus:border-indigo-500'}`}
+        />
+        {showInvalid && (
+          <p className="text-[10px] text-red-400 mt-1">
+            Not a recognized YouTube URL. Supports youtube.com/watch, youtu.be, /embed/, and /shorts/ links.
+          </p>
+        )}
+        {preview && (
+          <p className="text-[10px] text-emerald-400 mt-1">✓ Video ID: {preview.videoId}</p>
+        )}
+      </label>
+      <label className="block">
+        <span className="text-[10px] uppercase tracking-widest text-gray-500">Title (optional)</span>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={200}
+          className="mt-1 w-full bg-gray-950 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+        />
+      </label>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void handleSave()}
+          disabled={saving || !preview}
+          className="text-xs font-semibold px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
+        >
+          {saving ? 'Saving…' : 'Save Video'}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-xs font-semibold px-3 py-2 rounded-lg text-gray-400 hover:text-gray-200 transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

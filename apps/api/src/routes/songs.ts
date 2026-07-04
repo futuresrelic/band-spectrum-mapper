@@ -4,6 +4,7 @@ import { songService } from '../services/songService.js';
 import { lyricService } from '../services/lyricService.js';
 import { scoreService } from '../services/scoreService.js';
 import { aiLyricService } from '../services/aiLyricService.js';
+import { songMediaService } from '../services/songMediaService.js';
 import { validateBody } from '../middleware/validate.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
@@ -13,6 +14,8 @@ import {
   createLyricSchema,
   updateLyricSchema,
   upsertScoreSchema,
+  upsertSongMediaSchema,
+  patchSongMediaSchema,
 } from '@band-spectrum-mapper/shared';
 
 export const songsRouter = Router();
@@ -103,7 +106,7 @@ songsRouter.get('/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-songsRouter.patch('/:id', validateBody(updateSongSchema), async (req, res, next) => {
+songsRouter.patch('/:id', requireAuth, requireAdmin, validateBody(updateSongSchema), async (req, res, next) => {
   try {
     res.json(await songService.update(req.params['id']!, req.body));
   } catch (e) { next(e); }
@@ -120,7 +123,7 @@ songsRouter.get('/:id/wiki', requireAuth, requireAdmin, async (req, res, next): 
   } catch (e) { next(e); }
 });
 
-songsRouter.delete('/:id', async (req, res, next) => {
+songsRouter.delete('/:id', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     await songService.delete(req.params['id']!);
     res.status(204).end();
@@ -134,7 +137,7 @@ songsRouter.get('/:songId/lyrics', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-songsRouter.post('/:songId/lyrics', validateBody(createLyricSchema), async (req, res, next) => {
+songsRouter.post('/:songId/lyrics', requireAuth, requireAdmin, validateBody(createLyricSchema), async (req, res, next) => {
   try {
     res.status(201).json(await lyricService.create(req.params['songId']!, req.body));
   } catch (e) { next(e); }
@@ -164,5 +167,25 @@ songsRouter.get('/:songId/score', async (req, res, next) => {
 songsRouter.put('/:songId/score', requireAuth, requireAdmin, validateBody(upsertScoreSchema), async (req, res, next) => {
   try {
     res.json(await scoreService.upsert(req.params['songId']!, req.body));
+  } catch (e) { next(e); }
+});
+
+// Media — the official YouTube video for a song. Admin-only; players only
+// ever read it (embedded in the Wiki song response).
+songsRouter.put('/:songId/media', requireAuth, requireAdmin, validateBody(upsertSongMediaSchema), async (req, res, next) => {
+  try {
+    res.json(await songMediaService.upsert(req.params['songId']!, req.body, req.user!.userId));
+  } catch (e) { next(e); }
+});
+
+songsRouter.patch('/:songId/media', requireAuth, requireAdmin, validateBody(patchSongMediaSchema), async (req, res, next) => {
+  try {
+    res.json(await songMediaService.patch(req.params['songId']!, req.body));
+  } catch (e) { next(e); }
+});
+
+songsRouter.delete('/:songId/media', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await songMediaService.remove(req.params['songId']!));
   } catch (e) { next(e); }
 });

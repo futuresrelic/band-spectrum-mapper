@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { scoreService } from '../services/scoreService.js';
 import { computeSongHealth, computeAggregateHealth } from '../services/songHealthService.js';
-import { SCORE_AXES, type ScoreAxis } from '@band-spectrum-mapper/shared';
+import { SCORE_AXES, type ScoreAxis, type SongMediaStatus } from '@band-spectrum-mapper/shared';
 
 // Music Wiki — public read-only endpoints.
 // No authentication required. Returns curated data for the encyclopedic wiki view.
@@ -312,6 +312,7 @@ wikiRouter.get('/songs/:songId', async (req, res, next) => {
         album: { select: { id: true, title: true, slug: true, year: true, artworkUrl: true } },
         score: true,
         bandRpgProfile: true,
+        media: true,
         lyrics: {
           where: { isPrimary: true },
           take: 1,
@@ -423,6 +424,8 @@ wikiRouter.get('/songs/:songId', async (req, res, next) => {
       hasMusicScore: !!musicScore,
       musicScoreUpdatedAt: musicScore?.updatedAt.toISOString() ?? null,
       hasLiveProfile: !!song.bandRpgProfile,
+      mediaStatus: (song.media?.status as SongMediaStatus | undefined) ?? null,
+      mediaUpdatedAt: song.media?.updatedAt.toISOString() ?? null,
     });
 
     res.json({

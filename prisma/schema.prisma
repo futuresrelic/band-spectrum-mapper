@@ -139,6 +139,7 @@ model Song {
   tagProposals       TagProposal[]
   bandRpgProfile     BandRpgSongProfile?
   bandRpgAliases     BandRpgSongAlias[]
+  media              SongMedia?
 
   @@unique([bandId, slug])
   @@map("songs")
@@ -613,6 +614,30 @@ model SongComment {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("song_comments")
+}
+
+// ---------------------------------------------------------------------------
+// Song media — the official YouTube video for a song. Admin-curated only;
+// never arbitrary iframe URLs. Soft-delete via status='removed' (row is
+// kept, not deleted) so "removed deliberately" stays distinct from "never
+// had one" — Phase Z.17.6.
+// ---------------------------------------------------------------------------
+
+model SongMedia {
+  id             String   @id @default(cuid())
+  songId         String   @unique
+  youtubeVideoId String
+  sourceUrl      String
+  title          String?
+  // available | needs_review | broken | private | removed
+  status         String   @default("available")
+  addedBy        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  song Song @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@map("song_media")
 }
 
 // ---------------------------------------------------------------------------

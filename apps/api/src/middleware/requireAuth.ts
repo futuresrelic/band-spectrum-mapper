@@ -34,3 +34,19 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     res.status(401).json({ error: 'Invalid or expired token' });
   }
 }
+
+// For routes that behave differently for logged-in users but must not reject
+// anonymous callers (e.g. "save this playlist under my account if I'm logged
+// in"). Sets req.user when a valid Bearer token is present; otherwise leaves
+// it undefined and always calls next() — never a 401.
+export function optionalAuth(req: Request, _res: Response, next: NextFunction): void {
+  const header = req.headers['authorization'];
+  if (header?.startsWith('Bearer ')) {
+    try {
+      req.user = jwt.verify(header.slice(7), JWT_SECRET) as AuthTokenPayload;
+    } catch {
+      // invalid/expired token on an optional-auth route — proceed as anonymous
+    }
+  }
+  next();
+}

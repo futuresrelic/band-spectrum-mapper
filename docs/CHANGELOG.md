@@ -4,6 +4,140 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.17.6 — Permissions + Media Management (2026-07-03)
+
+### Overview
+
+Formalizes the three-tier permission philosophy (Public explores, Player
+contributes their own data, Admin curates the canonical database) and adds
+Song Card media: one official YouTube video per song, admin-curated,
+YouTube-only, normalized and validated server-side.
+
+### Endpoint audit — real, serious gaps found and fixed
+
+A full sweep of every mutating route (not just ones touched by prior
+phases) found that the entire canonical catalog CRUD had **no auth
+middleware at all**:
+
+- **`songs.ts`**: `PATCH /:id`, `DELETE /:id`, `POST /:songId/lyrics` —
+  anyone could edit or delete any song, or attach lyrics to any song.
+- **`albums.ts`**: `PATCH /:id`, `DELETE /:id`.
+- **`bands.ts`**: `POST /`, `PATCH /:id`, `DELETE /:id`,
+  `POST /:bandId/albums`, `POST /:bandId/songs` — anyone could create,
+  rename, or delete any band, including cascading deletes of its albums
+  and songs.
+- **`lyrics.ts`**: `PATCH /:id`, `DELETE /:id`,
+  `POST /:lyricId/revisions/:revisionId/restore`.
+- **`discography.ts`**: `POST /import` — bulk MusicBrainz import writing
+  directly to Band/Album/Song with no review step.
+- **`imports.ts`**: file-upload import and bulk score/paste import.
+- **`analysis.ts`**: `POST /ai/:songId/tags` had `requireAuth` but not
+  `requireAdmin` — any logged-in (non-admin) user could trigger AI tag
+  generation writes to the shared catalog.
+
+All of the above now require `requireAuth, requireAdmin`. Two files
+(`adventureRoutes.ts`, `socialPlanner.ts`) were flagged by an initial sweep
+as unprotected but turned out to already have `router.use(requireAuth,
+requireAdmin)` as a single combined call — a false positive from a stricter
+grep pattern, verified and confirmed fine, not modified.
+
+**Real bug found in `playlist.ts`**: every ownership check read
+`req.user.id`, but the JWT payload's field is `req.user.userId` — `.id` is
+always `undefined`. Effect: `GET /api/playlist` (list "my" playlists) had
+no working `userId` filter, so it returned **every playlist in the
+database** to any logged-in caller, not just their own. `POST /` never
+actually associated a playlist with its creator's account either (silently
+saved as ownerless). Fixed all three call sites; also discovered `POST /`
+was never actually optional-auth in practice (no middleware decoded the
+token at all on that route) — added a real `optionalAuth` middleware so
+"save under my account if logged in" works as documented.
+
+`contributions.ts` (player submits a discography suggestion, admin
+approves/rejects, with a per-day token rate limit) was already an
+exemplary instance of the player-submits/admin-approves pattern this phase
+formalizes — cited as the reference implementation, not modified.
+
+### Permission model
+
+`apps/api/src/middleware/permissions.ts` — documents the three tiers
+(PUBLIC/PLAYER/ADMIN) and ten capabilities (`canView`, `canRate`,
+`canComment`, `canEditOwn`, `canModerate`, `canEditCanonical`,
+`canGenerate`, `canRepair`, `canFetch`, `canDelete`), re-exports the
+existing `requireAuth`/`requireAdmin`/`optionalAuth` middleware (no new
+enforcement mechanism — Express middleware already did the job), and adds
+`requireOwner(getOwnerId)`, a single reusable ownership guard. Existing
+ownership checks in `comments.ts`, `tagProposals.ts`, `bandRpg.ts`
+(setlists), `curatorRoutes.ts`, `appreciationRoutes.ts`, `ratings.ts`, and
+`genre-ratings.ts` were audited and are correct — not mass-migrated to
+`requireOwner()` for style; `playlist.ts`'s DELETE route now uses it as the
+reference example for new player-owned routes going forward.
+
+### Song Card media (YouTube)
+
+- **`SongMedia` model** (migration `20260703180000_add_song_media`) — one
+  row per song (`songId` unique), `youtubeVideoId`, `sourceUrl`, optional
+  `title`, `status` (`available | needs_review | broken | private |
+  removed`), `addedBy`. `status = 'removed'` is a soft delete — the row is
+  kept so "an admin removed it" stays distinct from "never had one."
+- **`normalizeYouTubeUrl()`** (`packages/shared/src/youtube.ts`) — accepts
+  `youtube.com/watch?v=`, `youtu.be/`, `youtube.com/embed/`, and
+  `youtube.com/shorts/`, rejects everything else (no arbitrary iframe
+  URLs, no other hosts), reduces to the canonical 11-character video ID.
+  Used for instant client-side feedback in the admin form; the server
+  re-validates independently and is the sole enforcement point.
+- **Routes** (`songs.ts`, all `requireAuth, requireAdmin`):
+  `PUT /:songId/media` (add/replace — same upsert operation),
+  `PATCH /:songId/media` (flag a review state or relabel without
+  replacing the video), `DELETE /:songId/media` (soft delete).
+- **Song Card**: new "Media" section between Related Songs and Lyrics.
+  Thumbnail-first (click to load the embed — cheaper and more private than
+  an always-on iframe), "Open on YouTube," and "Share" (native share sheet
+  where available, clipboard-copy fallback) for everyone. A flagged video
+  (`needs_review`/`broken`/`private`) never auto-plays for anyone — the
+  thumbnail is disabled and shows a caution label instead. Admins
+  additionally see Replace / Flag for review / Remove, and an inline
+  add/edit form with live URL validation. Empty state reads exactly "No
+  official video has been linked yet." for everyone; admins additionally
+  see "+ Add YouTube Video."
+
+### Media joins Song Health
+
+Now that real backing infrastructure exists, Media gets a nonzero weight
+(0.5, matching Community — real, optional, admin-curated content, not
+foundational like Spectrum/Lyrics). Only `status = 'available'` counts as
+complete; `needs_review`/`broken`/`private`/`removed` all represent
+something needing admin attention, not resolved data. Wired into both
+per-song `SongHealth` and the Album/Band `AggregateHealth` rollups (one
+batched query, consistent with every other module). Also added to the
+existing admin Data Health scanner (`hasMedia` column).
+
+### Player-editable vs admin-only, at a glance
+
+| Player owns (their own data only) | Admin owns (canonical database) |
+|---|---|
+| Personal + community ratings (`UserSongRating`, `UserMusicRating`) | Song Spectrum, Rhythm, Theme, Genre, AI Summary scores |
+| Comments (`SongComment`) | Canonical Band/Album/Song/Lyric records |
+| Playlists (`Playlist`) | Song Media (YouTube video) |
+| Setlists (`BandRpgSetlist`) | Live data fetch + Setlist.fm alias matching |
+| Collection (`BandRpgCollectedSong`) | Bulk/discography import, AI tag generation |
+| Curator profile (`BandRpgCuratorProfile`) | Analysis pipeline jobs, Song Health repair actions |
+| Tag proposals + votes (auto-promoted to canonical `Tag` on threshold) | Trivia (generated live — nothing persisted to own) |
+| Discography contributions (player submits, admin approves) | |
+
+### Honest limitations
+
+- No live database or browser in this sandbox — verified by code review.
+- `requireOwner()` collapses "row doesn't exist" and "row exists but has no
+  owner" into the same 404 for anonymous-created resources (e.g. a
+  playlist saved while logged out). This is still safe (no unauthorized
+  access), just a slightly imprecise status code for a rare edge case —
+  not worth a bespoke third response path.
+- YouTube availability (broken/private) is admin-flagged manually, not
+  auto-detected — building a background checker against YouTube's API was
+  out of scope for this phase.
+
+---
+
 ## Phase Z.17.5 — Analysis Pipeline & Database Health (2026-07-03)
 
 ### Overview

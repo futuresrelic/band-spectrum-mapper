@@ -3,6 +3,8 @@ import { bandService } from '../services/bandService.js';
 import { albumService } from '../services/albumService.js';
 import { songService } from '../services/songService.js';
 import { validateBody } from '../middleware/validate.js';
+import { requireAuth } from '../middleware/requireAuth.js';
+import { requireAdmin } from '../middleware/requireAdmin.js';
 import { createBandSchema, updateBandSchema, createAlbumSchema, createSongSchema } from '@band-spectrum-mapper/shared';
 import { fetchWikiSummary } from '../lib/wikiSummary.js';
 
@@ -16,7 +18,7 @@ bandsRouter.get('/', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-bandsRouter.post('/', validateBody(createBandSchema), async (req, res, next) => {
+bandsRouter.post('/', requireAuth, requireAdmin, validateBody(createBandSchema), async (req, res, next) => {
   try {
     res.status(201).json(await bandService.create(req.body));
   } catch (e) { next(e); }
@@ -28,13 +30,13 @@ bandsRouter.get('/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-bandsRouter.patch('/:id', validateBody(updateBandSchema), async (req, res, next) => {
+bandsRouter.patch('/:id', requireAuth, requireAdmin, validateBody(updateBandSchema), async (req, res, next) => {
   try {
     res.json(await bandService.update(req.params['id']!, req.body));
   } catch (e) { next(e); }
 });
 
-bandsRouter.delete('/:id', async (req, res, next) => {
+bandsRouter.delete('/:id', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     await bandService.delete(req.params['id']!);
     res.status(204).end();
@@ -57,7 +59,7 @@ bandsRouter.get('/:bandId/albums', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-bandsRouter.post('/:bandId/albums', validateBody(createAlbumSchema), async (req, res, next) => {
+bandsRouter.post('/:bandId/albums', requireAuth, requireAdmin, validateBody(createAlbumSchema), async (req, res, next) => {
   try {
     res.status(201).json(await albumService.create(req.params['bandId']!, req.body));
   } catch (e) { next(e); }
@@ -71,7 +73,7 @@ bandsRouter.get('/:bandId/songs', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-bandsRouter.post('/:bandId/songs', validateBody(createSongSchema), async (req, res, next) => {
+bandsRouter.post('/:bandId/songs', requireAuth, requireAdmin, validateBody(createSongSchema), async (req, res, next) => {
   try {
     res.status(201).json(await songService.create(req.params['bandId']!, req.body));
   } catch (e) { next(e); }

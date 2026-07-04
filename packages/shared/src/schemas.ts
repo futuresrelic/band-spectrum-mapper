@@ -234,3 +234,20 @@ export const addStopwordSchema = z.object({
 export const removeStopwordSchema = z.object({
   word: z.string().min(1).max(100),
 });
+
+// ---------------------------------------------------------------------------
+// Song media (YouTube) schemas — Phase Z.17.6
+// ---------------------------------------------------------------------------
+
+export const upsertSongMediaSchema = z.object({
+  url: z.string().min(1).max(2000),
+  title: z.string().max(200).optional().nullable(),
+});
+export type UpsertSongMediaInput = z.infer<typeof upsertSongMediaSchema>;
+
+export const SONG_MEDIA_REVIEW_STATUSES = ['needs_review', 'broken', 'private'] as const;
+export const patchSongMediaSchema = z.object({
+  status: z.enum(SONG_MEDIA_REVIEW_STATUSES).optional(),
+  title: z.string().max(200).optional().nullable(),
+});
+export type PatchSongMediaInput = z.infer<typeof patchSongMediaSchema>;

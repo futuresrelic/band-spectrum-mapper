@@ -3,8 +3,15 @@ import multer from 'multer';
 import { importService } from '../services/importService.js';
 import { scoreImportService } from '../services/scoreImportService.js';
 import { HttpError } from '../middleware/errorHandler.js';
+import { requireAuth } from '../middleware/requireAuth.js';
+import { requireAdmin } from '../middleware/requireAdmin.js';
 
 export const importsRouter = Router();
+
+// Admin-only — bulk file/paste import writes directly to canonical Band/Album/
+// Song/Lyric/score data with no review step.
+importsRouter.use(requireAuth);
+importsRouter.use(requireAdmin);
 
 const upload = multer({
   storage: multer.memoryStorage(),

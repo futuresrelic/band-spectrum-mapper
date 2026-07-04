@@ -917,6 +917,7 @@ adminRouter.get('/data-health', async (req, res, next) => {
         aiGenreSpectrum:{ select: { id: true } },
         themeScores:    { select: { id: true }, take: 1 },
         bandRpgProfile: { select: { id: true } },
+        media:          { select: { id: true, status: true } },
         _count:         { select: { comments: true } },
         spectrumAnalyses: {
           select: { id: true, audioAnalysis: true },
@@ -937,6 +938,7 @@ adminRouter.get('/data-health', async (req, res, next) => {
       hasLyrics:       s.lyrics.length > 0,
       hasCoreScore:    Boolean(s.score),
       hasLiveProfile:  Boolean(s.bandRpgProfile),
+      hasMedia:        s.media?.status === 'available',
       hasComments:     s._count.comments > 0,
       hasAiAnalysis:   Boolean(s.aiAnalysis),
       hasAiSpectrum:   Boolean(s.aiSpectrum),
@@ -955,6 +957,7 @@ adminRouter.get('/data-health', async (req, res, next) => {
       hasLyrics:        rows.filter((r) => r.hasLyrics).length,
       hasCoreScore:     rows.filter((r) => r.hasCoreScore).length,
       hasLiveProfile:   rows.filter((r) => r.hasLiveProfile).length,
+      hasMedia:         rows.filter((r) => r.hasMedia).length,
       hasComments:      rows.filter((r) => r.hasComments).length,
       hasAiAnalysis:    rows.filter((r) => r.hasAiAnalysis).length,
       hasAiSpectrum:    rows.filter((r) => r.hasAiSpectrum).length,

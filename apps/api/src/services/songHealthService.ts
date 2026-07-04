@@ -12,6 +12,10 @@
 // undo Z.17's "one clean spectrum" decision), SongContextAnalysis /
 // AudienceProfile (derivative/composite, not primary source data), Node
 // Graph (a cross-song visualization, not a per-song artifact).
+//
+// Media (Phase Z.17.6): now backed by a real SongMedia model, so it counts
+// toward the score like Community — real, optional, admin-curated content,
+// not foundational like Spectrum/Lyrics.
 
 import { prisma } from '../lib/prisma.js';
 import { aiAnalysisService } from './aiAnalysisService.js';
@@ -24,6 +28,7 @@ import type {
   ModuleDataStatus,
   SongHealth,
   AggregateHealth,
+  SongMediaStatus,
 } from '@band-spectrum-mapper/shared';
 
 // ---------------------------------------------------------------------------
@@ -53,12 +58,11 @@ const MODULE_DEFS: ModuleDef[] = [
   { key: 'genre',     title: 'Genre',       weight: 1,   pipelineOrder: 5 },
   { key: 'summary',   title: 'AI Summary',  weight: 1,   pipelineOrder: 6 },
   { key: 'community', title: 'Community',  weight: 0.5, pipelineOrder: null },
-  // Trivia and Media are tracked and shown, but excluded from the score:
-  // Trivia has no persisted per-song artifact to be "missing" (see below),
-  // and Media has no backing system at all yet — a module that can never
-  // possibly gain data shouldn't permanently cap every song below 100%.
+  { key: 'media',     title: 'Media',       weight: 0.5, pipelineOrder: null },
+  // Trivia is tracked and shown, but excluded from the score: it has no
+  // persisted per-song artifact to be "missing" (see below) — generated
+  // live on demand, so there's nothing real to penalize a song for lacking.
   { key: 'trivia',    title: 'Trivia',      weight: 0,   pipelineOrder: null },
-  { key: 'media',     title: 'Media',       weight: 0,   pipelineOrder: null },
 ];
 
 /** Modules the "Analyze Song" pipeline can actually generate, in run order. */
@@ -86,7 +90,17 @@ export interface SongHealthInput {
   hasMusicScore: boolean;
   musicScoreUpdatedAt: string | null;
   hasLiveProfile: boolean;
+  mediaStatus: SongMediaStatus | null;
+  mediaUpdatedAt: string | null;
 }
+
+const MEDIA_STATUS_LABEL: Record<SongMediaStatus, string> = {
+  available: 'Linked and playable.',
+  needs_review: 'Flagged for admin review.',
+  broken: 'Link reported broken.',
+  private: 'Video is private or unlisted upstream.',
+  removed: 'Previously linked; an admin removed it.',
+};
 
 /** Human-readable provenance for the Spectrum module's confidence badge. */
 function describeSpectrumSource(source: string | null): { confidence: ModuleDataStatus['confidence']; label: string } {
@@ -227,11 +241,22 @@ export async function computeSongHealth(input: SongHealthInput): Promise<SongHea
     },
     {
       moduleKey: 'media', title: 'Media',
-      status: 'missing',
-      source: null, confidence: null, lastUpdated: null,
-      hasData: false, canGenerate: false, canFetch: false, canRepair: false,
-      progress: null, notes: 'No song-level media system exists yet.',
-      adminAction: null,
+      status: input.mediaStatus === 'available' ? 'ready' : input.mediaStatus === null ? 'missing' : input.mediaStatus,
+      source: input.mediaStatus ? 'verified' : null,
+      confidence: input.mediaStatus === 'available' ? 'verified' : null,
+      lastUpdated: input.mediaUpdatedAt,
+      // Only a genuinely working video counts as "complete" — needs_review/
+      // broken/private/removed all represent something needing admin attention.
+      hasData: input.mediaStatus === 'available',
+      canGenerate: false,
+      canFetch: false,
+      canRepair: input.mediaStatus !== null && input.mediaStatus !== 'available',
+      progress: null,
+      notes: input.mediaStatus ? MEDIA_STATUS_LABEL[input.mediaStatus] : null,
+      adminAction: input.mediaStatus === 'available' ? null : {
+        kind: 'route', label: input.mediaStatus === null ? 'Add YouTube Video' : 'Review Video',
+        to: `/wiki/songs/${input.songId}#media`,
+      },
     },
   ];
 
@@ -257,7 +282,7 @@ export async function computeAggregateHealth(songIds: string[]): Promise<Aggrega
   }
 
   const [
-    songs, themeRows, genreRows, researchRows, commentRows,
+    songs, themeRows, genreRows, researchRows, commentRows, mediaRows,
   ] = await Promise.all([
     prisma.song.findMany({
       where: { id: { in: songIds } },
@@ -274,12 +299,14 @@ export async function computeAggregateHealth(songIds: string[]): Promise<Aggrega
     prisma.songAiGenreSpectrum.findMany({ where: { songId: { in: songIds } }, select: { songId: true } }),
     prisma.songResearch.findMany({ where: { songId: { in: songIds } }, select: { songId: true } }),
     prisma.songComment.groupBy({ by: ['songId'], where: { songId: { in: songIds } }, _count: { id: true } }),
+    prisma.songMedia.findMany({ where: { songId: { in: songIds }, status: 'available' }, select: { songId: true } }),
   ]);
 
   const themeSet = new Set(themeRows.map((r) => r.songId));
   const genreSet = new Set(genreRows.map((r) => r.songId));
   const researchSet = new Set(researchRows.map((r) => r.songId));
   const commentSet = new Set(commentRows.map((r) => r.songId));
+  const mediaSet = new Set(mediaRows.map((r) => r.songId));
 
   const n = songs.length;
   const coverage = (predicate: (s: (typeof songs)[number]) => boolean) =>
@@ -295,6 +322,7 @@ export async function computeAggregateHealth(songIds: string[]): Promise<Aggrega
     { key: 'genre' as const,    title: 'Genre',    count: coverage((s) => genreSet.has(s.id)) },
     { key: 'summary' as const,  title: 'AI Summary', count: coverage((s) => researchSet.has(s.id)) },
     { key: 'community' as const,title: 'Community',count: coverage((s) => commentSet.has(s.id)) },
+    { key: 'media' as const,    title: 'Media',    count: coverage((s) => mediaSet.has(s.id)) },
   ].map((m) => ({
     moduleKey: m.key, title: m.title, songsComplete: m.count,
     pct: n > 0 ? Math.round((m.count / n) * 100) : 100,
@@ -349,6 +377,7 @@ export async function runSongPipeline(
       score: { select: { id: true, source: true, updatedAt: true } },
       musicScore: { select: { id: true, updatedAt: true } },
       bandRpgProfile: { select: { id: true } },
+      media: { select: { status: true, updatedAt: true } },
     },
   });
   if (!song) throw new Error('Song not found');
@@ -366,6 +395,8 @@ export async function runSongPipeline(
     hasMusicScore: !!song.musicScore,
     musicScoreUpdatedAt: song.musicScore?.updatedAt.toISOString() ?? null,
     hasLiveProfile: !!song.bandRpgProfile,
+    mediaStatus: (song.media?.status as SongMediaStatus | undefined) ?? null,
+    mediaUpdatedAt: song.media?.updatedAt.toISOString() ?? null,
   });
 
   const results: Array<{ songId: string; songTitle: string; moduleKey: string; outcome: 'skipped' | 'generated' | 'failed'; error?: string }> = [];

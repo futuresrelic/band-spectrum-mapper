@@ -17,6 +17,7 @@ interface SongHealthRow {
   hasLyrics: boolean;
   hasCoreScore: boolean;
   hasLiveProfile: boolean;
+  hasMedia: boolean;
   hasComments: boolean;
   hasAiAnalysis: boolean;
   hasAiSpectrum: boolean;
@@ -33,6 +34,7 @@ interface HealthSummary {
   hasLyrics: number;
   hasCoreScore: number;
   hasLiveProfile: number;
+  hasMedia: number;
   hasComments: number;
   hasAiAnalysis: number;
   hasAiSpectrum: number;
@@ -65,6 +67,7 @@ const COLUMNS: ColumnDef[] = [
   { key: 'hasGenreSpectrum', label: 'Genre',           short: 'Gen',   batchJob: 'genre',     batchLabel: 'AI Batch' },
   { key: 'hasThemes',        label: 'Theme',           short: 'Thm',   batchJob: 'themes',    batchLabel: 'AI Batch' },
   { key: 'hasResearch',      label: 'AI Summary',      short: 'Sum',   batchJob: 'research',  batchLabel: 'AI Batch' },
+  { key: 'hasMedia',         label: 'Media',           short: 'Med' },
   { key: 'hasComments',      label: 'Community',       short: 'Comm' },
   { key: 'hasAiAnalysis',    label: 'AI Analysis',     short: 'Ana',   batchJob: 'analysis',  batchLabel: 'AI Batch' },
   { key: 'hasAiSpectrum',    label: 'AI Spectrum (secondary)', short: 'ASpc' },

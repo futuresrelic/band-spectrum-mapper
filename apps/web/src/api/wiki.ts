@@ -1,8 +1,8 @@
 // Music Wiki API client — types and fetch helpers.
 import { api } from '../lib/api';
-import type { SongHealth, AggregateHealth } from '@band-spectrum-mapper/shared';
+import type { SongHealth, AggregateHealth, SongMedia } from '@band-spectrum-mapper/shared';
 
-export type { SongHealth, AggregateHealth };
+export type { SongHealth, AggregateHealth, SongMedia };
 
 export type WikiBand = {
   id: string;
@@ -225,6 +225,7 @@ export type WikiSongPageData = {
     album: { id: string; title: string; slug: string; year: number | null; artworkUrl: string | null } | null;
     score: WikiAxisScore | null;
     bandRpgProfile: WikiSongProfile | null;
+    media: SongMedia | null;
     lyrics: Array<{ id: string; sourceType: string; sourceLabel: string | null; text: string }>;
     _count: { ratings: number };
   };
@@ -276,6 +277,23 @@ export async function generateMusicScore(songId: string): Promise<WikiMusicScore
 
 export async function fetchSongLyricsAi(songId: string): Promise<unknown> {
   return api.post(`/api/songs/${encodeURIComponent(songId)}/ai-lyrics`, {});
+}
+
+// ── Song media (YouTube) — admin add/replace/edit/remove ─────────────────────
+
+export async function upsertSongMedia(songId: string, url: string, title?: string | null): Promise<SongMedia> {
+  return api.put<SongMedia>(`/api/songs/${encodeURIComponent(songId)}/media`, { url, title: title ?? null });
+}
+
+export async function patchSongMedia(
+  songId: string,
+  data: { status?: 'needs_review' | 'broken' | 'private'; title?: string | null },
+): Promise<SongMedia> {
+  return api.patch<SongMedia>(`/api/songs/${encodeURIComponent(songId)}/media`, data);
+}
+
+export async function removeSongMedia(songId: string): Promise<SongMedia> {
+  return api.delete<SongMedia>(`/api/songs/${encodeURIComponent(songId)}/media`);
 }
 
 // ── Player context (requires auth — uses api.get so Bearer token is included) ─

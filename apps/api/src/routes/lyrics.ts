@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { lyricService } from '../services/lyricService.js';
 import { validateBody } from '../middleware/validate.js';
+import { requireAuth } from '../middleware/requireAuth.js';
+import { requireAdmin } from '../middleware/requireAdmin.js';
 import { updateLyricSchema } from '@band-spectrum-mapper/shared';
 
 export const lyricsRouter = Router();
@@ -11,13 +13,13 @@ lyricsRouter.get('/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-lyricsRouter.patch('/:id', validateBody(updateLyricSchema), async (req, res, next) => {
+lyricsRouter.patch('/:id', requireAuth, requireAdmin, validateBody(updateLyricSchema), async (req, res, next) => {
   try {
     res.json(await lyricService.update(req.params['id']!, req.body));
   } catch (e) { next(e); }
 });
 
-lyricsRouter.delete('/:id', async (req, res, next) => {
+lyricsRouter.delete('/:id', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     await lyricService.delete(req.params['id']!);
     res.status(204).end();
@@ -30,7 +32,7 @@ lyricsRouter.get('/:id/revisions', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-lyricsRouter.post('/:lyricId/revisions/:revisionId/restore', async (req, res, next) => {
+lyricsRouter.post('/:lyricId/revisions/:revisionId/restore', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     res.json(
       await lyricService.restoreRevision(req.params['lyricId']!, req.params['revisionId']!),

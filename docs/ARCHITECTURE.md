@@ -945,3 +945,63 @@ inline actions (in-context repair use case). Both agree on what "has data"
 means per module because both ultimately check the same Prisma relations
 — reconciling their differing shapes into one generic structure was judged
 not worth the complexity it would add to a working page.
+
+
+## Permissions & Song Card Media (Phase Z.17.6, 2026-07-03)
+
+### The three-tier model
+
+Every route in the app maps to exactly one tier:
+
+- **PUBLIC** — no auth. Browsing the Wiki, Song Cards, Band/Album pages,
+  viewing Spectrum/Live Frequency/collection progress, reading stories.
+- **PLAYER** — `requireAuth`. May create/edit/delete only rows they own:
+  ratings, comments, playlists, setlists, collection, curator profile, tag
+  proposals/votes, discography contributions.
+- **ADMIN** — `requireAuth, requireAdmin`. The only tier that may touch
+  canonical data: Band/Album/Song/Lyric, all analysis scores, Song Media,
+  live-data fetch/alias matching, bulk import, moderation, the analysis
+  pipeline and job queue.
+
+`apps/api/src/middleware/permissions.ts` documents this as a `Capability`
+union (`canView`/`canRate`/`canComment`/`canEditOwn`/`canModerate`/
+`canEditCanonical`/`canGenerate`/`canRepair`/`canFetch`/`canDelete`) mapped
+to its tier, and re-exports `requireAuth`/`requireAdmin`/`optionalAuth` so
+route files have one import path for both the enforcement middleware and
+the capability vocabulary. It does not replace Express middleware as the
+enforcement mechanism — it documents intent and adds one new piece:
+`requireOwner(getOwnerId)`, a reusable ownership guard for PLAYER-tier
+(`canEditOwn`) routes, used by `playlist.ts`'s delete route as the
+reference example for future player-owned-resource routes.
+
+A full endpoint audit (Z.17.6) found the entire canonical catalog CRUD
+(`songs.ts`, `albums.ts`, `bands.ts`, `lyrics.ts`) had no auth middleware
+at all, plus gaps in `discography.ts`, `imports.ts`, and the AI tag route
+in `analysis.ts` — all fixed. See `docs/CHANGELOG.md`'s Z.17.6 entry for
+the full list and a real ownership-check bug found in `playlist.ts`
+(`req.user.id` vs the JWT payload's actual `req.user.userId` field).
+
+### Song Media (YouTube)
+
+`SongMedia` (one row per song, `songId` unique): `youtubeVideoId`,
+`sourceUrl`, `title`, `status` (`available | needs_review | broken |
+private | removed`), `addedBy`. `normalizeYouTubeUrl()`
+(`packages/shared/src/youtube.ts`) is the single validation point —
+accepts `youtube.com/watch`, `youtu.be`, `/embed/`, `/shorts/` URLs only,
+rejects arbitrary hosts/iframes, reduces to the 11-character video ID.
+`status = 'removed'` is a soft delete (row kept, not deleted) so "an admin
+removed it" stays distinct from "never had one" in Song Health and the
+admin Data Health scanner.
+
+Routes (`songs.ts`, all admin-only): `PUT /:songId/media` (add/replace,
+same upsert), `PATCH /:songId/media` (flag/relabel without replacing),
+`DELETE /:songId/media` (soft delete). Embedded into the existing
+`GET /api/wiki/songs/:songId` response (`song.media`) rather than a
+separate fetch — same pattern as `score`/`musicScore`.
+
+Media now has a nonzero weight (0.5) in `songHealthService.ts`'s registry
+— only `status = 'available'` counts as complete data; the other statuses
+represent something needing admin attention. Included in both per-song
+`SongHealth` and Album/Band `AggregateHealth` rollups automatically (the
+rollup UI maps over `moduleCoverage` generically — no per-page changes
+were needed to surface the new module).

@@ -127,8 +127,8 @@ analysisRouter.post('/ai/:songId/genre-spectrum/regenerate', requireAuth, requir
   } catch (e) { next(e); }
 });
 
-// AI tags — generate thematic tags and apply to song
-analysisRouter.post('/ai/:songId/tags', requireAuth, async (req, res, next) => {
+// AI tags — generate thematic tags and apply to song (writes canonical SongTag data)
+analysisRouter.post('/ai/:songId/tags', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const tags = await aiTagService.generateAndApply(req.params['songId']!);
     res.json({ tags });

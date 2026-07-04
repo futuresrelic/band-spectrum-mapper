@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth } from '../middleware/requireAuth.js';
+import { requireAuth, optionalAuth, requireOwner } from '../middleware/permissions.js';
 
 export const playlistRouter = Router();
 
@@ -101,9 +101,9 @@ playlistRouter.get('/round', async (req, res, next) => {
 });
 
 // POST /api/playlist — save a playlist (auth optional — saves with userId if logged in)
-playlistRouter.post('/', async (req, res, next) => {
+playlistRouter.post('/', optionalAuth, async (req, res, next) => {
   try {
-    const userId = (req as typeof req & { user?: { id: string } }).user?.id ?? null;
+    const userId = req.user?.userId ?? null;
 
     const { name, songIds } = req.body as { name?: unknown; songIds?: unknown };
 
@@ -187,7 +187,7 @@ playlistRouter.get('/:id', async (req, res, next) => {
 // GET /api/playlist — list playlists for logged-in user (auth required)
 playlistRouter.get('/', requireAuth, async (req, res, next) => {
   try {
-    const userId = (req as typeof req & { user: { id: string } }).user.id;
+    const userId = req.user!.userId;
 
     const playlists = await prisma.playlist.findMany({
       where: { userId },
@@ -205,18 +205,20 @@ playlistRouter.get('/', requireAuth, async (req, res, next) => {
 });
 
 // DELETE /api/playlist/:id — delete (auth required, must be owner)
-playlistRouter.delete('/:id', requireAuth, async (req, res, next) => {
-  try {
-    const userId = (req as typeof req & { user: { id: string } }).user.id;
-
+playlistRouter.delete(
+  '/:id',
+  requireAuth,
+  requireOwner(async (req) => {
     const playlist = await prisma.playlist.findUnique({ where: { id: req.params['id']! } });
-    if (!playlist) { res.status(404).json({ error: 'Not found' }); return; }
-    if (playlist.userId !== userId) { res.status(403).json({ error: 'Forbidden' }); return; }
-
-    await prisma.playlist.delete({ where: { id: req.params['id']! } });
-    res.json({ ok: true });
-    return;
-  } catch (e) {
-    next(e);
-  }
-});
+    return playlist?.userId ?? null;
+  }),
+  async (req, res, next) => {
+    try {
+      await prisma.playlist.delete({ where: { id: req.params['id']! } });
+      res.json({ ok: true });
+      return;
+    } catch (e) {
+      next(e);
+    }
+  },
+);
