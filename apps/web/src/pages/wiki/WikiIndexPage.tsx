@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import SiteHeader from '../../components/layout/SiteHeader';
 import { wikiSearch, type WikiSearchResult } from '../../api/wiki';
 
 export default function WikiIndexPage() {
-  const navigate = useNavigate();
   const [q, setQ] = useState('');
   const [results, setResults] = useState<WikiSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -158,14 +157,14 @@ export default function WikiIndexPage() {
                 { label: 'Songs',   to: '/wiki/songs',   icon: '🎵' },
                 { label: 'Artists', to: '/wiki/artists', icon: '🎤' },
               ].map((item) => (
-                <button
+                <Link
                   key={item.label}
-                  onClick={() => navigate(item.to)}
-                  className="flex flex-col items-center gap-2 py-6 rounded-lg border border-gray-800 bg-gray-900 hover:border-indigo-800 hover:bg-gray-800/80 transition-colors cursor-pointer"
+                  to={item.to}
+                  className="flex flex-col items-center gap-2 py-6 rounded-lg border border-gray-800 bg-gray-900 hover:border-indigo-800 hover:bg-gray-800/80 transition-colors"
                 >
                   <span className="text-2xl">{item.icon}</span>
                   <span className="text-xs font-medium text-gray-300">{item.label}</span>
-                </button>
+                </Link>
               ))}
             </div>
           </div>

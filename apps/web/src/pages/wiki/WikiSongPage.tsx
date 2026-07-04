@@ -24,6 +24,7 @@ import {
   type WikiSongPlayerContext,
   type ScoreAxisKey,
 } from '../../api/wiki';
+import { ratingsApi } from '../../api/ratings';
 import SiteHeader from '../../components/layout/SiteHeader';
 import KnowledgeConfidenceBadge from '../../components/wiki/KnowledgeConfidenceBadge';
 import WikiModulePlaceholder from '../../components/wiki/WikiModulePlaceholder';
@@ -258,19 +259,98 @@ function buildGoals(
   return goals.slice(0, 3);
 }
 
-// ── Future modules — extension points for Phase Z.18+ ─────────────────────────
-// Each entry reserves wall space for a module that will hang here later.
-// Song Spectrum (Z.17) and Rhythm Lab (Z.17, via SongMusicScore) graduated
-// out of this registry into live sections; Media (Z.17.6) did too — this
-// list is what's left.
+// ── Reserved modules — extension points for Phase Z.18+ ───────────────────────
+// Song Spectrum (Z.17), Rhythm Lab (Z.17), Media (Z.17.6), Full Timeline
+// (Z.17.7), and Community (Z.17.7) all graduated from a generic placeholder
+// into a live section. These three stay deliberately "prep only" per
+// Z.17.7's explicit scope — each still needs bespoke logic (checking
+// whether lyrics exist, gating the right admin link), so they're built as
+// small dedicated panels rather than a generic array-driven grid.
 
-const FUTURE_MODULES: Array<{ id: string; icon: string; title: string; description: string }> = [
-  { id: 'lyrics-dna',    icon: '🧬', title: 'Lyrics DNA',     description: 'Waiting for linguistic analysis.' },
-  { id: 'trivia',        icon: '❓', title: 'Trivia',         description: 'Questions about this song will surface as the trivia bank grows.' },
-  { id: 'community',     icon: '💬', title: 'Community',      description: 'No discussions yet. The first word is yours.' },
-  { id: 'timeline',      icon: '📜', title: 'Full Timeline',  description: 'A fuller performance chronology is being assembled.' },
-  { id: 'node-graph',    icon: '🕸', title: 'Song Node',      description: 'Connections to other songs, mapped as a living graph.' },
-];
+// Trivia: the existing trivia system (/api/trivia/questions) is a global,
+// admin-only quiz generator scoped to a band, not a single song — it
+// doesn't fit "show trivia for this song" at all, so this stays a
+// placeholder. Admins get a link to the existing tool rather than a fake
+// per-song generate button.
+function TriviaPrepPanel({ isAdmin }: { isAdmin: boolean }) {
+  return (
+    <WikiModulePlaceholder
+      icon="❓"
+      title="Trivia"
+      description="Questions about this song will surface as the trivia bank grows."
+      comingSoon
+      action={isAdmin ? (
+        <Link
+          to="/trivia"
+          className="inline-block text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-950/40 border border-amber-900/50 text-amber-300 hover:bg-amber-900/40 transition-colors"
+        >
+          Open Trivia Tool →
+        </Link>
+      ) : undefined}
+    />
+  );
+}
+
+// Lyrics DNA: no generator exists yet at all, so there is nothing to wire
+// up — "Generate Lyrics DNA" is shown as a clearly non-interactive
+// reserved label, never a button that would 404 when clicked.
+function LyricsDnaPrepPanel({ hasLyrics, isAdmin }: { hasLyrics: boolean; isAdmin: boolean }) {
+  if (!hasLyrics) {
+    return (
+      <WikiModulePlaceholder
+        icon="🧬"
+        title="Lyrics DNA"
+        description="Requires lyrics — none exist for this song yet."
+        comingSoon
+      />
+    );
+  }
+  return (
+    <WikiModulePlaceholder
+      icon="🧬"
+      title="Lyrics DNA"
+      description="Will show word frequency, repeated phrases, mood, vocabulary density, and thematic keywords once linguistic analysis exists."
+      comingSoon
+      action={isAdmin ? (
+        <span className="inline-block text-[10px] uppercase tracking-widest text-gray-600 border border-gray-800 rounded-full px-2.5 py-1">
+          Generate Lyrics DNA — not yet built
+        </span>
+      ) : undefined}
+    />
+  );
+}
+
+// Song Node: the network graph (/song-nodes) is admin-only and genuinely
+// heavy (Cytoscape.js) — never embedded here. Everyone gets a link to the
+// public /explore graph instead; admins additionally get the dedicated tool.
+function SongNodePrepPanel({ isAdmin }: { isAdmin: boolean }) {
+  return (
+    <WikiModulePlaceholder
+      icon="🕸"
+      title="Song Node"
+      description="Connections to other songs, mapped as a living graph."
+      comingSoon
+      action={
+        <div className="flex flex-wrap gap-2">
+          <Link
+            to="/explore"
+            className="inline-block text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-800/60 border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors"
+          >
+            Explore the Graph →
+          </Link>
+          {isAdmin && (
+            <Link
+              to="/song-nodes"
+              className="inline-block text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-950/40 border border-amber-900/50 text-amber-300 hover:bg-amber-900/40 transition-colors"
+            >
+              Open Song Node Tool →
+            </Link>
+          )}
+        </div>
+      }
+    />
+  );
+}
 
 // ── Song Spectrum interpretation ──────────────────────────────────────────────
 // A single deterministic sentence built only from real axis values — never
@@ -363,6 +443,7 @@ export default function WikiSongPage() {
     { id: 'spectrum',   label: 'Spectrum'   },
     { id: 'related',    label: 'Related'    },
     { id: 'media',      label: 'Media'      },
+    { id: 'community',  label: 'Community'  },
     ...(primaryLyric ? [{ id: 'lyrics', label: 'Lyrics' }] : []),
     { id: 'goals',      label: 'What Next'  },
     { id: 'health',     label: 'Song Health'},
@@ -437,9 +518,9 @@ export default function WikiSongPage() {
                 <SongStoryPanel sentences={story.sentences} tStyle={tStyle} />
               </Section>
 
-              {/* 2 · Provenance */}
-              <Section id="provenance" title="Provenance" index={nextIndex()}>
-                <ProvenanceTimeline song={song} lp={lp} playerCtx={playerCtx} />
+              {/* 2 · Full Timeline */}
+              <Section id="provenance" title="Full Timeline" index={nextIndex()}>
+                <ProvenanceTimeline song={song} lp={lp} playerCtx={playerCtx} musicScore={musicScore} />
               </Section>
 
               {/* 3 · Life on stage */}
@@ -512,7 +593,12 @@ export default function WikiSongPage() {
                 />
               </Section>
 
-              {/* 9 · Lyrics */}
+              {/* 9 · Community */}
+              <Section id="community" title="Community" index={nextIndex()}>
+                <CommunityRatingPanel songId={song.id} />
+              </Section>
+
+              {/* 10 · Lyrics */}
               {(primaryLyric || song.isInstrumental) && (
                 <Section id="lyrics" title="Lyrics" index={nextIndex()}>
                   {song.isInstrumental ? (
@@ -528,15 +614,15 @@ export default function WikiSongPage() {
                 <GoalsPanel goals={goals} />
               </Section>
 
-              {/* 10 · Reserved wall space (Phase Z.17 extension points) */}
+              {/* 10 · Reserved wall space (Phase Z.18+ extension points) */}
               <Section id="modules" title="The Collection Grows" index={nextIndex()}>
                 <p className="text-xs text-gray-600 leading-relaxed mb-4 -mt-1">
                   This exhibit is still being assembled. New wings open as data arrives.
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {FUTURE_MODULES.map((m) => (
-                    <WikiModulePlaceholder key={m.id} icon={m.icon} title={m.title} description={m.description} comingSoon />
-                  ))}
+                  <TriviaPrepPanel isAdmin={!!user?.isAdmin} />
+                  <LyricsDnaPrepPanel hasLyrics={!!primaryLyric && !song.isInstrumental} isAdmin={!!user?.isAdmin} />
+                  <SongNodePrepPanel isAdmin={!!user?.isAdmin} />
                 </div>
               </Section>
 
@@ -736,36 +822,42 @@ function SongStoryPanel({
   );
 }
 
-// ── Provenance timeline ───────────────────────────────────────────────────────
-// Album release → first live performance → most recent performance → recovered
-// by you. Only nodes with real data appear; fewer than two nodes means the
-// section shows a quiet placeholder instead.
+// ── Full Timeline ──────────────────────────────────────────────────────────────
+// Every dated fact BSM actually holds about this song, in chronological
+// order: album release, live history, discovery, and each analysis module's
+// completion date. Built only from real timestamps already on the page —
+// nothing invented. Fewer than two real events means a quiet placeholder.
 
 function ProvenanceTimeline({
   song,
   lp,
   playerCtx,
+  musicScore,
 }: {
   song: WikiSongPageData['song'];
   lp: WikiSongPageData['song']['bandRpgProfile'];
   playerCtx: WikiSongPlayerContext | undefined;
+  musicScore: WikiSongPageData['musicScore'];
 }) {
-  type Node = { icon: string; label: string; value: string; sub?: string; accent?: string };
+  type Node = {
+    date: Date; icon: string; label: string; value: string; sub?: string;
+    accent?: string; confidence?: 'verified' | 'calculated' | 'ai' | 'community' | 'estimated';
+  };
   const nodes: Node[] = [];
 
   if (song.album?.year) {
+    // Album has no exact release date on file — anchor at Jan 1 of the credited year.
     nodes.push({
-      icon: '💿',
-      label: 'Album release',
-      value: String(song.album.year),
-      sub: song.album.title,
+      date: new Date(song.album.year, 0, 1),
+      icon: '💿', label: 'Album released', value: String(song.album.year),
+      sub: song.album.title, confidence: 'verified',
     });
   }
   if (lp && lp.totalPerformances > 0 && lp.firstPerformanceDate) {
     nodes.push({
-      icon: '🎤',
-      label: 'First performed live',
-      value: fmtDate(lp.firstPerformanceDate),
+      date: new Date(lp.firstPerformanceDate),
+      icon: '🎤', label: 'First known live performance', value: fmtDate(lp.firstPerformanceDate),
+      sub: 'Earliest confirmed appearance in tracked setlists.', confidence: 'calculated',
     });
   }
   if (
@@ -773,26 +865,48 @@ function ProvenanceTimeline({
     lp.lastPerformanceDate !== lp.firstPerformanceDate
   ) {
     nodes.push({
-      icon: '🎶',
-      label: 'Most recent performance',
-      value: fmtDate(lp.lastPerformanceDate),
+      date: new Date(lp.lastPerformanceDate),
+      icon: '🎶', label: 'Most recent known performance', value: fmtDate(lp.lastPerformanceDate),
+      sub: 'Latest confirmed appearance in tracked setlists.', confidence: 'calculated',
+    });
+  }
+  if (song.score?.createdAt) {
+    nodes.push({
+      date: new Date(song.score.createdAt),
+      icon: '📊', label: 'Spectrum analyzed', value: fmtDate(song.score.createdAt),
+      sub: 'Musical fingerprint first scored across the 6 axes.', confidence: 'calculated',
+    });
+  }
+  if (musicScore?.createdAt) {
+    nodes.push({
+      date: new Date(musicScore.createdAt),
+      icon: '🥁', label: 'Rhythm analyzed', value: fmtDate(musicScore.createdAt),
+      sub: 'Musical structure scored — rhythm, harmony, density.', confidence: 'ai',
+    });
+  }
+  if (song.media && song.media.status !== 'removed') {
+    nodes.push({
+      date: new Date(song.media.createdAt),
+      icon: '🎬', label: 'Official video linked', value: fmtDate(song.media.createdAt),
+      sub: 'Official YouTube video added to the Song Card.', confidence: 'verified',
     });
   }
   if (playerCtx?.collected && playerCtx.collectedAt) {
     nodes.push({
-      icon: '🗃',
-      label: 'Recovered by you',
-      value: fmtDate(playerCtx.collectedAt),
-      accent: 'text-emerald-300',
+      date: new Date(playerCtx.collectedAt),
+      icon: '🗃', label: 'Recovered by you', value: fmtDate(playerCtx.collectedAt),
+      sub: 'Added to your personal archive via Band RPG.', accent: 'text-emerald-300', confidence: 'verified',
     });
   }
+
+  nodes.sort((a, b) => a.date.getTime() - b.date.getTime());
 
   if (nodes.length < 2) {
     return (
       <WikiModulePlaceholder
         icon="📜"
         title="History still being written"
-        description="As release, performance, and discovery dates are confirmed, this song's timeline will take shape here."
+        description="As release, performance, analysis, and discovery dates are confirmed, this song's timeline will take shape here."
       />
     );
   }
@@ -813,9 +927,12 @@ function ProvenanceTimeline({
             >
               {n.icon}
             </span>
-            <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-0.5">{n.label}</p>
+            <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+              <p className="text-[10px] uppercase tracking-widest text-gray-600">{n.label}</p>
+              {n.confidence && <KnowledgeConfidenceBadge level={n.confidence} />}
+            </div>
             <p className={`text-sm font-semibold ${n.accent ?? 'text-gray-100'}`}>{n.value}</p>
-            {n.sub && <p className="text-xs text-gray-600 mt-0.5">{n.sub}</p>}
+            {n.sub && <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">{n.sub}</p>}
           </li>
         ))}
       </ol>
@@ -1305,6 +1422,219 @@ function RhythmLabPanel({
           <ModuleAdminActionButton action={moduleStatus.adminAction} onSuccess={onChanged} />
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Community ratings ─────────────────────────────────────────────────────────
+// Reuses the existing ratings system entirely (UserSongRating +
+// /api/ratings) — this section adds no new backend, only a Song Card
+// surface for it. Community average is public (no login needed to see
+// it); only a logged-in player can see/edit their own rating, and only
+// their own — the server scopes every write to req.user.userId, never a
+// client-supplied id, so this can never touch another player's row or the
+// canonical SongAxisScore.
+
+function CommunityRatingPanel({ songId }: { songId: string }) {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+
+  const { data: communityMap } = useQuery({
+    queryKey: ['public-community-single', songId],
+    queryFn: () => ratingsApi.getCommunityRatings([songId]),
+    staleTime: 60_000,
+  });
+  const community = communityMap?.[songId] ?? null;
+
+  const { data: mine } = useQuery({
+    queryKey: ['song-ratings', songId],
+    queryFn: () => ratingsApi.getSongRatings(songId),
+    enabled: !!user,
+    staleTime: 60_000,
+  });
+  const myRating = mine?.myRating ?? null;
+
+  function refresh() {
+    void queryClient.invalidateQueries({ queryKey: ['public-community-single', songId] });
+    void queryClient.invalidateQueries({ queryKey: ['song-ratings', songId] });
+  }
+
+  if (!community && !user) {
+    return (
+      <WikiModulePlaceholder
+        icon="💬"
+        title="No community ratings yet."
+        description="Sign in to be the first to rate this song."
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {community ? (
+        <div className="bg-gray-900/70 border border-[#1a2332] rounded-xl p-5 sm:p-6">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Community Rating</p>
+            <KnowledgeConfidenceBadge level="community" />
+          </div>
+          <AxisBars scores={community.scores} />
+          <p className="text-[10px] text-gray-600 mt-3">
+            {community.count} rating{community.count !== 1 ? 's' : ''}
+          </p>
+        </div>
+      ) : (
+        <WikiModulePlaceholder
+          icon="💬"
+          title="No community ratings yet."
+          description="Be the first to rate this song."
+        />
+      )}
+
+      {user && !editing && (
+        <div className="bg-gray-900/70 border border-[#1a2332] rounded-xl p-5 sm:p-6">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Your Rating</p>
+            {myRating && <KnowledgeConfidenceBadge level="verified" />}
+          </div>
+          {myRating ? (
+            <>
+              <AxisBars scores={myRating} />
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="mt-4 text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-800/60 border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors"
+              >
+                Edit your rating
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-gray-500 mb-3">You haven't rated this song yet.</p>
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="text-xs font-semibold px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+              >
+                Rate this song
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {user && editing && (
+        <CommunityRatingForm
+          songId={songId}
+          initial={myRating}
+          onSaved={() => { setEditing(false); refresh(); }}
+          onCancel={() => setEditing(false)}
+        />
+      )}
+
+      {!user && community && (
+        <p className="text-xs text-gray-500">
+          <a href="/api/auth/google" className="text-indigo-400 hover:text-indigo-300 transition-colors">Sign in</a> to rate this song yourself.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function AxisBars({ scores }: { scores: Record<ScoreAxisKey, number> }) {
+  return (
+    <div className="space-y-2.5">
+      {SCORE_AXES.map((axis) => (
+        <div key={axis}>
+          <div className="flex justify-between items-baseline mb-0.5">
+            <span className="text-xs text-gray-400">{AXIS_LABELS[axis]}</span>
+            <span className="text-xs font-bold tabular-nums" style={{ color: AXIS_COLORS[axis] }}>
+              {scores[axis].toFixed(1)}
+            </span>
+          </div>
+          <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
+            <div
+              className="h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none"
+              style={{ width: `${Math.max(0, Math.min(scores[axis], 10)) * 10}%`, backgroundColor: AXIS_COLORS[axis] }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Any logged-in player may submit — this writes UserSongRating (their own
+// row, upserted server-side by req.user.userId), never SongAxisScore.
+function CommunityRatingForm({
+  songId,
+  initial,
+  onSaved,
+  onCancel,
+}: {
+  songId: string;
+  initial: Record<ScoreAxisKey, number> | null;
+  onSaved: () => void;
+  onCancel: () => void;
+}) {
+  const [values, setValues] = useState<Record<ScoreAxisKey, number>>({
+    aggression: initial?.aggression ?? 5, complexity: initial?.complexity ?? 5, atmosphere: initial?.atmosphere ?? 5,
+    emotion: initial?.emotion ?? 5, psychedelic: initial?.psychedelic ?? 5, concept: initial?.concept ?? 5,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      await ratingsApi.upsertMyRating(songId, values);
+      onSaved();
+    } catch {
+      setError('Failed to save your rating — try again.');
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="bg-gray-900/70 border border-indigo-900/40 rounded-xl p-5 space-y-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {SCORE_AXES.map((axis) => (
+          <label key={axis} className="block">
+            <span className="text-[10px] uppercase tracking-widest text-gray-500">{AXIS_LABELS[axis]}</span>
+            <input
+              type="range"
+              min={0}
+              max={10}
+              step={0.5}
+              value={values[axis]}
+              onChange={(e) => setValues((v) => ({ ...v, [axis]: Number(e.target.value) }))}
+              className="w-full mt-1.5 accent-indigo-500"
+            />
+            <span className="text-xs font-bold tabular-nums" style={{ color: AXIS_COLORS[axis] }}>
+              {values[axis].toFixed(1)}
+            </span>
+          </label>
+        ))}
+      </div>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void handleSave()}
+          disabled={saving}
+          className="text-xs font-semibold px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-wait text-white transition-colors"
+        >
+          {saving ? 'Saving…' : 'Save Rating'}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-xs font-semibold px-3 py-2 rounded-lg text-gray-400 hover:text-gray-200 transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

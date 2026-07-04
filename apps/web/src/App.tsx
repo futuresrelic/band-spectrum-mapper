@@ -96,10 +96,15 @@ import BandRpgAdventureDetailPage from './pages/BandRpgAdventureDetailPage';
 import CommunityPage from './pages/CommunityPage';
 import AdminBandRpgPage from './pages/AdminBandRpgPage';
 import WikiIndexPage from './pages/wiki/WikiIndexPage';
+import WikiBandsBrowsePage from './pages/wiki/WikiBandsBrowsePage';
+import WikiAlbumsBrowsePage from './pages/wiki/WikiAlbumsBrowsePage';
+import WikiSongsBrowsePage from './pages/wiki/WikiSongsBrowsePage';
+import WikiArtistsBrowsePage from './pages/wiki/WikiArtistsBrowsePage';
 import WikiBandPage from './pages/wiki/WikiBandPage';
 import WikiAlbumPage from './pages/wiki/WikiAlbumPage';
 import WikiSongPage from './pages/wiki/WikiSongPage';
 import WikiArtistPage from './pages/wiki/WikiArtistPage';
+import NotFoundPage from './pages/NotFoundPage';
 
 // Redirects based on login/admin state: admin→/dashboard, user→/my/rate, guest→/landing
 function RootRedirect() {
@@ -166,6 +171,10 @@ export default function App() {
 
         {/* ── Music Wiki — encyclopedic view of bands, albums, songs, artists ── */}
         <Route path="/wiki" element={<WikiIndexPage />} />
+        <Route path="/wiki/bands" element={<WikiBandsBrowsePage />} />
+        <Route path="/wiki/albums" element={<WikiAlbumsBrowsePage />} />
+        <Route path="/wiki/songs" element={<WikiSongsBrowsePage />} />
+        <Route path="/wiki/artists" element={<WikiArtistsBrowsePage />} />
         <Route path="/wiki/bands/:slug" element={<WikiBandPage />} />
         <Route path="/wiki/albums/:bandSlug/:albumSlug" element={<WikiAlbumPage />} />
         <Route path="/wiki/songs/:songId" element={<WikiSongPage />} />
@@ -256,6 +265,9 @@ export default function App() {
           <Route path="admin/band-rpg" element={<AdminBandRpgPage />} />
           <Route path="pattern-lab" element={<PatternLabPage />} />
         </Route>
+
+        {/* Catch-all — any unmatched path shows a real page, never a blank screen */}
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </AuthProvider>
   );

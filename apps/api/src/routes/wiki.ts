@@ -66,6 +66,62 @@ wikiRouter.get('/search', async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// Browse — full lists for the /wiki/albums, /wiki/songs, /wiki/artists
+// browse-by-type pages. (/wiki/bands reuses the existing GET /api/bands,
+// which already returns the same shape — no need to duplicate it here.)
+// Same "fetch everything, filter client-side" convention as the rest of
+// the admin/wiki list endpoints in this codebase; optional ?q= narrows the
+// server-side result for a smaller payload on typed searches.
+// ---------------------------------------------------------------------------
+
+wikiRouter.get('/albums', async (req, res, next) => {
+  try {
+    const q = (req.query['q'] as string | undefined)?.trim();
+    const albums = await prisma.album.findMany({
+      ...(q ? { where: { title: { contains: q, mode: 'insensitive' } } } : {}),
+      select: {
+        id: true, title: true, slug: true, year: true, albumType: true, artworkUrl: true,
+        band: { select: { id: true, name: true, slug: true } },
+        _count: { select: { songs: true } },
+      },
+      orderBy: [{ band: { name: 'asc' } }, { year: 'asc' }, { title: 'asc' }],
+    });
+    res.json({ albums });
+  } catch (e) { next(e); }
+});
+
+wikiRouter.get('/songs', async (req, res, next) => {
+  try {
+    const q = (req.query['q'] as string | undefined)?.trim();
+    const songs = await prisma.song.findMany({
+      ...(q ? { where: { title: { contains: q, mode: 'insensitive' } } } : {}),
+      select: {
+        id: true, title: true, slug: true, rarity: true,
+        band: { select: { id: true, name: true, slug: true } },
+        album: { select: { title: true, slug: true, year: true } },
+      },
+      orderBy: [{ band: { name: 'asc' } }, { title: 'asc' }],
+    });
+    res.json({ songs });
+  } catch (e) { next(e); }
+});
+
+wikiRouter.get('/artists', async (req, res, next) => {
+  try {
+    const q = (req.query['q'] as string | undefined)?.trim();
+    const members = await prisma.bandMember.findMany({
+      ...(q ? { where: { name: { contains: q, mode: 'insensitive' } } } : {}),
+      select: {
+        id: true, name: true, role: true,
+        band: { select: { id: true, name: true, slug: true, logoUrl: true } },
+      },
+      orderBy: [{ band: { name: 'asc' } }, { name: 'asc' }],
+    });
+    res.json({ members });
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
 // Band page
 // ---------------------------------------------------------------------------
 wikiRouter.get('/bands/:slug', async (req, res, next) => {

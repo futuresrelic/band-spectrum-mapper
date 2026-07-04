@@ -60,6 +60,7 @@ export type WikiAxisScore = {
   concept: number;
   notes: string | null;
   source: 'ai' | 'manual' | 'import' | 'audio' | null;
+  createdAt: string;
   updatedAt: string;
 };
 
@@ -94,6 +95,53 @@ export async function wikiSearch(q: string, limit = 10): Promise<WikiSearchResul
   const res = await fetch(`/api/wiki/search?${params}`);
   if (!res.ok) throw new Error('Wiki search failed');
   return res.json() as Promise<WikiSearchResult>;
+}
+
+// ── Browse — full lists backing /wiki/bands, /wiki/albums, /wiki/songs, /wiki/artists ─
+
+export type WikiBrowseAlbum = {
+  id: string;
+  title: string;
+  slug: string;
+  year: number | null;
+  albumType: string | null;
+  artworkUrl: string | null;
+  band: { id: string; name: string; slug: string };
+  _count: { songs: number };
+};
+
+export type WikiBrowseSong = {
+  id: string;
+  title: string;
+  slug: string;
+  rarity: string;
+  band: { id: string; name: string; slug: string };
+  album: { title: string; slug: string; year: number | null } | null;
+};
+
+export type WikiBrowseArtist = {
+  id: string;
+  name: string;
+  role: string | null;
+  band: { id: string; name: string; slug: string; logoUrl: string | null };
+};
+
+export async function getWikiAlbumsBrowse(): Promise<WikiBrowseAlbum[]> {
+  const res = await fetch('/api/wiki/albums');
+  if (!res.ok) throw new Error('Failed to load albums');
+  return (await res.json() as { albums: WikiBrowseAlbum[] }).albums;
+}
+
+export async function getWikiSongsBrowse(): Promise<WikiBrowseSong[]> {
+  const res = await fetch('/api/wiki/songs');
+  if (!res.ok) throw new Error('Failed to load songs');
+  return (await res.json() as { songs: WikiBrowseSong[] }).songs;
+}
+
+export async function getWikiArtistsBrowse(): Promise<WikiBrowseArtist[]> {
+  const res = await fetch('/api/wiki/artists');
+  if (!res.ok) throw new Error('Failed to load artists');
+  return (await res.json() as { members: WikiBrowseArtist[] }).members;
 }
 
 // ── Band page ─────────────────────────────────────────────────────────────────

@@ -4,6 +4,124 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.17.7 — Wiki Browse Fix + Reserved Modules (2026-07-03)
+
+### The bug
+
+`/wiki`'s four "Browse by type" buttons (Bands/Albums/Songs/Artists) linked
+to `/wiki/bands`, `/wiki/albums`, `/wiki/songs`, `/wiki/artists` — but only
+the parametrized detail routes (`/wiki/bands/:slug`,
+`/wiki/albums/:bandSlug/:albumSlug`, etc.) were ever registered in
+`App.tsx`. The bare browse routes had no matching `<Route>` at all, and
+there was no catch-all route either — React Router v6 renders nothing
+when zero routes match, so clicking any of the four buttons produced a
+genuinely blank page (not an error, not a 404 — nothing).
+
+### Routes fixed/created
+
+- `/wiki/bands`, `/wiki/albums`, `/wiki/songs`, `/wiki/artists` registered
+  in `App.tsx`, each a real browsable grid/list page.
+- `WikiIndexPage.tsx`'s browse buttons converted from `<button onClick=
+  {navigate}>` to real `<Link>` elements (proper semantics, keyboard nav,
+  right-click-open-in-new-tab).
+- **`<Route path="*" element={<NotFoundPage />} />`** added as a global
+  catch-all — any future unmatched route now shows a real page instead of
+  a blank screen, not just the four routes this bug report named.
+
+### Endpoints created/reused
+
+- **Bands** (`/wiki/bands`) reuses the existing public `GET /api/bands`
+  (`bandsApi.list()`) — already returns exactly the needed shape
+  (slug, logoUrl, `_count.albums`/`_count.songs`). No new endpoint.
+- **Albums** (`/wiki/albums`): new `GET /api/wiki/albums` — no
+  "all albums across all bands" endpoint existed before (only
+  `albumService.listByBand`, scoped to one band).
+- **Songs** (`/wiki/songs`): new `GET /api/wiki/songs` — same gap
+  (`songService.listByBand` was band-scoped only).
+- **Artists** (`/wiki/artists`): new `GET /api/wiki/artists` — no
+  "all band members" endpoint existed at all.
+
+All three new endpoints are public GETs (no auth — matches the rest of
+`wikiRouter`), support an optional `?q=` server-side filter, and follow
+the codebase's established "fetch everything, filter client-side"
+convention (same pattern as the existing admin list endpoints) — each
+browse page also does client-side search-as-you-type over the fetched
+list. Each page has its own loading skeleton, empty state (no data at
+all) vs. no-results state (search matched nothing), and an error state
+with a retry button.
+
+### Reserved Wiki modules — first real implementations
+
+Recommended order followed: Full Timeline → Community → Trivia (stayed
+placeholder) → Lyrics DNA (prep only) → Song Node (prep only).
+
+**A. Full Timeline — now real.** The existing "Provenance" timeline
+(Z.16: album release, first/last live performance, recovered-by-you) was
+extended rather than duplicated — same component, three more real dated
+facts added: Spectrum analyzed (`song.score.createdAt`), Rhythm analyzed
+(`musicScore.createdAt`), Official video linked (`song.media.createdAt`).
+All nodes now sort chronologically (previously a fixed logical order) and
+each carries a Knowledge Confidence badge. Section retitled "Full
+Timeline." Still falls back to the placeholder below 2 real events —
+no event is ever invented.
+
+**B. Community — lightweight, real.** Discovered the ratings system
+(`UserSongRating` + `/api/ratings`) already existed, fully working,
+already correctly scoped (every write keyed off `req.user.userId`
+server-side, never a client-supplied id) — added zero new backend, only a
+Song Card surface: community 6-axis average (public, no login needed),
+your own rating (logged-in only), and a slider form to submit or update
+*only your own* rating. Comments (`SongComment`) also already work
+server-side but have **no frontend client at all** yet — left as a
+clearly-scoped next step rather than building a whole comment UI in the
+same pass the request asked to keep minimal.
+
+**C. Trivia — stayed a placeholder, correctly.** The existing trivia
+system (`/api/trivia/questions`) is admin-only *and* scoped to a whole
+band, not a single song — it doesn't fit "show trivia for this song" at
+all. Per the request's own conditional ("otherwise leave an admin action
+placeholder"), added an admin-only link to the existing `/trivia` tool;
+no fake per-song generation was added.
+
+**D. Lyrics DNA — prep only.** No generator exists. "Generate Lyrics DNA"
+is shown to admins as a plainly non-interactive reserved label (not a
+button that would 404), with the module's future shape (word frequency,
+repeated phrases, mood, vocabulary density, thematic keywords) named in
+the description. Distinguishes "no lyrics to analyze" from "lyrics exist,
+analysis doesn't yet."
+
+**E. Song Node — prep only.** The network graph (`/song-nodes`) is
+admin-only and a genuinely heavy Cytoscape.js graph — never embedded on
+the Song Card. Everyone gets a link to the existing public `/explore`
+graph instead; admins additionally get a link to the dedicated tool.
+
+`WikiModulePlaceholder` gained an optional `action` slot (a real
+Link/button, additive/backward-compatible) so these three panels could
+each show the right admin affordance without inventing a new placeholder
+component per module.
+
+### Permissions verified, not re-litigated
+
+No new mutating endpoints were added this phase. The Community rating
+feature reuses `/api/ratings` entirely as-is — already `requireAuth`-gated
+and already scoped by `req.user.userId` server-side (confirmed by
+re-reading the route handlers, not just assumed). The three new browse
+endpoints are read-only. Nothing in this phase required a new permission
+check.
+
+### Honest limitations
+
+- No live database or browser in this sandbox — verified by code review.
+- Comment *display*/*posting* on the Song Card remains unbuilt — the
+  backend (`SongComment`) is real and correct, but there's no frontend
+  client for it yet.
+- Song Health's existing `community` module tracks comment count
+  specifically, not the new ratings section — the two share the
+  "Community" name but measure different things; not unified in this
+  pass, noted for future cleanup.
+
+---
+
 ## Phase Z.17.6 — Permissions + Media Management (2026-07-03)
 
 ### Overview

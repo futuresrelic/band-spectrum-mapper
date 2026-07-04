@@ -1005,3 +1005,56 @@ represent something needing admin attention. Included in both per-song
 `SongHealth` and Album/Band `AggregateHealth` rollups automatically (the
 rollup UI maps over `moduleCoverage` generically — no per-page changes
 were needed to surface the new module).
+
+
+## Wiki routing + reserved modules (Phase Z.17.7, 2026-07-03)
+
+### Routing
+
+`App.tsx`'s `<Routes>` had no catch-all — an unmatched path (like the
+`/wiki/bands` browse route, which was never registered) rendered nothing
+at all, not even an error. `<Route path="*" element={<NotFoundPage />} />`
+is now the last route in the tree; `/wiki/bands`, `/wiki/albums`,
+`/wiki/songs`, `/wiki/artists` are now real registered routes backed by
+`WikiBandsBrowsePage.tsx` / `WikiAlbumsBrowsePage.tsx` /
+`WikiSongsBrowsePage.tsx` / `WikiArtistsBrowsePage.tsx` — each a
+client-filtered grid/list over a full list endpoint
+(`GET /api/bands` for bands, new `GET /api/wiki/{albums,songs,artists}`
+for the rest), sharing `components/wiki/WikiBrowseSearch.tsx` for the
+search-box + result-count header.
+
+### Reserved module graduation pattern
+
+Song Spectrum and Rhythm Lab (Z.17), Media (Z.17.6), and now Full Timeline
+and Community (Z.17.7) all followed the same path: a
+`WikiModulePlaceholder` tile in a generic array became a live section with
+its own component, reading real data the Wiki already had. Trivia, Lyrics
+DNA, and Song Node (Z.17.7) took a middle path instead — each needed
+bespoke per-song logic (does this song have lyrics? is the caller admin?)
+that a generic `{icon, title, description}` array entry couldn't express,
+so they became small dedicated panel components
+(`TriviaPrepPanel`/`LyricsDnaPrepPanel`/`SongNodePrepPanel` in
+`WikiSongPage.tsx`) instead of graduating to full sections. The generic
+`FUTURE_MODULES` array is gone — every remaining "not built yet" tile now
+has a reason, in code, for why it isn't further along (admin-only +
+band-scoped trivia tool that doesn't fit a per-song ask; no Lyrics DNA
+generator exists at all; the Song Node graph is admin-only and too heavy
+to embed).
+
+`WikiModulePlaceholder` gained an optional `action?: ReactNode` slot
+(additive) specifically so these panels could offer a real link (never a
+button that 404s) without a new placeholder component per module.
+
+### Community ratings
+
+`CommunityRatingPanel` (`WikiSongPage.tsx`) adds zero new backend — it's
+a Song Card surface over the pre-existing `UserSongRating` +
+`/api/ratings` system (already used elsewhere via `SongSpectrumPanel.tsx`
+/ `CoreSpectrumWidget.tsx` on the admin Library editor). Community average
+fetches via the public batch endpoint (`ratingsApi.getCommunityRatings`)
+so it's visible without login; a player's own rating and the ability to
+submit/update it require `requireAuth` and are scoped server-side by
+`req.user.userId` — never a client-supplied id, so this can't touch
+another player's row or the canonical `SongAxisScore`. `SongComment` is
+real and correct on the backend but still has no frontend client at all —
+a real next step, not attempted this phase.

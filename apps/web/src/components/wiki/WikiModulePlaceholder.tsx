@@ -2,14 +2,18 @@
 // Every placeholder should look intentional — like a gallery wall awaiting its
 // next acquisition, never like a broken widget.
 
+import type { ReactNode } from 'react';
+
 interface Props {
   icon: string;
   title: string;
   description: string;
   comingSoon?: boolean;
+  /** Optional admin (or navigational) action rendered below the description — a real Link/button, not a fake clickable state. */
+  action?: ReactNode;
 }
 
-export default function WikiModulePlaceholder({ icon, title, description, comingSoon = false }: Props) {
+export default function WikiModulePlaceholder({ icon, title, description, comingSoon = false, action }: Props) {
   return (
     <div className="relative overflow-hidden rounded-xl border border-gray-800/80 bg-gradient-to-b from-gray-900/40 to-transparent p-5">
       {/* faint corner glow so the tile reads as "reserved", not "missing" */}
@@ -31,6 +35,7 @@ export default function WikiModulePlaceholder({ icon, title, description, coming
             )}
           </div>
           <p className="text-xs text-gray-500 leading-relaxed">{description}</p>
+          {action && <div className="mt-3">{action}</div>}
         </div>
       </div>
     </div>
