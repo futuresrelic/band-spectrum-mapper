@@ -5835,6 +5835,12 @@ export default function BandRpgCollectionPage() {
         <span className="text-gray-700">·</span>
         <span className="text-white text-sm font-semibold">The Archive</span>
         <LifetimePoints />
+        <Link
+          to="/play/headliner"
+          className="ml-auto text-xs text-rose-400 hover:text-rose-300 transition-colors whitespace-nowrap"
+        >
+          🎤 Use these songs in Headliner →
+        </Link>
       </div>
 
       {/* Tab bar — scrollable on mobile so all 5 tabs are always reachable */}

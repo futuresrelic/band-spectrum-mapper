@@ -36,6 +36,7 @@ model Band {
   liveDataCache      BandLiveDataCache?
   rawSetlistEntries  BandRpgRawSetlistEntry[]
   bandRpgSongAliases BandRpgSongAlias[]
+  concertRuns        ConcertRun[]
 
   @@map("bands")
 }
@@ -469,6 +470,7 @@ model User {
   bandRpgFollowing         BandRpgCuratorFollow[]       @relation("BandRpgFollower")
   bandRpgFollowers         BandRpgCuratorFollow[]       @relation("BandRpgFollowee")
   bandRpgAdventureProgress BandRpgAdventureProgress[]   @relation("UserAdventureProgress")
+  concertRuns              ConcertRun[]
 
   @@map("users")
 }
@@ -1949,6 +1951,7 @@ model BandRpgVenue {
 
   concerts   BandRpgConcert[]
   tourStops  BandRpgTourStop[]
+  concertRuns ConcertRun[]
 
   @@map("band_rpg_venues")
 }
@@ -2367,4 +2370,34 @@ model BandRpgAdventureProgress {
 
   @@unique([userId, adventureId])
   @@map("band_rpg_adventure_progress")
+}
+
+// ── Phase Z.17.9: Headliner ───────────────────────────────────────────────────
+// Player-owned concert-building game. Deliberately separate from every Band RPG
+// model above — no shared tables, no shared progression. See
+// docs/proposals/CONCERT_ARCHITECT.md and HEADLINER_DATA_FLOW.md.
+
+model ConcertRun {
+  id            String    @id @default(cuid())
+  userId        String
+  mode          String    // quick | daily | campaign | historical
+  bandId        String
+  venueId       String?
+  difficulty    String    @default("normal")
+  seed          String
+  status        String    @default("in_progress") // in_progress | completed | abandoned
+  picksJson     Json      @default("[]")   // ordered array of songId picks made so far
+  stateJson     Json                        // full engine snapshot: show bundle + running totals (see concertDataService)
+  reportJson    Json?                       // final report, written once status = completed
+  overallScore  Float?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  band  Band          @relation(fields: [bandId], references: [id], onDelete: Cascade)
+  venue BandRpgVenue? @relation(fields: [venueId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([bandId, overallScore])
+  @@map("headliner_concert_runs")
 }

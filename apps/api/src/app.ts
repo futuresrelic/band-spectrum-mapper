@@ -56,6 +56,7 @@ import { lyricMatchRouter } from './routes/lyricMatch.js';
 import { graphHuntRouter } from './routes/graphHunt.js';
 import { lyricDuelRouter } from './routes/lyricDuel.js';
 import { playlistRouter } from './routes/playlist.js';
+import { headlinerRouter } from './routes/headliner.js';
 import { bandRpgRouter } from './routes/bandRpg.js';
 import { tourRouter } from './routes/tourRoutes.js';
 import { challengeRouter } from './routes/challengeRoutes.js';
@@ -233,6 +234,9 @@ export function createApp() {
 
   // Playlist Maker — build, save, and retrieve playlists
   app.use('/api/playlist', playlistRouter);
+
+  // Headliner — standalone concert-building game (Phase Z.17.9). Not part of Band RPG.
+  app.use('/api/headliner', headlinerRouter);
 
   // Band RPG — adventure game scores and progress
   app.use('/api/band-rpg', bandRpgRouter);

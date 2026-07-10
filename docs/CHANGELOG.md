@@ -4,6 +4,92 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.17.9 — Headliner: Data Blueprint + Phase 1 Vertical Slice (2026-07-10)
+
+Owner approved the Z.17.8 proposal and the name **Headliner**. This phase
+ships the pre-implementation data audit and a narrow, playable Phase 1
+slice — a completely standalone game from Band RPG, Vinyl Runner, and every
+other game mode, per the owner's explicit requirement.
+
+### New: `docs/proposals/HEADLINER_DATA_FLOW.md`
+
+The required pre-implementation audit of all 18+ data sources Headliner
+touches — canonical source, cache/staleness behavior, admin repair path,
+fallback behavior, scoring-safety, leaderboard-eligibility for each. Two
+important findings from the audit:
+
+- `audienceProfileService.getOrCreate` can trigger a synchronous OpenAI call
+  on a cache miss — incompatible with a deterministic, AI-free engine.
+  Headliner's data service reads `SongAudienceProfile` directly via Prisma
+  and never calls that service; songs with no profile get a neutral 50/50
+  fallback, never triggered generation.
+- The Z.17.8 proposal assumed opener/closer/encore role stats could be
+  derived from `BandRpgRawSetlistEntry`. They can't — that table has no
+  set-position or encore-flag columns (only `setlistFmId`, which does allow
+  song co-occurrence). Building the real thing needs a small additive
+  migration; deferred to Phase 2 rather than half-built or faked this phase.
+
+### Relocated: Live Frequency tier logic → `packages/shared`
+
+`deriveLiveFrequency`/`tierFromLiveStatus`/`tierFromRarity` and the tier
+color/emoji/bonus constants moved from `apps/web/src/lib/liveFrequency.ts`
+to `packages/shared/src/liveFrequency.ts`, so the server-side concert engine
+uses the exact same derivation the UI displays instead of a second copy.
+The web path is now a one-line re-export — all six existing importers are
+unaffected.
+
+### New: Headliner Phase 1 (Quick Show)
+
+- **Schema**: `ConcertRun` (player-owned, `mode: quick|daily|campaign|historical`,
+  seed, picks, full engine-state snapshot, final report, overall score).
+  References `Band` and the existing `BandRpgVenue` table directly — no new
+  venue table, no Band RPG progression coupling.
+- **Engine** (`apps/api/src/services/concertEngine.ts`): pure, deterministic
+  `(seed, state, pick) → state'` simulation — no DB access, no
+  `Math.random()`/`Date.now()`/AI calls inside it. Deterministic PRNG keyed
+  on `(seed, stepIndex)`. Candidate-hand generation (2-4 songs) deliberately
+  excludes the single highest-value song each round so the game doesn't
+  degenerate into "always pick the best song." Five crowd factions (Casual,
+  Hardcore, Deep-Cut Hunters, Prog Heads, First-Timers) react from
+  `SongAudienceProfile` weights plus a Live-Frequency-driven (not
+  quality-driven) rarity term. Rolling pacing penalties track an energy
+  curve with a mid-show "dip." A consequential encore only fires if crowd
+  energy clears a threshold. Ten weighted (not averaged) scoring metrics
+  and all template review/highlight text are pure functions of real
+  metrics — no AI-generated review text.
+- **Tests**: `concertEngine.test.ts` using Node's built-in `node:test`
+  runner (zero new dependency — Node ≥20 already required) verifies the
+  determinism guarantee (`npm test --workspace=apps/api`).
+- **Services**: `concertDataService.ts` assembles the per-band show bundle
+  once at run start (frozen "snapshot boundary" so later data changes never
+  affect an in-progress run); `campaignEligibilityService.ts` reads
+  `BandRpgCollectedSong` as the sole source of truth for recovered-song
+  eligibility — no second unlock inventory.
+- **Routes** (`/api/headliner/*`): `requireAuth` + `requireOwner`
+  throughout, per the Z.17.6 permission model.
+- **UI** (`/play/headliner`): console-style mode-selection screen first
+  (Quick Show playable now; Daily Challenge and Campaign shown honestly as
+  "coming soon," never faked or hidden), then Setup → Live Show → Final
+  Report for Quick Show. Bidirectional cross-links between Band RPG's
+  Collection page and Headliner's Campaign card.
+- **Discovery**: added to the Games page grid and app routes — not buried
+  behind an admin route or wiki page.
+
+### Known limitations (Phase 1)
+
+- Only Quick Show is playable; Daily Challenge and Campaign are
+  architecture + honest "coming soon" cards only.
+- No cross-run leaderboard yet (schema has `overallScore` + indexes ready
+  for it).
+- Opener/closer/encore historical role stats and song co-occurrence hints
+  are not built — blocked on a `BandRpgRawSetlistEntry` schema addition,
+  scoped for Phase 2.
+- Not live-tested in a browser in this sandbox (no live DB/browser
+  available); verified via `npm run build`, `npm run typecheck`, and the
+  `node:test` determinism suite.
+
+---
+
 ## Phase Z.17.8 — "Headliner" (Concert Architect) Game Proposal (2026-07-03)
 
 **Proposal only — zero code, schema, or route changes.**

@@ -1058,3 +1058,75 @@ submit/update it require `requireAuth` and are scoped server-side by
 another player's row or the canonical `SongAxisScore`. `SongComment` is
 real and correct on the backend but still has no frontend client at all —
 a real next step, not attempted this phase.
+
+## Headliner — standalone concert-building game (Phase Z.17.9, 2026-07-10)
+
+A deliberately separate game from Band RPG and every other `/play/*` mode —
+no shared tables, no shared progression, no imports between the two
+feature areas beyond the one intentional, honest cross-link between Band
+RPG's Collection page and Headliner's (architecture-only) Campaign card.
+Full reuse audit in `docs/proposals/HEADLINER_DATA_FLOW.md`; full design in
+`docs/proposals/CONCERT_ARCHITECT.md`.
+
+### Layering
+
+```
+apps/api/src/services/concertEngine.ts       — pure simulation, zero IO
+apps/api/src/services/concertDataService.ts  — the ONLY place this feature touches Prisma
+apps/api/src/services/campaignEligibilityService.ts — reads BandRpgCollectedSong only
+apps/api/src/routes/headliner.ts             — requireAuth + requireOwner throughout
+apps/web/src/api/headliner.ts                — thin fetch client
+apps/web/src/pages/HeadlinerPage.tsx          — mode-select → setup → live → report
+```
+
+`concertEngine.ts` is intentionally the only file with no Prisma import in
+the whole feature: it's a pure function of `(seed, state, pick) → state'`,
+so `concertEngine.test.ts` can exercise the entire simulation with in-memory
+fixtures and no database. This is what makes "same seed + same choices =
+same result" a property that's actually tested, not just asserted in a
+comment.
+
+### Snapshot boundary
+
+`concertDataService.buildShowBundle(bandId, venueId)` runs exactly once, at
+`POST /api/headliner/runs`. Its output — every song's spectrum/audience/live
+data, already resolved — is embedded whole in `ConcertRun.stateJson`. Every
+later `pick`/`finish` call reads only that frozen snapshot; the engine never
+re-queries the database mid-run. This is deliberate: without it, an admin
+regenerating a song's AI analysis mid-show could make the same seed produce
+a different result depending on timing, breaking the determinism guarantee.
+
+### Why `audienceProfileService` is never imported here
+
+`audienceProfileService.getOrCreate` calls OpenAI synchronously on a cache
+miss. Importing it into `concertDataService.ts` would mean gameplay could,
+depending on which songs happen to be unscored, silently trigger a live AI
+call with unpredictable latency and non-deterministic potential — the
+opposite of what a seeded, replayable engine requires. `concertDataService`
+reads `prisma.songAudienceProfile` directly instead and falls back to a
+neutral (all-50) profile in memory, never writing anything or triggering
+generation. Full reasoning in `HEADLINER_DATA_FLOW.md` §3.
+
+### Live Frequency now lives in `packages/shared`
+
+`deriveLiveFrequency` and its tier constants moved from
+`apps/web/src/lib/liveFrequency.ts` to `packages/shared/src/liveFrequency.ts`
+so this server-side engine and the existing client-side badges derive tiers
+identically instead of maintaining two copies. The web path re-exports from
+shared; nothing else changed.
+
+### Deferred to Phase 2 (named, not silently dropped)
+
+- **Daily Challenge** and **Campaign** are UI-visible "coming soon" cards on
+  the `/play/headliner` mode-select screen with no fake playability behind
+  them. `campaignEligibilityService.ts` (recovered-song lookup from
+  `BandRpgCollectedSong`) is the one piece of Campaign built ahead of time
+  because it was free and is the foundation everything else needs.
+- **Opener/closer/encore role stats** and **song co-occurrence hints**,
+  from real historical setlists — blocked on `BandRpgRawSetlistEntry`
+  lacking a set-position/encore-flag column today. Needs a small additive
+  migration before it can be built; not faked with Band RPG's
+  player-setlist heuristics, which answer a different question.
+- **Cross-run leaderboard** — `ConcertRun.overallScore` and its
+  `[bandId, overallScore]` index exist specifically so this can be added
+  without a schema change later.

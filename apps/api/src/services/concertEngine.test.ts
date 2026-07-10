@@ -1,0 +1,154 @@
+/**
+ * Determinism tests for the Headliner concert engine — run via Node's built-in
+ * test runner (`node:test`), not a new dependency. See CLAUDE.md: "do not
+ * introduce unnecessary dependencies." Node >=20 already required by this repo
+ * (package.json engines), and node:test has been stable since Node 18.
+ *
+ * These are not exhaustive gameplay tests — they verify the one property the
+ * whole design depends on: same seed + same sequence of choices always
+ * produces the same simulation output.
+ */
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  createInitialState, generateCandidates, applyPick, buildReport,
+  isMainSetComplete, resolveEncoreEligibility, generateEncoreCandidates,
+  applyEncorePick, skipEncore,
+  type ShowBundle, type EngineSong, type Axis,
+} from './concertEngine.js';
+
+function makeSong(id: string, overrides: Partial<EngineSong> = {}): EngineSong {
+  const axis: Record<Axis, number> = {
+    aggression: 5, complexity: 5, atmosphere: 5, emotion: 5, psychedelic: 5, concept: 5,
+    ...(overrides.axis ?? {}),
+  };
+  return {
+    id,
+    title: `Song ${id}`,
+    albumId: `album-${id.charAt(0)}`,
+    albumTitle: `Album ${id.charAt(0)}`,
+    durationSeconds: 240,
+    axis,
+    tempoEnergy: 6,
+    audience: {
+      progressive: 50, heavy: 50, technical: 50, atmospheric: 50, experimental: 50,
+      accessible: 50, psychedelic: 50, emotional: 50, aggressive: 50, improvisational: 50,
+    },
+    audienceIsFallback: false,
+    liveTier: 'Frequent',
+    liveSource: 'live',
+    liveValue: 30,
+    ...overrides,
+  };
+}
+
+function makeBundle(songCount: number): ShowBundle {
+  const songs: EngineSong[] = [];
+  for (let i = 0; i < songCount; i++) {
+    songs.push(makeSong(`s${i}`, {
+      liveTier: i % 7 === 0 ? 'Legendary' : 'Frequent',
+      axis: {
+        aggression: (i * 3) % 10, complexity: (i * 5) % 10, atmosphere: (i * 2) % 10,
+        emotion: (i * 7) % 10, psychedelic: (i * 4) % 10, concept: (i * 6) % 10,
+      },
+    }));
+  }
+  return {
+    bandId: 'band-1',
+    bandName: 'Test Band',
+    songs,
+    targetSpectrum: { aggression: 5, complexity: 5, atmosphere: 5, emotion: 5, psychedelic: 5, concept: 5 },
+    venue: null,
+    showLengthBudgetSeconds: 60 * 70,
+  };
+}
+
+/** Plays a full show deterministically, always picking the first offered candidate. */
+function playFullShow(seed: string) {
+  const bundle = makeBundle(30);
+  let state = createInitialState(bundle, seed);
+  const pickedIds: string[] = [];
+  const reactionScores: number[] = [];
+
+  while (!isMainSetComplete(state)) {
+    const hand = generateCandidates(state);
+    state = hand.state;
+    if (hand.candidates.length === 0) break;
+    const choice = hand.candidates[0]!;
+    const result = applyPick(state, choice.id);
+    if (!result) break;
+    state = result.state;
+    pickedIds.push(choice.id);
+    reactionScores.push(result.factionReactions.casual.score);
+  }
+
+  state = resolveEncoreEligibility(state);
+  if (state.encoreEligible) {
+    const encoreHand = generateEncoreCandidates(state);
+    state = encoreHand.state;
+    if (encoreHand.candidates.length > 0) {
+      const encoreResult = applyEncorePick(state, encoreHand.candidates[0]!.id);
+      if (encoreResult) {
+        state = encoreResult.state;
+        pickedIds.push(encoreResult.song.id);
+      }
+    } else {
+      state = skipEncore(state);
+    }
+  } else {
+    state = skipEncore(state);
+  }
+
+  const report = buildReport(state);
+  return { pickedIds, reactionScores, report };
+}
+
+test('same seed produces an identical full show', () => {
+  const runA = playFullShow('determinism-seed-1');
+  const runB = playFullShow('determinism-seed-1');
+  assert.deepEqual(runA.pickedIds, runB.pickedIds);
+  assert.deepEqual(runA.reactionScores, runB.reactionScores);
+  assert.deepEqual(runA.report, runB.report);
+});
+
+test('different seeds are very likely to diverge', () => {
+  const runA = playFullShow('seed-alpha');
+  const runB = playFullShow('seed-beta');
+  assert.notDeepEqual(runA.pickedIds, runB.pickedIds);
+});
+
+test('candidate hands never include a song already played', () => {
+  const bundle = makeBundle(12);
+  let state = createInitialState(bundle, 'no-repeats-seed');
+  const seen = new Set<string>();
+  for (let i = 0; i < 8 && !isMainSetComplete(state); i++) {
+    const hand = generateCandidates(state);
+    state = hand.state;
+    for (const c of hand.candidates) {
+      assert.equal(seen.has(c.id), false, `song ${c.id} was offered twice`);
+    }
+    const choice = hand.candidates[0];
+    if (!choice) break;
+    const result = applyPick(state, choice.id);
+    if (!result) break;
+    state = result.state;
+    seen.add(choice.id);
+  }
+});
+
+test('candidate hand size is always within [2,4] and excludes the single top-value song', () => {
+  const bundle = makeBundle(20);
+  const state = createInitialState(bundle, 'hand-size-seed');
+  const hand = generateCandidates(state);
+  assert.ok(hand.candidates.length >= 2 && hand.candidates.length <= 4);
+});
+
+test('a full show always produces a report with metrics in [0,100] and a finite overall score', () => {
+  const { report } = playFullShow('report-shape-seed');
+  for (const value of Object.values(report.metrics)) {
+    assert.ok(value >= 0 && value <= 100, `metric out of range: ${value}`);
+  }
+  assert.ok(Number.isFinite(report.overallScore));
+  assert.ok(report.overallScore >= 0 && report.overallScore <= 1000);
+});

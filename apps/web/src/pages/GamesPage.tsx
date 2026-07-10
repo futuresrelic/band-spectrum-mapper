@@ -241,6 +241,19 @@ const GAMES = [
     btnColor: 'bg-emerald-700 hover:bg-emerald-600',
     accentText: 'text-emerald-400',
   },
+  {
+    id: 'headliner',
+    icon: '🎤',
+    title: 'Headliner',
+    subtitle: 'Build the setlist. Read the crowd.',
+    desc: "Pick songs one at a time from a band's whole catalog and watch five crowd factions react in real time. Chase the identity of the band's true sound, manage pacing and rarity, and earn (or blow) the encore.",
+    rules: ['Full catalog, no unlocks required for Quick Show', '5 crowd factions react to every pick', 'Consequential encore — the crowd has to earn it'],
+    href: '/play/headliner',
+    cta: 'Take the Stage →',
+    color: 'border-rose-500/40 hover:border-rose-400/70',
+    btnColor: 'bg-rose-600 hover:bg-rose-500',
+    accentText: 'text-rose-400',
+  },
 ];
 
 const COMING_SOON: { id: string; icon: string; title: string; desc: string }[] = [];
