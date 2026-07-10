@@ -4,6 +4,32 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.17.8 — "Headliner" (Concert Architect) Game Proposal (2026-07-03)
+
+**Proposal only — zero code, schema, or route changes.**
+
+New: `docs/proposals/CONCERT_ARCHITECT.md` — full design and architecture
+for a standalone concert-building game (proposed name: **Headliner**),
+explicitly separate from Band RPG and its existing setlist/concert feature.
+The player builds a live show one song at a time; five crowd factions,
+energy/pacing/spectrum-identity meters, and data-grounded special events
+react to every pick.
+
+Key finding from the reuse audit: nearly the entire game runs on data BSM
+already holds — `SongAxisScore`, `SongMusicScore`, Live Frequency profiles,
+`SongAudienceProfile` (a ready-made crowd-taste model), `BandRpgVenue`
+(which already carries per-axis spectrum affinities), and — the sleeper —
+`BandRpgRawSetlistEntry`, from which real historical setlists are
+reconstructable show-by-show, enabling opener/closer/encore probabilities
+grounded in how each band actually performs. New surface area is
+deliberately tiny: one `ConcertRun` model (player-owned per the Z.17.6
+permission tiers), one pure simulation engine, one cached role-stats
+builder, one route file. Includes gameplay loop, crowd model, difficulty
+modes, event deck, scoring report, UI sketches, progression, balancing
+levers, and a three-phase build plan awaiting owner approval.
+
+---
+
 ## Phase Z.17.7 — Wiki Browse Fix + Reserved Modules (2026-07-03)
 
 ### The bug
