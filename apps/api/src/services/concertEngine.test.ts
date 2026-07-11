@@ -145,6 +145,27 @@ test('candidate hand size is always within [2,4] and excludes the single top-val
   assert.ok(hand.candidates.length >= 2 && hand.candidates.length <= 4);
 });
 
+test('applyPick rejects a songId that was not in the offered candidate hand (server-side integrity check)', () => {
+  const bundle = makeBundle(20);
+  const state = createInitialState(bundle, 'integrity-seed');
+  const hand = generateCandidates(state);
+  const offeredIds = new Set(hand.candidates.map((c) => c.id));
+  const outsideSong = bundle.songs.find((s) => !offeredIds.has(s.id));
+  assert.ok(outsideSong, 'fixture should contain a song outside the offered hand');
+  const result = applyPick(hand.state, outsideSong!.id);
+  assert.equal(result, null);
+});
+
+test('applyPick accepts any song that WAS in the offered candidate hand', () => {
+  const bundle = makeBundle(20);
+  const state = createInitialState(bundle, 'integrity-seed-2');
+  const hand = generateCandidates(state);
+  const choice = hand.candidates[0]!;
+  const result = applyPick(hand.state, choice.id);
+  assert.ok(result !== null);
+  assert.equal(result!.song.id, choice.id);
+});
+
 test('a full show always produces a report with metrics in [0,100] and a finite overall score', () => {
   const { report } = playFullShow('report-shape-seed');
   for (const value of Object.values(report.metrics)) {

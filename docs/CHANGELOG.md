@@ -4,6 +4,132 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.17.11 — Headliner Daily Challenge + Verified Leaderboards (2026-07-11)
+
+Owner approved Phase 2 (Campaign) and requested Daily Challenge next: one
+shared concert puzzle per UTC calendar date, identical starting conditions
+for every player, server-verified scoring, and a public leaderboard. Quick
+Show and Campaign are unchanged except through one safe shared engine
+improvement (below).
+
+### Safe shared improvement: server-side candidate validation
+
+`concertEngine.ts`'s `EngineState` gained `currentCandidateIds` — the exact
+song IDs offered by the most recent `generateCandidates`/
+`generateEncoreCandidates` call. `applyPick`/`applyEncorePick` now reject
+any `songId` not in that set. This closes a real gap that predates Daily:
+nothing previously stopped a client from picking any unplayed song, not
+just one from its offered hand, bypassing the "avoid the obviously best
+pick" design. Required for Daily's score-verification guarantees; applied
+everywhere since it's strictly a correctness fix. All prior Quick
+Show/Campaign determinism tests still pass unchanged.
+
+### Engine versioning
+
+Added `ENGINE_VERSION = 'HEADLINER_ENGINE_V1'`, now stored on every
+`ConcertRun` and every `HeadlinerDailyChallenge`. A future balance/formula
+change bumps this constant; historical runs and Daily challenges keep the
+version they were created with, so a tuning change can never silently
+reshuffle a past leaderboard.
+
+### New: Daily Challenge (`dailyChallengeService.ts`)
+
+- **Seed formula**: `HEADLINER_DAILY_V1:{challengeDate}:{bandId}:{venueId}:{contextKey}`
+  — versioned, fully deterministic, documented in code
+  (`buildDailySeed`/`DAILY_SEED_VERSION`).
+- **Rotation**: band/venue/crowd-context selected deterministically from
+  the UTC challenge date via a pure FNV-1a-style hash (`stableHash`,
+  `pickIndex`) — same date always picks the same combination. If the
+  hash-selected band lacks enough spectrum data, a deterministic fallback
+  walk steps to the next band (same date ⇒ same fallback path for every
+  player, never a per-request coin flip).
+  Three crowd contexts (`standard`/`hardcore_crowd`/`newcomer_friendly`)
+  reuse the same `ShowRules.factionShare` mechanism Campaign stages
+  already use — no engine fork.
+- **Snapshot**: the full `ShowBundle` — songs, identity target, venue,
+  rules — is frozen into `HeadlinerDailyChallenge.bundleSnapshotJson` at
+  first-request time and never re-derived from live data afterward, so a
+  re-scored song or regenerated audience profile tomorrow can't reshuffle
+  today's already-live challenge. Every player's run reads this one frozen
+  bundle — no per-player DB query, no per-player randomness in what's
+  offered beyond the shared seed's own sequence.
+- **Full catalog, no recovery requirement**: Daily uses `buildShowBundle`'s
+  full-catalog assembly (same as Quick Show), independent of Campaign
+  recovery — per the explicit fairness requirement that every player see
+  equivalent strategic information.
+- **Official attempt policy**: the *first* completed run for a
+  challenge+user becomes the official `HeadlinerDailyResult` row
+  (`@@unique([challengeId, userId])`); every subsequent run is Practice and
+  never modifies it — chosen over a "Submit Official Run" button as the
+  simpler, harder-to-exploit design the spec asked for. A concurrent
+  double-submit race falls back safely to Practice via the same unique
+  constraint, not a pre-check race condition.
+- **Server-side verification**: the client only ever submits a `songId`
+  choice — never a score, seed, or rule. The server replays every pick
+  through the same deterministic engine used to build the challenge,
+  computes the report itself, and that's the only score ever stored. The
+  new candidate-hand validation (above) closes the "pick outside the
+  offered hand" gap; phase/status checks already rejected wrong-order or
+  incomplete-run submissions.
+
+### New models
+
+`HeadlinerDailyChallenge` (frozen snapshot, engine/challenge version,
+band/venue/context, seed) and `HeadlinerDailyResult` (one official row per
+challenge+user: score plus `finalAttendance`/`satisfaction`/`authenticity`/
+`spectrumMatch`/`pacing`/`encoreQuality` — `satisfaction` is an honestly-
+documented derived value, the unweighted mean of all 10 report metrics,
+distinct from the weighted `score`). `ConcertRun` gained `dailyChallengeId`
+and `engineVersion` columns.
+
+### New routes
+
+`GET /api/headliner/daily/today` (today's card + the player's official
+result if any), `GET /api/headliner/daily/leaderboard?date=` (public, no
+auth required — pure read data, matching this app's existing public-
+leaderboard convention), and `POST /api/headliner/runs` now accepts
+`mode: "daily"` (bandId/venueId ignored — the server always determines
+today's show itself).
+
+### New UI
+
+Daily Challenge card on `/play/headliner`'s mode-select screen is now
+playable (today's band/venue/context, participant count, countdown to next
+UTC midnight, the player's official result if completed) → Daily Briefing
+(explains the shared-show/official-attempt/practice/server-verified rules
+before the player commits) → Live Show (reuses Quick Show's live screen,
+with a Daily context banner and a Practice badge when applicable) →
+Verified Result (official/practice status, rank, participant count, Copy
+Summary) → Daily Leaderboard (Today/Yesterday tabs). Added a "Headliner
+Daily" tab to the site-wide `/leaderboard` page, matching its existing
+per-game tab convention.
+
+### Tests
+
+`dailyChallengeService.test.ts` (15 new `node:test` cases: UTC date
+formatting, hash/index determinism across dates and fallback attempts,
+seed-formula construction, leaderboard tie-break ordering — score desc,
+then attendance, then authenticity, then earlier completion time, never
+"fastest gameplay"), plus two new `applyPick` candidate-validation tests in
+`concertEngine.test.ts`. All 22 pre-existing Quick Show/Campaign tests
+still pass unchanged — 37 total.
+
+### Known limitations
+
+- The Prisma-backed Daily functions (`getOrCreateDailyChallenge`,
+  `finalizeDailyRun`, `getDailyLeaderboard`, `getTodayInfo`) are correct by
+  TypeScript/query-shape review, matching Campaign's Phase 2 precedent, but
+  not exercised by an automated test against a live database in this
+  sandbox (none is available here).
+- Only one engine version exists, so version-compatibility branching is
+  prepared (the field is stored everywhere) but not yet exercised by a
+  real V2.
+- Weekly/all-time/band-specific/friends leaderboard views, historical
+  concert mode, seasons, and a rewards economy are explicitly out of scope
+  per the approved spec and not started.
+
+---
+
 ## Phase Z.17.10 — Headliner Campaign (2026-07-10)
 
 Owner approved Phase 1 (Quick Show) and requested Campaign next: a

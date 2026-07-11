@@ -1,14 +1,16 @@
 /**
- * Headliner — routes (Phase Z.17.9, extended Z.17.10 for Campaign)
+ * Headliner — routes (Phase Z.17.9, extended Z.17.10 Campaign, Z.17.11 Daily)
  *
  * A completely standalone player-owned game — no relation to Band RPG's own
  * concert/festival/tour routes. Every route here is PLAYER-tier
  * (requireAuth + requireOwner), per the Z.17.6 permission model.
  *
- * Quick Show: full catalog, no recovery requirement. Campaign: candidate
- * pool restricted to BandRpgCollectedSong (Band RPG's Collection) — see
- * campaignService.ts. Daily Challenge is still architecture-only — see
- * docs/proposals/CONCERT_ARCHITECT.md.
+ * Quick Show: full catalog, no recovery requirement, per-run random seed.
+ * Campaign: candidate pool restricted to BandRpgCollectedSong (Band RPG's
+ * Collection) — see campaignService.ts. Daily Challenge: full catalog, one
+ * shared seed per UTC date for every player — see dailyChallengeService.ts.
+ * The server is the only authority on the final score in every mode: the
+ * client only ever submits a songId choice, never a metric or a seed.
  */
 
 import { Router } from 'express';
@@ -22,14 +24,18 @@ import {
   getLadder, assertStageStartable, finalizeCampaignRun, markTutorialCompleted,
 } from '../services/campaignService.js';
 import {
+  getOrCreateDailyChallenge, getTodayInfo, getDailyLeaderboard, finalizeDailyRun, utcDateString,
+} from '../services/dailyChallengeService.js';
+import {
   createInitialState, generateCandidates, applyPick, buildReport,
   isMainSetComplete, resolveEncoreEligibility, generateEncoreCandidates,
-  applyEncorePick, skipEncore,
-  type EngineState, type ConcertReport,
+  applyEncorePick, skipEncore, ENGINE_VERSION,
+  type EngineState, type ConcertReport, type ShowBundle,
 } from '../services/concertEngine.js';
 import type { ConcertRun } from '@prisma/client';
 import type { StageKey } from '../services/campaignStages.js';
 import type { CampaignFinishResult } from '../services/campaignService.js';
+import type { DailyFinishResult } from '../services/dailyChallengeService.js';
 
 export const headlinerRouter = Router();
 
@@ -37,7 +43,9 @@ const CONCERT_MODES = ['quick', 'daily', 'campaign', 'historical'] as const;
 type ConcertMode = (typeof CONCERT_MODES)[number];
 
 const startRunSchema = z.object({
-  bandId: z.string().min(1),
+  // bandId/venueId are ignored for mode="daily" — the server always determines
+  // today's band/venue itself so every player gets the identical challenge.
+  bandId: z.string().min(1).optional(),
   venueId: z.string().min(1).nullable().optional(),
   mode: z.enum(CONCERT_MODES).default('quick'),
   stageKey: z.string().min(1).optional(), // required when mode = "campaign"
@@ -60,7 +68,7 @@ function ownerGuard() {
   });
 }
 
-/** Runs Campaign scoring/progress/unlocks on finish. No-op for Quick Show runs. */
+/** Runs Campaign scoring/progress/unlocks on finish. No-op for Quick Show/Daily runs. */
 async function maybeFinalizeCampaign(
   run: ConcertRun,
   report: ConcertReport,
@@ -68,6 +76,15 @@ async function maybeFinalizeCampaign(
 ): Promise<CampaignFinishResult | null> {
   if (run.mode !== 'campaign' || !run.campaignStageKey) return null;
   return finalizeCampaignRun(run.userId, run.bandId, run.id, run.campaignStageKey as StageKey, report, state);
+}
+
+/** Verifies + records the Daily Challenge result server-side. No-op for Quick Show/Campaign runs. */
+async function maybeFinalizeDaily(
+  run: ConcertRun,
+  report: ConcertReport,
+  state: EngineState,
+): Promise<DailyFinishResult | null> {
+  return finalizeDailyRun(run, report, state);
 }
 
 // GET /api/headliner/bands — bands eligible for Quick Show, with a plain-language reason when not
@@ -135,40 +152,89 @@ headlinerRouter.post('/campaign/:bandId/tutorial-complete', requireAuth, async (
   } catch (e) { next(e); }
 });
 
-// POST /api/headliner/runs — start a Quick Show or Campaign run
+// GET /api/headliner/daily/today — today's (UTC) challenge card + this player's official result, if any
+headlinerRouter.get('/daily/today', requireAuth, async (req, res, next) => {
+  try {
+    const userId = req.user!.userId;
+    const challengeDate = utcDateString(new Date());
+    const info = await getTodayInfo(userId, challengeDate);
+    res.json(info);
+    return;
+  } catch (e) { next(e); }
+});
+
+// GET /api/headliner/daily/leaderboard?date=YYYY-MM-DD — defaults to today (UTC). Public: canView data, no per-user fields.
+headlinerRouter.get('/daily/leaderboard', async (req, res, next) => {
+  try {
+    const dateParam = typeof req.query['date'] === 'string' ? req.query['date'] : undefined;
+    const challengeDate = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : utcDateString(new Date());
+    const leaderboard = await getDailyLeaderboard(challengeDate);
+    res.json(leaderboard ?? { challengeDate, bandName: null, venueId: null, contextKey: null, entries: [] });
+    return;
+  } catch (e) { next(e); }
+});
+
+// POST /api/headliner/runs — start a Quick Show, Campaign, or Daily Challenge run
 headlinerRouter.post('/runs', requireAuth, async (req, res, next) => {
   try {
     const userId = req.user!.userId;
     const body = startRunSchema.parse(req.body);
 
-    if (body.mode !== 'quick' && body.mode !== 'campaign') {
+    if (body.mode !== 'quick' && body.mode !== 'campaign' && body.mode !== 'daily') {
       throw new HttpError(422, `Headliner mode "${body.mode}" is not playable yet.`);
     }
 
-    let bundle;
+    let bundle: ShowBundle;
+    let bandId: string;
+    let venueId: string | null = null;
     let campaignStageKey: string | null = null;
+    let dailyChallengeId: string | null = null;
+    let seed: string;
+    let engineVersion = ENGINE_VERSION;
+    let isPractice = false;
 
     if (body.mode === 'campaign') {
+      if (!body.bandId) throw new HttpError(400, 'bandId is required to start a Campaign run');
       if (!body.stageKey) throw new HttpError(400, 'stageKey is required to start a Campaign run');
       const { stage, recoveredSongIds } = await assertStageStartable(userId, body.bandId, body.stageKey);
       bundle = await buildCampaignShowBundle(body.bandId, recoveredSongIds, stage);
+      bandId = body.bandId;
       campaignStageKey = stage.key;
+      seed = `${userId}:${body.bandId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+      // Date.now()/Math.random() mint a fresh, unpredictable per-run seed for Quick Show
+      // and Campaign only — never inside the deterministic engine, and never for Daily,
+      // where every player must share the exact same challenge seed instead.
+    } else if (body.mode === 'daily') {
+      const challengeDate = utcDateString(new Date());
+      const challenge = await getOrCreateDailyChallenge(challengeDate);
+      bundle = challenge.bundleSnapshotJson as unknown as ShowBundle;
+      bandId = challenge.bandId;
+      venueId = challenge.venueId;
+      dailyChallengeId = challenge.id;
+      seed = challenge.seed;
+      engineVersion = challenge.engineVersion;
+      isPractice = await prisma.headlinerDailyResult.findUnique({
+        where: { challengeId_userId: { challengeId: challenge.id, userId } },
+      }) !== null;
     } else {
+      if (!body.bandId) throw new HttpError(400, 'bandId is required to start a Quick Show run');
       bundle = await buildShowBundle(body.bandId, body.venueId ?? null);
+      bandId = body.bandId;
+      venueId = body.venueId ?? null;
+      seed = `${userId}:${body.bandId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
     }
 
-    const seed = `${userId}:${body.bandId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-    // Date.now()/Math.random() are used ONLY to mint a fresh, unpredictable seed
-    // string once at run creation — never inside the deterministic engine itself.
     const state = createInitialState(bundle, seed);
 
     const run = await prisma.concertRun.create({
       data: {
         userId,
         mode: body.mode,
-        bandId: body.bandId,
-        venueId: body.mode === 'campaign' ? null : (body.venueId ?? null),
+        bandId,
+        venueId,
         campaignStageKey,
+        dailyChallengeId,
+        engineVersion,
         seed,
         status: 'in_progress',
         picksJson: [],
@@ -182,7 +248,7 @@ headlinerRouter.post('/runs', requireAuth, async (req, res, next) => {
       data: { stateJson: hand.state as object },
     });
 
-    res.json({ runId: run.id, state: hand.state, candidates: hand.candidates });
+    res.json({ runId: run.id, state: hand.state, candidates: hand.candidates, isPractice });
     return;
   } catch (e) { next(e); }
 });
@@ -222,7 +288,8 @@ headlinerRouter.post('/runs/:id/pick', requireAuth, ownerGuard(), async (req, re
         },
       });
       const campaignResult = await maybeFinalizeCampaign(run, report, result.state);
-      res.json({ result, report, campaignResult, finished: true });
+      const dailyResult = await maybeFinalizeDaily(run, report, result.state);
+      res.json({ result, report, campaignResult, dailyResult, finished: true });
       return;
     }
 
@@ -257,7 +324,8 @@ headlinerRouter.post('/runs/:id/pick', requireAuth, ownerGuard(), async (req, re
         },
       });
       const campaignResult = await maybeFinalizeCampaign(run, report, nextState);
-      res.json({ result, report, campaignResult, finished: true });
+      const dailyResult = await maybeFinalizeDaily(run, report, nextState);
+      res.json({ result, report, campaignResult, dailyResult, finished: true });
       return;
     }
 

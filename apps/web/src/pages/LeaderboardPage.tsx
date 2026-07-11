@@ -64,7 +64,22 @@ interface VinylRunnerEntry {
   createdAt: string;
 }
 
-type Tab = 'quiz' | 'wordhunt' | 'lyricchain' | 'band2048' | 'vinylrunner';
+interface HeadlinerDailyEntry {
+  rank: number;
+  playerName: string;
+  avatarUrl: string | null;
+  score: number;
+  finalAttendance: number;
+  authenticity: number;
+  encoreQuality: number;
+}
+
+interface HeadlinerDailyLeaderboard {
+  bandName: string | null;
+  entries: HeadlinerDailyEntry[];
+}
+
+type Tab = 'quiz' | 'wordhunt' | 'lyricchain' | 'band2048' | 'vinylrunner' | 'headliner';
 
 // ---------------------------------------------------------------------------
 // Shared sub-components
@@ -381,6 +396,61 @@ function VinylRunnerTab() {
   );
 }
 
+function HeadlinerDailyTab() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['leaderboard-headliner-daily'],
+    queryFn: () => api.get<HeadlinerDailyLeaderboard>('/api/headliner/daily/leaderboard'),
+  });
+  const entries = data?.entries ?? [];
+
+  return (
+    <div className="rounded-xl bg-gray-900 border border-gray-800 overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-800">
+        <h2 className="font-semibold text-white">Headliner Daily</h2>
+        <p className="text-xs text-gray-500 mt-0.5">
+          {data?.bandName ? `Today: ${data.bandName}. ` : ''}One shared, server-verified concert puzzle per day.
+        </p>
+      </div>
+
+      {isLoading ? (
+        <DarkLoadingRow />
+      ) : entries.length === 0 ? (
+        <DarkEmptyRow
+          message="No official scores yet today"
+          cta={{ label: 'be the first!', to: '/play/headliner', accentClassName: 'text-sky-400' }}
+        />
+      ) : (
+        <div className="divide-y divide-gray-800">
+          {entries.map((e) => (
+            <div key={e.rank} className="flex items-center gap-3 px-5 py-3.5">
+              <RankBadge rank={e.rank} />
+              <Avatar name={e.playerName} url={e.avatarUrl} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-white truncate">{e.playerName}</p>
+                <p className="text-xs text-gray-500">
+                  {Math.round(e.finalAttendance)}% attendance · {Math.round(e.authenticity)}% authentic
+                </p>
+              </div>
+              <span className="text-sm font-bold text-sky-400 tabular-nums">
+                {e.score.toLocaleString()}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="px-5 py-4 border-t border-gray-800">
+        <Link
+          to="/play/headliner"
+          className="block w-full text-center bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold py-2.5 rounded-lg transition-colors"
+        >
+          Play Headliner Daily →
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -407,6 +477,7 @@ export default function LeaderboardPage() {
             ['lyricchain',  'Lyric Chain',    'bg-violet-700'],
             ['band2048',    'Band 2048',      'bg-purple-700'],
             ['vinylrunner', 'Vinyl Runner',   'bg-violet-800'],
+            ['headliner',   'Headliner Daily','bg-sky-600'],
           ] as const).map(([key, label, activeCls]) => (
             <button
               key={key}
@@ -425,6 +496,7 @@ export default function LeaderboardPage() {
         {tab === 'lyricchain'  && <LyricChainTab />}
         {tab === 'band2048'    && <Band2048Tab />}
         {tab === 'vinylrunner' && <VinylRunnerTab />}
+        {tab === 'headliner'   && <HeadlinerDailyTab />}
 
         {/* Bottom nav links */}
         <div className="mt-10 pt-8 border-t border-gray-800 flex flex-wrap gap-4 justify-center text-sm text-gray-500">

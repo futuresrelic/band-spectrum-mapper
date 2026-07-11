@@ -81,6 +81,16 @@ export interface StartRunResponse {
   runId: string;
   state: unknown;
   candidates: CandidateSong[];
+  isPractice: boolean;
+}
+
+export interface DailyFinishResult {
+  isOfficial: boolean;
+  score: number;
+  officialScore: number | null;
+  rank: number | null;
+  participantCount: number;
+  shareText: string;
 }
 
 export interface PickResponse {
@@ -90,6 +100,7 @@ export interface PickResponse {
   encoreEligible?: boolean;
   report?: ConcertReport;
   campaignResult?: CampaignFinishResult | null;
+  dailyResult?: DailyFinishResult | null;
   finished: boolean;
 }
 
@@ -148,6 +159,43 @@ export interface CampaignLadder {
   stages: StageCard[];
 }
 
+export interface DailyTodayInfo {
+  challengeDate: string;
+  bandId: string;
+  bandName: string;
+  venueId: string | null;
+  contextKey: string;
+  contextLabel: string;
+  contextDescription: string;
+  difficulty: string;
+  participantCount: number;
+  myResult: {
+    score: number; finalAttendance: number; authenticity: number;
+    spectrumMatch: number; encoreQuality: number; rank: number | null;
+  } | null;
+}
+
+export interface DailyLeaderboardEntry {
+  rank: number;
+  playerName: string;
+  avatarUrl: string | null;
+  score: number;
+  finalAttendance: number;
+  satisfaction: number;
+  authenticity: number;
+  spectrumMatch: number;
+  encoreQuality: number;
+  completedAt: string;
+}
+
+export interface DailyLeaderboard {
+  challengeDate: string;
+  bandName: string | null;
+  venueId: string | null;
+  contextKey: string | null;
+  entries: DailyLeaderboardEntry[];
+}
+
 export const headlinerApi = {
   getBands: () => api.get<{ bands: BandEligibility[] }>('/api/headliner/bands'),
   getVenues: () => api.get<{ venues: Venue[] }>('/api/headliner/venues'),
@@ -158,8 +206,11 @@ export const headlinerApi = {
   getCampaignBands: () => api.get<{ bands: RecoveredBandSummary[] }>('/api/headliner/campaign/bands'),
   markTutorialCompleted: (bandId: string) =>
     api.post<{ ok: boolean }>(`/api/headliner/campaign/${bandId}/tutorial-complete`, {}),
-  startRun: (bandId: string, venueId: string | null, mode: ConcertMode = 'quick', stageKey?: StageKey) =>
-    api.post<StartRunResponse>('/api/headliner/runs', { bandId, venueId, mode, stageKey }),
+  getDailyToday: () => api.get<DailyTodayInfo>('/api/headliner/daily/today'),
+  getDailyLeaderboard: (date?: string) =>
+    api.get<DailyLeaderboard>(`/api/headliner/daily/leaderboard${date ? `?date=${date}` : ''}`),
+  startRun: (bandId: string | null, venueId: string | null, mode: ConcertMode = 'quick', stageKey?: StageKey) =>
+    api.post<StartRunResponse>('/api/headliner/runs', { bandId: bandId ?? undefined, venueId, mode, stageKey }),
   pick: (runId: string, songId: string) =>
     api.post<PickResponse>(`/api/headliner/runs/${runId}/pick`, { songId }),
 };

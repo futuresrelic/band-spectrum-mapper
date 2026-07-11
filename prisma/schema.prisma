@@ -38,6 +38,7 @@ model Band {
   bandRpgSongAliases BandRpgSongAlias[]
   concertRuns        ConcertRun[]
   headlinerCampaignProgress HeadlinerCampaignProgress[]
+  headlinerDailyChallenges  HeadlinerDailyChallenge[]
 
   @@map("bands")
 }
@@ -473,6 +474,7 @@ model User {
   bandRpgAdventureProgress BandRpgAdventureProgress[]   @relation("UserAdventureProgress")
   concertRuns              ConcertRun[]
   headlinerCampaignProgress HeadlinerCampaignProgress[]
+  headlinerDailyResults     HeadlinerDailyResult[]
 
   @@map("users")
 }
@@ -1954,6 +1956,7 @@ model BandRpgVenue {
   concerts   BandRpgConcert[]
   tourStops  BandRpgTourStop[]
   concertRuns ConcertRun[]
+  headlinerDailyChallenges HeadlinerDailyChallenge[]
 
   @@map("band_rpg_venues")
 }
@@ -2393,6 +2396,8 @@ model ConcertRun {
   bandId        String
   venueId       String?
   campaignStageKey String? // StageKey (campaignStages.ts) — set only when mode = "campaign"
+  dailyChallengeId String? // set only when mode = "daily"
+  engineVersion String    @default("HEADLINER_ENGINE_V1") // concertEngine.ts's ENGINE_VERSION at run creation
   difficulty    String    @default("normal")
   seed          String
   status        String    @default("in_progress") // in_progress | completed | abandoned
@@ -2406,11 +2411,14 @@ model ConcertRun {
   user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   band  Band          @relation(fields: [bandId], references: [id], onDelete: Cascade)
   venue BandRpgVenue? @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  dailyChallenge HeadlinerDailyChallenge? @relation(fields: [dailyChallengeId], references: [id], onDelete: SetNull)
 
   campaignShowResult HeadlinerCampaignShowResult?
+  dailyResult        HeadlinerDailyResult?
 
   @@index([userId])
   @@index([bandId, overallScore])
+  @@index([dailyChallengeId])
   @@map("headliner_concert_runs")
 }
 
@@ -2456,4 +2464,57 @@ model HeadlinerCampaignShowResult {
 
   @@index([progressId, stageKey])
   @@map("headliner_campaign_show_results")
+}
+
+// ── Phase Z.17.11: Headliner Daily Challenge ──────────────────────────────────
+// One shared, frozen concert puzzle per UTC calendar date. bundleSnapshotJson
+// freezes the full ShowBundle (songs, target spectrum, venue, rules) at
+// creation time so later canonical data changes can never reshuffle a
+// challenge that's already live — see dailyChallengeService.ts.
+
+model HeadlinerDailyChallenge {
+  id                 String   @id @default(cuid())
+  challengeDate      String   // "YYYY-MM-DD", UTC
+  version            Int      @default(1) // DAILY_CHALLENGE_VERSION — selection/format version
+  seed               String
+  bandId             String
+  bandName           String   // denormalized snapshot — historical display never changes if the band is later renamed
+  venueId            String?
+  contextKey         String
+  difficulty         String   @default("normal")
+  engineVersion      String   // concertEngine.ts's ENGINE_VERSION at creation
+  bundleSnapshotJson Json     // frozen ShowBundle — never re-derived from live data after creation
+  createdAt          DateTime @default(now())
+
+  band  Band          @relation(fields: [bandId], references: [id], onDelete: Cascade)
+  venue BandRpgVenue? @relation(fields: [venueId], references: [id], onDelete: SetNull)
+
+  runs    ConcertRun[]
+  results HeadlinerDailyResult[]
+
+  @@unique([challengeDate, version])
+  @@map("headliner_daily_challenges")
+}
+
+model HeadlinerDailyResult {
+  id              String   @id @default(cuid())
+  challengeId     String
+  userId          String
+  concertRunId    String   @unique
+  score           Int      // report.overallScore — the authoritative, server-computed ranking value
+  finalAttendance Float    // report.metrics.audienceRetention
+  satisfaction    Float    // unweighted mean of all 10 report metrics — distinct from the weighted `score`
+  authenticity    Float    // report.metrics.authenticity
+  spectrumMatch   Float    // report.metrics.spectrumMatch
+  pacing          Float    // report.metrics.paceDiscipline
+  encoreQuality   Float    // report.metrics.encoreQuality
+  completedAt     DateTime @default(now())
+
+  challenge  HeadlinerDailyChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user       User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  concertRun ConcertRun              @relation(fields: [concertRunId], references: [id], onDelete: Cascade)
+
+  @@unique([challengeId, userId])
+  @@index([challengeId, score])
+  @@map("headliner_daily_results")
 }

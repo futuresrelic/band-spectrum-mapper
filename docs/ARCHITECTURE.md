@@ -1199,3 +1199,102 @@ finish time (it's the same object that gets snapshotted into
 `ConcertRun.stateJson`). This keeps the shared engine artifact free of
 Campaign-specific concerns, per the instruction to extend through
 "mode-specific components or config," not by growing the shared report.
+
+## Headliner Daily Challenge (Phase Z.17.11, 2026-07-11)
+
+One shared, server-verified concert puzzle per UTC calendar date. The
+hardest constraint this phase had to satisfy: every player must see the
+*identical* starting show, and the server — never the browser — must be
+the sole authority on the final score.
+
+```
+UTC challenge date
+        │  pure hash, no Math.random()/Date.now() inside the engine
+        ▼
+dailyChallengeService.selectDailyCombo()  →  band + venue + crowd context
+        │
+        ▼
+concertDataService.buildShowBundle()  (same full-catalog assembly as Quick Show)
+        │
+        ▼
+HeadlinerDailyChallenge.bundleSnapshotJson  (frozen — never re-derived)
+        │  every player's run reads this ONE row, not a fresh DB query
+        ▼
+concertEngine.ts  (same pure engine, same as Quick Show/Campaign)
+        │
+        ▼
+HeadlinerDailyResult  (first completed run per user = official; rest = Practice)
+```
+
+### Same engine, one more configuration axis
+
+Daily didn't need a single engine change beyond the candidate-validation
+fix below — it reuses `ShowRules`/`ShowBundle` exactly as Campaign does.
+The three crowd "contexts" (Standard/Hardcore Crowd/Newcomer Night) are
+just `factionShare` overrides, the same mechanism `campaignStages.ts`
+already uses for its five stages. Nothing about "this is a Daily run" ever
+reaches inside `concertEngine.ts` — the engine has no `mode` concept at
+all, only rules it was handed.
+
+### The one shared engine improvement: candidate-hand validation
+
+Building Daily surfaced a real gap in the Phase 1/2 engine: `applyPick`
+only checked that a `songId` existed and hadn't been played yet — nothing
+stopped a client from picking any remaining song, not just one from the
+hand it was actually shown. That's harmless-looking in Quick Show (it just
+lets a player dodge the "avoid the obviously best pick" design) but
+becomes a real integrity problem the moment scores are leaderboard-ranked
+and server-verified. `EngineState` gained `currentCandidateIds`, populated
+by `generateCandidates`/`generateEncoreCandidates` and checked by
+`applyPick`/`applyEncorePick`. This is why the spec's "safe shared
+improvements" carve-out exists — the fix belongs in the shared engine, not
+duplicated per-mode, and every existing Quick Show/Campaign determinism
+test still passes against it unchanged.
+
+### Why the client never sends a seed, a rule, or a score
+
+Every other Headliner mode already worked this way (the pick route always
+recomputes state server-side from `ConcertRun.stateJson`), so Daily's
+"never trust a client-submitted score" requirement was mostly already
+satisfied by the existing architecture — verified, not re-invented. The
+one gap was candidate-hand validation (above). Concretely: `startRunSchema`
+has no `seed` field at all; the seed for a Daily run is always
+`HeadlinerDailyChallenge.seed`, read server-side. Rules come from the
+frozen `bundleSnapshotJson`. The score is always `buildReport(state)`'s
+output, computed after the server replays the pick — a client cannot
+submit `overallScore` because no route ever reads one from `req.body`.
+
+### Official vs. Practice — a unique constraint, not a status flag
+
+`HeadlinerDailyResult` has `@@unique([challengeId, userId])`. The *first*
+successful `create()` for a given challenge+user is the official result;
+every later completed run for that same challenge simply finds the
+existing row and returns "Practice" without touching it. A concurrent
+double-submit (two tabs finishing within the same request window) is
+handled by letting the loser's `create()` fail on the unique constraint
+and re-reading the winner's row — the guarantee comes from the database,
+not from a `status` field or a pre-check that could itself race. This was
+chosen over an explicit "Submit Official Run" button specifically because
+the spec asked for "the simpler, harder-to-exploit version."
+
+### Snapshot boundary, one level up from Campaign
+
+Quick Show and Campaign already snapshot a `ShowBundle` once per *run*.
+Daily adds one more snapshot layer above that: the bundle is frozen once
+per *challenge* (shared across every player's run), and each individual
+run still snapshots that same frozen bundle into its own
+`ConcertRun.stateJson` at creation, exactly like every other mode. A
+canonical data change tomorrow can affect tomorrow's challenge; it can
+never reach back into today's.
+
+### Deterministic rotation, not a cron job
+
+There's no scheduled job that "generates tomorrow's challenge." The first
+request for a given UTC date — from any player, any time zone — is what
+creates that date's `HeadlinerDailyChallenge` row, via
+`getOrCreateDailyChallenge`. Since the band/venue/context selection is a
+pure function of the date string alone, it doesn't matter who triggers
+creation or when within that date; the result is identical either way. A
+concurrent first-request race is handled the same way as the official-
+result race above: the loser's `create()` fails the unique constraint on
+`(challengeDate, version)` and re-fetches the winner's row.

@@ -6,9 +6,11 @@
  * game mode — see docs/proposals/CONCERT_ARCHITECT.md. Quick Show plays the
  * full catalog; Campaign plays only songs recovered in Band RPG's
  * Collection, up the stage ladder defined in campaignStages.ts. Daily
- * Challenge remains an honest "coming soon" card.
+ * Challenge is one shared, server-verified puzzle per UTC date — every
+ * player gets the identical band/venue/context/seed; the server, never the
+ * client, computes and stores the authoritative score.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -20,10 +22,40 @@ import {
   headlinerApi, type CandidateSong, type PickResult, type ConcertReport,
   type FactionId, type LiveFrequencyTier, type Venue, type ConcertMode,
   type StageKey, type StageCard as StageCardData, type CampaignFinishResult,
+  type DailyFinishResult,
 } from '../api/headliner';
 import { LIVE_FREQUENCY_COLOR, LIVE_FREQUENCY_EMOJI } from '@band-spectrum-mapper/shared';
 
-type Screen = 'mode-select' | 'setup' | 'campaign-band-select' | 'campaign-ladder' | 'live' | 'report';
+type Screen =
+  | 'mode-select' | 'setup' | 'campaign-band-select' | 'campaign-ladder'
+  | 'daily-briefing' | 'daily-leaderboard' | 'live' | 'report';
+
+function msUntilNextUtcMidnight(now: Date): number {
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  return next.getTime() - now.getTime();
+}
+
+function formatCountdown(ms: number): string {
+  const totalMinutes = Math.max(0, Math.floor(ms / 60000));
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${h}h ${m}m`;
+}
+
+function Countdown() {
+  const [ms, setMs] = useState(() => msUntilNextUtcMidnight(new Date()));
+  useEffect(() => {
+    const id = setInterval(() => setMs(msUntilNextUtcMidnight(new Date())), 30000);
+    return () => clearInterval(id);
+  }, []);
+  return <span>{formatCountdown(ms)} until next challenge (00:00 UTC)</span>;
+}
+
+function yesterdayUtcDateString(): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
 
 const FACTION_LABELS: Record<FactionId, string> = {
   casual: 'Casual Listeners',
@@ -203,6 +235,9 @@ export default function HeadlinerPage() {
   const [playedTitles, setPlayedTitles] = useState<string[]>([]);
   const [report, setReport] = useState<ConcertReport | null>(null);
   const [campaignResult, setCampaignResult] = useState<CampaignFinishResult | null>(null);
+  const [dailyResult, setDailyResult] = useState<DailyFinishResult | null>(null);
+  const [isPractice, setIsPractice] = useState(false);
+  const [leaderboardDate, setLeaderboardDate] = useState<'today' | 'yesterday'>('today');
   const [tutorialDismissed, setTutorialDismissed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -228,6 +263,20 @@ export default function HeadlinerPage() {
     enabled: !!user && !!campaignBandId && (screen === 'campaign-ladder' || screen === 'live' || screen === 'report'),
   });
   const ladder = ladderQuery.data;
+
+  const dailyTodayQuery = useQuery({
+    queryKey: ['headliner-daily-today'],
+    queryFn: () => headlinerApi.getDailyToday(),
+    enabled: !!user && (screen === 'mode-select' || screen === 'daily-briefing' || screen === 'report'),
+  });
+  const dailyToday = dailyTodayQuery.data;
+
+  const leaderboardDateStr = leaderboardDate === 'today' ? undefined : yesterdayUtcDateString();
+  const dailyLeaderboardQuery = useQuery({
+    queryKey: ['headliner-daily-leaderboard', leaderboardDate],
+    queryFn: () => headlinerApi.getDailyLeaderboard(leaderboardDateStr),
+    enabled: !!user && screen === 'daily-leaderboard',
+  });
 
   async function startShow() {
     if (!bandId) return;
@@ -273,6 +322,29 @@ export default function HeadlinerPage() {
     }
   }
 
+  async function startDaily() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await headlinerApi.startRun(null, null, 'daily');
+      setRunMode('daily');
+      setActiveStageKey(null);
+      setRunId(res.runId);
+      setCandidates(res.candidates);
+      setPlayedTitles([]);
+      setLastResult(null);
+      setReport(null);
+      setCampaignResult(null);
+      setDailyResult(null);
+      setIsPractice(res.isPractice);
+      setScreen('live');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not start today\'s challenge');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function pickSong(songId: string) {
     if (!runId || busy) return;
     setBusy(true);
@@ -284,11 +356,15 @@ export default function HeadlinerPage() {
       if (res.finished && res.report) {
         setReport(res.report);
         setCampaignResult(res.campaignResult ?? null);
+        setDailyResult(res.dailyResult ?? null);
         setCandidates([]);
         setEncoreCandidates(null);
         setScreen('report');
         if (runMode === 'campaign' && campaignBandId) {
           queryClient.invalidateQueries({ queryKey: ['headliner-campaign-ladder', campaignBandId] });
+        }
+        if (runMode === 'daily') {
+          queryClient.invalidateQueries({ queryKey: ['headliner-daily-today'] });
         }
       } else if (res.encoreCandidates) {
         setEncoreCandidates(res.encoreCandidates);
@@ -301,6 +377,10 @@ export default function HeadlinerPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function copySummary(text: string) {
+    try { await navigator.clipboard.writeText(text); } catch { /* clipboard unavailable — non-critical */ }
   }
 
   async function dismissTutorial() {
@@ -324,6 +404,8 @@ export default function HeadlinerPage() {
     setPlayedTitles([]);
     setReport(null);
     setCampaignResult(null);
+    setDailyResult(null);
+    setIsPractice(false);
     setError(null);
   }
 
@@ -382,15 +464,42 @@ export default function HeadlinerPage() {
               </button>
             </div>
 
-            <div className="rounded-2xl bg-gray-900/60 border border-gray-800 p-6 opacity-70">
+            <div className="rounded-2xl bg-gray-900 border border-sky-500/40 p-6">
               <div className="text-2xl mb-2">📅</div>
-              <h2 className="text-lg font-semibold mb-1">Daily Challenge</h2>
-              <p className="text-sm text-gray-500 mb-2">
-                A shared setlist puzzle, same seed for everyone, once a day. Coming soon.
-              </p>
-              <span className="text-[10px] font-medium uppercase tracking-widest text-gray-600 border border-gray-800 rounded-full px-2 py-0.5">
-                In preparation
-              </span>
+              <h2 className="text-xl font-bold mb-1">Daily Challenge</h2>
+              {dailyToday ? (
+                <>
+                  <p className="text-sm text-gray-400 mb-1">
+                    Today: <span className="text-white font-semibold">{dailyToday.bandName}</span> · {dailyToday.contextLabel}
+                  </p>
+                  <p className="text-xs text-gray-500 mb-3">{dailyToday.contextDescription}</p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 mb-4">
+                    <span>👥 {dailyToday.participantCount} played today</span>
+                    <span><Countdown /></span>
+                    {dailyToday.myResult && (
+                      <span className="text-emerald-400">
+                        ✓ Official score: {dailyToday.myResult.score}{dailyToday.myResult.rank ? ` (rank #${dailyToday.myResult.rank})` : ''}
+                      </span>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-gray-500 mb-4">Loading today's challenge…</p>
+              )}
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={() => setScreen('daily-briefing')}
+                  className="bg-sky-600 hover:bg-sky-500 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors text-sm"
+                >
+                  {dailyToday?.myResult ? 'View / Practice →' : 'Play Daily Challenge →'}
+                </button>
+                <button
+                  onClick={() => setScreen('daily-leaderboard')}
+                  className="text-xs text-sky-400 hover:text-sky-300 self-center"
+                >
+                  View Leaderboard →
+                </button>
+              </div>
             </div>
 
             <div className="rounded-2xl bg-gray-900 border border-emerald-500/40 p-6">
@@ -492,6 +601,116 @@ export default function HeadlinerPage() {
           </div>
         )}
 
+        {user && screen === 'daily-briefing' && (
+          <div className="rounded-2xl bg-gray-900 border border-sky-500/40 p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Daily Briefing</h2>
+              <button onClick={() => setScreen('mode-select')} className="text-xs text-gray-400 hover:text-white">← Back</button>
+            </div>
+
+            {dailyToday && (
+              <>
+                <div>
+                  <div className="text-2xl font-bold text-white">{dailyToday.bandName}</div>
+                  <div className="text-sm text-sky-400 mt-1">{dailyToday.contextLabel} · {dailyToday.difficulty}</div>
+                  <p className="text-xs text-gray-500 mt-2">{dailyToday.contextDescription}</p>
+                </div>
+
+                <ul className="text-sm text-gray-400 space-y-1.5 border-t border-gray-800 pt-4">
+                  <li>• Everyone who plays today receives this exact same show — same band, same crowd, same starting seed.</li>
+                  <li>• Your <span className="text-white">first completed run today becomes your official score</span> — it can't be replaced by a later run.</li>
+                  <li>• After that, replaying becomes <span className="text-white">Practice</span> — it won't touch the leaderboard.</li>
+                  <li>• The server computes and verifies your score — nothing calculated in your browser is ever trusted as final.</li>
+                </ul>
+
+                {dailyToday.myResult && (
+                  <div className="rounded-xl bg-sky-950/40 border border-sky-800/50 p-4 text-sm">
+                    <div className="text-sky-400 font-semibold">Official score already submitted</div>
+                    <div className="text-gray-400 mt-1">
+                      Score {dailyToday.myResult.score}{dailyToday.myResult.rank ? ` · Rank #${dailyToday.myResult.rank}` : ''} — playing again will be Practice only.
+                    </div>
+                  </div>
+                )}
+
+                {error && <p className="text-sm text-rose-400">{error}</p>}
+
+                <button
+                  onClick={startDaily}
+                  disabled={busy}
+                  className="w-full bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm"
+                >
+                  {busy ? 'Starting…' : dailyToday.myResult ? 'Play Practice Run →' : 'Take the Stage →'}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {user && screen === 'daily-leaderboard' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Daily Leaderboard</h2>
+              <button onClick={() => setScreen('mode-select')} className="text-xs text-gray-400 hover:text-white">← Back</button>
+            </div>
+
+            <div className="flex gap-2">
+              {(['today', 'yesterday'] as const).map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setLeaderboardDate(d)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${
+                    leaderboardDate === d ? 'bg-sky-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
+                  }`}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+
+            {dailyLeaderboardQuery.isLoading && <p className="text-sm text-gray-500 text-center py-8">Loading leaderboard…</p>}
+
+            {dailyLeaderboardQuery.data && (
+              <div className="rounded-2xl bg-gray-900 border border-gray-800 overflow-hidden">
+                {dailyLeaderboardQuery.data.bandName && (
+                  <div className="px-4 py-3 border-b border-gray-800 text-sm text-gray-400">
+                    {dailyLeaderboardQuery.data.bandName}
+                  </div>
+                )}
+                {dailyLeaderboardQuery.data.entries.length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-8">No official scores yet for this date.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs text-gray-500 uppercase tracking-wide border-b border-gray-800">
+                          <th className="px-4 py-2">Rank</th>
+                          <th className="px-4 py-2">Player</th>
+                          <th className="px-4 py-2">Score</th>
+                          <th className="px-4 py-2">Attendance</th>
+                          <th className="px-4 py-2">Authenticity</th>
+                          <th className="px-4 py-2">Encore</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dailyLeaderboardQuery.data.entries.map((e) => (
+                          <tr key={e.rank} className="border-b border-gray-800/60">
+                            <td className="px-4 py-2 text-gray-400">#{e.rank}</td>
+                            <td className="px-4 py-2 text-white font-medium">{e.playerName}</td>
+                            <td className="px-4 py-2 text-white">{e.score}</td>
+                            <td className="px-4 py-2 text-gray-400">{Math.round(e.finalAttendance)}%</td>
+                            <td className="px-4 py-2 text-gray-400">{Math.round(e.authenticity)}%</td>
+                            <td className="px-4 py-2 text-gray-400">{Math.round(e.encoreQuality)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {user && screen === 'setup' && (
           <div className="rounded-2xl bg-gray-900 border border-gray-800 p-6 space-y-5">
             <h2 className="text-lg font-semibold">Set up your show</h2>
@@ -554,6 +773,20 @@ export default function HeadlinerPage() {
                   <div className="text-xs text-emerald-400 font-semibold uppercase tracking-wide">Campaign · {ladder.stages.find((s) => s.key === activeStageKey)?.name}</div>
                   <div className="text-xs text-gray-500 mt-0.5">{ladder.stages.find((s) => s.key === activeStageKey)?.contextLabel}</div>
                 </div>
+              </div>
+            )}
+
+            {runMode === 'daily' && dailyToday && (
+              <div className="rounded-2xl bg-gray-900/60 border border-sky-800/40 p-4 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs text-sky-400 font-semibold uppercase tracking-wide">Daily Challenge · {dailyToday.bandName}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">{dailyToday.contextLabel}</div>
+                </div>
+                {isPractice && (
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-amber-400 border border-amber-800 rounded-full px-2 py-0.5 shrink-0">
+                    Practice
+                  </span>
+                )}
               </div>
             )}
 
@@ -669,6 +902,55 @@ export default function HeadlinerPage() {
                   <Link to="/play/band-rpg/collection" className="bg-white/10 hover:bg-white/20 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors">
                     Recover More Songs
                   </Link>
+                </div>
+              </div>
+            )}
+
+            {dailyResult && (
+              <div className="rounded-2xl bg-gray-900 border border-sky-800/50 p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-xs text-sky-400 font-semibold uppercase tracking-wide">Verified Result</div>
+                    <div className="text-lg font-bold text-white">
+                      {dailyResult.isOfficial ? 'Official Attempt' : 'Practice Attempt'}
+                    </div>
+                  </div>
+                  {dailyResult.rank !== null && (
+                    <div className="text-2xl font-bold text-sky-400">#{dailyResult.rank}</div>
+                  )}
+                </div>
+
+                <div className="text-sm text-gray-400 space-y-1">
+                  {dailyResult.isOfficial ? (
+                    <p>This is your official score for today — it's locked in and won't be replaced.</p>
+                  ) : (
+                    <p>
+                      This was a Practice run and does not affect the leaderboard. Your official score remains{' '}
+                      <span className="text-white font-semibold">{dailyResult.officialScore}</span>.
+                    </p>
+                  )}
+                  <p>{dailyResult.participantCount} player{dailyResult.participantCount === 1 ? '' : 's'} have played today's challenge.</p>
+                </div>
+
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <button
+                    onClick={() => setScreen('daily-leaderboard')}
+                    className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
+                  >
+                    View Leaderboard
+                  </button>
+                  <button
+                    onClick={startDaily}
+                    className="bg-white/10 hover:bg-white/20 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Play Practice Run
+                  </button>
+                  <button
+                    onClick={() => copySummary(dailyResult.shareText)}
+                    className="bg-white/10 hover:bg-white/20 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Copy Summary
+                  </button>
                 </div>
               </div>
             )}

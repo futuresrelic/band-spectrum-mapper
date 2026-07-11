@@ -107,6 +107,15 @@ export interface EngineState {
   encorePlayed: boolean;
   encoreMomentumSwing: number | null;
   phase: 'main' | 'encore' | 'finished';
+  /**
+   * The exact song IDs offered by the most recent generateCandidates/
+   * generateEncoreCandidates call. applyPick/applyEncorePick reject any
+   * songId not in this set — a server-side integrity rule so a client can
+   * never pick outside the hand it was actually shown (Phase Z.17.11:
+   * required for Daily Challenge score verification, and closes the same
+   * gap for Quick Show and Campaign as a safe shared improvement).
+   */
+  currentCandidateIds: string[];
 }
 
 export interface CandidateHand {
@@ -194,6 +203,15 @@ export type ScoreMetric =
   | 'rarityExcitement' | 'diversity' | 'authenticity' | 'encoreQuality'
   | 'paceDiscipline' | 'crowdPeak';
 
+/**
+ * Bump this when TUNING/formulas change in a way that would alter results
+ * for an identical (seed, picks) pair. Stored on every ConcertRun and
+ * HeadlinerDailyChallenge so historical Daily leaderboards keep verifying
+ * against the engine version they were created with — a tuning change
+ * never silently reshuffles a past leaderboard.
+ */
+export const ENGINE_VERSION = 'HEADLINER_ENGINE_V1';
+
 /** Quick Show's rules — the exact behavior Phase 1 shipped with, unchanged. */
 export const DEFAULT_SHOW_RULES: ShowRules = {
   minSongs: TUNING.minSongsBeforeEndAllowed,
@@ -263,6 +281,7 @@ export function createInitialState(bundle: ShowBundle, seed: string): EngineStat
     encorePlayed: false,
     encoreMomentumSwing: null,
     phase: 'main',
+    currentCandidateIds: [],
   };
 }
 
@@ -361,7 +380,7 @@ export function generateCandidates(state: EngineState): CandidateHand {
     if (picked) chosen.push(picked.song);
   }
 
-  return { candidates: chosen, state: { ...state, stepIndex: step } };
+  return { candidates: chosen, state: { ...state, stepIndex: step, currentCandidateIds: chosen.map((s) => s.id) } };
 }
 
 // ---------------------------------------------------------------------------
@@ -420,6 +439,7 @@ function weightedCrowdEnergy(momentum: Record<FactionId, number>, factionShare: 
 // ---------------------------------------------------------------------------
 
 export function applyPick(state: EngineState, songId: string): PickResult | null {
+  if (!state.currentCandidateIds.includes(songId)) return null;
   const song = state.bundle.songs.find((s) => s.id === songId);
   if (!song || state.playedSongIds.includes(songId)) return null;
 
@@ -515,7 +535,7 @@ export function generateEncoreCandidates(state: EngineState): CandidateHand {
     const picked = remaining.splice(idx, 1)[0];
     if (picked) chosen.push(picked.song);
   }
-  return { candidates: chosen, state: { ...state, stepIndex: step } };
+  return { candidates: chosen, state: { ...state, stepIndex: step, currentCandidateIds: chosen.map((s) => s.id) } };
 }
 
 export function applyEncorePick(state: EngineState, songId: string): PickResult | null {
