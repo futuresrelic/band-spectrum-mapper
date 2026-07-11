@@ -37,6 +37,7 @@ model Band {
   rawSetlistEntries  BandRpgRawSetlistEntry[]
   bandRpgSongAliases BandRpgSongAlias[]
   concertRuns        ConcertRun[]
+  headlinerCampaignProgress HeadlinerCampaignProgress[]
 
   @@map("bands")
 }
@@ -471,6 +472,7 @@ model User {
   bandRpgFollowers         BandRpgCuratorFollow[]       @relation("BandRpgFollowee")
   bandRpgAdventureProgress BandRpgAdventureProgress[]   @relation("UserAdventureProgress")
   concertRuns              ConcertRun[]
+  headlinerCampaignProgress HeadlinerCampaignProgress[]
 
   @@map("users")
 }
@@ -2140,6 +2142,13 @@ model BandRpgRawSetlistEntry {
   setlistFmTitle String   // raw song title exactly as Setlist.fm returned it
   isTape         Boolean  @default(false)
   matchedSongId  String?  // null = unmatched at fetch time
+  // Real position data captured straight from Setlist.fm — Phase Z.17.10 schema
+  // prep for a future opener/closer/encore/co-occurrence derivation (not built
+  // yet). NULL on any row fetched before this field existed; never backfilled
+  // or inferred — see docs/proposals/HEADLINER_DATA_FLOW.md §5, §14-15.
+  setNumber      Int?     // 0-based index of this set within the show
+  position       Int?     // 0-based index of this song within its set
+  isEncore       Boolean? // true when Setlist.fm's own `encore` marker was present on this set
 
   band Band @relation(fields: [bandId], references: [id], onDelete: Cascade)
 
@@ -2383,6 +2392,7 @@ model ConcertRun {
   mode          String    // quick | daily | campaign | historical
   bandId        String
   venueId       String?
+  campaignStageKey String? // StageKey (campaignStages.ts) — set only when mode = "campaign"
   difficulty    String    @default("normal")
   seed          String
   status        String    @default("in_progress") // in_progress | completed | abandoned
@@ -2397,7 +2407,53 @@ model ConcertRun {
   band  Band          @relation(fields: [bandId], references: [id], onDelete: Cascade)
   venue BandRpgVenue? @relation(fields: [venueId], references: [id], onDelete: SetNull)
 
+  campaignShowResult HeadlinerCampaignShowResult?
+
   @@index([userId])
   @@index([bandId, overallScore])
   @@map("headliner_concert_runs")
+}
+
+// ── Phase Z.17.10: Headliner Campaign ─────────────────────────────────────────
+// Player-owned progression through the Campaign stage ladder (campaignStages.ts).
+// Candidate songs for every Campaign run come ONLY from BandRpgCollectedSong —
+// this progress model tracks the ladder itself, never a second song inventory.
+
+model HeadlinerCampaignProgress {
+  id                   String   @id @default(cuid())
+  userId               String
+  bandId               String
+  currentStage         String   @default("rehearsal_room") // StageKey last played
+  unlockedStage        String   @default("rehearsal_room") // StageKey furthest reachable
+  totalShowsCompleted  Int      @default(0)
+  bestScore            Int?
+  totalAudienceReached Int      @default(0)
+  starsEarned          Int      @default(0) // sum of best-stars-per-stage; recomputed on every finalize, not incremented
+  tutorialCompleted    Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user        User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  band        Band                          @relation(fields: [bandId], references: [id], onDelete: Cascade)
+  showResults HeadlinerCampaignShowResult[]
+
+  @@unique([userId, bandId])
+  @@map("headliner_campaign_progress")
+}
+
+model HeadlinerCampaignShowResult {
+  id           String   @id @default(cuid())
+  progressId   String
+  stageKey     String
+  concertRunId String   @unique
+  score        Int
+  stars        Int
+  firstClear   Boolean  @default(false)
+  completedAt  DateTime @default(now())
+
+  progress   HeadlinerCampaignProgress @relation(fields: [progressId], references: [id], onDelete: Cascade)
+  concertRun ConcertRun                @relation(fields: [concertRunId], references: [id], onDelete: Cascade)
+
+  @@index([progressId, stageKey])
+  @@map("headliner_campaign_show_results")
 }

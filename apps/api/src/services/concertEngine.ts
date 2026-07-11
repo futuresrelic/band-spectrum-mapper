@@ -65,6 +65,20 @@ export interface EngineVenue {
   rarityBonus: number;
 }
 
+/**
+ * Per-run overrides for the constants that differ between Quick Show and
+ * Campaign stages (and, later, Daily Challenge). This is how mode-specific
+ * behavior enters the engine — never by forking the simulation. Quick Show
+ * uses DEFAULT_SHOW_RULES verbatim; Campaign stages override a subset via
+ * campaignStages.ts config.
+ */
+export interface ShowRules {
+  minSongs: number;
+  maxSongs: number;
+  factionShare: Record<FactionId, number>;
+  encoreEnergyThreshold: number;
+}
+
 export interface ShowBundle {
   bandId: string;
   bandName: string;
@@ -72,6 +86,7 @@ export interface ShowBundle {
   targetSpectrum: Record<Axis, number>;
   venue: EngineVenue | null;
   showLengthBudgetSeconds: number;
+  rules: ShowRules;
 }
 
 export interface EngineState {
@@ -178,6 +193,14 @@ export type ScoreMetric =
   | 'spectrumMatch' | 'energyCurveFit' | 'emotionalJourney' | 'audienceRetention'
   | 'rarityExcitement' | 'diversity' | 'authenticity' | 'encoreQuality'
   | 'paceDiscipline' | 'crowdPeak';
+
+/** Quick Show's rules — the exact behavior Phase 1 shipped with, unchanged. */
+export const DEFAULT_SHOW_RULES: ShowRules = {
+  minSongs: TUNING.minSongsBeforeEndAllowed,
+  maxSongs: TUNING.maxMainSetSongs,
+  factionShare: FACTIONS.reduce((acc, f) => { acc[f.id] = f.shareOfCrowd; return acc; }, {} as Record<FactionId, number>),
+  encoreEnergyThreshold: TUNING.encoreCrowdEnergyThreshold,
+};
 
 // ---------------------------------------------------------------------------
 // Deterministic PRNG — pure function of (seed, step). No mutable RNG object,
@@ -388,8 +411,8 @@ export function reactToSong(song: EngineSong, state: EngineState): PickResult['f
   return reactions;
 }
 
-function weightedCrowdEnergy(momentum: Record<FactionId, number>): number {
-  return FACTIONS.reduce((sum, f) => sum + momentum[f.id] * f.shareOfCrowd, 0);
+function weightedCrowdEnergy(momentum: Record<FactionId, number>, factionShare: Record<FactionId, number>): number {
+  return FACTIONS.reduce((sum, f) => sum + momentum[f.id] * factionShare[f.id], 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -427,7 +450,8 @@ export function applyPick(state: EngineState, songId: string): PickResult | null
   const recentAxisWindow = [...state.recentAxisWindow, ...(axis ? [axis] : [])].slice(-4);
   const recentAlbumWindow = [...state.recentAlbumWindow, song.albumId].slice(-4);
 
-  const crowdEnergyDelta = weightedCrowdEnergy(nextMomentum) - weightedCrowdEnergy(state.factionMomentum);
+  const factionShare = state.bundle.rules.factionShare;
+  const crowdEnergyDelta = weightedCrowdEnergy(nextMomentum, factionShare) - weightedCrowdEnergy(state.factionMomentum, factionShare);
 
   const nextState: EngineState = {
     ...state,
@@ -456,15 +480,16 @@ export function applyPick(state: EngineState, songId: string): PickResult | null
 /** True once the main set has reached the minimum length AND either hit the song cap or the time budget. */
 export function isMainSetComplete(state: EngineState): boolean {
   const count = state.playedSongIds.length;
-  if (count < TUNING.minSongsBeforeEndAllowed) return false;
-  if (count >= TUNING.maxMainSetSongs) return true;
+  const { minSongs, maxSongs } = state.bundle.rules;
+  if (count < minSongs) return false;
+  if (count >= maxSongs) return true;
   return state.elapsedSeconds >= state.bundle.showLengthBudgetSeconds;
 }
 
 /** Call once the main set is complete. Determines encore eligibility from crowd energy. */
 export function resolveEncoreEligibility(state: EngineState): EngineState {
-  const energy = weightedCrowdEnergy(state.factionMomentum);
-  return { ...state, encoreEligible: energy >= TUNING.encoreCrowdEnergyThreshold, phase: 'encore' };
+  const energy = weightedCrowdEnergy(state.factionMomentum, state.bundle.rules.factionShare);
+  return { ...state, encoreEligible: energy >= state.bundle.rules.encoreEnergyThreshold, phase: 'encore' };
 }
 
 /** Generates the (smaller, rarity-leaning) encore candidate hand. */
@@ -494,10 +519,11 @@ export function generateEncoreCandidates(state: EngineState): CandidateHand {
 }
 
 export function applyEncorePick(state: EngineState, songId: string): PickResult | null {
-  const before = weightedCrowdEnergy(state.factionMomentum);
+  const factionShare = state.bundle.rules.factionShare;
+  const before = weightedCrowdEnergy(state.factionMomentum, factionShare);
   const result = applyPick(state, songId);
   if (!result) return null;
-  const after = weightedCrowdEnergy(result.state.factionMomentum);
+  const after = weightedCrowdEnergy(result.state.factionMomentum, factionShare);
   const finished: EngineState = {
     ...result.state,
     encorePlayed: true,
@@ -558,7 +584,7 @@ export function buildReport(state: EngineState): ConcertReport {
   }
 
   // 4. audienceRetention — final weighted crowd momentum, rescaled from -100..100 to 0..100
-  const finalEnergy = weightedCrowdEnergy(state.factionMomentum);
+  const finalEnergy = weightedCrowdEnergy(state.factionMomentum, bundle.rules.factionShare);
   const audienceRetention = clamp01to100(50 + finalEnergy / 2);
 
   // 5. rarityExcitement — how many rarity moments landed, scaled by tier

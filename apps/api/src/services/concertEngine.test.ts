@@ -14,8 +14,8 @@ import assert from 'node:assert/strict';
 import {
   createInitialState, generateCandidates, applyPick, buildReport,
   isMainSetComplete, resolveEncoreEligibility, generateEncoreCandidates,
-  applyEncorePick, skipEncore,
-  type ShowBundle, type EngineSong, type Axis,
+  applyEncorePick, skipEncore, DEFAULT_SHOW_RULES,
+  type ShowBundle, type EngineSong, type Axis, type ShowRules,
 } from './concertEngine.js';
 
 function makeSong(id: string, overrides: Partial<EngineSong> = {}): EngineSong {
@@ -43,7 +43,7 @@ function makeSong(id: string, overrides: Partial<EngineSong> = {}): EngineSong {
   };
 }
 
-function makeBundle(songCount: number): ShowBundle {
+function makeBundle(songCount: number, rules: ShowRules = DEFAULT_SHOW_RULES): ShowBundle {
   const songs: EngineSong[] = [];
   for (let i = 0; i < songCount; i++) {
     songs.push(makeSong(`s${i}`, {
@@ -61,6 +61,7 @@ function makeBundle(songCount: number): ShowBundle {
     targetSpectrum: { aggression: 5, complexity: 5, atmosphere: 5, emotion: 5, psychedelic: 5, concept: 5 },
     venue: null,
     showLengthBudgetSeconds: 60 * 70,
+    rules,
   };
 }
 
@@ -151,4 +152,59 @@ test('a full show always produces a report with metrics in [0,100] and a finite 
   }
   assert.ok(Number.isFinite(report.overallScore));
   assert.ok(report.overallScore >= 0 && report.overallScore <= 1000);
+});
+
+// ---------------------------------------------------------------------------
+// Campaign-mode rules — same engine, different ShowRules (Phase Z.17.10)
+// ---------------------------------------------------------------------------
+
+const REHEARSAL_ROOM_RULES: ShowRules = {
+  minSongs: 3,
+  maxSongs: 3,
+  factionShare: { casual: 0.30, hardcore: 0.10, deepCut: 0.05, progHeads: 0.05, firstTimers: 0.50 },
+  encoreEnergyThreshold: 0,
+};
+
+test('Campaign rules: a small recovered-only pool with minSongs=maxSongs=3 always plays exactly 3 songs', () => {
+  const bundle = makeBundle(5, REHEARSAL_ROOM_RULES); // fewer songs than Quick Show would ever see
+  let state = createInitialState(bundle, 'campaign-seed-1');
+  let picks = 0;
+  while (!isMainSetComplete(state) && picks < 10) {
+    const hand = generateCandidates(state);
+    state = hand.state;
+    const choice = hand.candidates[0];
+    if (!choice) break;
+    const result = applyPick(state, choice.id);
+    if (!result) break;
+    state = result.state;
+    picks++;
+  }
+  assert.equal(picks, 3);
+  assert.equal(isMainSetComplete(state), true);
+});
+
+test('Campaign rules: same seed + same picks reproduces identical results under a Campaign-style rules override', () => {
+  function playRehearsalRoom(seed: string) {
+    const bundle = makeBundle(6, REHEARSAL_ROOM_RULES);
+    let state = createInitialState(bundle, seed);
+    const pickedIds: string[] = [];
+    while (!isMainSetComplete(state)) {
+      const hand = generateCandidates(state);
+      state = hand.state;
+      const choice = hand.candidates[0];
+      if (!choice) break;
+      const result = applyPick(state, choice.id);
+      if (!result) break;
+      state = result.state;
+      pickedIds.push(choice.id);
+    }
+    state = resolveEncoreEligibility(state);
+    state = state.encoreEligible ? state : skipEncore(state);
+    return { pickedIds, report: buildReport(state) };
+  }
+
+  const a = playRehearsalRoom('campaign-determinism-seed');
+  const b = playRehearsalRoom('campaign-determinism-seed');
+  assert.deepEqual(a.pickedIds, b.pickedIds);
+  assert.deepEqual(a.report, b.report);
 });

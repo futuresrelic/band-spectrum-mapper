@@ -172,6 +172,15 @@ are heuristics over a *player-authored* setlist's rarity+axis values, not statis
 real historical show data. Building the real thing requires the schema addition noted in §5 —
 correctly scoped to Phase 2, not duplicated, not half-built.
 
+**Update, Phase Z.17.10:** the schema addition is now in place, ahead of the derivation logic
+itself. `BandRpgRawSetlistEntry` gained three nullable columns — `setNumber`, `position`,
+`isEncore` — and `setlistIntelligenceService.ts`'s `processSetlistPage` now captures them from
+data the Setlist.fm response already contains (set index, song index within a set, and the API's
+own `encore` marker), so every *new* fetch persists real position data going forward. Existing
+rows fetched before this change stay `NULL` — deliberately not backfilled or inferred. No
+opener/closer/encore/co-occurrence *derivation* (`setlistRoleStats.ts`) was built this phase; that
+remains Phase 3 work, now unblocked by real data instead of blocked on a missing column.
+
 ## 16. Listening count / popularity metric
 
 **Confirmed absent.** No `playCount`, `listenCount`, or `popularity` field exists anywhere in

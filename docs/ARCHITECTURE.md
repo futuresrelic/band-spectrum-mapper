@@ -1115,18 +1115,87 @@ so this server-side engine and the existing client-side badges derive tiers
 identically instead of maintaining two copies. The web path re-exports from
 shared; nothing else changed.
 
-### Deferred to Phase 2 (named, not silently dropped)
+### Deferred beyond Phase 1 (named, not silently dropped)
 
-- **Daily Challenge** and **Campaign** are UI-visible "coming soon" cards on
-  the `/play/headliner` mode-select screen with no fake playability behind
-  them. `campaignEligibilityService.ts` (recovered-song lookup from
-  `BandRpgCollectedSong`) is the one piece of Campaign built ahead of time
-  because it was free and is the foundation everything else needs.
+- **Daily Challenge** is still a UI-visible "coming soon" card on the
+  `/play/headliner` mode-select screen with no fake playability behind it.
+- **Campaign** was Phase 1's other deferred item — it shipped in Phase
+  Z.17.10 (below).
 - **Opener/closer/encore role stats** and **song co-occurrence hints**,
-  from real historical setlists — blocked on `BandRpgRawSetlistEntry`
-  lacking a set-position/encore-flag column today. Needs a small additive
-  migration before it can be built; not faked with Band RPG's
-  player-setlist heuristics, which answer a different question.
+  from real historical setlists — the schema blocker was removed in Phase
+  Z.17.10 (`BandRpgRawSetlistEntry` now has `setNumber`/`position`/
+  `isEncore`), but the derivation logic itself (`setlistRoleStats.ts`) is
+  still not built — Phase 3.
 - **Cross-run leaderboard** — `ConcertRun.overallScore` and its
   `[bandId, overallScore]` index exist specifically so this can be added
   without a schema change later.
+
+## Headliner Campaign (Phase Z.17.10, 2026-07-10)
+
+Connects Headliner to Band RPG without merging the two games. The
+relationship is one-directional and structural, not a shared table:
+
+```
+Band RPG Collection (BandRpgCollectedSong)
+        │  read-only, always live
+        ▼
+campaignEligibilityService.ts  →  concertDataService.buildCampaignShowBundle
+        │                                   │
+        ▼                                   ▼
+campaignStages.ts (config)  →   concertEngine.ts (same pure engine as Quick Show)
+        │
+        ▼
+campaignService.ts  →  HeadlinerCampaignProgress / HeadlinerCampaignShowResult
+```
+
+### The engine still isn't forked
+
+Phase 1's `concertEngine.ts` hardcoded a few constants (`TUNING.minSongsBeforeEndAllowed`,
+`TUNING.maxMainSetSongs`, `FACTIONS[].shareOfCrowd`, `TUNING.encoreCrowdEnergyThreshold`).
+Campaign needs different values per stage (a 3-song Rehearsal Room vs. a
+13-song Major Theatre; a forgiving tutorial crowd vs. a demanding festival
+crowd). Rather than branch the engine on `mode`, those four constants moved
+onto a `ShowRules` object carried by every `ShowBundle`. `DEFAULT_SHOW_RULES`
+reproduces Phase 1's exact values for Quick Show; `campaignStages.ts`
+supplies a per-stage override. `isMainSetComplete`, `resolveEncoreEligibility`,
+and `weightedCrowdEnergy` all read from `state.bundle.rules` now instead of
+the global constants — the only engine change this phase, and it's mode-blind:
+the engine has no idea whether it's running a Quick Show or a Campaign stage,
+only what rules it was handed.
+
+### Why the identity target isn't recomputed from the recovered subset
+
+A tempting shortcut would be: compute the Campaign spectrum target from only
+the songs the player has recovered, so a small collection is never
+"punished." That's the wrong difficulty curve — the design brief is
+explicit that "Campaign difficulty should come from catalog limitations and
+crowd demands, not hidden information." So `buildCampaignShowBundle` reuses
+the exact same `scoreService.averagesByBand(bandId)` call Quick Show uses —
+the band's real, full-catalog identity — and only restricts which songs are
+*playable*. A player with 3 recovered songs is aiming at the same target as
+a player with the full discography; they just have far fewer ways to get
+close. That's the actual game.
+
+### Objective feasibility vs. objective success
+
+Every stage past Rehearsal Room has 2-4 objectives (e.g. "play a
+Rare-or-rarer song"). If a player's recovered catalog literally cannot
+satisfy one — say, they have zero Rare+ songs — that objective is excluded
+from the 3-star requirement for that run (`isObjectiveFeasible`, checked at
+run start against the recovered catalog) rather than silently making a
+perfect run impossible. Objectives that *are* feasible still have to be
+*met* (`evaluateObjective`, checked at finish against what was actually
+played) — feasibility is a floor, not a free pass.
+
+### Star/objective evaluation reads raw EngineState, not a report extension
+
+`concertEngine.ts`'s `ConcertReport` shape (10 metrics + overall score) is
+shared with Quick Show and was not extended with Campaign-only fields.
+Objective checks that need raw facts the report doesn't carry — unique
+albums actually played, whether a Rare+ tier song was actually played —
+recompute them directly from `EngineState.playedSongIds` +
+`EngineState.bundle.songs`, which is already fully available server-side at
+finish time (it's the same object that gets snapshotted into
+`ConcertRun.stateJson`). This keeps the shared engine artifact free of
+Campaign-specific concerns, per the instruction to extend through
+"mode-specific components or config," not by growing the shared report.

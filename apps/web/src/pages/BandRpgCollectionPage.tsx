@@ -5839,7 +5839,7 @@ export default function BandRpgCollectionPage() {
           to="/play/headliner"
           className="ml-auto text-xs text-rose-400 hover:text-rose-300 transition-colors whitespace-nowrap"
         >
-          🎤 Use these songs in Headliner →
+          🎤 Use your recovered songs in Headliner Campaign →
         </Link>
       </div>
 

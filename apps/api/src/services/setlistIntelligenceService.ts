@@ -66,6 +66,13 @@ interface RawEntry {
   setlistFmTitle: string;
   isTape:         boolean;
   matchedSongId:  string | null;
+  // Real position data straight from the Setlist.fm response — captured for a
+  // future opener/closer/encore/co-occurrence derivation (not built yet; see
+  // docs/proposals/HEADLINER_DATA_FLOW.md §5 and §14-15). Never backfilled for
+  // rows fetched before this field existed — those stay NULL, not inferred.
+  setNumber:      number;  // 0-based index of this set within the show
+  position:       number;  // 0-based index of this song within its set
+  isEncore:       boolean; // true when Setlist.fm's own `encore` marker was present on this set
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -612,8 +619,9 @@ function processSetlistPage(
     const showDate = parseSlDate(sl.eventDate);
     const showYear = showDate?.getFullYear();
 
-    for (const set of sl.sets.set) {
-      for (const song of set.song) {
+    sl.sets.set.forEach((set, setNumber) => {
+      const isEncore = typeof set.encore === 'number' && set.encore > 0;
+      set.song.forEach((song, position) => {
         const norm = normTitle(song.name);
 
         // Alias map takes precedence over auto-matching
@@ -632,11 +640,14 @@ function processSetlistPage(
             setlistFmTitle: song.name,
             isTape:         false,
             matchedSongId:  songId ?? null,
+            setNumber,
+            position,
+            isEncore,
           });
         }
 
         // Update appearance counts only for matched songs
-        if (!songId) continue;
+        if (!songId) return;
 
         appearances.set(songId, (appearances.get(songId) ?? 0) + 1);
 
@@ -651,8 +662,8 @@ function processSetlistPage(
           const existingLast = lastDates.get(songId);
           if (!existingLast || showDate > existingLast) lastDates.set(songId, showDate);
         }
-      }
-    }
+      });
+    });
   }
   return setlists.length;
 }

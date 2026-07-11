@@ -4,6 +4,112 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.17.10 — Headliner Campaign (2026-07-10)
+
+Owner approved Phase 1 (Quick Show) and requested Campaign next: a
+stage-ladder mode that connects Headliner to Band RPG's Collection so
+recovering songs there translates directly into bigger, more flexible
+Campaign shows. Quick Show is untouched and fully playable; Campaign now is
+too.
+
+### Core relationship, enforced structurally
+
+`BandRpgCollectedSong` remains the **only** source of truth for Campaign
+song eligibility — no second unlock inventory was created. Every Campaign
+candidate-pool query is `WHERE songId IN (recovered song ids)`; a newly
+recovered song becomes playable on the player's very next Campaign show
+with no manual sync step, because the query is always live.
+
+### New: 5-stage Campaign ladder (`campaignStages.ts`)
+
+Rehearsal Room → Local Bar → Small Theatre → Festival Side Stage → Major
+Theatre, one central config object. Each stage defines its own required
+recovered-song count/duration, show length and song-count bounds, crowd
+faction mix, star thresholds, and 0-4 stage objectives (min spectrum match,
+min authenticity, min albums represented, play a Rare-or-rarer song, a
+strong encore). Rehearsal Room has zero objectives and a very low star bar
+by design — it's the tutorial stage and cannot meaningfully be "failed."
+Objective **feasibility is checked against the player's actual recovered
+catalog before 3-star eligibility is decided** — an objective the catalog
+can't support (e.g. "play a Rare+ song" with zero Rare+ songs recovered)
+never blocks a perfect score; it's simply excluded for that run.
+
+### Engine: parametrized, never forked
+
+`concertEngine.ts` gained a `ShowRules` type (`minSongs`, `maxSongs`,
+`factionShare`, `encoreEnergyThreshold`) carried on every `ShowBundle`.
+Quick Show uses `DEFAULT_SHOW_RULES` — the exact constants Phase 1 shipped
+with, unchanged. Campaign stages override a subset via config. This is the
+only engine change; no Campaign-specific fork of the simulation exists.
+Confirmed via the existing Quick Show determinism/report-shape test suite
+passing unchanged, plus two new Campaign-rules tests.
+
+### New models
+
+`HeadlinerCampaignProgress` (one row per user+band: current/unlocked
+stage, shows completed, best score, total audience reached, stars earned,
+tutorial-completed flag) and `HeadlinerCampaignShowResult` (one row per
+completed Campaign show: stage, score, stars, first-clear flag, linked
+`ConcertRun`). `ConcertRun` gained a nullable `campaignStageKey` column.
+Both new tables are player-owned, `requireAuth`/`requireOwner`-gated like
+every other Headliner route, and touch no canonical data — not songs, not
+scores, not Setlist.fm records, not another user's Collection.
+
+### New services
+
+`campaignStages.ts` (config), `campaignService.ts` (progress CRUD, stage
+readiness with an exact "you have recovered N songs, this stage needs M"
+message — never a bare "Locked" — objective feasibility/evaluation, star
+computation, unlock logic), and `concertDataService.buildCampaignShowBundle`
+(recovered-only song pool; identity target stays the band's full canonical
+spectrum average, so a small recovered catalog is a genuine gameplay
+constraint rather than a shrunk, easier target).
+
+### New routes (`/api/headliner/campaign/*`)
+
+`GET bands` (bands with ≥1 recovered song), `GET :bandId/summary` (entry
+card numbers), `GET :bandId/ladder` (full stage cards + progress), `POST
+:bandId/tutorial-complete`. `POST /api/headliner/runs` now accepts
+`mode: "campaign"` + `stageKey`; the pick/finish flow now runs
+`finalizeCampaignRun` (stars, objectives, unlocks, progress update) when a
+Campaign run completes, returned as `campaignResult` alongside the
+existing `report` — additive, so Quick Show's response shape is unchanged.
+
+### New UI
+
+`/play/headliner`'s Campaign card is now playable: band-select (or an
+honest "you haven't recovered any songs yet" state with links to Band RPG
+and the Wiki) → stage-ladder map (locked/available/cleared, best
+score/stars, requirements, objectives) → live show (reuses the Quick Show
+live screen, with a Campaign context banner and short dismissible
+Rehearsal Room tutorial tips) → report (extends the existing report with
+stars, objective results, best-score comparison, first-clear/unlock
+banners, and Continue Campaign / Replay Stage / Recover More Songs
+buttons) — the Quick Show report itself was not modified, only extended
+via a conditional block.
+
+### Schema prep (not a full feature)
+
+`BandRpgRawSetlistEntry` gained nullable `setNumber`/`position`/`isEncore`
+columns, now populated on every fresh Setlist.fm fetch from data the API
+response already contains. No opener/closer/encore derivation was built —
+that's still Phase 3 — this only removes the schema blocker for it, per
+the explicit instruction not to fabricate historical statistics.
+
+### Known limitations
+
+- No live-browser test in this sandbox (no DB/browser available) —
+  verified via `npm run build`, `npm run typecheck`, and 20 passing
+  `node:test` cases (13 pure-logic Campaign tests + 2 new Campaign-rules
+  engine tests + the original 5 Quick Show determinism tests).
+- The Prisma-backed Campaign functions (`getLadder`, `finalizeCampaignRun`,
+  etc.) are correct by TypeScript/query-shape review but not exercised by
+  an automated test against a live database in this sandbox.
+- Daily Challenge remains architecture-only, unblocked by these changes.
+- Full opener/closer/encore/co-occurrence derivation is still Phase 3.
+
+---
+
 ## Phase Z.17.9 — Headliner: Data Blueprint + Phase 1 Vertical Slice (2026-07-10)
 
 Owner approved the Z.17.8 proposal and the name **Headliner**. This phase
