@@ -20,10 +20,12 @@ import SiteHeader from '../components/layout/SiteHeader';
 import { useAuth } from '../contexts/AuthContext';
 import {
   headlinerApi, type CandidateSong, type PickResult, type ConcertReport,
-  type FactionId, type LiveFrequencyTier, type Venue, type ConcertMode,
+  type LiveFrequencyTier, type Venue, type ConcertMode,
   type StageKey, type StageCard as StageCardData, type CampaignFinishResult,
-  type DailyFinishResult, type ReactionLogEntry,
+  type DailyFinishResult, type ReactionLogEntry, type ConcertPulseState,
 } from '../api/headliner';
+import ConcertPulse from '../components/headliner/ConcertPulse';
+import CrowdRead from '../components/headliner/CrowdRead';
 import { LIVE_FREQUENCY_COLOR, LIVE_FREQUENCY_EMOJI } from '@band-spectrum-mapper/shared';
 
 type Screen =
@@ -67,14 +69,6 @@ function yesterdayUtcDateString(): string {
   d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
 }
-
-const FACTION_LABELS: Record<FactionId, string> = {
-  casual: 'Casual Listeners',
-  hardcore: 'Hardcore Fans',
-  deepCut: 'Deep-Cut Hunters',
-  progHeads: 'Prog Heads',
-  firstTimers: 'First-Timers',
-};
 
 const METRIC_LABELS: Record<string, string> = {
   spectrumMatch: 'Spectrum Match',
@@ -143,34 +137,6 @@ function CandidateCard({ song, onPick, disabled }: { song: CandidateSong; onPick
         <div className="text-[10px] text-gray-600">No identity data yet — neutral estimate used</div>
       )}
     </button>
-  );
-}
-
-function FactionBars({ reactions }: { reactions: Record<FactionId, { score: number; explanation: string }> | null }) {
-  const ids = Object.keys(FACTION_LABELS) as FactionId[];
-  return (
-    <div className="space-y-2">
-      {ids.map((id) => {
-        const r = reactions?.[id];
-        const score = r?.score ?? 0;
-        const pct = Math.max(0, Math.min(100, (score + 100) / 2));
-        const positive = score >= 0;
-        return (
-          <div key={id}>
-            <div className="flex items-center justify-between text-xs mb-0.5">
-              <span className="text-gray-400">{FACTION_LABELS[id]}</span>
-              {r && <span className={positive ? 'text-emerald-400' : 'text-rose-400'}>{Math.round(score)}</span>}
-            </div>
-            <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
-              <div
-                className={`h-full rounded-full ${positive ? 'bg-emerald-500' : 'bg-rose-500'}`}
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-          </div>
-        );
-      })}
-    </div>
   );
 }
 
@@ -271,7 +237,9 @@ export default function HeadlinerPage() {
   const [candidates, setCandidates] = useState<CandidateSong[]>([]);
   const [encoreCandidates, setEncoreCandidates] = useState<CandidateSong[] | null>(null);
   const [lastResult, setLastResult] = useState<PickResult | null>(null);
-  const [reactionLog, setReactionLog] = useState<ReactionLogEntry[]>([]);
+  const [reactionLogHistory, setReactionLogHistory] = useState<{ songTitle: string; entries: ReactionLogEntry[] }[]>([]);
+  const [reactionLogExpanded, setReactionLogExpanded] = useState(false);
+  const [pulse, setPulse] = useState<ConcertPulseState | null>(null);
   const [playedTitles, setPlayedTitles] = useState<string[]>([]);
   const [report, setReport] = useState<ConcertReport | null>(null);
   const [campaignResult, setCampaignResult] = useState<CampaignFinishResult | null>(null);
@@ -329,7 +297,8 @@ export default function HeadlinerPage() {
       setCandidates(res.candidates);
       setPlayedTitles([]);
       setLastResult(null);
-      setReactionLog([]);
+      setPulse(null);
+      setReactionLogHistory([]);
       setReport(null);
       setCampaignResult(null);
       setScreen('live');
@@ -352,7 +321,8 @@ export default function HeadlinerPage() {
       setCandidates(res.candidates);
       setPlayedTitles([]);
       setLastResult(null);
-      setReactionLog([]);
+      setPulse(null);
+      setReactionLogHistory([]);
       setReport(null);
       setCampaignResult(null);
       setTutorialDismissed(false);
@@ -375,7 +345,8 @@ export default function HeadlinerPage() {
       setCandidates(res.candidates);
       setPlayedTitles([]);
       setLastResult(null);
-      setReactionLog([]);
+      setPulse(null);
+      setReactionLogHistory([]);
       setReport(null);
       setCampaignResult(null);
       setDailyResult(null);
@@ -395,7 +366,10 @@ export default function HeadlinerPage() {
     try {
       const res = await headlinerApi.pick(runId, songId);
       setLastResult(res.result);
-      setReactionLog(res.reactionLog ?? []);
+      setPulse(res.pulse ?? null);
+      if (res.reactionLog && res.reactionLog.length > 0) {
+        setReactionLogHistory((prev) => [...prev, { songTitle: res.result.song.title, entries: res.reactionLog! }]);
+      }
       setPlayedTitles((prev) => [...prev, res.result.song.title]);
       if (res.finished && res.report) {
         setReport(res.report);
@@ -445,7 +419,8 @@ export default function HeadlinerPage() {
     setCandidates([]);
     setEncoreCandidates(null);
     setLastResult(null);
-    setReactionLog([]);
+    setPulse(null);
+    setReactionLogHistory([]);
     setPlayedTitles([]);
     setReport(null);
     setCampaignResult(null);
@@ -459,7 +434,8 @@ export default function HeadlinerPage() {
     setCandidates([]);
     setEncoreCandidates(null);
     setLastResult(null);
-    setReactionLog([]);
+    setPulse(null);
+    setReactionLogHistory([]);
     setPlayedTitles([]);
     setReport(null);
     setCampaignResult(null);
@@ -864,27 +840,48 @@ export default function HeadlinerPage() {
               </div>
             )}
 
+            <ConcertPulse pulse={pulse} />
+
             <div className="rounded-2xl bg-gray-900 border border-gray-800 p-5">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-gray-300">Crowd read</h2>
                 <span className="text-xs text-gray-500">{playedTitles.length} song{playedTitles.length === 1 ? '' : 's'} played</span>
               </div>
-              <FactionBars reactions={lastResult?.factionReactions ?? null} />
+              <CrowdRead reactions={lastResult?.factionReactions ?? null} pulse={pulse} />
               {lastResult && (
                 <div className="mt-4 space-y-1.5 text-sm text-gray-400 border-t border-gray-800 pt-3">
                   <div className="font-semibold text-white">{lastResult.song.title}</div>
-                  {Object.values(lastResult.factionReactions).slice(0, 2).map((r, i) => (
-                    <div key={i}>{r.explanation}</div>
-                  ))}
                   {lastResult.rarityMoment && (
                     <div className="text-amber-400">⚡ A rare live moment — the crowd knows what this is.</div>
                   )}
-                  {reactionLog.map((entry, i) => (
-                    <div key={i} className="text-sky-400 italic">{entry.text}</div>
-                  ))}
                 </div>
               )}
             </div>
+
+            {reactionLogHistory.length > 0 && (
+              <div className="rounded-2xl bg-gray-900 border border-gray-800 p-4">
+                <button
+                  type="button"
+                  onClick={() => setReactionLogExpanded((v) => !v)}
+                  className="w-full flex items-center justify-between text-xs font-semibold text-gray-300"
+                >
+                  <span>Reaction Log</span>
+                  <span className="text-gray-500">{reactionLogExpanded ? 'Hide ▲' : 'Show ▼'}</span>
+                </button>
+                {reactionLogExpanded && (
+                  <ul className="mt-3 space-y-2 text-xs text-gray-400 max-h-64 overflow-y-auto">
+                    {reactionLogHistory.map((song, i) => (
+                      <li key={i}>
+                        <span className="text-gray-500">{song.songTitle}</span>
+                        {song.entries.map((entry, j) => (
+                          <div key={j} className="text-sky-400 italic">{entry.text}</div>
+                        ))}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
 
             {error && <p className="text-sm text-rose-400">{error}</p>}
 

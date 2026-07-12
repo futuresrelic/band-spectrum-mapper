@@ -57,6 +57,32 @@ export interface ReactionLogEntry {
   text: string;
 }
 
+export type MomentumDirection = 'rising' | 'falling' | 'steady';
+export type PulseIntensity = 'low' | 'medium' | 'high';
+export type ShowPhaseLabel = 'opening' | 'middle' | 'closing' | 'encore';
+
+export interface FactionPulseSummary {
+  id: FactionId;
+  direction: 'up' | 'down' | 'flat';
+  intensity: PulseIntensity;
+  atWalkoutRisk: boolean;
+  relevanceRank: number;
+}
+
+export interface ConcertPulseState {
+  hasPlayedASong: boolean;
+  momentumDirection: MomentumDirection;
+  momentumIntensity: PulseIntensity;
+  isNewShowHigh: boolean;
+  isNewShowLow: boolean;
+  isRecovery: boolean;
+  isSplitRoom: boolean;
+  walkoutRisk: boolean;
+  phase: ShowPhaseLabel | null;
+  topLine: string | null;
+  factions: FactionPulseSummary[];
+}
+
 export interface ConcertReport {
   metrics: Record<string, number>;
   overallScore: number;
@@ -118,6 +144,7 @@ export interface PickResponse {
   campaignResult?: CampaignFinishResult | null;
   dailyResult?: DailyFinishResult | null;
   reactionLog?: ReactionLogEntry[];
+  pulse?: ConcertPulseState;
   finished: boolean;
 }
 
