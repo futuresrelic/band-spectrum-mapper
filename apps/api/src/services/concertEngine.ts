@@ -118,6 +118,8 @@ export interface EngineState {
    * gap for Quick Show and Campaign as a safe shared improvement).
    */
   currentCandidateIds: string[];
+  /** Chronological per-song exposure — see SongHistoryEntry. Appended by applyPick; never mutates prior entries. */
+  history: SongHistoryEntry[];
 }
 
 export interface CandidateHand {
@@ -132,6 +134,41 @@ export interface PickResult {
   pacingPenalty: number;
   rarityMoment: boolean;
   state: EngineState;
+}
+
+// ---------------------------------------------------------------------------
+// Show history — per-song exposure for narrative systems (Creative Bible
+// §16.B: Live Reaction Log, Concert Pulse, richer review templates, future
+// achievements). Populated incrementally by applyPick alongside the existing
+// state mutations; changes nothing about how momentum, pacing, or metrics
+// are CALCULATED — every value here is read from (or recomputed with the
+// exact same formula as) fields the engine already tracked before this.
+// ---------------------------------------------------------------------------
+
+export interface FactionDeltaEntry {
+  before: number;
+  after: number;
+  delta: number;
+}
+
+export interface SongHistoryEntry {
+  songId: string;
+  /** 0-based position among ALL picks so far, main set and encore alike. */
+  index: number;
+  isEncore: boolean;
+  factionMomentumBefore: Record<FactionId, number>;
+  factionMomentumAfter: Record<FactionId, number>;
+  factionDeltas: Record<FactionId, FactionDeltaEntry>;
+  /** This song's own single best faction reaction (pre-dampening score), for honest peak-song detection — see concertShowHistory.ts. */
+  bestFactionReaction: number;
+  crowdEnergyBefore: number;
+  crowdEnergyAfter: number;
+  crowdEnergyDelta: number;
+  /** The 10 report metrics recomputed AS OF this point in the show — same formulas buildReport uses at the end, just run earlier. Not interpolated. */
+  metricsSnapshot: Record<ScoreMetric, number>;
+  /** crowdEnergyAfter is a new running high/low across the whole show so far (ties do not count as new). */
+  isNewHighEnergy: boolean;
+  isNewLowEnergy: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +321,7 @@ export function createInitialState(bundle: ShowBundle, seed: string): EngineStat
     encoreMomentumSwing: null,
     phase: 'main',
     currentCandidateIds: [],
+    history: [],
   };
 }
 
@@ -473,9 +511,11 @@ export function applyPick(state: EngineState, songId: string): PickResult | null
   const recentAlbumWindow = [...state.recentAlbumWindow, song.albumId].slice(-4);
 
   const factionShare = state.bundle.rules.factionShare;
-  const crowdEnergyDelta = weightedCrowdEnergy(nextMomentum, factionShare) - weightedCrowdEnergy(state.factionMomentum, factionShare);
+  const crowdEnergyBefore = weightedCrowdEnergy(state.factionMomentum, factionShare);
+  const crowdEnergyAfter = weightedCrowdEnergy(nextMomentum, factionShare);
+  const crowdEnergyDelta = crowdEnergyAfter - crowdEnergyBefore;
 
-  const nextState: EngineState = {
+  const stateBeforeHistory: EngineState = {
     ...state,
     playedSongIds: [...state.playedSongIds, song.id],
     elapsedSeconds: state.elapsedSeconds + song.durationSeconds,
@@ -487,6 +527,35 @@ export function applyPick(state: EngineState, songId: string): PickResult | null
     recentAlbumWindow,
     pacingPenaltyTotal: state.pacingPenaltyTotal + pacingPenalty,
     fallbackSongCount: state.fallbackSongCount + (song.audienceIsFallback ? 1 : 0),
+  };
+
+  const factionDeltas = {} as Record<FactionId, FactionDeltaEntry>;
+  for (const faction of FACTIONS) {
+    const before = state.factionMomentum[faction.id];
+    const after = nextMomentum[faction.id];
+    factionDeltas[faction.id] = { before, after, delta: after - before };
+  }
+
+  const priorEnergies = [0, ...state.history.map((h) => h.crowdEnergyAfter)];
+  const historyEntry: SongHistoryEntry = {
+    songId: song.id,
+    index: state.history.length,
+    isEncore: state.phase === 'encore',
+    factionMomentumBefore: state.factionMomentum,
+    factionMomentumAfter: nextMomentum,
+    factionDeltas,
+    bestFactionReaction: Math.max(...FACTIONS.map((f) => reactions[f.id]!.score)),
+    crowdEnergyBefore,
+    crowdEnergyAfter,
+    crowdEnergyDelta,
+    metricsSnapshot: computeMetricsSnapshot(stateBeforeHistory),
+    isNewHighEnergy: crowdEnergyAfter > Math.max(...priorEnergies),
+    isNewLowEnergy: crowdEnergyAfter < Math.min(...priorEnergies),
+  };
+
+  const nextState: EngineState = {
+    ...stateBeforeHistory,
+    history: [...state.history, historyEntry],
   };
 
   return {
@@ -577,12 +646,21 @@ function clamp01to100(v: number): number {
   return Math.max(0, Math.min(100, v));
 }
 
-export function buildReport(state: EngineState): ConcertReport {
+/**
+ * The 10 report metrics, computed AS OF whatever `state` currently is. This
+ * is the exact same math buildReport always used — extracted so it can also
+ * run mid-show (once per pick, for SongHistoryEntry.metricsSnapshot) without
+ * duplicating a single formula. Every input here is a running aggregate the
+ * engine already tracked before Creative Bible §16.B (runningSpectrumSum,
+ * pacingPenaltyTotal, factionMomentum, crowdPeak, fallbackSongCount) — this
+ * is not a new calculation, just an earlier read of ones that already existed.
+ */
+export function computeMetricsSnapshot(state: EngineState): Record<ScoreMetric, number> {
   const { bundle } = state;
   const playedCount = state.playedSongIds.length;
   const count = state.runningSpectrumCount;
 
-  // 1. spectrumMatch — how close the final running average lands to the catalog target
+  // 1. spectrumMatch — how close the running average lands to the catalog target
   let spectrumMatch = 50;
   if (count > 0) {
     let totalGap = 0;
@@ -605,27 +683,27 @@ export function buildReport(state: EngineState): ConcertReport {
     emotionalJourney = clamp01to100(40 + emotionAvg * 6);
   }
 
-  // 4. audienceRetention — final weighted crowd momentum, rescaled from -100..100 to 0..100
+  // 4. audienceRetention — weighted crowd momentum so far, rescaled from -100..100 to 0..100
   const finalEnergy = weightedCrowdEnergy(state.factionMomentum, bundle.rules.factionShare);
   const audienceRetention = clamp01to100(50 + finalEnergy / 2);
 
-  // 5. rarityExcitement — how many rarity moments landed, scaled by tier
+  // 5. rarityExcitement — how many rarity moments landed so far, scaled by tier
   const rarityMoments = bundle.songs
     .filter((s) => state.playedSongIds.includes(s.id))
     .reduce((sum, s) => sum + TUNING.liveTierExcitement[s.liveTier], 0);
   const rarityExcitement = clamp01to100(rarityMoments / Math.max(1, playedCount));
 
-  // 6. diversity — inverse of album/axis clumping observed
+  // 6. diversity — inverse of album/axis clumping observed so far
   const albumIds = bundle.songs.filter((s) => state.playedSongIds.includes(s.id)).map((s) => s.albumId);
   const uniqueAlbums = new Set(albumIds.filter(Boolean)).size;
   const diversity = clamp01to100(playedCount > 0 ? (uniqueAlbums / playedCount) * 130 : 50);
 
-  // 7. authenticity — proportion of songs that used real (non-fallback) audience data
+  // 7. authenticity — proportion of songs so far that used real (non-fallback) audience data
   const authenticity = clamp01to100(
     playedCount > 0 ? 100 - (state.fallbackSongCount / playedCount) * 100 : 100,
   );
 
-  // 8. encoreQuality
+  // 8. encoreQuality — 0 until the encore is actually played, same as always
   const encoreQuality = state.encorePlayed
     ? clamp01to100(50 + (state.encoreMomentumSwing ?? 0))
     : 0;
@@ -633,19 +711,26 @@ export function buildReport(state: EngineState): ConcertReport {
   // 9. paceDiscipline — same signal as energyCurveFit but penalizes runaway pacing penalties harder
   const paceDiscipline = clamp01to100(100 - avgPacingPenalty * 16);
 
-  // 10. crowdPeak — the single best faction reaction achieved
+  // 10. crowdPeak — the single best faction reaction achieved so far
   const crowdPeak = clamp01to100(50 + state.crowdPeak / 2);
 
-  const metrics: Record<ScoreMetric, number> = {
+  return {
     spectrumMatch, energyCurveFit, emotionalJourney, audienceRetention, rarityExcitement,
     diversity, authenticity, encoreQuality, paceDiscipline, crowdPeak,
   };
+}
 
+export function computeOverallScore(metrics: Record<ScoreMetric, number>): number {
   let weightedSum = 0;
   for (const key of Object.keys(TUNING.scoreWeights) as ScoreMetric[]) {
     weightedSum += metrics[key] * TUNING.scoreWeights[key];
   }
-  const overallScore = Math.round(weightedSum * 10); // 0-1000
+  return Math.round(weightedSum * 10); // 0-1000
+}
+
+export function buildReport(state: EngineState): ConcertReport {
+  const metrics = computeMetricsSnapshot(state);
+  const overallScore = computeOverallScore(metrics);
 
   // Narrative text (review + highlights) is centralized in headlinerReviewTemplates.ts
   // per the Creative Bible §7 — see buildConcertNarrative for the template-selection

@@ -140,7 +140,7 @@ function makeState(playedSongIds: string[], songs: EngineSong[], encorePlayed = 
     runningSpectrumCount: 0, factionMomentum: { casual: 0, hardcore: 0, deepCut: 0, progHeads: 0, firstTimers: 0 },
     crowdPeak: 0, recentAxisWindow: [], recentAlbumWindow: [], pacingPenaltyTotal: 0, fallbackSongCount: 0,
     encoreEligible: encorePlayed, encorePlayed, encoreMomentumSwing: encorePlayed ? 70 : null, phase: 'finished',
-    currentCandidateIds: [],
+    currentCandidateIds: [], history: [],
   };
 }
 
