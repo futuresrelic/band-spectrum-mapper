@@ -804,7 +804,7 @@ export default function HeadlinerPage() {
 
             <div className="rounded-2xl bg-gray-900 border border-gray-800 p-5">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-semibold text-gray-300">Crowd reaction</h2>
+                <h2 className="text-sm font-semibold text-gray-300">Crowd read</h2>
                 <span className="text-xs text-gray-500">{playedTitles.length} song{playedTitles.length === 1 ? '' : 's'} played</span>
               </div>
               <FactionBars reactions={lastResult?.factionReactions ?? null} />
@@ -825,7 +825,7 @@ export default function HeadlinerPage() {
 
             {encoreCandidates && encoreCandidates.length > 0 && (
               <div>
-                <h3 className="text-sm font-semibold text-amber-400 mb-3">🔥 Encore — one last song</h3>
+                <h3 className="text-sm font-semibold text-amber-400 mb-3">🔥 The Encore Call</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {encoreCandidates.map((c) => (
                     <CandidateCard key={c.id} song={c} onPick={() => pickSong(c.id)} disabled={busy} />
@@ -836,7 +836,7 @@ export default function HeadlinerPage() {
 
             {!encoreCandidates && candidates.length > 0 && (
               <div>
-                <h3 className="text-sm font-semibold text-gray-300 mb-3">What's next?</h3>
+                <h3 className="text-sm font-semibold text-gray-300 mb-3">Call the next song</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {candidates.map((c) => (
                     <CandidateCard key={c.id} song={c} onPick={() => pickSong(c.id)} disabled={busy} />
@@ -849,6 +849,7 @@ export default function HeadlinerPage() {
 
         {user && screen === 'report' && report && (
           <div className="space-y-5">
+            <div className="text-center text-xs font-semibold uppercase tracking-widest text-gray-600">Show Report</div>
             <div className="rounded-2xl bg-gray-900 border border-gray-800 p-6 text-center">
               <div className="text-4xl font-bold text-rose-400 mb-1">{report.overallScore}</div>
               <div className="text-xs text-gray-500 uppercase tracking-widest mb-4">Overall Score</div>

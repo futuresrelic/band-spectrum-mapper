@@ -16,6 +16,8 @@
  * ConcertRun.stateJson.
  */
 
+import { buildConcertNarrative } from './headlinerReviewTemplates.js';
+
 export type Axis = 'aggression' | 'complexity' | 'atmosphere' | 'emotion' | 'psychedelic' | 'concept';
 
 export const AXES: readonly Axis[] = ['aggression', 'complexity', 'atmosphere', 'emotion', 'psychedelic', 'concept'];
@@ -645,8 +647,10 @@ export function buildReport(state: EngineState): ConcertReport {
   }
   const overallScore = Math.round(weightedSum * 10); // 0-1000
 
-  const highlights = buildHighlights(state, metrics);
-  const reviewText = buildReviewText(bundle.bandName, metrics, overallScore, state);
+  // Narrative text (review + highlights) is centralized in headlinerReviewTemplates.ts
+  // per the Creative Bible §7 — see buildConcertNarrative for the template-selection
+  // and contradiction-prevention rules. This function only supplies the metrics.
+  const { reviewText, highlights } = buildConcertNarrative(state, metrics, overallScore);
 
   return {
     metrics,
@@ -656,46 +660,4 @@ export function buildReport(state: EngineState): ConcertReport {
     usedFallbackData: state.fallbackSongCount > 0,
     fallbackSongCount: state.fallbackSongCount,
   };
-}
-
-function buildHighlights(state: EngineState, metrics: Record<ScoreMetric, number>): string[] {
-  const highlights: string[] = [];
-  const playedSongs = state.bundle.songs.filter((s) => state.playedSongIds.includes(s.id));
-  const rarest = playedSongs.filter((s) => s.liveTier === 'Legendary' || s.liveTier === 'Mythic').length;
-
-  if (rarest === 1) highlights.push('One certified rarity made it into the set.');
-  if (rarest > 1) highlights.push(`${rarest} rarely-played songs made it into the set.`);
-  if (metrics.spectrumMatch >= 85) highlights.push("The setlist landed squarely on the band's true identity.");
-  if (metrics.spectrumMatch < 40) highlights.push('The setlist drifted far from what defines this band.');
-  if (state.encorePlayed) highlights.push('The crowd earned an encore.');
-  if (!state.encorePlayed && state.phase === 'finished') highlights.push('No encore tonight — the crowd wasn\'t won over enough.');
-  if (metrics.diversity >= 80) highlights.push('Songs were pulled from across the whole discography.');
-  return highlights;
-}
-
-function buildReviewText(
-  bandName: string,
-  metrics: Record<ScoreMetric, number>,
-  overallScore: number,
-  state: EngineState,
-): string {
-  const sentences: string[] = [];
-  if (overallScore >= 800) sentences.push(`A legendary night for ${bandName}.`);
-  else if (overallScore >= 600) sentences.push(`A strong, well-run ${bandName} show.`);
-  else if (overallScore >= 400) sentences.push(`A serviceable ${bandName} set with room to grow.`);
-  else sentences.push(`A rough night for ${bandName} — the crowd never quite connected.`);
-
-  if (metrics.spectrumMatch >= 80) sentences.push('Every pick felt true to the band.');
-  else if (metrics.spectrumMatch < 45) sentences.push('The setlist strayed from the band\'s core sound.');
-
-  if (metrics.energyCurveFit >= 75) sentences.push('The pacing built and released tension like a real show should.');
-  else if (metrics.energyCurveFit < 45) sentences.push('The energy curve felt uneven — too many runs of similar songs back to back.');
-
-  if (state.encorePlayed) sentences.push('The encore landed.');
-
-  if (state.fallbackSongCount > 0) {
-    sentences.push(`${state.fallbackSongCount} song${state.fallbackSongCount > 1 ? 's' : ''} in this set still ${state.fallbackSongCount > 1 ? "don't" : "doesn't"} have full identity data — scores for those songs used a neutral estimate.`);
-  }
-
-  return sentences.join(' ');
 }
