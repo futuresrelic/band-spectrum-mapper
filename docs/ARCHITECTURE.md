@@ -1298,3 +1298,54 @@ creation or when within that date; the result is identical either way. A
 concurrent first-request race is handled the same way as the official-
 result race above: the loser's `create()` fails the unique constraint on
 `(challengeDate, version)` and re-fetches the winner's row.
+
+## Headliner Creative Bible implementation, Part 1 (Phase Z.17.13, 2026-07-12)
+
+`docs/proposals/HEADLINER_CREATIVE_BIBLE.md` (Phase Z.17.12) is the
+permanent creative specification; this phase implements its "Ready Now"
+items only, per the Bible's own Section 16 readiness map.
+
+### `headlinerReviewTemplates.ts` — the review system's centralized home
+
+The post-show review (Bible §7) used to be two small inline functions in
+`concertEngine.ts` (`buildHighlights`/`buildReviewText`, a handful of
+if/else-if sentences). It's now a dedicated module: ~70 `ReviewTemplate`
+records across six slots (opening/identity/crowd/pacing/encore/closing),
+each with an explicit array of metric conditions, matched against a
+`ReviewContext` built from the same `ConcertReport` metrics that already
+exist. Selection is "most-specific-template-wins, then fixed array order"
+— deterministic by construction, no seed needed for *this* property (the
+Bible's own §16.B flags true multi-variant *rotation* — picking a
+different one of several same-tier variants across different runs — as
+a separate, not-yet-implemented concern; several slots intentionally carry
+more than one template at the identical threshold for that future work to
+pick between).
+
+`concertEngine.ts` imports one function, `buildConcertNarrative`, from
+this module; `headlinerReviewTemplates.ts` imports only *types*
+(`EngineState`, `ScoreMetric`) back from `concertEngine.ts`, so there's no
+runtime circular dependency — type-only imports are erased at compile
+time.
+
+### Contradiction guards are conditions, not a separate filter pass
+
+Bible §7.8 lists specific sentence pairs that must never appear together
+(e.g., a "no guesswork" identity line next to a "too narrow a catalog"
+closing line). Rather than build a second post-selection filtering pass,
+each guard is encoded as an extra `MetricCondition` on the template that
+needed constraining — e.g. `CLOSE-08` gained a `spectrumMatch < 85`
+condition it didn't have in the Bible's raw table, `ENC-01`/`ENC-02`
+gained `audienceRetention >= 40`, `PACE-01`/`PACE-02` gained
+`overallScore >= 200`. This keeps the whole system single-pass and
+declarative — a template's eligibility is entirely self-contained in its
+own condition list, nothing to reconcile across slots afterward.
+
+### Locked Campaign stages now explain themselves
+
+A real, shipping violation of the project's own "never a bare Locked"
+rule got fixed in passing: `StageCardTile` showed a "Locked" pill with no
+further text for any stage the player hadn't reached yet. Bible §11 item
+12 requires an explanation; the fix needed `unlockRequiresStars` (already
+present in `CampaignStageConfig`, just not exposed on the `StageCard` API
+shape) so the UI can say *why* — "[Stage] books on reputation: it opens
+when you've earned N star(s) at [previous stage] — you have [current]."

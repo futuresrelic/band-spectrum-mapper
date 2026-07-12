@@ -4,6 +4,74 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.17.13 — Headliner Creative Bible implementation, Part 1 (2026-07-12)
+
+Begins implementing `docs/proposals/HEADLINER_CREATIVE_BIBLE.md` (the
+permanent creative specification written in Phase Z.17.12), following its
+own Section 16 implementation-readiness map: only "Ready Now" items this
+phase, nothing marked "Needs Engine Work," "Needs New Data," "Needs
+Historical Data," or "Future Phase." Five small, sequential commits; zero
+gameplay or balance changes anywhere — verified by the full pre-existing
+test suite passing unchanged (52/52) after every step.
+
+- **Vocabulary pass (§2):** a few remaining UI strings realigned to the
+  Bible's official terms — "Crowd read," "Call the next song," "The
+  Encore Call," and an added "Show Report" label. Everything else already
+  matched.
+- **Concert Review System (§7):** the post-show review's ~70 sentence
+  templates (opening/identity/crowd/pacing/encore/closing) are now
+  centralized in `headlinerReviewTemplates.ts`, selected deterministically
+  from the same 10 report metrics the engine already computes, with the
+  Bible's §7.8 contradiction guards encoded as extra conditions. ENC-09 is
+  intentionally left dormant (needs peak-position-in-set data the engine
+  doesn't expose — Bible §16.B). `concertEngine.ts`'s `buildReport` now
+  delegates to this module instead of two inline sentence-builders; every
+  metric formula is untouched.
+- **Daily/empty-state copy (§9, §11):** Daily Briefing, official-attempt/
+  practice-mode text, and the Verified Result screen (now showing Final
+  Attendance/Satisfaction/Score, per the Bible's exact framing) use the
+  Bible's wording. Campaign's empty-Collection screen, the empty Daily
+  leaderboard, and — notably — **locked Campaign stages, which previously
+  showed a bare "Locked" badge with no explanation** now explain exactly
+  what's missing, closing a real violation of the project's own "never a
+  bare Locked" rule. `checkStageReadiness`'s eligibility *logic* is
+  unchanged; only its message text improved.
+- **Tutorial copy (§10):** the Rehearsal Room tutorial's six tips now use
+  the Bible's official language for the same six concepts (one tip
+  deliberately adapted, not copied verbatim — see below).
+- **§14/15 audit:** in-show crowd-read text bumped from `text-xs` to
+  `text-sm` (readable-body-text rule). Confirmed already-compliant:
+  non-overlapping radar chart, touch-friendly targets, color-redundant
+  signals. **Not fixed, flagged for a future phase:** the five
+  always-visible faction bars exceed §14's "no more than three
+  always-visible meters" guidance — redesigning that display is real UI
+  work, out of scope for a copy-integration phase.
+
+**A deliberate deviation worth documenting:** Bible §10 item 5 pairs the
+authenticity tutorial with "Satisfaction" — but Satisfaction is a Daily
+Challenge-only composite metric (the unweighted mean of all 10 report
+metrics) that doesn't exist on a Campaign show's report. Copying that
+sentence verbatim into the Campaign tutorial would reference a field the
+screen can never show, so the shipped tip pairs authenticity with
+Attendance instead, in the Bible's voice but naming the field that's
+actually true there.
+
+### Known limitations / explicitly out of scope this phase
+
+- Section 3.6 (per-faction reaction templates) and Section 8 (the full
+  Live Reaction Log) were not implemented — the richer trigger set the
+  Bible describes (momentum history, consecutive-decline detection) needs
+  engine additions per the Bible's own §16.B, and neither was named in the
+  five requested phases for this pass.
+- Section 6's richer Campaign stage copy (victory/star/unlock/failure
+  text, venue fantasy, etc.) is flagged "Ready Now" in the Bible's own
+  Section 16 audit but wasn't part of the five explicitly ordered phases
+  for this task — recommended as the next increment.
+- Section 12 (achievements) needs new persistence (earned-achievement
+  state) before any of it can ship, even the [NOW]-flagged entries.
+
+---
+
 ## Phase Z.17.11 — Headliner Daily Challenge + Verified Leaderboards (2026-07-11)
 
 Owner approved Phase 2 (Campaign) and requested Daily Challenge next: one
