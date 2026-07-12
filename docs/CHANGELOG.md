@@ -4,6 +4,85 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.17.14 — Headliner Creative Bible implementation, Part 2 (2026-07-12)
+
+Continues Part 1 with the three remaining workstreams: **Part A** (Campaign
+stage copy, Bible §6), **Part B** (small engine exposure for narrative
+systems, Bible §16.B), and **Part C** (Concert Pulse, Live Reaction Log,
+Concert Viewport, editable crowd config, and the compact faction display
+Part 1 flagged as debt). See `docs/ARCHITECTURE.md`'s "Headliner Creative
+Bible implementation, Part 2" section for full technical detail. Nine
+commits; zero score/momentum/pacing formula changes — every existing test
+kept passing before each new addition, ending at 125/125.
+
+- **Part B — engine exposure:** `EngineState.history` now records, per
+  song: faction momentum before/after/delta, the song's own best faction
+  reaction, per-faction raw reaction scores, crowd energy before/after/
+  delta, the pacing penalty, a full 10-metric snapshot as of that point in
+  the show, and new-high/new-low flags. New `concertShowHistory.ts` derives
+  show position (opening/middle/closing/encore, 0-1 normalized) and honest
+  peak detection (`findPeakSongId`/`peakHappenedDuringEncore`, which never
+  fabricate a peak the engine can't support). Every value is either a
+  direct copy of something `applyPick` already computed, or the exact same
+  formula run one song earlier — no new math anywhere.
+- **Part B — deterministic narrative seeding + ENC-09:** new
+  `narrativeSeed.ts` (`pickBySeededHash`, FNV-1a-based) breaks ties among
+  equally-specific review templates and Live Reaction Log variants —
+  never `Math.random()`. A reopened show always re-derives the same seed
+  and reads identically; a different show can land on a different tied
+  variant. ENC-09 ("the encore was the show's true summit"), dormant since
+  Part 1, is now live — it fires only when the engine can honestly confirm
+  the show's peak happened during the encore.
+- **Part A — Campaign stage copy (`campaignStageCopy.ts`):** all five
+  stages' Bible §6 copy (intro, venue fantasy, victory/star/failure text,
+  unlock text) is centralized and wired into `campaignService.ts`'s ladder
+  and finish results. The locked-stage explanation and post-show result
+  text are now server-provided instead of built inline in
+  `HeadlinerPage.tsx` — the raw "🔓 Unlocked: stagekey" slug is gone.
+- **Part C — Live Reaction Log (`liveReactionLog.ts`):** all 18 Bible §8
+  message categories, each a pure predicate over the new per-song history
+  — never a metric number in the text. At most two lines per song, by the
+  Bible's priority order (walkout-risk > faction spikes > pacing >
+  spectrum). `/pick` now returns `reactionLog`; the web page accumulates
+  every song's lines into a reviewable, expandable panel instead of
+  discarding them.
+- **Part C — Concert Pulse (`concertPulse.ts`) + compact faction UI:** a
+  presentation layer over the engine state — momentum direction/intensity,
+  new show high/low, recovery, split-room, walkout risk, current phase,
+  and a deterministic faction relevance ranking. The always-5-bars faction
+  display is replaced with `CrowdRead` (3 most relevant persistent, full 5
+  one tap away — Bible §14's "no more than three always-visible meters");
+  a faction at walkout risk always ranks first so a warning is never
+  hidden. Per-song attendance/satisfaction are deliberately absent — the
+  engine has no such per-song figure to expose.
+- **Part C — Concert Viewport + editable crowd config:** a lightweight
+  CSS-only audience (`ConcertViewport.tsx`) grouped by faction, sized by
+  each faction's real crowd share, with configurable sprites via a new
+  admin page (`/admin/headliner-crowd-visual-config`) reusing the existing
+  `SiteConfig` pattern — zero uploaded assets required by default. A
+  faction at walkout risk renders as an empty slot, never a fabricated
+  shrinking headcount.
+- **Achievement evaluation helpers (`achievementEvaluators.ts`):** pure
+  predicates for the 20 of 30 Bible §12 achievements determinable from one
+  completed show. No persistence or awarding — ready for a future
+  persistence layer. `#8` and `#27` are newly evaluable this phase thanks
+  to the engine exposure above; achievements needing cross-run counters,
+  streaks, a persisted previous-best, or the still-nonexistent aspirational
+  venues are explicitly left unimplemented and documented as such.
+
+### Known limitations / explicitly out of scope this phase
+
+- No achievement is awarded or persisted anywhere yet.
+- Per-song attendance/satisfaction remain unavailable everywhere; nothing
+  fabricates them.
+- "Faction explicitly targeted by venue/context" (a named compact-faction
+  relevance factor) isn't implemented — `ShowBundle` carries no such signal.
+- The viewport is CSS/DOM, not Canvas; this project still has no web-side
+  test runner, so reduced-motion/visual behavior was verified by
+  convention (`motion-reduce:`) and manual review, not automated tests.
+
+---
+
 ## Phase Z.17.13 — Headliner Creative Bible implementation, Part 1 (2026-07-12)
 
 Begins implementing `docs/proposals/HEADLINER_CREATIVE_BIBLE.md` (the

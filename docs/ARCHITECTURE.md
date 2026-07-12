@@ -1349,3 +1349,196 @@ further text for any stage the player hadn't reached yet. Bible §11 item
 present in `CampaignStageConfig`, just not exposed on the `StageCard` API
 shape) so the UI can say *why* — "[Stage] books on reputation: it opens
 when you've earned N star(s) at [previous stage] — you have [current]."
+
+---
+
+## Headliner Creative Bible implementation, Part 2 (Phase Z.17.14, 2026-07-12)
+
+Continues Part 1 with the three remaining workstreams the owner scoped:
+**Part A** (Campaign stage copy, Bible §6), **Part B** (small, safe engine
+exposure for narrative systems, Bible §16.B), and **Part C** (Concert
+Pulse, Live Reaction Log, Concert Viewport, editable crowd config, and the
+compact faction display Part 1 flagged as debt). Nine focused commits,
+each independently reviewable; zero score/momentum/pacing formula changes
+anywhere — verified by the full pre-existing test suite passing unchanged
+before every new addition on top.
+
+### Part B — `SongHistoryEntry`: per-song exposure, not new math
+
+`concertEngine.ts`'s `EngineState` gained `history: SongHistoryEntry[]`,
+appended by `applyPick` alongside its existing mutations. Every field is
+either a direct copy of a value `applyPick` already computed that session
+(`factionReactionScores`, `pacingPenalty`) or the *same* formula run one
+song earlier than it used to be: `computeMetricsSnapshot()` was extracted
+out of `buildReport` (previously the only place the 10 metrics were
+computed, at the very end of a show) so it can run after every pick
+instead. Nothing about how a metric is calculated changed — verified by
+extracting it byte-for-byte and confirming the full pre-existing test
+suite still passed unchanged immediately after the extraction, before any
+new field was added.
+
+Per song, `SongHistoryEntry` carries: index and encore flag; faction
+momentum before/after/delta for all five factions; the song's own best
+single-faction reaction (pre-dampening); crowd energy before/after/delta;
+the pacing penalty for that transition; the full 10-metric snapshot as of
+that point in the show; and whether this song set a new running high or
+low for crowd energy. `concertShowHistory.ts` (a new, separate file — kept
+out of `concertEngine.ts` to stay small and focused) derives further,
+purely retrospective facts from that array: `computeShowPositions` (index,
+total, 0-1 normalized position, opening/middle/closing/encore phase) and
+`findPeakSongId`/`peakHappenedDuringEncore`, which return `null`/`false`
+whenever `state.crowdPeak <= 0` — the engine never fakes a peak it can't
+support.
+
+### Part B — deterministic narrative seeding, and ENC-09 goes live
+
+`narrativeSeed.ts` is a small, dependency-free FNV-1a hash
+(`stableTemplateHash`) plus `pickBySeededHash(items, ...seedParts)` — never
+`Math.random()`, nothing time-based. `headlinerReviewTemplates.ts`'s
+`selectTemplate` used to break ties among equally-specific templates by
+always taking the first array entry (e.g. between the two intentional
+"≥800" opening-line variants); it now resolves ties via
+`pickBySeededHash(tied, narrativeSeed, slotName)`, where the seed is
+`${state.seed}:${state.playedSongIds.join(',')}` — built once in
+`buildConcertNarrative`. Reopening the same completed show always
+re-derives the same seed and therefore the same review text; a different
+show (different seed or different setlist) can land on a different tied
+variant. All existing contradiction guards and the "most-specific-wins"
+rule are unchanged — the seeded pick only ever chooses among templates
+that were *already* tied for first place.
+
+ENC-09 ("the encore was the show's true summit") was dormant since Part 1
+for exactly the reason its Bible footnote states: it needs to know the
+show's peak happened *during* the encore, which needed per-song position
+data. That data now exists (`peakHappenedDuringEncore`), so ENC-09 is
+live: `requiresPeakDuringEncore: true` is a new template-matching axis
+(alongside the existing `requiresEncorePlayed`), and its extra
+specificity is weighted so it outranks `ENC-01`/`ENC-02` whenever both are
+metrically eligible — a real, honestly-confirmed peak-in-encore claim is
+more specific than a generic strong-encore claim.
+
+### Part A — `campaignStageCopy.ts`: centralized, not scattered
+
+All five Campaign stages' Bible §6 copy (title tagline, intro, venue
+fantasy, audience feeling, why-it-matters, player-learns, victory text,
+1★/2★/3★ text, unlock text, failure text) lives in one data file,
+transcribed from the Bible. `campaignService.ts`'s `getLadder` attaches
+each stage's copy plus a computed `lockedExplanation` (Bible §11 #12,
+built from real progress data — the *previous* stage's
+`unlockRequiresStars` and the player's best stars there, never the locked
+stage's own field, which would be the wrong number). `finalizeCampaignRun`
+attaches `resultText` (victory text + the star-appropriate line, or the
+stage's own failure text at 0 stars — falling back to the Bible §11 #7
+generic wrapper only for Rehearsal Room, which has no failure text because
+it cannot meaningfully fail) and `unlockText` (the just-cleared stage's
+own description of what opens next, only when a next stage actually
+unlocked). `HeadlinerPage.tsx`'s stage cards and post-show result panel now
+render these server-provided strings instead of building copy inline —
+the locked-stage message and the "🔓 Unlocked: stagekey" line (previously
+a raw un-humanized slug) are gone.
+
+### Part C — `liveReactionLog.ts`: Bible §8's 18 categories as predicates
+
+Each of the Bible's 18 reaction categories is a pure predicate over
+`SongHistoryEntry` (plus, for a few, the current/previous song's
+`EngineSong` audience/tempo data) — never a metric number in the text.
+`LOG_TUNING` holds the small set of "how large is large" thresholds that
+exist *only* to decide which line fires (a tempo gap that counts as
+"contrast," a reaction-score spread that counts as "split room," etc.);
+where a boundary already existed in the shipped engine (`explainReaction`'s
+45/-45 reaction bands, the Bible §7.0 metric bands), it's reused rather
+than invented twice. At most two lines fire per song, chosen by the
+Bible's stated priority order (walkout-risk > faction spikes > pacing >
+spectrum) when more than two trigger. Variants rotate via the same
+`pickBySeededHash` mechanism as the review templates, seeded by the run's
+seed plus the song's id plus the category — so a reopened show reads
+identically, and Mythic's extra "never played live" variant is only ever
+eligible for a Mythic song. `routes/headliner.ts`'s `/pick` response now
+carries `reactionLog: ReactionLogEntry[]`; the web page accumulates every
+song's lines into a reviewable, expandable "Reaction Log" panel instead of
+discarding them after the next pick (Bible §15: nothing important stays
+ephemeral).
+
+### Part C — `concertPulse.ts`: a presentation layer, not a new formula
+
+`computeConcertPulse(state, reactionLog)` distills the engine state into
+one small snapshot the UI renders: momentum direction/intensity, new
+show high/low, a "recovery" flag (rising after 2+ declining songs), a
+"split room" flag (wide reaction spread across factions this song),
+`walkoutRisk` (any faction at/below the walkout momentum band), the
+current show phase, the top Live Reaction Log line, and
+`rankFactionsByRelevance` — a deterministic ranking (crowd share + this-
+song delta + deviation from neutral, with a faction at walkout risk
+always forced to rank first so a real warning can never be pushed out of
+a capped display) used to show only the 3 most relevant factions
+persistently (Bible §14: "no more than three always-visible meters"),
+with the full five one tap away in the new `CrowdRead` component. Per-song
+attendance/satisfaction are deliberately absent from this state — the
+engine has no per-song figure for either (only the running
+`audienceRetention` metric, or, for Daily, an end-of-show total) — and
+"faction explicitly targeted by venue/context" (one of the relevance
+factors named in the original ask) isn't implemented either, since
+`ShowBundle` carries no such signal today. Both are documented gaps, not
+silent fabrications.
+
+### Part C — `ConcertViewport.tsx` and the editable crowd config
+
+A lightweight, CSS-only audience: a wrapped row of small dots (or
+configured sprite images) grouped into the five factions, sized by each
+faction's real `crowdShare` (a genuine `ShowRules.factionShare` value, now
+also exposed on `FactionPulseSummary`) rather than split evenly. No 3D, no
+per-spectator simulation. A faction at walkout risk renders its dots as
+empty slots rather than a fabricated shrinking headcount, since the
+engine has no literal per-song attendance figure to animate toward.
+Motion respects `motion-reduce:`; the viewport is `aria-hidden` since
+everything it depicts is already stated in text by `ConcertPulse`.
+
+Visual configuration (`crowdVisualConfig.ts`) reuses the existing
+`SiteConfig` key-value admin pattern — no new table. Every field defaults
+to `null`/a plain-CSS-friendly value so the viewport needs zero uploaded
+assets to work: viewport background, four per-spectator-state sprites
+(standing/active/low-energy/walkout), an optional stage foreground,
+animation intensity and a master on/off switch, spectator density/size,
+viewport opacity, and a faction-clustering toggle. Asset URL fields accept
+an http(s) URL or a `data:image/` URI under the same 5MB limit
+`routes/platformer.ts` already enforces for uploaded sprite data — no new
+validation convention invented. `GET /api/settings/headliner-crowd-visual-
+config` is public (any player's viewport needs to load it); `PUT` is
+admin-only via the same `requireAuth` + `req.user?.isAdmin` +
+`validateBody` pattern every other settings endpoint uses. The admin
+editor lives at `/admin/headliner-crowd-visual-config`, following
+`AdminGamesPage`'s load/dirty-state/save structure.
+
+### Achievement evaluation helpers — pure, unwired
+
+`achievementEvaluators.ts` adds pure predicates for the 20 of the Bible's
+30 achievements that are determinable from a single completed show. No
+persistence layer or achievement table exists in the project, and
+building one was explicitly out of scope this phase — these functions
+exist so a future persistence layer can call `evaluateSingleShowAchievements
+(state, report, context)` without recalculating or scraping UI state.
+`#8` (The Turnaround) and `#27` (Friend of the Floor) are newly evaluable
+specifically because of this phase's `SongHistoryEntry`/per-faction-final
+exposure. Not implemented, and documented as such in the file: `#2`,
+`#10`, `#14`, `#19`, `#22` (need a counter across *multiple* shows),
+`#12`, `#17`, `#24` (streak counters), `#25` (needs a persisted previous-
+best score to compare against — state this phase doesn't have access to
+from a single show alone), and `#30` (requires the aspirational venue
+archetypes from Bible §4, which don't exist yet — left dormant rather than
+approximated).
+
+### Known limitations / explicitly out of scope this phase
+
+- No achievement is actually awarded or persisted anywhere — see above.
+- Per-song attendance and satisfaction remain unavailable; nothing in
+  Concert Pulse, the Live Reaction Log, or the viewport fabricates them.
+- "Faction explicitly targeted by venue/context" (a named relevance
+  factor for the compact faction display) isn't implemented — `ShowBundle`
+  has no such signal today.
+- The Concert Viewport is CSS/DOM only, not Canvas — chosen because it's
+  simpler to keep accessible (the meaningful information is already
+  stated in text by `ConcertPulse`) and avoids a new rendering dependency.
+- This project has no web-side test runner (confirmed again this phase);
+  reduced-motion and visual behavior for the new components were verified
+  by consistent use of the existing `motion-reduce:` Tailwind convention
+  and manual review, not automated browser tests.
