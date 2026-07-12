@@ -89,13 +89,20 @@ const METRIC_LABELS: Record<string, string> = {
   crowdPeak: 'Crowd Peak',
 };
 
+// Sourced verbatim from the Creative Bible §10 (Tutorial Writing) for the concepts
+// already shown at this surface — candidate songs, Current Concert Spectrum, crowd
+// factions, authenticity, pacing, recovered songs. The authenticity tip is adapted
+// (not copied verbatim) to reference Attendance rather than Bible §10 item 5's
+// "Satisfaction," since Satisfaction is a Daily Challenge-only composite metric that
+// doesn't exist on a Campaign show's report — copying it here would name a field
+// this screen can't actually show.
 const TUTORIAL_TIPS = [
-  'Each round offers 2-4 candidate songs — the single "best" pick is deliberately left out, so read the crowd instead of chasing a number.',
-  'Every pick nudges your running spectrum average toward (or away from) this band\'s true identity — watch Spectrum Match in the final report.',
-  'Five crowd factions react differently to the same song — a Casual-Listener favorite can bore Deep-Cut Hunters.',
-  'Authenticity and Audience Retention are different things: authenticity rewards real identity data, retention rewards keeping the crowd engaged.',
-  'Pacing matters — a run of similar-energy songs back to back costs you, even if each song is individually great.',
-  'Only songs you\'ve recovered in Band RPG are playable here — recover more to unlock bigger, more flexible shows.',
+  'These are your options for the next call. Each shows what it would bring — the skill is choosing for the show you\'re building, not just the best song.',
+  'This is what your show sounds like so far, updated with every song you call. Watch how each pick pulls it toward or away from the band\'s identity.',
+  'Five kinds of fan share this room, and each hears every song differently. No group is wrong — they just came for different things.',
+  'Authenticity measures how much of your set was built on fully-analyzed songs rather than neutral estimates. Attendance measures whether the room stuck around — you can have one without the other.',
+  'Crowds feel rhythm across songs, not just within them. Vary the energy — three similar songs in a row starts to sound like one long one.',
+  'Songs you\'ve recovered in Band RPG make up your Collection — Campaign shows are built only from these. The deeper your Collection, the bigger the rooms you can book.',
 ];
 
 function formatDuration(seconds: number): string {
