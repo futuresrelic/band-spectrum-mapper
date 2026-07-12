@@ -6,6 +6,10 @@ import { albumsApi } from '../api/albums';
 import { analysisApi } from '../api/analysis';
 import { useAuth } from '../contexts/AuthContext';
 import type { Song, SongResearchSource } from '@band-spectrum-mapper/shared';
+import {
+  TRACK_TYPES, TRACK_TYPE_LABELS, TRACK_ELIGIBILITY_FIELDS, TRACK_ELIGIBILITY_LABELS,
+  type TrackType, type TrackEligibilityField,
+} from '@band-spectrum-mapper/shared';
 import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
 import EmptyState from '../components/layout/EmptyState';
@@ -442,6 +446,11 @@ export default function SongDetailPage() {
   const [editTrack, setEditTrack] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [editRarity, setEditRarity] = useState('Common');
+  const [editTrackType, setEditTrackType] = useState<TrackType>('Song');
+  const [editEligibility, setEditEligibility] = useState<Record<TrackEligibilityField, boolean>>({
+    eligibleHeadliner: true, eligibleDailyChallenge: true, eligibleTrivia: true,
+    eligibleAiSetlists: true, eligibleDiscovery: true,
+  });
   const [editError, setEditError] = useState('');
   const [wikiFetching, setWikiFetching] = useState(false);
   const [wikiMsg, setWikiMsg] = useState('');
@@ -490,6 +499,8 @@ export default function SongDetailPage() {
       isRemix: editIsRemix,
       remixOfSongId: editIsRemix ? editRemixOfId : null,
       rarity: editRarity as import('@band-spectrum-mapper/shared').SongRarity,
+      trackType: editTrackType,
+      ...editEligibility,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['song', songId] });
@@ -560,6 +571,14 @@ export default function SongDetailPage() {
     setEditTrack(song?.trackNumber ? String(song.trackNumber) : '');
     setEditNotes(song?.notes ?? '');
     setEditRarity(song?.rarity ?? 'Common');
+    setEditTrackType((song?.trackType as TrackType) ?? 'Song');
+    setEditEligibility({
+      eligibleHeadliner: song?.eligibleHeadliner ?? true,
+      eligibleDailyChallenge: song?.eligibleDailyChallenge ?? true,
+      eligibleTrivia: song?.eligibleTrivia ?? true,
+      eligibleAiSetlists: song?.eligibleAiSetlists ?? true,
+      eligibleDiscovery: song?.eligibleDiscovery ?? true,
+    });
     setEditIsRemix(song?.isRemix ?? false);
     setEditRemixOfId(song?.remixOfSongId ?? null);
     setRemixSearch('');
@@ -725,6 +744,35 @@ export default function SongDetailPage() {
                 <option value="Legendary">🟣 Legendary</option>
                 <option value="Mythic">🟠 Mythic</option>
               </select>
+            </div>
+            <div>
+              <label className="label">Track Type</label>
+              <select
+                className="input"
+                value={editTrackType}
+                onChange={(e) => setEditTrackType(e.target.value as TrackType)}
+              >
+                {TRACK_TYPES.map((t) => (
+                  <option key={t} value={t}>{TRACK_TYPE_LABELS[t]}</option>
+                ))}
+              </select>
+              <p className="text-xs text-surface-400 mt-1">What this track is. Normal songs default to "Song."</p>
+            </div>
+            <div>
+              <label className="label">Eligible for</label>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                {TRACK_ELIGIBILITY_FIELDS.map((field) => (
+                  <label key={field} className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={editEligibility[field]}
+                      onChange={(e) => setEditEligibility((prev) => ({ ...prev, [field]: e.target.checked }))}
+                    />
+                    {TRACK_ELIGIBILITY_LABELS[field]}
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-surface-400 mt-1">Where this track may be selected. Unusual tracks (interludes, spoken word) usually want Headliner/Daily Challenge off.</p>
             </div>
             <div className="border-t border-surface-200 pt-3">
               <label className="flex items-center gap-2 cursor-pointer select-none">
