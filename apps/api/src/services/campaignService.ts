@@ -21,6 +21,10 @@ import {
   type StageKey, type CampaignStageConfig, type StageObjective,
 } from './campaignStages.js';
 import { getRecoveredCatalogDetail, type RecoveredCatalogEntry } from './campaignEligibilityService.js';
+import {
+  getStageCopy, buildLockedStageExplanation, buildCampaignResultText, buildUnlockCopy,
+  type CampaignStageCopy,
+} from './campaignStageCopy.js';
 
 // ---------------------------------------------------------------------------
 // Progress
@@ -190,6 +194,10 @@ export interface StageCard {
   tutorial: boolean;
   /** Stars required at THIS stage to unlock the next one — exposed so a locked next stage can explain itself (Creative Bible §11, never a bare "Locked"). */
   unlockRequiresStars: number;
+  /** Creative Bible §6 — title tagline, intro, venue fantasy, audience feeling, why-it-matters, player-learns. */
+  copy: CampaignStageCopy;
+  /** Creative Bible §11 #12 — set only when status is 'locked'; never a bare "Locked." */
+  lockedExplanation: string | null;
 }
 
 export interface CampaignLadder {
@@ -232,10 +240,23 @@ export async function getLadder(userId: string, bandId: string): Promise<Campaig
 
   const unlockedOrder = getStage(progress.unlockedStage as StageKey).order;
 
-  const stages: StageCard[] = STAGE_ORDER.map((key) => {
+  const stages: StageCard[] = STAGE_ORDER.map((key, index) => {
     const stage = CAMPAIGN_STAGES[key];
     const best = bestByStage.get(key) ?? null;
     const status: StageCard['status'] = best && best.stars >= 1 ? 'cleared' : stage.order <= unlockedOrder ? 'available' : 'locked';
+
+    let lockedExplanation: string | null = null;
+    if (status === 'locked') {
+      const previousKey = STAGE_ORDER[index - 1];
+      if (previousKey) {
+        const previousStage = CAMPAIGN_STAGES[previousKey];
+        const previousBest = bestByStage.get(previousKey) ?? null;
+        lockedExplanation = buildLockedStageExplanation(stage, {
+          name: previousStage.name, bestStars: previousBest?.stars ?? 0, unlockRequiresStars: previousStage.unlockRequiresStars,
+        });
+      }
+    }
+
     return {
       key: stage.key,
       order: stage.order,
@@ -254,6 +275,8 @@ export async function getLadder(userId: string, bandId: string): Promise<Campaig
       readiness: checkStageReadiness(stage, band.name, catalog),
       tutorial: stage.tutorial,
       unlockRequiresStars: stage.unlockRequiresStars,
+      copy: getStageCopy(stage.key),
+      lockedExplanation,
     };
   });
 
@@ -317,6 +340,10 @@ export interface CampaignFinishResult {
   totalAudienceReached: number;
   starsEarned: number;
   recoverySuggestion: string | null;
+  /** Creative Bible §6 — this stage's victory+star text, or its failure text at 0 stars. */
+  resultText: string;
+  /** Creative Bible §6 "Unlock text" — set only when nextStageUnlocked is non-null. */
+  unlockText: string | null;
 }
 
 export async function finalizeCampaignRun(
@@ -395,5 +422,7 @@ export async function finalizeCampaignRun(
     totalAudienceReached: updated.totalAudienceReached,
     starsEarned: updated.starsEarned,
     recoverySuggestion,
+    resultText: buildCampaignResultText(stageKey, stars),
+    unlockText: nextStageUnlocked ? buildUnlockCopy(stageKey) : null,
   };
 }

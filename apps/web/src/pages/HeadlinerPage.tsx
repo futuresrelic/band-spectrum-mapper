@@ -187,8 +187,9 @@ function ReportRadar({ metrics }: { metrics: Record<string, number> }) {
   );
 }
 
-function StageCardTile({ stage, previousStage, onPlay }: { stage: StageCardData; previousStage: StageCardData | undefined; onPlay: () => void }) {
+function StageCardTile({ stage, onPlay }: { stage: StageCardData; onPlay: () => void }) {
   const locked = stage.status === 'locked';
+  const [aboutOpen, setAboutOpen] = useState(false);
   return (
     <div
       className={`rounded-2xl border p-5 flex flex-col gap-3 ${
@@ -202,15 +203,14 @@ function StageCardTile({ stage, previousStage, onPlay }: { stage: StageCardData;
             {stage.status === 'cleared' && <span className="text-[10px] uppercase tracking-widest text-emerald-400 border border-emerald-800 rounded-full px-2 py-0.5">Cleared</span>}
             {locked && <span className="text-[10px] uppercase tracking-widest text-gray-600 border border-gray-800 rounded-full px-2 py-0.5">Locked</span>}
           </div>
+          <p className="text-xs text-gray-500 italic mt-0.5">"{stage.copy.titleTagline}"</p>
           <p className="text-xs text-gray-500 mt-1">{stage.description}</p>
         </div>
         {stage.bestStars > 0 && <StarRow stars={stage.bestStars} />}
       </div>
 
-      {locked && previousStage && (
-        <p className="text-xs text-gray-500">
-          {stage.name} books on reputation: it opens when you've earned {previousStage.unlockRequiresStars} star{previousStage.unlockRequiresStars === 1 ? '' : 's'} at {previousStage.name} — you have {previousStage.bestStars}. One more good night there and this door opens.
-        </p>
+      {locked && stage.lockedExplanation && (
+        <p className="text-xs text-gray-500">{stage.lockedExplanation}</p>
       )}
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-500">
@@ -224,6 +224,21 @@ function StageCardTile({ stage, previousStage, onPlay }: { stage: StageCardData;
         <ul className="text-[11px] text-gray-500 space-y-0.5">
           {stage.objectives.map((o) => <li key={o.key}>• {o.label}</li>)}
         </ul>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setAboutOpen((v) => !v)}
+        className="text-left text-[11px] text-gray-400 hover:text-white underline underline-offset-2 self-start"
+      >
+        {aboutOpen ? 'Hide room details' : 'About this room'}
+      </button>
+      {aboutOpen && (
+        <div className="text-xs text-gray-400 space-y-2 bg-black/20 rounded-xl p-3">
+          <p>{stage.copy.intro}</p>
+          <p><span className="text-gray-500">The crowd:</span> {stage.copy.audienceFeeling}</p>
+          <p><span className="text-gray-500">Why it matters:</span> {stage.copy.whyItMatters}</p>
+        </div>
       )}
 
       {!locked && !stage.readiness.eligible && stage.readiness.message && (
@@ -618,11 +633,10 @@ export default function HeadlinerPage() {
                 </div>
 
                 <div className="grid grid-cols-1 gap-4">
-                  {ladder.stages.map((stage, i) => (
+                  {ladder.stages.map((stage) => (
                     <StageCardTile
                       key={stage.key}
                       stage={stage}
-                      previousStage={i > 0 ? ladder.stages[i - 1] : undefined}
                       onPlay={() => startCampaignStage(stage.key)}
                     />
                   ))}
@@ -907,6 +921,8 @@ export default function HeadlinerPage() {
                   <StarRow stars={campaignResult.stars} />
                 </div>
 
+                <p className="text-sm text-gray-300 leading-relaxed">{campaignResult.resultText}</p>
+
                 {campaignResult.objectiveResults.length > 0 && (
                   <ul className="space-y-1 text-sm">
                     {campaignResult.objectiveResults.map((o) => (
@@ -923,8 +939,8 @@ export default function HeadlinerPage() {
                     <div>Previous best: {campaignResult.previousBest}</div>
                   )}
                   {campaignResult.firstClear && <div className="text-emerald-400">🎉 First clear of {campaignResult.stageName}!</div>}
-                  {campaignResult.nextStageUnlocked && (
-                    <div className="text-emerald-400">🔓 Unlocked: {campaignResult.nextStageUnlocked.replace(/_/g, ' ')}</div>
+                  {campaignResult.unlockText && (
+                    <div className="text-emerald-400 mt-2">🔓 {campaignResult.unlockText}</div>
                   )}
                   {campaignResult.recoverySuggestion && (
                     <div className="text-amber-400 mt-2">{campaignResult.recoverySuggestion}</div>

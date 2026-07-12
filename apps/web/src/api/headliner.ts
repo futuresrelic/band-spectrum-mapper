@@ -75,6 +75,8 @@ export interface CampaignFinishResult {
   totalAudienceReached: number;
   starsEarned: number;
   recoverySuggestion: string | null;
+  resultText: string;
+  unlockText: string | null;
 }
 
 export interface StartRunResponse {
@@ -121,6 +123,26 @@ export interface StageReadiness {
   message: string | null;
 }
 
+export interface CampaignStarText {
+  one: string;
+  two: string;
+  three: string;
+}
+
+export interface CampaignStageCopy {
+  stageKey: StageKey;
+  titleTagline: string;
+  intro: string;
+  venueFantasy: string;
+  audienceFeeling: string;
+  whyItMatters: string;
+  playerLearns: string;
+  victoryText: string;
+  starText: CampaignStarText;
+  unlockText: string;
+  failureText: string | null;
+}
+
 export interface StageCard {
   key: StageKey;
   order: number;
@@ -139,6 +161,8 @@ export interface StageCard {
   readiness: StageReadiness;
   tutorial: boolean;
   unlockRequiresStars: number;
+  copy: CampaignStageCopy;
+  lockedExplanation: string | null;
 }
 
 export interface RecoveredBandSummary {
