@@ -4,6 +4,65 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.17.16/17 — Expanded Track Classification + Headliner Live Concert Viewport (2026-07-13)
+
+Two connected pieces: Track Type expanded from 5 to 15 discography
+types, and a full presentation-layer visualization of a Headliner show
+in progress — the "living concert" pass. See `docs/ARCHITECTURE.md`'s
+"Track Classification expansion + Headliner Live Concert Viewport"
+section for full technical detail. Five commits; zero changes to
+scoring, the deterministic engine, Campaign progression, Daily Challenge
+verification, or Setlist.fm data anywhere.
+
+- **Track Type expansion:** `Song`/`Interlude`/`Spoken`/`Cover`/`Special`
+  -> 15 types (`Song`, `Instrumental`, `Interlude`, `SpokenWord`,
+  `SoundCollage`, `Intro`, `Outro`, `Transition`, `Cover`, `Live`,
+  `Demo`, `Remix`, `BonusTrack`, `SuiteMovement`, `Special`). Migration
+  verified end-to-end against a real throwaway Postgres instance —
+  every existing value maps correctly (`Spoken` -> `SpokenWord`,
+  everything else unchanged), no song is lost. Eligibility flags are
+  completely untouched. A new "Apply recommended eligibility" admin
+  action suggests sensible flags per type without ever silently
+  overwriting an existing choice.
+- **Headliner Live Concert Viewport:** a stage with generic (never
+  real-musician) performer silhouettes, four crowd rendering modes
+  (dots/silhouettes/pixel/minimal), Crowd Neighborhoods (a fixed,
+  documented faction-to-visual-zone mapping), Crowd Memory (a slowly
+  decaying, visual-only per-faction "warmth"), a Concert Pulse ribbon
+  (Canvas waveform reflecting show health — smooth when the show flows,
+  fragmenting on awkward pacing/split rooms/walkout risk, reconnecting
+  on recovery), stage lighting driven by the current song's real 6-axis
+  Song Spectrum, four venue presentation presets, and subtle camera
+  motion. Everything is a read of data the server already computes;
+  the only new server exposure is the per-song metrics snapshot
+  (already computed in Part B, just newly sent to the client) and the
+  current song's `trackType`/`axis`.
+- **Fully editable, safe by default:** the crowd visual config admin
+  page now covers performer sprites, stage backdrop, crowd mode, venue
+  preset, lighting/fog/camera toggles, Concert Pulse palette, and Crowd
+  Memory settings — no JSON editing, every field optional, the viewport
+  renders with plain CSS/generated colors when nothing is configured.
+  Players get their own local display settings (crowd mode, animation
+  quality, pulse intensity, Crowd Memory, camera motion, viewport on/
+  off) that never touch server state.
+- **Testing:** apps/web's first pure-logic test suite (37 tests, `tsx
+  --test`, zero new dependency) covers every new derivation module. All
+  147 API tests still pass unchanged; tsc and the full monorepo
+  production build are clean.
+
+### Known limitations / explicitly deferred
+
+- No pixel-crowd sprite sheet, drag-and-drop position/neighborhood
+  editor, or particle-effect renderer yet (the admin toggle for
+  particles is reserved, honestly labeled as having no renderer).
+- No automatic quality downgrade by detected device capability — it's a
+  manual setting.
+- "Satisfaction"/attendance ratio still derive from `audienceRetention`,
+  the closest existing metric — no separate per-song figure exists, and
+  none is fabricated.
+
+---
+
 ## Phase Z.17.15 — Track Classification (2026-07-12)
 
 Adds a lightweight classification system to `Song` used by Headliner,

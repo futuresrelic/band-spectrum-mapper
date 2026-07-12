@@ -1647,3 +1647,189 @@ eligibility checkboxes, styled like the existing "This is a remix"
 checkbox. The read-only bulk Data Grid (`AdminDataGridPage.tsx`) was left
 alone: it has no edit capability for any field today, so there was no
 existing mutation path to wire new columns into.
+
+---
+
+## Track Classification expansion + Headliner Live Concert Viewport (Phase Z.17.16/Z.17.17, 2026-07-13)
+
+Two connected pieces, done together because one affects what Headliner
+can select and the other visualizes the concert itself.
+
+### Track Type: 5 -> 15 discography types
+
+`TrackType` expanded from `Song/Interlude/Spoken/Cover/Special` to a
+full 15-value discography classification: `Song`, `Instrumental`,
+`Interlude`, `SpokenWord`, `SoundCollage`, `Intro`, `Outro`,
+`Transition`, `Cover`, `Live`, `Demo`, `Remix`, `BonusTrack`,
+`SuiteMovement`, `Special`. Eligibility (`eligibleHeadliner`/
+`eligibleDailyChallenge`/`eligibleTrivia`/`eligibleAiSetlists`/
+`eligibleDiscovery`) is completely unchanged — Track Type still only
+describes what a recording *is*, never where it may appear, and one
+canonical primary type stays per song (the schema/UI don't assume
+multi-classification, but nothing about them rules it out either — a
+future phase could add secondary types like "Live + Cover" as an
+additional optional field without touching this one's meaning).
+
+Migration `20260713000000_expand_track_type` widens the column to
+`TEXT`, renames the one value that actually changed (`Spoken` ->
+`SpokenWord`), recreates the enum with the full 15-value set, and casts
+back — Postgres can't rename a value and `ADD VALUE` several new ones in
+one `ALTER TYPE`, so this is the standard safe pattern for a rename +
+expansion together. Verified against a real throwaway Postgres instance
+exactly like the previous Track Classification migration: built the
+5-value schema, inserted one row per old value (including `Spoken`),
+applied the migration, confirmed every row landed on the correct new
+value and a fresh insert using a brand-new value (`SuiteMovement`)
+worked immediately, then confirmed `prisma db push` on the new schema
+sees zero drift.
+
+`RECOMMENDED_TRACK_ELIGIBILITY` (packages/shared) gives every type a
+suggested starting point for the 5 eligibility flags — applied only via
+an explicit "Apply recommended eligibility" button in the admin editor,
+which fills the checkboxes for review before Save. It never runs
+automatically on type change and never overwrites an admin's existing
+choices on its own.
+
+### Headliner Live Concert Viewport
+
+A pure presentation layer — nothing in it touches scoring, momentum,
+pacing, candidate generation, Campaign progression, or Daily Challenge
+verification. The whole system is one small server-side data exposure
+plus a chain of pure, unit-tested client-side derivation modules feeding
+CSS/Canvas renderers.
+
+**Data flow:**
+```
+Headliner engine state (server, unchanged)
+  -> PickResponse: result, pulse, reactionLog, metricsSnapshot   (existing + one new field)
+  -> ConcertVisualState adapter (apps/web/.../concertVisualState.ts, pure)
+  -> Crowd Memory / Concert Pulse ribbon / lighting derivations (pure, unit-tested)
+  -> ConcertViewport / ConcertPulseRibbon / ConcertStage renderers (CSS + Canvas)
+```
+
+**New server-side exposure** (concertShowHistory.ts's `latestMetricsSnapshot()`,
+returned as `metricsSnapshot` in `/pick`'s response): the most recently
+played song's existing 10-metric snapshot (Part B's per-song
+`SongHistoryEntry.metricsSnapshot`, already computed, just not
+previously sent to the client). This lets the viewport reflect
+satisfaction/authenticity/pacing/energy *during* the show instead of
+only in the final report. `EngineSong` also now carries `trackType`
+(presentation-only in the engine) and the client-facing
+`CandidateSong`/`PickResult.song` types gained `trackType` and `axis` —
+both were already computed server-side and already present in the JSON
+response; they just weren't declared on the client type before.
+
+**`ConcertVisualState`** (`concertVisualState.ts`) is the single adapter
+every renderer reads from. It documents its one honest approximation:
+"satisfaction" is the `audienceRetention` metric, because the engine has
+no separate per-song satisfaction figure (only Daily's end-of-show
+total, which isn't per-song). Every other field is a direct pass-through
+of `ConcertPulseState`/the metrics snapshot/the last pick result —
+nothing is invented.
+
+**Crowd Memory** (`crowdMemory.ts`) is a slowly decaying per-faction
+"warmth" value — a pure `stepCrowdMemory(previous, factions, elapsedMs,
+tuning)` step function, called once per new pulse reading with the real
+elapsed wall-clock time since the last one. It nudges toward (never
+teleports to) a target derived from the faction's current direction/
+intensity/walkout-risk, and decays back toward neutral on an admin-
+configurable half-life. Deterministic given the same inputs; the only
+non-deterministic input is the wall clock, exactly as the spec allows
+("visual smoothing may use elapsed animation time").
+
+**Concert Pulse ribbon** (`concertPulseRibbon.ts` derivation +
+`ConcertPulseRibbon.tsx` Canvas renderer): turns `ConcertVisualState`
+into amplitude/coherence/brightness/segment-count. A healthy show (good
+pacing, no split room, no walkout risk) reads as one smooth, bright
+segment; awkward pacing, a split room, or walkout risk fragments it into
+more segments at lower coherence; `isRecovery` nudges coherence back up
+before the underlying metric fully catches up, so a reconnecting moment
+visibly reads as reconnecting. The renderer lerps toward these targets
+every frame (never jumps), is devicePixelRatio-safe, pauses drawing when
+the tab is hidden, and falls back to a mostly-static gradient line under
+reduced motion.
+
+**Stage lighting** (`concertLighting.ts`): derives fog opacity, a cool-
+to-warm color blend, glow intensity, pattern intensity, and a capped
+animation-speed multiplier from the *current song's real 6-axis Song
+Spectrum* (the same six canonical axes — aggression, complexity,
+atmosphere, emotion, psychedelic, concept — used everywhere else in
+BSM; no invented spectrum). Speed is deliberately capped (0.6-1.2x) well
+below anything that could read as flashing or strobing.
+
+**Concert Stage** (`ConcertStage.tsx`): generic CSS silhouette
+performers (vocalist/guitarist/bassist/drummer/keyboardist) with
+restrained looping idle animations (sway, strum, drum-hit) — never a
+likeness of a real musician. Any slot can be replaced with an admin-
+configured sprite image, or omitted from the stage entirely (a band
+without a keyboardist just doesn't render one).
+
+**Crowd rendering** (`ConcertViewport.tsx`): four modes (dots,
+silhouettes, pixel, minimal) sharing the same underlying per-faction
+data — only the spectator shape/fallback differs. **Crowd Neighborhoods**
+assign each of the five factions one fixed, documented visual zone
+(`casual` -> Rear Floor, `hardcore` -> Pit, `deepCut` -> Left Floor,
+`progHeads` -> Right Floor, `firstTimers` -> Balcony — see
+`FACTION_NEIGHBORHOOD` in `ConcertViewport.tsx`), since the engine only
+exposes faction-*level* reactions, never per-section data; this is a
+predictable, tested distribution of real data into visual space, not
+invented section-level metrics. A small `sr-only` legend lists the
+faction/neighborhood pairing for screen readers; per-dot labels were
+deliberately not added (the spec asks for players to "slowly learn"
+where each group sits).
+
+**Venue presets** (club/arena/festival/historic) only change the
+backdrop gradient — never a gameplay difference, matching the instruction
+that venue presentation stay purely presentational.
+
+**Camera**: a single, slow (18s cycle) CSS `scale`/`translateY` loop on
+the whole stage+crowd wrapper — no shake, no cuts, disableable by the
+admin default or the player's own setting.
+
+**Editable everywhere, safe by default**: `crowdVisualConfig.ts`
+(API + web, same `SiteConfig` pattern as before, no new table) now
+covers performer sprites + active slots, stage backdrop, crowd render
+mode, venue preset, lighting/fog/particle/camera toggles, Concert Pulse
+palette, and Crowd Memory enabled/decay rate, on top of the existing
+crowd-sprite/density/opacity fields from Part C. Every field defaults to
+`null`/a plain-CSS-friendly value — the viewport needs zero uploaded
+assets to render. The admin editor (`AdminCrowdVisualConfigPage.tsx`)
+exposes all of it through plain inputs/selects/checkboxes/color pickers
+— no JSON editing anywhere. "Particle overlay" is an honestly-labeled
+reserved toggle with no renderer yet.
+
+**Player display settings** (`headlinerDisplaySettings.ts`,
+`HeadlinerDisplaySettingsPanel.tsx`): crowd mode override, animation
+quality, Concert Pulse intensity, Crowd Memory on/subtle/normal, camera
+motion, and a viewport enabled/disabled switch — persisted in
+`localStorage`, never sent to the server, never canonical state. A
+player can only ever change how their *own* client renders an
+already-determined, server-authoritative show. Respects the system's
+`prefers-reduced-motion` by default and listens for live OS-level
+changes to it.
+
+### Testing
+
+apps/web gained its first pure-logic test suite — `npx tsx --test`, the
+exact runner apps/api's `node:test` suite already uses (zero new
+dependency; `tsx` was already a monorepo devDependency). 37 tests across
+`concertVisualState`, `crowdMemory`, `concertPulseRibbon`,
+`concertLighting`, `headlinerDisplaySettings`, and the fixed faction ->
+neighborhood mapping. This does not cover React rendering or browser
+behavior — there is still no component/browser test runner in this
+project; every test here is of a pure function or data table.
+
+### Known gaps / deferred to a future visual pass
+
+- No pixel-crowd sprite *sheet* (frame-based) support — the "pixel" mode
+  currently reuses the same single-sprite-per-state system as dots/
+  silhouettes with `image-rendering: pixelated`, not a true sprite sheet.
+- No drag-and-drop performer-position or neighborhood editor — positions
+  are fixed by slot order, not yet individually adjustable.
+- No particle-effect renderer (the admin toggle exists, reserved).
+- No automatic quality downgrade based on detected device capability —
+  quality is a manual player/admin setting, not auto-detected.
+- Concert Pulse's "attendance ratio" and "satisfaction" both derive from
+  `audienceRetention`, the closest existing metric — a genuinely separate
+  per-song attendance figure still doesn't exist in the engine (same
+  honest gap Part B/C already documented) and isn't fabricated here.

@@ -160,6 +160,18 @@ Calm, not flashy. Every animation in the reference implementation
 If an animation doesn't clearly serve legibility or the museum-arrival feeling,
 cut it.
 
+**Deliberate exception — Headliner's Concert Viewport (Phase Z.17.17):**
+the one surface in the app with intentional, continuous ambient motion —
+a swaying performer, a breathing crowd, a Concert Pulse ribbon. This is
+not "attention-seeking" motion on static content; the content itself is
+a live event, and stillness would misrepresent it. The same governing
+principles still apply everywhere within it: every animation is disabled
+under `prefers-reduced-motion` (falls back to a static/near-static
+state, never just removed), nothing flashes or strobes, and a player can
+turn the whole viewport off from the in-page display settings and lose
+zero information (everything it shows is also stated in text). See
+`docs/ARCHITECTURE.md`'s "Headliner Live Concert Viewport" section.
+
 ---
 
 ## Navigation
