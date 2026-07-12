@@ -4,6 +4,46 @@ All meaningful changes to Band Spectrum Mapper are documented here.
 
 ---
 
+## Phase Z.17.15 — Track Classification (2026-07-12)
+
+Adds a lightweight classification system to `Song` used by Headliner,
+Daily Challenge, Trivia, and (in the future) AI Setlists and Random
+Discovery — distinguishing normal songs from interludes, spoken pieces,
+covers, and other unusual tracks without a complicated admin interface.
+Four commits; see `docs/ARCHITECTURE.md`'s "Track Classification" section
+for full detail.
+
+- **Track Type** (`Song`/`Interlude`/`Spoken`/`Cover`/`Special`) and 5
+  independent eligibility flags (Headliner, Daily Challenge, Trivia, AI
+  Setlists, Random Discovery) added to `Song`, all with safe defaults
+  (Type=Song, eligible everywhere) so every existing track and every
+  existing import path picks them up automatically — no manual data
+  migration, and no track is ever removed from the database.
+- **Migration verified against a real Postgres instance**, not just
+  reasoned about: applied the hand-written migration to a table with a
+  pre-existing row, confirmed it backfilled correctly, then confirmed
+  `prisma db push` sees zero drift against the new schema.
+- **Headliner** (Quick Show + Campaign) *prefers* eligible tracks — a
+  strong new ranking penalty for ineligible songs in the candidate
+  selection algorithm, never a hard exclusion, so a track stays pickable
+  as a last resort. No score or gameplay formula changed.
+- **Daily Challenge** *only considers* Daily-Challenge-eligible tracks —
+  a real query-level filter, since its instruction was stricter. No
+  gameplay rebalance, no score changes.
+- **Trivia**'s four Song-drawing question types now require
+  Trivia-eligibility.
+- **AI Setlists / Random Discovery**: flags exist and are editable, but
+  honestly, neither feature exists in this codebase yet — nothing filters
+  by them today. Documented as a known gap, not silently dropped.
+- **Admin**: the existing single-song editor gained a compact Track Type
+  dropdown and a 5-checkbox eligibility grid, next to the existing
+  Rarity/remix controls.
+
+3 new determinism/preference tests added to `concertEngine.test.ts`; all
+128 API tests pass; monorepo typecheck and build clean throughout.
+
+---
+
 ## Phase Z.17.14 — Headliner Creative Bible implementation, Part 2 (2026-07-12)
 
 Continues Part 1 with the three remaining workstreams: **Part A** (Campaign

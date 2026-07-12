@@ -1542,3 +1542,108 @@ approximated).
   reduced-motion and visual behavior for the new components were verified
   by consistent use of the existing `motion-reduce:` Tailwind convention
   and manual review, not automated browser tests.
+
+---
+
+## Track Classification (Phase Z.17.15, 2026-07-12)
+
+A lightweight classification layer on `Song`, separating **what a track
+is** from **where it may be selected** — so gameplay/content systems can
+distinguish a normal song from an interlude, spoken-word piece, cover, or
+oddity without a complicated admin interface.
+
+### Schema
+
+`Song` gains two kinds of new columns, both with safe defaults so every
+existing row (and every existing song-creation path — manual admin
+creation, MusicBrainz/discography import, bootleg import — none of which
+set these fields explicitly) picks them up for free:
+
+- **`trackType`** (`TrackType` enum, `@default(Song)`): `Song`,
+  `Interlude`, `Spoken`, `Cover`, `Special` — exactly these five, no more.
+  Purely descriptive; nothing reads it to make a decision today (the
+  eligibility flags below do that instead) — it exists so an admin or a
+  future feature can ask "what kind of track is this" directly, without
+  inferring it from title text or `isInstrumental`.
+- **Five independent `Boolean` eligibility flags**, all `@default(true)`:
+  `eligibleHeadliner`, `eligibleDailyChallenge`, `eligibleTrivia`,
+  `eligibleAiSetlists`, `eligibleDiscovery`. Each is editable on its own —
+  a track can be Trivia-eligible but Headliner-ineligible (the Bible's own
+  worked example: a spoken-word answering-machine message is fun trivia
+  fodder but shouldn't turn up as a playable "song" in a concert).
+
+Migration `20260712000000_add_track_classification` follows this repo's
+existing hand-written-migration convention for a new enum column
+(`CREATE TYPE ... AS ENUM`, then `ALTER TABLE songs ADD COLUMN`, mirroring
+`20260528000000_add_album_type`'s `AlbumType` precedent). Verified
+end-to-end against a real, throwaway local Postgres instance rather than
+just reasoned about: built the `songs` table from the pre-migration
+schema, inserted a row with none of the new columns set, ran the
+migration SQL directly, and confirmed the row came back with
+`trackType='Song'` and all five `eligible*=true` — then ran `prisma db
+push` with the post-migration schema against that same database and got
+"already in sync," confirming the hand-written SQL is byte-for-byte what
+Prisma's own schema expects.
+
+`packages/shared` mirrors the existing `SONG_RARITIES`/`ALBUM_TYPES`
+pattern: `TRACK_TYPES` (+ `TRACK_TYPE_LABELS`/`_DESCRIPTIONS`) and
+`TRACK_ELIGIBILITY_FIELDS` (+ `TRACK_ELIGIBILITY_LABELS`) are the single
+source of truth the admin editor and any future consumer read from,
+rather than each surface hardcoding its own list.
+
+### Headliner: prefer, never remove
+
+Per the design brief's explicit instruction ("do NOT remove tracks from
+the database... prefer tracks using eligibility"), Quick Show and
+Campaign never exclude a headliner-ineligible song from the query or the
+candidate pool. Instead, `concertEngine.ts`'s `EngineSong` carries
+`eligibleHeadliner`, and `candidateValue` (the function that ranks which
+songs make it into a candidate hand) applies a large new ranking penalty
+(`TUNING.headlinerIneligiblePenalty`) when it's false — large enough that
+a healthy catalog almost never offers the ineligible song, but a catalog
+where it's the only song left can still fall back to it. This is a
+ranking preference, not a scoring/report-metric change: `buildReport`'s
+10 metrics and their weights are untouched. Campaign inherits this
+automatically — it runs through the same engine and the same
+`candidateValue`, so no separate filter was added to
+`buildCampaignShowBundle`.
+
+### Daily Challenge: hard filter
+
+Daily Challenge's instruction is stricter ("should only consider tracks
+eligible for Daily Challenge"), so it's a real query-level exclusion, not
+a preference. `concertDataService.ts`'s `buildShowBundle` gained a
+`mode: 'headliner' | 'daily'` parameter; `dailyChallengeService.ts` now
+calls it with `'daily'`, which adds `eligibleDailyChallenge: true` to the
+`prisma.song.findMany` `where` clause. No score formula or gameplay
+rebalance — this only changes which songs are ever offered.
+
+### Trivia
+
+All four Trivia question types that read from the `Song` table
+(highest-axis-score, lyric-snippet, radar-profile-guess,
+band-identification) now require `eligibleTrivia: true` via a shared
+`songFilter` built from the route's existing `bandFilter`. The two
+question types that never touched `Song` (album-release-order,
+album-art-identification) are unchanged.
+
+### AI Setlists and Random Discovery — flags defined, no consumer yet
+
+Honestly documented gap: this codebase has no existing "AI Setlist
+generation" feature (the only OpenAI-backed generator found,
+`campaignGeneratorRoutes.ts`, produces Band RPG adventure content, not a
+setlist) and no dedicated "Random Discovery" feature either.
+`eligibleAiSetlists` and `eligibleDiscovery` are defined on the schema,
+exposed in the admin editor, and ready for whichever future feature reads
+them — but nothing filters by them today, since there's nothing yet to
+filter. This is stated here rather than left to be discovered later.
+
+### Admin editor
+
+`SongDetailPage.tsx`'s existing inline "Edit Song" form — the project's
+only song-metadata editor — gained a Track Type `<select>` next to the
+existing Rarity dropdown, and a compact 2-column grid of the 5
+eligibility checkboxes, styled like the existing "This is a remix"
+checkbox. The read-only bulk Data Grid (`AdminDataGridPage.tsx`) was left
+alone: it has no edit capability for any field today, so there was no
+existing mutation path to wire new columns into.
