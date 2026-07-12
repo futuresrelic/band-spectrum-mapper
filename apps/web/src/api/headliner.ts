@@ -45,6 +45,18 @@ export interface PickResult {
   rarityMoment: boolean;
 }
 
+export type ReactionLogCategory =
+  | 'strongOpener' | 'weakOpener' | 'successfulContrast' | 'repetitiveStretch'
+  | 'energySurge' | 'emotionalPeak' | 'complexityOverload' | 'accessibilityBoost'
+  | 'deepCutSurprise' | 'casualFanLoss' | 'hardcoreExcitement' | 'crowdRecovery'
+  | 'spectrumCorrection' | 'spectrumDrift' | 'successfulEncoreSetup' | 'encoreDemand'
+  | 'poorTransition' | 'excellentTransition';
+
+export interface ReactionLogEntry {
+  category: ReactionLogCategory;
+  text: string;
+}
+
 export interface ConcertReport {
   metrics: Record<string, number>;
   overallScore: number;
@@ -105,6 +117,7 @@ export interface PickResponse {
   report?: ConcertReport;
   campaignResult?: CampaignFinishResult | null;
   dailyResult?: DailyFinishResult | null;
+  reactionLog?: ReactionLogEntry[];
   finished: boolean;
 }
 

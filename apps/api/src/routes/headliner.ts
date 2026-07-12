@@ -32,6 +32,7 @@ import {
   applyEncorePick, skipEncore, ENGINE_VERSION,
   type EngineState, type ConcertReport, type ShowBundle,
 } from '../services/concertEngine.js';
+import { buildReactionLogForSong } from '../services/liveReactionLog.js';
 import type { ConcertRun } from '@prisma/client';
 import type { StageKey } from '../services/campaignStages.js';
 import type { CampaignFinishResult } from '../services/campaignService.js';
@@ -277,6 +278,7 @@ headlinerRouter.post('/runs/:id/pick', requireAuth, ownerGuard(), async (req, re
       const result = applyEncorePick(state, songId);
       if (!result) throw new HttpError(400, 'That song is not a valid encore pick');
       const report = buildReport(result.state);
+      const reactionLog = buildReactionLogForSong(result.state);
       await prisma.concertRun.update({
         where: { id: run.id },
         data: {
@@ -289,7 +291,7 @@ headlinerRouter.post('/runs/:id/pick', requireAuth, ownerGuard(), async (req, re
       });
       const campaignResult = await maybeFinalizeCampaign(run, report, result.state);
       const dailyResult = await maybeFinalizeDaily(run, report, result.state);
-      res.json({ result, report, campaignResult, dailyResult, finished: true });
+      res.json({ result, report, campaignResult, dailyResult, reactionLog, finished: true });
       return;
     }
 
@@ -301,6 +303,7 @@ headlinerRouter.post('/runs/:id/pick', requireAuth, ownerGuard(), async (req, re
 
     if (isMainSetComplete(nextState)) {
       nextState = resolveEncoreEligibility(nextState);
+      const reactionLog = buildReactionLogForSong(nextState, true);
       if (nextState.encoreEligible) {
         const encoreHand = generateEncoreCandidates(nextState);
         nextState = encoreHand.state;
@@ -308,7 +311,7 @@ headlinerRouter.post('/runs/:id/pick', requireAuth, ownerGuard(), async (req, re
           where: { id: run.id },
           data: { picksJson: picks, stateJson: nextState as object },
         });
-        res.json({ result, encoreCandidates: encoreHand.candidates, encoreEligible: true, finished: false });
+        res.json({ result, encoreCandidates: encoreHand.candidates, encoreEligible: true, reactionLog, finished: false });
         return;
       }
       nextState = skipEncore(nextState);
@@ -325,16 +328,17 @@ headlinerRouter.post('/runs/:id/pick', requireAuth, ownerGuard(), async (req, re
       });
       const campaignResult = await maybeFinalizeCampaign(run, report, nextState);
       const dailyResult = await maybeFinalizeDaily(run, report, nextState);
-      res.json({ result, report, campaignResult, dailyResult, finished: true });
+      res.json({ result, report, campaignResult, dailyResult, reactionLog, finished: true });
       return;
     }
 
+    const reactionLog = buildReactionLogForSong(nextState);
     const hand = generateCandidates(nextState);
     await prisma.concertRun.update({
       where: { id: run.id },
       data: { picksJson: picks, stateJson: hand.state as object },
     });
-    res.json({ result, candidates: hand.candidates, finished: false });
+    res.json({ result, candidates: hand.candidates, reactionLog, finished: false });
     return;
   } catch (e) { next(e); }
 });

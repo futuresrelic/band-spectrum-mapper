@@ -22,7 +22,7 @@ import {
   headlinerApi, type CandidateSong, type PickResult, type ConcertReport,
   type FactionId, type LiveFrequencyTier, type Venue, type ConcertMode,
   type StageKey, type StageCard as StageCardData, type CampaignFinishResult,
-  type DailyFinishResult,
+  type DailyFinishResult, type ReactionLogEntry,
 } from '../api/headliner';
 import { LIVE_FREQUENCY_COLOR, LIVE_FREQUENCY_EMOJI } from '@band-spectrum-mapper/shared';
 
@@ -271,6 +271,7 @@ export default function HeadlinerPage() {
   const [candidates, setCandidates] = useState<CandidateSong[]>([]);
   const [encoreCandidates, setEncoreCandidates] = useState<CandidateSong[] | null>(null);
   const [lastResult, setLastResult] = useState<PickResult | null>(null);
+  const [reactionLog, setReactionLog] = useState<ReactionLogEntry[]>([]);
   const [playedTitles, setPlayedTitles] = useState<string[]>([]);
   const [report, setReport] = useState<ConcertReport | null>(null);
   const [campaignResult, setCampaignResult] = useState<CampaignFinishResult | null>(null);
@@ -328,6 +329,7 @@ export default function HeadlinerPage() {
       setCandidates(res.candidates);
       setPlayedTitles([]);
       setLastResult(null);
+      setReactionLog([]);
       setReport(null);
       setCampaignResult(null);
       setScreen('live');
@@ -350,6 +352,7 @@ export default function HeadlinerPage() {
       setCandidates(res.candidates);
       setPlayedTitles([]);
       setLastResult(null);
+      setReactionLog([]);
       setReport(null);
       setCampaignResult(null);
       setTutorialDismissed(false);
@@ -372,6 +375,7 @@ export default function HeadlinerPage() {
       setCandidates(res.candidates);
       setPlayedTitles([]);
       setLastResult(null);
+      setReactionLog([]);
       setReport(null);
       setCampaignResult(null);
       setDailyResult(null);
@@ -391,6 +395,7 @@ export default function HeadlinerPage() {
     try {
       const res = await headlinerApi.pick(runId, songId);
       setLastResult(res.result);
+      setReactionLog(res.reactionLog ?? []);
       setPlayedTitles((prev) => [...prev, res.result.song.title]);
       if (res.finished && res.report) {
         setReport(res.report);
@@ -440,6 +445,7 @@ export default function HeadlinerPage() {
     setCandidates([]);
     setEncoreCandidates(null);
     setLastResult(null);
+    setReactionLog([]);
     setPlayedTitles([]);
     setReport(null);
     setCampaignResult(null);
@@ -453,6 +459,7 @@ export default function HeadlinerPage() {
     setCandidates([]);
     setEncoreCandidates(null);
     setLastResult(null);
+    setReactionLog([]);
     setPlayedTitles([]);
     setReport(null);
     setCampaignResult(null);
@@ -872,6 +879,9 @@ export default function HeadlinerPage() {
                   {lastResult.rarityMoment && (
                     <div className="text-amber-400">⚡ A rare live moment — the crowd knows what this is.</div>
                   )}
+                  {reactionLog.map((entry, i) => (
+                    <div key={i} className="text-sky-400 italic">{entry.text}</div>
+                  ))}
                 </div>
               )}
             </div>

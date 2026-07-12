@@ -161,9 +161,13 @@ export interface SongHistoryEntry {
   factionDeltas: Record<FactionId, FactionDeltaEntry>;
   /** This song's own single best faction reaction (pre-dampening score), for honest peak-song detection — see concertShowHistory.ts. */
   bestFactionReaction: number;
+  /** Every faction's raw per-song reaction score (-100..100, pre-dampening) — the same values PickResult.factionReactions carries, just persisted per song. */
+  factionReactionScores: Record<FactionId, number>;
   crowdEnergyBefore: number;
   crowdEnergyAfter: number;
   crowdEnergyDelta: number;
+  /** This song's pacing penalty from the existing energy-curve formula (0 = no penalty) — same value PickResult.pacingPenalty carries. */
+  pacingPenalty: number;
   /** The 10 report metrics recomputed AS OF this point in the show — same formulas buildReport uses at the end, just run earlier. Not interpolated. */
   metricsSnapshot: Record<ScoreMetric, number>;
   /** crowdEnergyAfter is a new running high/low across the whole show so far (ties do not count as new). */
@@ -545,9 +549,11 @@ export function applyPick(state: EngineState, songId: string): PickResult | null
     factionMomentumAfter: nextMomentum,
     factionDeltas,
     bestFactionReaction: Math.max(...FACTIONS.map((f) => reactions[f.id]!.score)),
+    factionReactionScores: FACTIONS.reduce((acc, f) => { acc[f.id] = reactions[f.id]!.score; return acc; }, {} as Record<FactionId, number>),
     crowdEnergyBefore,
     crowdEnergyAfter,
     crowdEnergyDelta,
+    pacingPenalty,
     metricsSnapshot: computeMetricsSnapshot(stateBeforeHistory),
     isNewHighEnergy: crowdEnergyAfter > Math.max(...priorEnergies),
     isNewLowEnergy: crowdEnergyAfter < Math.min(...priorEnergies),
