@@ -125,6 +125,7 @@ function makeSong(id: string, albumId: string | null, liveTier: EngineSong['live
       accessible: 50, psychedelic: 50, emotional: 50, aggressive: 50, improvisational: 50,
     },
     audienceIsFallback: false, liveTier, liveSource: 'live', liveValue: 30,
+    eligibleHeadliner: true,
   };
 }
 

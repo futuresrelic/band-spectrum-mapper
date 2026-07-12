@@ -30,6 +30,7 @@ function makeSong(id: string, overrides: Partial<EngineSong> = {}): EngineSong {
       accessible: 50, psychedelic: 50, emotional: 50, aggressive: 50, improvisational: 50,
     },
     audienceIsFallback: false, liveTier: 'Frequent', liveSource: 'live', liveValue: 30,
+    eligibleHeadliner: true,
     ...overrides,
   };
 }

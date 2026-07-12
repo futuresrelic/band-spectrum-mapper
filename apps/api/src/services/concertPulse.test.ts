@@ -32,6 +32,7 @@ function makeSong(id: string, overrides: Partial<EngineSong> = {}): EngineSong {
     durationSeconds: 240, axis, tempoEnergy: 6,
     audience: { ...NEUTRAL_AUDIENCE, ...(overrides.audience ?? {}) },
     audienceIsFallback: false, liveTier: 'Frequent', liveSource: 'live', liveValue: 30,
+    eligibleHeadliner: true,
     ...overrides,
   };
 }

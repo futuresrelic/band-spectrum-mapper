@@ -42,6 +42,12 @@ export interface Song {
   isRemix: boolean;
   remixOfSongId: string | null;
   rarity: string;
+  trackType: string;
+  eligibleHeadliner: boolean;
+  eligibleDailyChallenge: boolean;
+  eligibleTrivia: boolean;
+  eligibleAiSetlists: boolean;
+  eligibleDiscovery: boolean;
   createdAt: string;
   updatedAt: string;
 }

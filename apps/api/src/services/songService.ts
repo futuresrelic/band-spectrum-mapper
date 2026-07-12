@@ -86,6 +86,12 @@ export const songService = {
         ...(data.isRemix !== undefined && { isRemix: data.isRemix }),
         ...(data.remixOfSongId !== undefined && { remixOfSongId: data.remixOfSongId }),
         ...(data.rarity !== undefined && { rarity: data.rarity }),
+        ...(data.trackType !== undefined && { trackType: data.trackType }),
+        ...(data.eligibleHeadliner !== undefined && { eligibleHeadliner: data.eligibleHeadliner }),
+        ...(data.eligibleDailyChallenge !== undefined && { eligibleDailyChallenge: data.eligibleDailyChallenge }),
+        ...(data.eligibleTrivia !== undefined && { eligibleTrivia: data.eligibleTrivia }),
+        ...(data.eligibleAiSetlists !== undefined && { eligibleAiSetlists: data.eligibleAiSetlists }),
+        ...(data.eligibleDiscovery !== undefined && { eligibleDiscovery: data.eligibleDiscovery }),
       },
     });
   },

@@ -96,6 +96,17 @@ enum SongRarity {
   Mythic
 }
 
+// Track Classification (Phase Z.17.15): what a track IS. Kept separate
+// from eligibility (WHERE it may be selected) — see the eligible* flags
+// below on Song.
+enum TrackType {
+  Song       // Normal musical track. Default for imported tracks.
+  Interlude  // Intro, outro, transition, ambience, soundscape.
+  Spoken     // Spoken word, comedy, narration, skits, poems.
+  Cover      // Song written by another artist.
+  Special    // Hidden tracks, bonus tracks, demos, alternate versions.
+}
+
 model Song {
   id              String   @id @default(cuid())
   bandId          String
@@ -111,6 +122,12 @@ model Song {
   sourceSongId    String?
   noLyricsAt      DateTime?
   rarity          SongRarity @default(Common)
+  trackType              TrackType @default(Song)
+  eligibleHeadliner      Boolean   @default(true)
+  eligibleDailyChallenge Boolean   @default(true)
+  eligibleTrivia         Boolean   @default(true)
+  eligibleAiSetlists     Boolean   @default(true)
+  eligibleDiscovery      Boolean   @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

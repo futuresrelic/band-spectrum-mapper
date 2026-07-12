@@ -39,6 +39,7 @@ function makeSong(id: string, overrides: Partial<EngineSong> = {}): EngineSong {
     liveTier: 'Frequent',
     liveSource: 'live',
     liveValue: 30,
+    eligibleHeadliner: true,
     ...overrides,
   };
 }
@@ -228,4 +229,68 @@ test('Campaign rules: same seed + same picks reproduces identical results under 
   const b = playRehearsalRoom('campaign-determinism-seed');
   assert.deepEqual(a.pickedIds, b.pickedIds);
   assert.deepEqual(a.report, b.report);
+});
+
+// ---------------------------------------------------------------------------
+// Track Classification (Phase Z.17.15): eligibleHeadliner is a strong ranking
+// preference, never a hard exclusion — a healthy catalog should almost never
+// surface an ineligible song, but a catalog with no other choice still can.
+// ---------------------------------------------------------------------------
+
+test('a headliner-ineligible song is preferred against, not excluded — a healthy catalog almost never offers it', () => {
+  const songs: EngineSong[] = [makeSong('ineligible', { eligibleHeadliner: false })];
+  for (let i = 0; i < 19; i++) songs.push(makeSong(`eligible-${i}`));
+  const bundle: ShowBundle = {
+    bandId: 'band-1', bandName: 'Test Band', songs,
+    targetSpectrum: { aggression: 5, complexity: 5, atmosphere: 5, emotion: 5, psychedelic: 5, concept: 5 },
+    venue: null, showLengthBudgetSeconds: 60 * 70, rules: DEFAULT_SHOW_RULES,
+  };
+
+  let offeredIneligible = false;
+  for (let seedIdx = 0; seedIdx < 25; seedIdx++) {
+    const state = createInitialState(bundle, `eligibility-preference-seed-${seedIdx}`);
+    const hand = generateCandidates(state);
+    if (hand.candidates.some((c) => c.id === 'ineligible')) offeredIneligible = true;
+  }
+  assert.equal(offeredIneligible, false, 'a 20-song catalog should never need to offer the one ineligible song in its very first hand');
+});
+
+test('a headliner-ineligible song remains selectable when it is genuinely the only song left', () => {
+  const bundle = makeBundle(1, DEFAULT_SHOW_RULES);
+  bundle.songs[0]!.eligibleHeadliner = false;
+  bundle.rules = { ...DEFAULT_SHOW_RULES, minSongs: 1, maxSongs: 1 };
+  const state = createInitialState(bundle, 'only-ineligible-seed');
+  const hand = generateCandidates(state);
+  assert.equal(hand.candidates.length, 1);
+  assert.equal(hand.candidates[0]!.id, 's0');
+  const result = applyPick(hand.state, 's0');
+  assert.ok(result, 'the only song in the catalog must still be pickable even when ineligible for Headliner — never removed from the pool');
+});
+
+test('eligibleHeadliner never changes deterministic replay behavior — same seed still reproduces the same show', () => {
+  const songs: EngineSong[] = [makeSong('maybe-ineligible', { eligibleHeadliner: false })];
+  for (let i = 0; i < 9; i++) songs.push(makeSong(`s${i}`));
+  const bundle: ShowBundle = {
+    bandId: 'band-1', bandName: 'Test Band', songs,
+    targetSpectrum: { aggression: 5, complexity: 5, atmosphere: 5, emotion: 5, psychedelic: 5, concept: 5 },
+    venue: null, showLengthBudgetSeconds: 60 * 70, rules: DEFAULT_SHOW_RULES,
+  };
+
+  function play(seed: string): string[] {
+    let state = createInitialState(bundle, seed);
+    const pickedIds: string[] = [];
+    while (!isMainSetComplete(state)) {
+      const hand = generateCandidates(state);
+      state = hand.state;
+      const choice = hand.candidates[0];
+      if (!choice) break;
+      const result = applyPick(state, choice.id);
+      if (!result) break;
+      state = result.state;
+      pickedIds.push(choice.id);
+    }
+    return pickedIds;
+  }
+
+  assert.deepEqual(play('eligibility-determinism-seed'), play('eligibility-determinism-seed'));
 });

@@ -57,6 +57,16 @@ export interface EngineSong {
   liveTier: LiveFrequencyTier;
   liveSource: 'live' | 'estimated';
   liveValue: number;
+  /**
+   * Track Classification (Phase Z.17.15): false for tracks marked
+   * ineligible for Headliner (e.g. a spoken-word interlude). This never
+   * removes the song from the candidate pool — it's a strong ranking
+   * preference in candidateValue, not a hard filter, so a small catalog
+   * can still fall back to it. Daily Challenge, which needs a hard
+   * filter, excludes ineligible songs at the query level instead — see
+   * concertDataService.ts's buildShowBundle.
+   */
+  eligibleHeadliner: boolean;
 }
 
 export interface EngineVenue {
@@ -194,6 +204,11 @@ export const TUNING = {
   albumClumpPenalty: 18,
   axisSaturationPenalty: 14,
   pacingMismatchWeight: 0.8,
+  // Track Classification (Phase Z.17.15): a strong ranking preference away
+  // from headliner-ineligible tracks (e.g. spoken-word interludes) — large
+  // enough that they almost never surface in a normal-sized catalog's
+  // candidate hand, but never a hard exclusion from the pool itself.
+  headlinerIneligiblePenalty: 500,
 
   // energy curve checkpoints: [progressFraction 0-1, expected tempoEnergy 0-10]
   energyCurve: [
@@ -386,7 +401,8 @@ function candidateValue(song: EngineSong, state: EngineState): number {
   const expected = expectedEnergyAt(progress);
   const actualTempo = song.tempoEnergy ?? 5;
   const pacing = -Math.abs(actualTempo - expected) * TUNING.pacingMismatchWeight;
-  return fit + rarity + variety + clump + pacing;
+  const eligibility = song.eligibleHeadliner ? 0 : -TUNING.headlinerIneligiblePenalty;
+  return fit + rarity + variety + clump + pacing + eligibility;
 }
 
 /**

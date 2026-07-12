@@ -86,6 +86,44 @@ export type UpdateAlbumInput = z.infer<typeof updateAlbumSchema>;
 export const SONG_RARITIES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic'] as const;
 export type SongRarity = typeof SONG_RARITIES[number];
 
+// ---------------------------------------------------------------------------
+// Track Classification (Phase Z.17.15) — what a track IS (trackType) vs
+// where it may be selected (the eligible* flags). New imports default to
+// Song, eligible everywhere; only unusual tracks need manual adjustment.
+// ---------------------------------------------------------------------------
+
+export const TRACK_TYPES = ['Song', 'Interlude', 'Spoken', 'Cover', 'Special'] as const;
+export type TrackType = typeof TRACK_TYPES[number];
+
+export const TRACK_TYPE_LABELS: Record<TrackType, string> = {
+  Song: 'Song',
+  Interlude: 'Interlude',
+  Spoken: 'Spoken',
+  Cover: 'Cover',
+  Special: 'Special',
+};
+
+export const TRACK_TYPE_DESCRIPTIONS: Record<TrackType, string> = {
+  Song: 'Normal musical track.',
+  Interlude: 'Intro, outro, transition, ambience, soundscape.',
+  Spoken: 'Spoken word, comedy, narration, skits, poems.',
+  Cover: 'Song written by another artist.',
+  Special: 'Hidden tracks, bonus tracks, demos, alternate versions.',
+};
+
+export const TRACK_ELIGIBILITY_FIELDS = [
+  'eligibleHeadliner', 'eligibleDailyChallenge', 'eligibleTrivia', 'eligibleAiSetlists', 'eligibleDiscovery',
+] as const;
+export type TrackEligibilityField = typeof TRACK_ELIGIBILITY_FIELDS[number];
+
+export const TRACK_ELIGIBILITY_LABELS: Record<TrackEligibilityField, string> = {
+  eligibleHeadliner: 'Headliner',
+  eligibleDailyChallenge: 'Daily Challenge',
+  eligibleTrivia: 'Trivia',
+  eligibleAiSetlists: 'AI Setlists',
+  eligibleDiscovery: 'Random Discovery',
+};
+
 export const createSongSchema = z.object({
   title: z.string().min(1).max(300),
   slug: slugSchema.optional(),
@@ -96,6 +134,12 @@ export const createSongSchema = z.object({
   isRemix: z.boolean().optional(),
   remixOfSongId: z.string().cuid().nullable().optional(),
   rarity: z.enum(SONG_RARITIES).optional(),
+  trackType: z.enum(TRACK_TYPES).optional(),
+  eligibleHeadliner: z.boolean().optional(),
+  eligibleDailyChallenge: z.boolean().optional(),
+  eligibleTrivia: z.boolean().optional(),
+  eligibleAiSetlists: z.boolean().optional(),
+  eligibleDiscovery: z.boolean().optional(),
 });
 
 export const updateSongSchema = createSongSchema.partial();

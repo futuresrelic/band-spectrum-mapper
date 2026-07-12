@@ -161,7 +161,9 @@ export async function getOrCreateDailyChallenge(challengeDate: string): Promise<
   const combo = await selectDailyCombo(challengeDate);
   const seed = buildDailySeed(challengeDate, combo.bandId, combo.venueId, combo.contextKey);
 
-  const baseBundle = await buildShowBundle(combo.bandId, combo.venueId);
+  // Track Classification (Phase Z.17.15): Daily Challenge only considers
+  // tracks eligible for Daily Challenge — a hard filter, not a preference.
+  const baseBundle = await buildShowBundle(combo.bandId, combo.venueId, 'daily');
   const context = DAILY_CONTEXT_CONFIG[combo.contextKey];
   const bundle: ShowBundle = {
     ...baseBundle,

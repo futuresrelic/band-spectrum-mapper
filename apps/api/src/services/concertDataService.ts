@@ -37,6 +37,7 @@ const SONG_SELECT = {
   albumId: true,
   durationSeconds: true,
   rarity: true,
+  eligibleHeadliner: true,
   album: { select: { title: true } },
   score: { select: { aggression: true, complexity: true, atmosphere: true, emotion: true, psychedelic: true, concept: true } },
   musicScore: { select: { tempoEnergy: true } },
@@ -80,6 +81,7 @@ function mapSongRow(s: SongRow): EngineSong {
     liveTier: tier,
     liveSource: source,
     liveValue: s.bandRpgProfile?.liveValue ?? 0,
+    eligibleHeadliner: s.eligibleHeadliner,
   };
 }
 
@@ -145,11 +147,21 @@ async function loadVenue(venueId: string | null): Promise<EngineVenue | null> {
 }
 
 /**
+ * Track Classification (Phase Z.17.15): Quick Show and Campaign prefer
+ * eligible tracks (a strong ranking penalty in concertEngine.ts's
+ * candidateValue — every song stays in the pool, see EngineSong's doc
+ * comment). Daily Challenge is stricter: "should only consider tracks
+ * eligible for Daily Challenge" is a hard requirement, so its pool is
+ * filtered at the query level instead.
+ */
+export type SongPoolMode = 'headliner' | 'daily';
+
+/**
  * Assembles the full playable song catalog + identity target for a band.
  * Called exactly once, at POST /api/headliner/runs — never again for the
  * lifetime of that run.
  */
-export async function buildShowBundle(bandId: string, venueId: string | null): Promise<ShowBundle> {
+export async function buildShowBundle(bandId: string, venueId: string | null, mode: SongPoolMode = 'headliner'): Promise<ShowBundle> {
   const band = await prisma.band.findUnique({ where: { id: bandId }, select: { id: true, name: true } });
   if (!band) throw new HttpError(404, 'Band not found');
 
@@ -158,7 +170,10 @@ export async function buildShowBundle(bandId: string, venueId: string | null): P
     throw new HttpError(422, `This band needs at least ${MIN_SCORED_SONGS_FOR_BAND} spectrum-scored songs before Headliner can be played (has ${scoredSongCount}).`);
   }
 
-  const rows = await prisma.song.findMany({ where: { bandId }, select: SONG_SELECT });
+  const rows = await prisma.song.findMany({
+    where: mode === 'daily' ? { bandId, eligibleDailyChallenge: true } : { bandId },
+    select: SONG_SELECT,
+  });
   const songs = rows.map(mapSongRow);
   const venue = await loadVenue(venueId);
 
@@ -181,6 +196,11 @@ export async function buildShowBundle(bandId: string, venueId: string | null): P
  * Quick Show — so a small recovered catalog is a genuine gameplay
  * constraint (per the design spec: "difficulty comes from catalog
  * limitations, not hidden information"), never a shrunk, easier target.
+ *
+ * No `eligibleHeadliner` query filter here, deliberately — Campaign is
+ * Headliner gameplay, so it gets the same soft preference (not a hard
+ * exclusion) that Quick Show gets, already applied universally by
+ * concertEngine.ts's candidateValue once mapSongRow carries the flag.
  */
 export async function buildCampaignShowBundle(
   bandId: string,
