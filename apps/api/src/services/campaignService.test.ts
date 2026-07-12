@@ -35,8 +35,9 @@ test('checkStageReadiness: 0 recovered songs is never eligible and names the exa
   const r = checkStageReadiness(stage, 'TOOL', []);
   assert.equal(r.eligible, false);
   assert.equal(r.missingSongs, 5);
-  assert.ok(r.message?.includes('recovered 0 TOOL song'));
-  assert.ok(r.message?.includes('Local Bar requires at least 5 songs'));
+  assert.ok(r.message?.includes('you have 0 TOOL song'));
+  assert.ok(r.message?.includes('Local Bar books sets of'));
+  assert.ok(r.message?.includes('needs at least 5 recovered songs'));
 });
 
 test('checkStageReadiness: a few recovered songs below the requirement stays ineligible with an exact count', () => {
@@ -50,7 +51,7 @@ test('checkStageReadiness: a few recovered songs below the requirement stays ine
   const r = checkStageReadiness(stage, 'TOOL', catalog);
   assert.equal(r.eligible, false);
   assert.equal(r.missingSongs, 1);
-  assert.ok(r.message?.includes('recovered 4 TOOL songs'));
+  assert.ok(r.message?.includes('you have 4 TOOL songs'));
 });
 
 test('checkStageReadiness: enough songs and duration is eligible', () => {

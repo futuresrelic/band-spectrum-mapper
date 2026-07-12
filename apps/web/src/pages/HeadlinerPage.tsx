@@ -42,13 +42,24 @@ function formatCountdown(ms: number): string {
   return `${h}h ${m}m`;
 }
 
-function Countdown() {
+function useCountdown(): string {
   const [ms, setMs] = useState(() => msUntilNextUtcMidnight(new Date()));
   useEffect(() => {
     const id = setInterval(() => setMs(msUntilNextUtcMidnight(new Date())), 30000);
     return () => clearInterval(id);
   }, []);
-  return <span>{formatCountdown(ms)} until next challenge (00:00 UTC)</span>;
+  return formatCountdown(ms);
+}
+
+/** "Today's show holds the stage for another Xh Ym. A new room, a new band, a new puzzle at the reset (00:00 UTC)." */
+function Countdown() {
+  const remaining = useCountdown();
+  return <span>{remaining} until next challenge (00:00 UTC)</span>;
+}
+
+/** Bare "Xh Ym" for embedding inline inside another sentence. */
+function CountdownInline() {
+  return <>{useCountdown()}</>;
 }
 
 function yesterdayUtcDateString(): string {
@@ -169,7 +180,7 @@ function ReportRadar({ metrics }: { metrics: Record<string, number> }) {
   );
 }
 
-function StageCardTile({ stage, onPlay }: { stage: StageCardData; onPlay: () => void }) {
+function StageCardTile({ stage, previousStage, onPlay }: { stage: StageCardData; previousStage: StageCardData | undefined; onPlay: () => void }) {
   const locked = stage.status === 'locked';
   return (
     <div
@@ -188,6 +199,12 @@ function StageCardTile({ stage, onPlay }: { stage: StageCardData; onPlay: () => 
         </div>
         {stage.bestStars > 0 && <StarRow stars={stage.bestStars} />}
       </div>
+
+      {locked && previousStage && (
+        <p className="text-xs text-gray-500">
+          {stage.name} books on reputation: it opens when you've earned {previousStage.unlockRequiresStars} star{previousStage.unlockRequiresStars === 1 ? '' : 's'} at {previousStage.name} — you have {previousStage.bestStars}. One more good night there and this door opens.
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-500">
         <span>Capacity: {stage.capacity.toLocaleString()}</span>
@@ -535,7 +552,11 @@ export default function HeadlinerPage() {
 
             {campaignBandsQuery.data && campaignBandsQuery.data.bands.length === 0 && (
               <div className="text-center py-6 space-y-3">
-                <p className="text-sm text-gray-400">You have not recovered any songs for any band yet.</p>
+                <p className="text-sm text-gray-400 max-w-md mx-auto">
+                  Your Collection is empty — Campaign shows are built entirely from songs you've recovered in Band RPG.
+                  Recover your first few songs there, and the Rehearsal Room will be waiting.
+                  <span className="text-gray-500"> (Quick Show doesn't need recoveries, if you want to play tonight.)</span>
+                </p>
                 <div className="flex flex-wrap justify-center gap-3">
                   <Link to="/play/band-rpg" className="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
                     Play Band RPG →
@@ -590,8 +611,13 @@ export default function HeadlinerPage() {
                 </div>
 
                 <div className="grid grid-cols-1 gap-4">
-                  {ladder.stages.map((stage) => (
-                    <StageCardTile key={stage.key} stage={stage} onPlay={() => startCampaignStage(stage.key)} />
+                  {ladder.stages.map((stage, i) => (
+                    <StageCardTile
+                      key={stage.key}
+                      stage={stage}
+                      previousStage={i > 0 ? ladder.stages[i - 1] : undefined}
+                      onPlay={() => startCampaignStage(stage.key)}
+                    />
                   ))}
                 </div>
               </>
@@ -616,18 +642,24 @@ export default function HeadlinerPage() {
                   <p className="text-xs text-gray-500 mt-2">{dailyToday.contextDescription}</p>
                 </div>
 
-                <ul className="text-sm text-gray-400 space-y-1.5 border-t border-gray-800 pt-4">
-                  <li>• Everyone who plays today receives this exact same show — same band, same crowd, same starting seed.</li>
-                  <li>• Your <span className="text-white">first completed run today becomes your official score</span> — it can't be replaced by a later run.</li>
-                  <li>• After that, replaying becomes <span className="text-white">Practice</span> — it won't touch the leaderboard.</li>
-                  <li>• The server computes and verifies your score — nothing calculated in your browser is ever trusted as final.</li>
+                <p className="text-sm text-gray-300 border-t border-gray-800 pt-4">
+                  Today's show: {dailyToday.bandName} for a {dailyToday.contextLabel} crowd. Everyone playing today gets
+                  this exact room, this exact catalog, these exact conditions — one shared puzzle, one official
+                  attempt. Read the house, build your set, take the stage.
+                </p>
+
+                <ul className="text-sm text-gray-400 space-y-1.5">
+                  <li>• Your first completed run is your Official Attempt — it's the one that goes on the leaderboard, and it can't be re-run.</li>
+                  <li>• Practice attempts use today's exact show — same crowd, same candidates — but never touch the leaderboard. Rehearse freely.</li>
+                  <li>• No pressure to be perfect; every player faces this room exactly once for real. The server computes and verifies your score.</li>
                 </ul>
 
                 {dailyToday.myResult && (
                   <div className="rounded-xl bg-sky-950/40 border border-sky-800/50 p-4 text-sm">
-                    <div className="text-sky-400 font-semibold">Official score already submitted</div>
-                    <div className="text-gray-400 mt-1">
-                      Score {dailyToday.myResult.score}{dailyToday.myResult.rank ? ` · Rank #${dailyToday.myResult.rank}` : ''} — playing again will be Practice only.
+                    <div className="text-gray-300">
+                      Your Official Attempt for today is in the books — {dailyToday.myResult.score}
+                      {dailyToday.myResult.rank ? `, rank #${dailyToday.myResult.rank}` : ''}. The room stays open for
+                      practice attempts until the reset in <CountdownInline />; practice never changes your official result.
                     </div>
                   </div>
                 )}
@@ -677,7 +709,9 @@ export default function HeadlinerPage() {
                   </div>
                 )}
                 {dailyLeaderboardQuery.data.entries.length === 0 ? (
-                  <p className="text-sm text-gray-500 text-center py-8">No official scores yet for this date.</p>
+                  <p className="text-sm text-gray-500 text-center py-8 max-w-sm mx-auto">
+                    No verified results yet for this show — the board fills as players complete their Official Attempts. Play yours and this list starts with you.
+                  </p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -809,7 +843,7 @@ export default function HeadlinerPage() {
               </div>
               <FactionBars reactions={lastResult?.factionReactions ?? null} />
               {lastResult && (
-                <div className="mt-4 space-y-1 text-xs text-gray-400 border-t border-gray-800 pt-3">
+                <div className="mt-4 space-y-1.5 text-sm text-gray-400 border-t border-gray-800 pt-3">
                   <div className="font-semibold text-white">{lastResult.song.title}</div>
                   {Object.values(lastResult.factionReactions).slice(0, 2).map((r, i) => (
                     <div key={i}>{r.explanation}</div>
@@ -921,15 +955,22 @@ export default function HeadlinerPage() {
                   )}
                 </div>
 
+                <div className="grid grid-cols-3 gap-3 text-center text-xs text-gray-500 border-y border-gray-800 py-3">
+                  <div><div className="text-white font-semibold text-sm">{Math.round(dailyResult.finalAttendance)}%</div>Final Attendance</div>
+                  <div><div className="text-white font-semibold text-sm">{Math.round(dailyResult.satisfaction)}%</div>Satisfaction</div>
+                  <div><div className="text-white font-semibold text-sm">{dailyResult.score}</div>Score</div>
+                </div>
+
                 <div className="text-sm text-gray-400 space-y-1">
                   {dailyResult.isOfficial ? (
-                    <p>This is your official score for today — it's locked in and won't be replaced.</p>
+                    <p>Verified Result — official and final. Same show, same rules, everyone: this is where your night stands.</p>
                   ) : (
                     <p>
                       This was a Practice run and does not affect the leaderboard. Your official score remains{' '}
                       <span className="text-white font-semibold">{dailyResult.officialScore}</span>.
                     </p>
                   )}
+                  <p className="text-xs text-gray-600">Satisfaction averages all ten measures equally; Score weights what this crowd cared about.</p>
                   <p>{dailyResult.participantCount} player{dailyResult.participantCount === 1 ? '' : 's'} have played today's challenge.</p>
                 </div>
 

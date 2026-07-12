@@ -87,6 +87,8 @@ export interface StartRunResponse {
 export interface DailyFinishResult {
   isOfficial: boolean;
   score: number;
+  finalAttendance: number;
+  satisfaction: number;
   officialScore: number | null;
   rank: number | null;
   participantCount: number;
@@ -136,6 +138,7 @@ export interface StageCard {
   bestStars: number;
   readiness: StageReadiness;
   tutorial: boolean;
+  unlockRequiresStars: number;
 }
 
 export interface RecoveredBandSummary {

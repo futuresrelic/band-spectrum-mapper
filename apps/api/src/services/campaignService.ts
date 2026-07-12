@@ -49,6 +49,14 @@ export interface StageReadiness {
   message: string | null;
 }
 
+/**
+ * Message wording follows Creative Bible §11 items #2/#3 — "too few songs"
+ * and "insufficient total duration" are distinct templates there; a stage
+ * short on both leads with the songs shortfall (the more fundamental gap)
+ * and folds the duration fact in, so the player never has to piece two
+ * separate messages together. Never a bare "Locked" — eligibility logic
+ * (missingSongs/missingDurationSeconds/eligible) is unchanged.
+ */
 export function checkStageReadiness(
   stage: CampaignStageConfig,
   bandName: string,
@@ -61,9 +69,16 @@ export function checkStageReadiness(
 
   let message: string | null = null;
   if (!eligible) {
-    const reqMin = Math.round(stage.requiredMinDurationSeconds / 60);
-    message = `You have recovered ${catalog.length} ${bandName} song${catalog.length === 1 ? '' : 's'}. `
-      + `${stage.name} requires at least ${stage.requiredRecoveredSongs} songs or ${reqMin} minutes of playable material.`;
+    if (missingSongs > 0) {
+      const { minSongs, maxSongs } = stage.rulesOverride;
+      message = `${stage.name} books sets of ${minSongs}–${maxSongs} songs, so it needs at least ${stage.requiredRecoveredSongs} recovered songs — `
+        + `you have ${catalog.length} ${bandName} song${catalog.length === 1 ? '' : 's'}. Recover ${missingSongs} more in Band RPG and this room opens.`;
+    } else {
+      const currentMin = Math.round(totalDuration / 60);
+      const shortMin = Math.max(1, Math.round(missingDurationSeconds / 60));
+      message = `${stage.name} runs a ${stage.showLengthMinutes}-minute show, and your recovered songs total ${currentMin} minutes — `
+        + `${shortMin} short. A couple more recoveries covers it; longer songs cover it faster.`;
+    }
   }
   return { eligible, missingSongs, missingDurationSeconds, message };
 }
@@ -173,6 +188,8 @@ export interface StageCard {
   bestStars: number;
   readiness: StageReadiness;
   tutorial: boolean;
+  /** Stars required at THIS stage to unlock the next one — exposed so a locked next stage can explain itself (Creative Bible §11, never a bare "Locked"). */
+  unlockRequiresStars: number;
 }
 
 export interface CampaignLadder {
@@ -236,6 +253,7 @@ export async function getLadder(userId: string, bandId: string): Promise<Campaig
       bestStars: best?.stars ?? 0,
       readiness: checkStageReadiness(stage, band.name, catalog),
       tutorial: stage.tutorial,
+      unlockRequiresStars: stage.unlockRequiresStars,
     };
   });
 

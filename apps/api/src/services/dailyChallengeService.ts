@@ -212,6 +212,8 @@ export function contextDescription(contextKey: string): string {
 export interface DailyFinishResult {
   isOfficial: boolean;
   score: number;
+  finalAttendance: number;
+  satisfaction: number;
   officialScore: number | null; // the standing official score for this user+challenge, if different from this run's
   rank: number | null;
   participantCount: number;
@@ -281,6 +283,8 @@ export async function finalizeDailyRun(
   return {
     isOfficial,
     score: report.overallScore,
+    finalAttendance: metricsFor.finalAttendance,
+    satisfaction: metricsFor.satisfaction,
     officialScore: standing?.score ?? null,
     rank: myRank,
     participantCount: allResults.length,
