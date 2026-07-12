@@ -64,7 +64,7 @@ export default function ConcertStage({
           <div key={slot} className="flex flex-col items-center gap-0.5" title={SLOT_LABEL[slot]}>
             {sprite ? (
               <img
-                src={sprite} alt=""
+                src={sprite} alt="" loading="lazy" decoding="async"
                 className="motion-reduce:animate-none"
                 style={{ width: shape.w * 1.6, height: shape.h * 1.4, animation: anim, transformOrigin: 'bottom center' }}
               />

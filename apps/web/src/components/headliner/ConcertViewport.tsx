@@ -83,6 +83,8 @@ function Spectator({
         src={sprite}
         alt=""
         aria-hidden
+        loading="lazy"
+        decoding="async"
         className={`motion-reduce:animate-none ${bobClass}`}
         style={{
           width: size, height: size, animationDelay: `${delayMs}ms`, opacity: state === 'walkout' ? 0.25 : 1,
@@ -233,7 +235,7 @@ export default function ConcertViewport({
           </div>
 
           {config.stageForegroundUrl && (
-            <img src={config.stageForegroundUrl} alt="" aria-hidden className="w-full mt-2 rounded-lg relative" />
+            <img src={config.stageForegroundUrl} alt="" aria-hidden loading="lazy" decoding="async" className="w-full mt-2 rounded-lg relative" />
           )}
         </div>
       </div>
