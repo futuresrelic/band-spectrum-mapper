@@ -38,6 +38,8 @@ export interface FactionPulseSummary {
   atWalkoutRisk: boolean;
   /** 0 = most relevant. Stable, deterministic order — never randomized, never hidden. */
   relevanceRank: number;
+  /** This faction's real share of the crowd (ShowRules.factionShare, 0-1) — for proportional crowd-viewport sizing, not a new value. */
+  crowdShare: number;
 }
 
 export interface ConcertPulseState {
@@ -112,6 +114,7 @@ export function rankFactionsByRelevance(state: EngineState): FactionPulseSummary
   scored.sort((a, b) => b.relevanceScore - a.relevanceScore || a.declaredIndex - b.declaredIndex);
   return scored.map((s, rank) => ({
     id: s.id, direction: s.direction, intensity: s.intensity, atWalkoutRisk: s.atWalkoutRisk, relevanceRank: rank,
+    crowdShare: factionShare[s.id],
   }));
 }
 

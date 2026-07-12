@@ -106,6 +106,15 @@ test('a faction at walkout risk always ranks first, regardless of the other rele
   assert.equal(casual.atWalkoutRisk, true);
 });
 
+test('each faction summary carries its real ShowRules.factionShare, not a fabricated crowd size', () => {
+  const songs = Array.from({ length: 4 }, (_, i) => makeSong(`s${i}`));
+  const customShare = { casual: 0.5, hardcore: 0.2, deepCut: 0.1, progHeads: 0.1, firstTimers: 0.1 };
+  const bundle = makeBundle(songs, { factionShare: customShare });
+  const state = createInitialState(bundle, 'share-seed');
+  const ranked = rankFactionsByRelevance(state);
+  for (const f of ranked) assert.equal(f.crowdShare, customShare[f.id]);
+});
+
 test('rankFactionsByRelevance is deterministic for the same state', () => {
   const songs = Array.from({ length: 6 }, (_, i) => makeSong(`s${i}`));
   const state = playFullShow('determinism-rank-seed', songs);

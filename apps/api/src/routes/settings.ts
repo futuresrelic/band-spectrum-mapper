@@ -5,6 +5,9 @@ import { addStopwordSchema } from '@band-spectrum-mapper/shared';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/requireAuth.js';
+import {
+  HEADLINER_CROWD_VISUAL_CONFIG_KEY, crowdVisualConfigSchema, mergeCrowdVisualConfig,
+} from '../services/crowdVisualConfig.js';
 
 export const settingsRouter = Router();
 
@@ -138,6 +141,33 @@ settingsRouter.put(
         update: { value: { hiddenIds } },
       });
       res.json({ hiddenIds }); return;
+    } catch (e) { next(e); }
+  },
+);
+
+// GET /api/settings/headliner-crowd-visual-config — public (the Concert Viewport loads this whether or not the viewer is an admin)
+settingsRouter.get('/headliner-crowd-visual-config', async (_req, res, next): Promise<void> => {
+  try {
+    const config = await prisma.siteConfig.findUnique({ where: { key: HEADLINER_CROWD_VISUAL_CONFIG_KEY } });
+    res.json(mergeCrowdVisualConfig(config?.value ?? null)); return;
+  } catch (e) { next(e); }
+});
+
+// PUT /api/settings/headliner-crowd-visual-config — admin only
+settingsRouter.put(
+  '/headliner-crowd-visual-config',
+  requireAuth,
+  validateBody(crowdVisualConfigSchema),
+  async (req, res, next): Promise<void> => {
+    try {
+      if (!req.user?.isAdmin) { res.status(403).json({ error: 'Admin only' }); return; }
+      const value = req.body as z.infer<typeof crowdVisualConfigSchema>;
+      await prisma.siteConfig.upsert({
+        where:  { key: HEADLINER_CROWD_VISUAL_CONFIG_KEY },
+        create: { key: HEADLINER_CROWD_VISUAL_CONFIG_KEY, value },
+        update: { value },
+      });
+      res.json(value); return;
     } catch (e) { next(e); }
   },
 );

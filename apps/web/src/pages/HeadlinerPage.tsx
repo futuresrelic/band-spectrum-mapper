@@ -26,6 +26,8 @@ import {
 } from '../api/headliner';
 import ConcertPulse from '../components/headliner/ConcertPulse';
 import CrowdRead from '../components/headliner/CrowdRead';
+import ConcertViewport from '../components/headliner/ConcertViewport';
+import { crowdVisualConfigApi, DEFAULT_CROWD_VISUAL_CONFIG } from '../api/crowdVisualConfig';
 import { LIVE_FREQUENCY_COLOR, LIVE_FREQUENCY_EMOJI } from '@band-spectrum-mapper/shared';
 
 type Screen =
@@ -285,6 +287,14 @@ export default function HeadlinerPage() {
     queryFn: () => headlinerApi.getDailyLeaderboard(leaderboardDateStr),
     enabled: !!user && screen === 'daily-leaderboard',
   });
+
+  const crowdVisualConfigQuery = useQuery({
+    queryKey: ['headliner-crowd-visual-config'],
+    queryFn: () => crowdVisualConfigApi.get(),
+    enabled: !!user && screen === 'live',
+    staleTime: 5 * 60 * 1000,
+  });
+  const crowdVisualConfig = crowdVisualConfigQuery.data ?? DEFAULT_CROWD_VISUAL_CONFIG;
 
   async function startShow() {
     if (!bandId) return;
@@ -839,6 +849,8 @@ export default function HeadlinerPage() {
                 </ul>
               </div>
             )}
+
+            <ConcertViewport pulse={pulse} config={crowdVisualConfig} />
 
             <ConcertPulse pulse={pulse} />
 

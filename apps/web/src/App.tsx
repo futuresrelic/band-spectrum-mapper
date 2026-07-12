@@ -70,6 +70,7 @@ import AdminBootlegsPage from './pages/AdminBootlegsPage';
 import DataHealthPage from './pages/DataHealthPage';
 import PatternLabPage from './pages/PatternLabPage';
 import AdminGamesPage from './pages/AdminGamesPage';
+import AdminCrowdVisualConfigPage from './pages/AdminCrowdVisualConfigPage';
 import SongConnectionsPage from './pages/SongConnectionsPage';
 import LyricCompletePage from './pages/LyricCompletePage';
 import LyricDuelPage from './pages/LyricDuelPage';
@@ -260,6 +261,7 @@ export default function App() {
           <Route path="admin/bootlegs" element={<AdminBootlegsPage />} />
           <Route path="admin/data-health" element={<DataHealthPage />} />
           <Route path="admin/games" element={<AdminGamesPage />} />
+          <Route path="admin/headliner-crowd-visual-config" element={<AdminCrowdVisualConfigPage />} />
           <Route path="admin/crossword-builder" element={<AdminCrosswordPage />} />
           <Route path="admin/platformer" element={<AdminPlatformerPage />} />
           <Route path="admin/platformer-levels" element={<AdminPlatformerLevelsPage />} />

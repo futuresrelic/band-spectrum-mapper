@@ -67,6 +67,7 @@ export interface FactionPulseSummary {
   intensity: PulseIntensity;
   atWalkoutRisk: boolean;
   relevanceRank: number;
+  crowdShare: number;
 }
 
 export interface ConcertPulseState {
