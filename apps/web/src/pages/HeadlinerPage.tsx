@@ -10,7 +10,7 @@
  * player gets the identical band/venue/context/seed; the server, never the
  * client, computes and stores the authoritative score.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -27,6 +27,11 @@ import {
 import ConcertPulse from '../components/headliner/ConcertPulse';
 import CrowdRead from '../components/headliner/CrowdRead';
 import ConcertViewport from '../components/headliner/ConcertViewport';
+import ConcertPulseRibbon from '../components/headliner/ConcertPulseRibbon';
+import HeadlinerDisplaySettingsPanel from '../components/headliner/HeadlinerDisplaySettingsPanel';
+import { buildConcertVisualState } from '../components/headliner/concertVisualState';
+import { initialCrowdMemory, stepCrowdMemory, type CrowdMemory } from '../components/headliner/crowdMemory';
+import { useHeadlinerDisplaySettings, prefersReducedMotion } from '../components/headliner/headlinerDisplaySettings';
 import { crowdVisualConfigApi, DEFAULT_CROWD_VISUAL_CONFIG } from '../api/crowdVisualConfig';
 import { LIVE_FREQUENCY_COLOR, LIVE_FREQUENCY_EMOJI } from '@band-spectrum-mapper/shared';
 
@@ -242,6 +247,12 @@ export default function HeadlinerPage() {
   const [reactionLogHistory, setReactionLogHistory] = useState<{ songTitle: string; entries: ReactionLogEntry[] }[]>([]);
   const [reactionLogExpanded, setReactionLogExpanded] = useState(false);
   const [pulse, setPulse] = useState<ConcertPulseState | null>(null);
+  const [metricsSnapshot, setMetricsSnapshot] = useState<Record<string, number> | null>(null);
+  const [hasEncorePlayed, setHasEncorePlayed] = useState(false);
+  const [crowdMemory, setCrowdMemory] = useState<CrowdMemory>(() => initialCrowdMemory());
+  const crowdMemoryLastUpdateRef = useRef<number>(Date.now());
+  const [displaySettings, updateDisplaySettings] = useHeadlinerDisplaySettings();
+  const [systemReducedMotion, setSystemReducedMotion] = useState(() => prefersReducedMotion());
   const [playedTitles, setPlayedTitles] = useState<string[]>([]);
   const [report, setReport] = useState<ConcertReport | null>(null);
   const [campaignResult, setCampaignResult] = useState<CampaignFinishResult | null>(null);
@@ -296,6 +307,38 @@ export default function HeadlinerPage() {
   });
   const crowdVisualConfig = crowdVisualConfigQuery.data ?? DEFAULT_CROWD_VISUAL_CONFIG;
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = () => setSystemReducedMotion(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  const reducedMotion = systemReducedMotion || displaySettings.animationQuality === 'low';
+
+  useEffect(() => {
+    if (!pulse) return;
+    const now = Date.now();
+    const elapsed = now - crowdMemoryLastUpdateRef.current;
+    crowdMemoryLastUpdateRef.current = now;
+    setCrowdMemory((prev) => stepCrowdMemory(prev, pulse.factions, elapsed, {
+      decayHalfLifeMs: crowdVisualConfig.crowdMemoryDecayMs,
+      responsiveness: 0.3,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pulse]);
+
+  const isChoosingEncore = encoreCandidates !== null;
+  const isFinishedWithoutEncore = report !== null && !hasEncorePlayed;
+  const visualState = buildConcertVisualState({
+    pulse, metricsSnapshot, lastResult, reactionLogHistory,
+    isChoosingEncore, hasEncorePlayed, isFinishedWithoutEncore,
+  });
+  const effectiveCrowdConfig = displaySettings.crowdMode === 'auto'
+    ? crowdVisualConfig
+    : { ...crowdVisualConfig, crowdRenderMode: displaySettings.crowdMode };
+
   async function startShow() {
     if (!bandId) return;
     setBusy(true);
@@ -308,6 +351,10 @@ export default function HeadlinerPage() {
       setPlayedTitles([]);
       setLastResult(null);
       setPulse(null);
+      setMetricsSnapshot(null);
+      setHasEncorePlayed(false);
+      setCrowdMemory(initialCrowdMemory());
+      crowdMemoryLastUpdateRef.current = Date.now();
       setReactionLogHistory([]);
       setReport(null);
       setCampaignResult(null);
@@ -332,6 +379,10 @@ export default function HeadlinerPage() {
       setPlayedTitles([]);
       setLastResult(null);
       setPulse(null);
+      setMetricsSnapshot(null);
+      setHasEncorePlayed(false);
+      setCrowdMemory(initialCrowdMemory());
+      crowdMemoryLastUpdateRef.current = Date.now();
       setReactionLogHistory([]);
       setReport(null);
       setCampaignResult(null);
@@ -356,6 +407,10 @@ export default function HeadlinerPage() {
       setPlayedTitles([]);
       setLastResult(null);
       setPulse(null);
+      setMetricsSnapshot(null);
+      setHasEncorePlayed(false);
+      setCrowdMemory(initialCrowdMemory());
+      crowdMemoryLastUpdateRef.current = Date.now();
       setReactionLogHistory([]);
       setReport(null);
       setCampaignResult(null);
@@ -371,12 +426,15 @@ export default function HeadlinerPage() {
 
   async function pickSong(songId: string) {
     if (!runId || busy) return;
+    const wasChoosingEncore = encoreCandidates !== null;
     setBusy(true);
     setError(null);
     try {
       const res = await headlinerApi.pick(runId, songId);
       setLastResult(res.result);
       setPulse(res.pulse ?? null);
+      setMetricsSnapshot(res.metricsSnapshot ?? null);
+      if (res.finished && wasChoosingEncore) setHasEncorePlayed(true);
       if (res.reactionLog && res.reactionLog.length > 0) {
         setReactionLogHistory((prev) => [...prev, { songTitle: res.result.song.title, entries: res.reactionLog! }]);
       }
@@ -430,6 +488,10 @@ export default function HeadlinerPage() {
     setEncoreCandidates(null);
     setLastResult(null);
     setPulse(null);
+    setMetricsSnapshot(null);
+    setHasEncorePlayed(false);
+    setCrowdMemory(initialCrowdMemory());
+    crowdMemoryLastUpdateRef.current = Date.now();
     setReactionLogHistory([]);
     setPlayedTitles([]);
     setReport(null);
@@ -445,6 +507,10 @@ export default function HeadlinerPage() {
     setEncoreCandidates(null);
     setLastResult(null);
     setPulse(null);
+    setMetricsSnapshot(null);
+    setHasEncorePlayed(false);
+    setCrowdMemory(initialCrowdMemory());
+    crowdMemoryLastUpdateRef.current = Date.now();
     setReactionLogHistory([]);
     setPlayedTitles([]);
     setReport(null);
@@ -850,7 +916,30 @@ export default function HeadlinerPage() {
               </div>
             )}
 
-            <ConcertViewport pulse={pulse} config={crowdVisualConfig} />
+            <HeadlinerDisplaySettingsPanel
+              settings={displaySettings}
+              onChange={updateDisplaySettings}
+              systemReducedMotion={systemReducedMotion}
+            />
+
+            {displaySettings.viewportEnabled && (
+              <div className="rounded-2xl bg-gray-950 border border-gray-800 p-3 space-y-2">
+                <div className="text-center text-[10px] font-semibold uppercase tracking-widest text-gray-600">Concert Viewport</div>
+                <ConcertViewport
+                  visualState={visualState}
+                  config={effectiveCrowdConfig}
+                  crowdMemory={displaySettings.crowdMemory === 'off' ? initialCrowdMemory() : crowdMemory}
+                  reducedMotion={reducedMotion}
+                  cameraMotionEnabled={displaySettings.cameraMotion && crowdVisualConfig.cameraMotionEnabled}
+                />
+                <ConcertPulseRibbon
+                  visualState={visualState}
+                  palette={[crowdVisualConfig.pulsePaletteStart, crowdVisualConfig.pulsePaletteEnd]}
+                  intensitySetting={displaySettings.pulseIntensity}
+                  reducedMotion={reducedMotion}
+                />
+              </div>
+            )}
 
             <ConcertPulse pulse={pulse} />
 

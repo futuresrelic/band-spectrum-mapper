@@ -41,6 +41,7 @@ function makeSong(id: string, overrides: Partial<EngineSong> = {}): EngineSong {
     },
     audienceIsFallback: false, liveTier: 'Frequent', liveSource: 'live', liveValue: 30,
     eligibleHeadliner: true,
+    trackType: 'Song',
     ...overrides,
   };
 }

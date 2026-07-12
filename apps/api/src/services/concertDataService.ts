@@ -38,6 +38,7 @@ const SONG_SELECT = {
   durationSeconds: true,
   rarity: true,
   eligibleHeadliner: true,
+  trackType: true,
   album: { select: { title: true } },
   score: { select: { aggression: true, complexity: true, atmosphere: true, emotion: true, psychedelic: true, concept: true } },
   musicScore: { select: { tempoEnergy: true } },
@@ -82,6 +83,7 @@ function mapSongRow(s: SongRow): EngineSong {
     liveSource: source,
     liveValue: s.bandRpgProfile?.liveValue ?? 0,
     eligibleHeadliner: s.eligibleHeadliner,
+    trackType: s.trackType,
   };
 }
 

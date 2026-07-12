@@ -17,6 +17,7 @@
  */
 
 import { buildConcertNarrative } from './headlinerReviewTemplates.js';
+import type { TrackType } from '@band-spectrum-mapper/shared';
 
 export type Axis = 'aggression' | 'complexity' | 'atmosphere' | 'emotion' | 'psychedelic' | 'concept';
 
@@ -67,6 +68,15 @@ export interface EngineSong {
    * concertDataService.ts's buildShowBundle.
    */
   eligibleHeadliner: boolean;
+  /**
+   * Track Classification (Phase Z.17.15, expanded Z.17.16): what this
+   * recording IS (Song, Interlude, SpokenWord, ...). Presentation-only in
+   * the engine itself — nothing here reads it to change candidateValue,
+   * momentum, or any formula. Exposed on EngineSong purely so the Concert
+   * Viewport (Phase Z.17.17) can apply a small visual treatment (e.g. an
+   * Interlude cues lower crowd motion) without a second query.
+   */
+  trackType: TrackType;
 }
 
 export interface EngineVenue {

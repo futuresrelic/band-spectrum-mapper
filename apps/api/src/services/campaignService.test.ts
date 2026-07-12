@@ -126,6 +126,7 @@ function makeSong(id: string, albumId: string | null, liveTier: EngineSong['live
     },
     audienceIsFallback: false, liveTier, liveSource: 'live', liveValue: 30,
     eligibleHeadliner: true,
+    trackType: 'Song',
   };
 }
 

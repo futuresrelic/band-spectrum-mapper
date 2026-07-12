@@ -15,7 +15,7 @@ import {
   DEFAULT_SHOW_RULES,
   type ShowBundle, type EngineSong, type Axis, type EngineState,
 } from './concertEngine.js';
-import { computeShowPositions, findPeakSongId, peakHappenedDuringEncore } from './concertShowHistory.js';
+import { computeShowPositions, findPeakSongId, peakHappenedDuringEncore, latestMetricsSnapshot } from './concertShowHistory.js';
 
 function makeSong(id: string, overrides: Partial<EngineSong> = {}): EngineSong {
   const axis: Record<Axis, number> = {
@@ -31,6 +31,7 @@ function makeSong(id: string, overrides: Partial<EngineSong> = {}): EngineSong {
     },
     audienceIsFallback: false, liveTier: 'Frequent', liveSource: 'live', liveValue: 30,
     eligibleHeadliner: true,
+    trackType: 'Song',
     ...overrides,
   };
 }
@@ -160,4 +161,16 @@ test('same seed produces identical history on replay (determinism)', () => {
   const a = playFullShow('history-determinism-seed');
   const b = playFullShow('history-determinism-seed');
   assert.deepEqual(a.history, b.history);
+});
+
+test('latestMetricsSnapshot returns null before any song has been played', () => {
+  const bundle = makeBundle(3);
+  const state = createInitialState(bundle, 'no-history-seed');
+  assert.equal(latestMetricsSnapshot(state), null);
+});
+
+test('latestMetricsSnapshot mirrors the most recent history entry\'s snapshot exactly — no recomputation', () => {
+  const state = playFullShow('latest-snapshot-seed');
+  const expected = state.history[state.history.length - 1]!.metricsSnapshot;
+  assert.deepEqual(latestMetricsSnapshot(state), expected);
 });

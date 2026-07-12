@@ -2,6 +2,7 @@ import { api } from '../lib/api';
 
 export type ConcertMode = 'quick' | 'daily' | 'campaign' | 'historical';
 export type FactionId = 'casual' | 'hardcore' | 'deepCut' | 'progHeads' | 'firstTimers';
+export type Axis = 'aggression' | 'complexity' | 'atmosphere' | 'emotion' | 'psychedelic' | 'concept';
 export type LiveFrequencyTier =
   | 'Essential' | 'Frequent' | 'Occasional' | 'Rare' | 'Legendary' | 'Mythic' | 'Unclassified';
 export type StageKey =
@@ -22,6 +23,11 @@ export interface Venue {
   capacity: number;
 }
 
+export type TrackType =
+  | 'Song' | 'Instrumental' | 'Interlude' | 'SpokenWord' | 'SoundCollage'
+  | 'Intro' | 'Outro' | 'Transition' | 'Cover' | 'Live' | 'Demo' | 'Remix'
+  | 'BonusTrack' | 'SuiteMovement' | 'Special';
+
 export interface CandidateSong {
   id: string;
   title: string;
@@ -30,6 +36,10 @@ export interface CandidateSong {
   liveTier: LiveFrequencyTier;
   liveSource: 'live' | 'estimated';
   audienceIsFallback: boolean;
+  /** Track Classification (Phase Z.17.15/16) — presentation-only; the Concert Viewport uses this for a small visual treatment cue. */
+  trackType: TrackType;
+  /** This song's real 6-axis Song Spectrum, null if unscored — drives the Concert Viewport's stage lighting (Phase Z.17.17). Not a new value: already computed, just newly declared on this client-facing type. */
+  axis: Record<Axis, number> | null;
 }
 
 export interface FactionReaction {
@@ -146,6 +156,8 @@ export interface PickResponse {
   dailyResult?: DailyFinishResult | null;
   reactionLog?: ReactionLogEntry[];
   pulse?: ConcertPulseState;
+  /** The most recently played song's full metrics snapshot (Part B) — null before any song is played. Same 10 report metrics buildReport uses at the end, just as of now. */
+  metricsSnapshot?: Record<string, number> | null;
   finished: boolean;
 }
 

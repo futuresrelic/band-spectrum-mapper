@@ -11,7 +11,7 @@
  * than guessing.
  */
 
-import type { EngineState, FactionId, SongHistoryEntry } from './concertEngine.js';
+import type { EngineState, FactionId, ScoreMetric, SongHistoryEntry } from './concertEngine.js';
 
 export type ShowPhaseLabel = 'opening' | 'middle' | 'closing' | 'encore';
 
@@ -85,4 +85,17 @@ export function peakHappenedDuringEncore(state: EngineState): boolean {
 /** Convenience: a single history entry's faction delta, typed for callers that only need one faction. */
 export function factionDelta(entry: SongHistoryEntry, factionId: FactionId): number {
   return entry.factionDeltas[factionId].delta;
+}
+
+/**
+ * The most recently played song's metrics snapshot — the same 10 real
+ * report metrics `buildReport` uses at the end, just as of this point in
+ * the show (Part B). Used by the Concert Viewport (Phase Z.17.17) so the
+ * presentation layer can reflect satisfaction/authenticity/pacing/energy
+ * mid-show instead of only at the final report — a pure read of data the
+ * engine already computed, never a new metric. Returns null before any
+ * song has been played.
+ */
+export function latestMetricsSnapshot(state: EngineState): Record<ScoreMetric, number> | null {
+  return state.history[state.history.length - 1]?.metricsSnapshot ?? null;
 }
