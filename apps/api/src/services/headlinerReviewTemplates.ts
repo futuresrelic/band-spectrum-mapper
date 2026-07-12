@@ -9,20 +9,21 @@
  *
  * A review is Opening + Identity + Crowd + Pacing + Encore/Ending + Closing
  * verdict (Bible §7.1). Selection rule: among templates whose conditions all
- * hold, the most specific one wins (most conditions first); ties fall back
- * to a fixed array order. Some same-band template pairs in the Bible list
- * more than one flavor for the identical threshold (e.g. two "≥800" opening
- * lines) — those are intentional future variants for seeded rotation (Bible
- * §16.B, not implemented this phase); today the first one deterministically
- * wins every time, which still satisfies "same inputs ⇒ same review."
+ * hold, the most specific one wins (most conditions first); ties among
+ * equally-specific templates (e.g. two "≥800" opening lines) rotate via a
+ * deterministic seeded pick (Bible §16.B, narrativeSeed.ts) — same show seed
+ * ⇒ same variant every time it's reopened, different shows can land on
+ * different variants. Never Math.random(); nothing time-based.
  *
  * ENC-09 (Bible §7.6) requires knowing the show's single biggest reaction
- * happened specifically during the encore, which needs peak-position data
- * the engine doesn't expose yet (Bible §16.B). It is intentionally left out
- * of the active pool below — see the TODO next to ENCORE_TEMPLATES.
+ * happened specifically during the encore — now available via
+ * concertShowHistory.ts's peakHappenedDuringEncore, which only ever reports
+ * true when the engine can actually support the claim.
  */
 
 import type { EngineState, ScoreMetric } from './concertEngine.js';
+import { peakHappenedDuringEncore } from './concertShowHistory.js';
+import { pickBySeededHash } from './narrativeSeed.js';
 
 type ReviewMetricKey = ScoreMetric | 'overallScore';
 export type ReviewSlot = 'opening' | 'identity' | 'crowd' | 'pacing' | 'encore' | 'closing';
@@ -39,6 +40,8 @@ export interface ReviewTemplate {
   conditions: MetricCondition[];
   /** encore slot only: true = requires an encore was played, false = requires no encore, undefined = don't care */
   requiresEncorePlayed?: boolean;
+  /** ENC-09 only: true = requires the show's peak reaction to be honestly known AND to have happened during the encore. */
+  requiresPeakDuringEncore?: boolean;
   text: string;
 }
 
@@ -46,6 +49,7 @@ interface ReviewContext {
   metrics: Record<ScoreMetric, number>;
   overallScore: number;
   encorePlayed: boolean;
+  peakDuringEncore: boolean;
 }
 
 function metricValue(ctx: ReviewContext, key: ReviewMetricKey): number {
@@ -63,18 +67,27 @@ function matchesConditions(conditions: MetricCondition[], ctx: ReviewContext): b
 
 function matchesTemplate(t: ReviewTemplate, ctx: ReviewContext): boolean {
   if (t.requiresEncorePlayed !== undefined && t.requiresEncorePlayed !== ctx.encorePlayed) return false;
+  if (t.requiresPeakDuringEncore !== undefined && t.requiresPeakDuringEncore !== ctx.peakDuringEncore) return false;
   return matchesConditions(t.conditions, ctx);
 }
 
-/** Most-specific-wins, stable-order tiebreak. Deterministic: same pool + same context ⇒ same template every time. */
-function selectTemplate(pool: readonly ReviewTemplate[], ctx: ReviewContext): ReviewTemplate | null {
+/** A template naming an extra non-metric requirement (like ENC-09's peak-during-encore) is treated as more specific than its raw condition count implies. */
+function specificity(t: ReviewTemplate): number {
+  return t.conditions.length + (t.requiresPeakDuringEncore ? 1 : 0);
+}
+
+/**
+ * Most-specific-wins; ties among equally specific templates rotate via a
+ * deterministic seeded pick (Bible §16.B) instead of always taking the
+ * first array entry. Deterministic: same pool + same context + same seed
+ * parts ⇒ same template every time.
+ */
+function selectTemplate(pool: readonly ReviewTemplate[], ctx: ReviewContext, seedParts: readonly string[]): ReviewTemplate | null {
   const eligible = pool.filter((t) => matchesTemplate(t, ctx));
   if (eligible.length === 0) return null;
-  let best = eligible[0]!;
-  for (const t of eligible.slice(1)) {
-    if (t.conditions.length > best.conditions.length) best = t;
-  }
-  return best;
+  const maxSpecificity = Math.max(...eligible.map(specificity));
+  const tied = eligible.filter((t) => specificity(t) === maxSpecificity);
+  return pickBySeededHash(tied, ...seedParts);
 }
 
 // ---------------------------------------------------------------------------
@@ -207,11 +220,11 @@ export const PACING_TEMPLATES: readonly ReviewTemplate[] = [
 // ---------------------------------------------------------------------------
 // 7.6 Encore/Ending templates — keyed to encoreQuality and encore-played state.
 //
-// Bible lists 10 (ENC-01..10). ENC-09 is intentionally NOT included below:
-// it requires knowing the show's biggest crowd-peak moment happened during
-// the encore specifically, which needs peak-position-in-set data the engine
-// doesn't expose today (Bible §7.6 footnote, §16.B). TODO(Bible §7.6 ENC-09):
-// implement once per-pick peak position is threaded into EngineState/report.
+// ENC-09 requires knowing the show's biggest crowd-peak moment happened
+// during the encore specifically (Bible §7.6 footnote). That's now honestly
+// derivable via concertShowHistory.ts's peakHappenedDuringEncore, which only
+// reports true when the engine's own peak data actually supports it — never
+// a guess.
 // ---------------------------------------------------------------------------
 
 export const ENCORE_TEMPLATES: readonly ReviewTemplate[] = [
@@ -235,6 +248,9 @@ export const ENCORE_TEMPLATES: readonly ReviewTemplate[] = [
     text: "No encore tonight — the crowd wasn't won over enough to ask, and the houselights agreed." },
   { id: 'ENC-08', slot: 'encore', requiresEncorePlayed: false, conditions: [{ metric: 'audienceRetention', maxExclusive: 40 }],
     text: 'The set ended and the room, what remained of it, accepted the ending without protest.' },
+  { id: 'ENC-09', slot: 'encore', requiresEncorePlayed: true, requiresPeakDuringEncore: true,
+    conditions: [{ metric: 'encoreQuality', min: 70 }, { metric: 'crowdPeak', min: 85 }],
+    text: "The single biggest reaction of the night came after the houselights teased — the encore was the show's true summit." },
   { id: 'ENC-10', slot: 'encore', requiresEncorePlayed: true,
     conditions: [{ metric: 'encoreQuality', min: 55 }, { metric: 'rarityExcitement', min: 70 }],
     text: 'Ending on a rarity is a bet that the faithful outnumber the tired — tonight, they did.' },
@@ -295,16 +311,18 @@ export function buildConcertReview(
   overallScore: number,
   encorePlayed: boolean,
   fallbackSongCount: number,
+  narrativeSeed = '',
+  peakDuringEncore = false,
 ): string {
-  const ctx: ReviewContext = { metrics, overallScore, encorePlayed };
+  const ctx: ReviewContext = { metrics, overallScore, encorePlayed, peakDuringEncore };
 
   const slots = [
-    selectTemplate(OPENING_TEMPLATES, ctx),
-    selectTemplate(IDENTITY_TEMPLATES, ctx),
-    selectTemplate(CROWD_TEMPLATES, ctx),
-    selectTemplate(PACING_TEMPLATES, ctx),
-    selectTemplate(ENCORE_TEMPLATES, ctx),
-    selectTemplate(CLOSING_TEMPLATES, ctx),
+    selectTemplate(OPENING_TEMPLATES, ctx, [narrativeSeed, 'opening']),
+    selectTemplate(IDENTITY_TEMPLATES, ctx, [narrativeSeed, 'identity']),
+    selectTemplate(CROWD_TEMPLATES, ctx, [narrativeSeed, 'crowd']),
+    selectTemplate(PACING_TEMPLATES, ctx, [narrativeSeed, 'pacing']),
+    selectTemplate(ENCORE_TEMPLATES, ctx, [narrativeSeed, 'encore']),
+    selectTemplate(CLOSING_TEMPLATES, ctx, [narrativeSeed, 'closing']),
   ];
 
   const sentences = slots
@@ -345,13 +363,24 @@ export function buildConcertHighlights(
   return highlights;
 }
 
-/** Convenience wrapper matching the shape concertEngine.ts's buildReport needs. */
+/**
+ * Convenience wrapper matching the shape concertEngine.ts's buildReport needs.
+ *
+ * The narrative seed is built from stable show data (the run's own seed plus
+ * the exact songs played, in order) so a reopened show always renders the
+ * identical review, while a different setlist or a different show seed can
+ * land on a different tied variant.
+ */
 export function buildConcertNarrative(state: EngineState, metrics: Record<ScoreMetric, number>, overallScore: number): ConcertNarrative {
   const playedSongs = state.bundle.songs.filter((s) => state.playedSongIds.includes(s.id));
   const rarestSongCount = playedSongs.filter((s) => s.liveTier === 'Legendary' || s.liveTier === 'Mythic').length;
+  const narrativeSeed = `${state.seed}:${state.playedSongIds.join(',')}`;
 
   return {
-    reviewText: buildConcertReview(state.bundle.bandName, metrics, overallScore, state.encorePlayed, state.fallbackSongCount),
+    reviewText: buildConcertReview(
+      state.bundle.bandName, metrics, overallScore, state.encorePlayed, state.fallbackSongCount,
+      narrativeSeed, peakHappenedDuringEncore(state),
+    ),
     highlights: buildConcertHighlights(rarestSongCount, metrics, state.encorePlayed, state.phase === 'finished'),
   };
 }

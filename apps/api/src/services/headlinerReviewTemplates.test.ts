@@ -44,10 +44,25 @@ test('OPEN-01 (>=900) is selected over OPEN-02/03 (800-899) at a truly exception
   assert.ok(review.includes("didn't play a show so much as make an argument"));
 });
 
-test('OPEN-02 (the first 800-899 variant) is selected, not OPEN-01, just below 900', () => {
-  const review = buildConcertReview('Test Band', metrics(), 899, false, 0);
+test('a tied 800-899 score selects one of the two intentional flavor variants (OPEN-02 or OPEN-03), never OPEN-01', () => {
+  const review = buildConcertReview('Test Band', metrics(), 899, false, 0, 'seed-a');
   assert.ok(!review.includes("didn't play a show so much as make an argument"));
-  assert.ok(review.includes('A legendary night'));
+  assert.ok(review.includes('A legendary night') || review.includes('clicks shut like a lock'));
+});
+
+test('different seeds can select different tied opening variants (seeded rotation, Bible §16.B)', () => {
+  const variants = new Set<string>();
+  for (let i = 0; i < 20; i++) {
+    const review = buildConcertReview('Test Band', metrics(), 899, false, 0, `rotation-seed-${i}`);
+    variants.add(review.includes('A legendary night') ? 'OPEN-02' : 'OPEN-03');
+  }
+  assert.equal(variants.size, 2, `expected both OPEN-02 and OPEN-03 to appear across seeds, got: ${[...variants].join(', ')}`);
+});
+
+test('the same seed always selects the same tied variant (a reopened show reads identically)', () => {
+  const a = buildConcertReview('Test Band', metrics(), 899, false, 0, 'stable-seed-x');
+  const b = buildConcertReview('Test Band', metrics(), 899, false, 0, 'stable-seed-x');
+  assert.equal(a, b);
 });
 
 test('IDEN-02 (spectrumMatch>=85 AND authenticity>=85) wins over IDEN-01 (spectrumMatch>=85 alone) when both hold', () => {
@@ -88,6 +103,27 @@ test('encore honesty: only ENC-06/07/08 are eligible when no encore was played, 
   assert.ok(review.includes("never quite crossed into demanding more"));
   assert.ok(!review.includes('the crowd earned an encore'));
   assert.ok(!review.includes('re-priced the whole evening'));
+});
+
+test('ENC-09 fires only when the engine has honestly confirmed the peak happened during the encore', () => {
+  const m = metrics({ encoreQuality: 80, crowdPeak: 90, audienceRetention: 60 });
+  const withPeak = buildConcertReview('Test Band', m, 700, true, 0, '', true);
+  const withoutPeak = buildConcertReview('Test Band', m, 700, true, 0, '', false);
+  assert.ok(withPeak.includes("the encore was the show's true summit"));
+  assert.ok(!withoutPeak.includes("the encore was the show's true summit"));
+});
+
+test('ENC-09 outranks ENC-01 when both are metrically eligible, since the peak-during-encore claim is more specific', () => {
+  const review = buildConcertReview(
+    'Test Band', metrics({ encoreQuality: 90, crowdPeak: 90, audienceRetention: 60 }), 700, true, 0, '', true,
+  );
+  assert.ok(review.includes("the encore was the show's true summit"));
+  assert.ok(!review.includes('re-priced the whole evening'));
+});
+
+test('ENC-09 never fires without an encore, even if peakDuringEncore is somehow true', () => {
+  const review = buildConcertReview('Test Band', metrics({ encoreQuality: 90, crowdPeak: 90 }), 700, false, 0, '', true);
+  assert.ok(!review.includes("the encore was the show's true summit"));
 });
 
 test('fallback disclosure is appended when fallbackSongCount > 0, and is absent otherwise', () => {
