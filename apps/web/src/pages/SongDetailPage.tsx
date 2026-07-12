@@ -7,8 +7,8 @@ import { analysisApi } from '../api/analysis';
 import { useAuth } from '../contexts/AuthContext';
 import type { Song, SongResearchSource } from '@band-spectrum-mapper/shared';
 import {
-  TRACK_TYPES, TRACK_TYPE_LABELS, TRACK_ELIGIBILITY_FIELDS, TRACK_ELIGIBILITY_LABELS,
-  type TrackType, type TrackEligibilityField,
+  TRACK_TYPES, TRACK_TYPE_LABELS, TRACK_TYPE_DESCRIPTIONS, TRACK_ELIGIBILITY_FIELDS, TRACK_ELIGIBILITY_LABELS,
+  RECOMMENDED_TRACK_ELIGIBILITY, type TrackType, type TrackEligibilityField,
 } from '@band-spectrum-mapper/shared';
 import PageHeader from '../components/layout/PageHeader';
 import ErrorMessage from '../components/layout/ErrorMessage';
@@ -756,11 +756,20 @@ export default function SongDetailPage() {
                   <option key={t} value={t}>{TRACK_TYPE_LABELS[t]}</option>
                 ))}
               </select>
-              <p className="text-xs text-surface-400 mt-1">What this track is. Normal songs default to "Song."</p>
+              <p className="text-xs text-surface-400 mt-1">{TRACK_TYPE_DESCRIPTIONS[editTrackType]}</p>
             </div>
             <div>
-              <label className="label">Eligible for</label>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+              <div className="flex items-center justify-between">
+                <label className="label mb-0">Eligible for</label>
+                <button
+                  type="button"
+                  className="text-xs text-primary-600 hover:underline"
+                  onClick={() => setEditEligibility(RECOMMENDED_TRACK_ELIGIBILITY[editTrackType])}
+                >
+                  Apply recommended eligibility
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-1">
                 {TRACK_ELIGIBILITY_FIELDS.map((field) => (
                   <label key={field} className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
                     <input
@@ -772,7 +781,7 @@ export default function SongDetailPage() {
                   </label>
                 ))}
               </div>
-              <p className="text-xs text-surface-400 mt-1">Where this track may be selected. Unusual tracks (interludes, spoken word) usually want Headliner/Daily Challenge off.</p>
+              <p className="text-xs text-surface-400 mt-1">Track Type describes the recording. Eligibility controls where BSM may use it — "Apply recommended eligibility" fills in a suggested starting point for the selected type; it never saves until you click Save, and never runs automatically.</p>
             </div>
             <div className="border-t border-surface-200 pt-3">
               <label className="flex items-center gap-2 cursor-pointer select-none">

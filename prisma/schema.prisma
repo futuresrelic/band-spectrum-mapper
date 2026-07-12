@@ -96,15 +96,27 @@ enum SongRarity {
   Mythic
 }
 
-// Track Classification (Phase Z.17.15): what a track IS. Kept separate
-// from eligibility (WHERE it may be selected) — see the eligible* flags
-// below on Song.
+// Track Classification (Phase Z.17.15, expanded Z.17.16): what a track IS.
+// Kept separate from eligibility (WHERE it may be selected) — see the
+// eligible* flags below on Song. Display labels/descriptions live in
+// packages/shared/src/schemas.ts (TRACK_TYPE_LABELS/_DESCRIPTIONS) — this
+// enum only needs to be a technically-safe identifier per value.
 enum TrackType {
-  Song       // Normal musical track. Default for imported tracks.
-  Interlude  // Intro, outro, transition, ambience, soundscape.
-  Spoken     // Spoken word, comedy, narration, skits, poems.
-  Cover      // Song written by another artist.
-  Special    // Hidden tracks, bonus tracks, demos, alternate versions.
+  Song          // Standard full song. Default.
+  Instrumental  // Music with no primary vocal performance.
+  Interlude     // Short atmospheric, connective, or scene-setting piece.
+  SpokenWord    // Narration, speech, monologue, or spoken performance.
+  SoundCollage  // Noise experiment, tape piece, field recording, or non-traditional audio collage.
+  Intro         // Opening prelude intended to begin an album, performance, or larger piece.
+  Outro         // Closing epilogue, ambience, or ending piece.
+  Transition    // A track whose main function is to connect two other pieces.
+  Cover         // A performance of a composition primarily associated with another artist.
+  Live          // An officially catalogued live recording or live version.
+  Demo          // Demo, rehearsal, work-in-progress, or pre-release version.
+  Remix         // Remixed or substantially re-produced version.
+  BonusTrack    // Track identified primarily by edition or bonus placement.
+  SuiteMovement // One movement or part of a larger multipart composition.
+  Special       // Fallback for material that genuinely does not fit another type.
 }
 
 model Song {

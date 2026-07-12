@@ -87,28 +87,61 @@ export const SONG_RARITIES = ['Common', 'Uncommon', 'Rare', 'Legendary', 'Mythic
 export type SongRarity = typeof SONG_RARITIES[number];
 
 // ---------------------------------------------------------------------------
-// Track Classification (Phase Z.17.15) — what a track IS (trackType) vs
-// where it may be selected (the eligible* flags). New imports default to
-// Song, eligible everywhere; only unusual tracks need manual adjustment.
+// Track Classification (Phase Z.17.15, expanded Z.17.16) — what a track IS
+// (trackType) vs where it may be selected (the eligible* flags). New
+// imports default to Song, eligible everywhere; only unusual tracks need
+// manual adjustment.
+//
+// One canonical primary Track Type per song for now — no multi-select.
+// The type is deliberately a plain string enum (not a Set/array) and the
+// admin UI below binds to a single <select>, but nothing here assumes a
+// song can only ever describe one thing: a future phase could add
+// secondary classifications (e.g. Live + Cover, Instrumental + Suite/
+// Movement, Bonus Track + Demo) as an additional optional field without
+// touching this primary type or its meaning. Not implemented this phase.
 // ---------------------------------------------------------------------------
 
-export const TRACK_TYPES = ['Song', 'Interlude', 'Spoken', 'Cover', 'Special'] as const;
+export const TRACK_TYPES = [
+  'Song', 'Instrumental', 'Interlude', 'SpokenWord', 'SoundCollage',
+  'Intro', 'Outro', 'Transition', 'Cover', 'Live', 'Demo', 'Remix',
+  'BonusTrack', 'SuiteMovement', 'Special',
+] as const;
 export type TrackType = typeof TRACK_TYPES[number];
 
 export const TRACK_TYPE_LABELS: Record<TrackType, string> = {
   Song: 'Song',
+  Instrumental: 'Instrumental',
   Interlude: 'Interlude',
-  Spoken: 'Spoken',
+  SpokenWord: 'Spoken Word',
+  SoundCollage: 'Sound Collage',
+  Intro: 'Intro',
+  Outro: 'Outro',
+  Transition: 'Transition',
   Cover: 'Cover',
+  Live: 'Live',
+  Demo: 'Demo',
+  Remix: 'Remix',
+  BonusTrack: 'Bonus Track',
+  SuiteMovement: 'Suite / Movement',
   Special: 'Special',
 };
 
 export const TRACK_TYPE_DESCRIPTIONS: Record<TrackType, string> = {
-  Song: 'Normal musical track.',
-  Interlude: 'Intro, outro, transition, ambience, soundscape.',
-  Spoken: 'Spoken word, comedy, narration, skits, poems.',
-  Cover: 'Song written by another artist.',
-  Special: 'Hidden tracks, bonus tracks, demos, alternate versions.',
+  Song: 'Standard full song. Default.',
+  Instrumental: 'Music with no primary vocal performance.',
+  Interlude: 'Short atmospheric, connective, or scene-setting piece.',
+  SpokenWord: 'Narration, speech, monologue, or spoken performance.',
+  SoundCollage: 'Noise experiment, tape piece, field recording, ambient construction, or non-traditional audio collage.',
+  Intro: 'Opening prelude intended to begin an album, performance, or larger piece.',
+  Outro: 'Closing epilogue, ambience, or ending piece.',
+  Transition: 'A track whose main function is to connect two other pieces.',
+  Cover: 'A performance of a composition primarily associated with another artist.',
+  Live: 'An officially catalogued live recording or live version.',
+  Demo: 'Demo, rehearsal, work-in-progress, or pre-release version.',
+  Remix: 'Remixed or substantially re-produced version.',
+  BonusTrack: 'Track identified primarily by edition or bonus placement.',
+  SuiteMovement: 'One movement or part of a larger multipart composition.',
+  Special: 'Fallback for material that genuinely does not fit another type.',
 };
 
 export const TRACK_ELIGIBILITY_FIELDS = [
@@ -122,6 +155,32 @@ export const TRACK_ELIGIBILITY_LABELS: Record<TrackEligibilityField, string> = {
   eligibleTrivia: 'Trivia',
   eligibleAiSetlists: 'AI Setlists',
   eligibleDiscovery: 'Random Discovery',
+};
+
+/**
+ * Suggested eligibility when an admin picks a Track Type — applied only
+ * via an explicit "Apply recommended eligibility" action (see
+ * RECOMMENDED_TRACK_ELIGIBILITY's callers), never automatically on type
+ * change. These are opinions, not rules: every flag stays independently
+ * overridable, and applying a recommendation never happens silently or
+ * overwrites a value the admin hasn't asked to change.
+ */
+export const RECOMMENDED_TRACK_ELIGIBILITY: Record<TrackType, Record<TrackEligibilityField, boolean>> = {
+  Song:          { eligibleHeadliner: true,  eligibleDailyChallenge: true,  eligibleTrivia: true, eligibleAiSetlists: true, eligibleDiscovery: true },
+  Instrumental:  { eligibleHeadliner: true,  eligibleDailyChallenge: true,  eligibleTrivia: true, eligibleAiSetlists: true, eligibleDiscovery: true },
+  Interlude:     { eligibleHeadliner: true,  eligibleDailyChallenge: false, eligibleTrivia: true, eligibleAiSetlists: true, eligibleDiscovery: true },
+  SpokenWord:    { eligibleHeadliner: true,  eligibleDailyChallenge: false, eligibleTrivia: true, eligibleAiSetlists: true, eligibleDiscovery: true },
+  SoundCollage:  { eligibleHeadliner: false, eligibleDailyChallenge: false, eligibleTrivia: true, eligibleAiSetlists: true, eligibleDiscovery: true },
+  Intro:         { eligibleHeadliner: true,  eligibleDailyChallenge: false, eligibleTrivia: true, eligibleAiSetlists: true, eligibleDiscovery: true },
+  Outro:         { eligibleHeadliner: true,  eligibleDailyChallenge: false, eligibleTrivia: true, eligibleAiSetlists: true, eligibleDiscovery: true },
+  Transition:    { eligibleHeadliner: true,  eligibleDailyChallenge: false, eligibleTrivia: true, eligibleAiSetlists: true, eligibleDiscovery: true },
+  Cover:         { eligibleHeadliner: true,  eligibleDailyChallenge: true,  eligibleTrivia: true, eligibleAiSetlists: true, eligibleDiscovery: true },
+  Live:          { eligibleHeadliner: true,  eligibleDailyChallenge: true,  eligibleTrivia: true, eligibleAiSetlists: true, eligibleDiscovery: true },
+  Demo:          { eligibleHeadliner: false, eligibleDailyChallenge: false, eligibleTrivia: true, eligibleAiSetlists: true, eligibleDiscovery: true },
+  Remix:         { eligibleHeadliner: true,  eligibleDailyChallenge: true,  eligibleTrivia: true, eligibleAiSetlists: true, eligibleDiscovery: true },
+  BonusTrack:    { eligibleHeadliner: true,  eligibleDailyChallenge: true,  eligibleTrivia: true, eligibleAiSetlists: true, eligibleDiscovery: true },
+  SuiteMovement: { eligibleHeadliner: true,  eligibleDailyChallenge: true,  eligibleTrivia: true, eligibleAiSetlists: true, eligibleDiscovery: true },
+  Special:       { eligibleHeadliner: false, eligibleDailyChallenge: false, eligibleTrivia: true, eligibleAiSetlists: true, eligibleDiscovery: true },
 };
 
 export const createSongSchema = z.object({
