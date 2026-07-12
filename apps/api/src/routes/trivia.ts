@@ -50,6 +50,10 @@ triviaRouter.get('/questions', async (req, res, next) => {
       : undefined;
 
     const bandFilter = bandIds?.length ? { bandId: { in: bandIds } } : {};
+    // Track Classification (Phase Z.17.15): Trivia only draws from tracks
+    // marked eligible for Trivia (e.g. excludes a spoken-word skit unless
+    // it's explicitly flagged eligible).
+    const songFilter = { ...bandFilter, eligibleTrivia: true };
 
     const questions: TriviaQuestion[] = [];
 
@@ -58,13 +62,13 @@ triviaRouter.get('/questions', async (req, res, next) => {
     try {
       const randomAxis = axes[Math.floor(Math.random() * axes.length)]!;
       const topSong = await prisma.songAxisScore.findFirst({
-        where: { song: { ...bandFilter } },
+        where: { song: { ...songFilter } },
         orderBy: { [randomAxis]: 'desc' },
         include: { song: { include: { band: true } } },
       });
       if (topSong) {
         const otherSongs = await prisma.song.findMany({
-          where: { ...bandFilter, id: { not: topSong.songId } },
+          where: { ...songFilter, id: { not: topSong.songId } },
           take: 20,
           include: { band: true },
           orderBy: { createdAt: 'desc' },
@@ -134,7 +138,7 @@ triviaRouter.get('/questions', async (req, res, next) => {
     // ── Question type 4: Lyric snippet → song ────────────────────────────
     try {
       const lyricsPool = await prisma.lyric.findMany({
-        where: { song: { ...bandFilter } },
+        where: { song: { ...songFilter } },
         take: 50,
         select: {
           text: true,
@@ -167,7 +171,7 @@ triviaRouter.get('/questions', async (req, res, next) => {
     // ── Question type 5: Radar profile → song name ───────────────────────
     try {
       const allScores = await prisma.songAxisScore.findMany({
-        where: { song: { ...bandFilter } },
+        where: { song: { ...songFilter } },
         take: 50,
         include: { song: { include: { band: true } } },
         orderBy: { updatedAt: 'desc' },
@@ -195,7 +199,7 @@ triviaRouter.get('/questions', async (req, res, next) => {
     // ── Question type 6: Band identification by song title ───────────────
     try {
       const allSongs = await prisma.song.findMany({
-        where: { ...bandFilter },
+        where: { ...songFilter },
         take: 100,
         select: { id: true, title: true, band: { select: { id: true, name: true } } },
         orderBy: { createdAt: 'desc' },
