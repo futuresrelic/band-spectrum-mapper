@@ -144,7 +144,14 @@ function isAccessibilityBoost(ctx: LogContext): boolean {
 }
 
 function isDeepCutSurprise(ctx: LogContext): boolean {
-  return RARE_OR_ABOVE_TIERS.includes(ctx.song.liveTier);
+  if (!RARE_OR_ABOVE_TIERS.includes(ctx.song.liveTier)) return false;
+  // Phase Z.17.18: rarity tier alone used to be sufficient here, which meant
+  // a rare pick got "genuine rarity" praise even when the crowd it actually
+  // played to didn't care for it. Gate on real support instead — the
+  // deep-cut audience's own reaction (affinity + rarity combined, the same
+  // score explainReaction already shows the player) must read net positive,
+  // and the pick can't have cost the room energy overall.
+  return ctx.entry.factionReactionScores.deepCut > 0 && ctx.entry.crowdEnergyDelta >= 0;
 }
 
 function isCasualFanLoss(ctx: LogContext): boolean {

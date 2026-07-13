@@ -151,6 +151,22 @@ test('deepCutSurprise\'s Mythic-only variant never appears for a non-Mythic rari
   assert.ok(mythicVariants.has('Never played live — until fifteen seconds ago.'));
 });
 
+test('deepCutSurprise (Phase Z.17.18) does not fire for a rare song the deep-cut audience itself dislikes — rarity alone is not enough', () => {
+  // Audience profile deep-cut fans are built to dislike (opposite of
+  // TUNING.factionWeights.deepCut's positive dimensions) — even at
+  // Legendary tier, the rarity bonus should not be enough to outweigh a
+  // strongly negative affinity score.
+  const hostileToDeepCut = {
+    ...NEUTRAL_AUDIENCE, experimental: 0, improvisational: 0, progressive: 0, accessible: 100,
+  };
+  const bundle = makeBundle([makeSong('s0', { liveTier: 'Legendary', audience: hostileToDeepCut })]);
+  const result = applyPick(generateCandidates(createInitialState(bundle, 'hostile-deepcut-seed')).state, 's0');
+  assert.ok(result);
+  assert.ok(result.factionReactions.deepCut!.score < 0, 'fixture sanity: deep-cut reaction must actually be negative');
+  const log = buildReactionLogForSong(result.state);
+  assert.equal(log.find((e) => e.category === 'deepCutSurprise'), undefined);
+});
+
 test('casualFanLoss fires exactly once — at the moment casual momentum crosses into its walkout band, not on every subsequent hostile song', () => {
   const hostileAudience = { ...NEUTRAL_AUDIENCE, accessible: 0, technical: 100, experimental: 100, progressive: 100, emotional: 0 };
   const songs = Array.from({ length: 10 }, (_, i) => makeSong(`s${i}`, { audience: hostileAudience }));
