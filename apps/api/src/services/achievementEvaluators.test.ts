@@ -88,6 +88,7 @@ function makeState(opts: {
     encoreEligible: opts.encorePlayed ?? false, encorePlayed: opts.encorePlayed ?? false,
     encoreMomentumSwing: opts.encorePlayed ? 70 : null, phase: 'finished',
     currentCandidateIds: [], history: opts.history ?? [],
+    recentOfferedSongIds: [], lastHandHadMythic: false,
   };
 }
 

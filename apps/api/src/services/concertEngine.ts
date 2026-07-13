@@ -140,6 +140,19 @@ export interface EngineState {
   currentCandidateIds: string[];
   /** Chronological per-song exposure — see SongHistoryEntry. Appended by applyPick; never mutates prior entries. */
   history: SongHistoryEntry[];
+  /**
+   * Candidate-generation rebalance (Phase Z.17.18): rolling window of song
+   * IDs OFFERED (not necessarily picked) across recent hands, main set and
+   * encore alike. Used only to soften repeat offers — never read by scoring,
+   * momentum, or the report.
+   */
+  recentOfferedSongIds: string[];
+  /**
+   * Candidate-generation rebalance (Phase Z.17.18): true if the most recent
+   * hand (main or encore) included a Mythic-tier song. Backs the "no Mythic
+   * in two consecutive hands" rarity-budget safeguard in buildWildcardPool.
+   */
+  lastHandHadMythic: boolean;
 }
 
 export interface CandidateHand {
@@ -278,7 +291,7 @@ export type ScoreMetric =
  * against the engine version they were created with — a tuning change
  * never silently reshuffles a past leaderboard.
  */
-export const ENGINE_VERSION = 'HEADLINER_ENGINE_V1';
+export const ENGINE_VERSION = 'HEADLINER_ENGINE_V2';
 
 /** Quick Show's rules — the exact behavior Phase 1 shipped with, unchanged. */
 export const DEFAULT_SHOW_RULES: ShowRules = {
@@ -287,6 +300,75 @@ export const DEFAULT_SHOW_RULES: ShowRules = {
   factionShare: FACTIONS.reduce((acc, f) => { acc[f.id] = f.shareOfCrowd; return acc; }, {} as Record<FactionId, number>),
   encoreEnergyThreshold: TUNING.encoreCrowdEnergyThreshold,
 };
+
+// ---------------------------------------------------------------------------
+// Candidate-generation tuning (Phase Z.17.18) — deliberately kept separate
+// from TUNING above. TUNING drives scoring, momentum, and the final report,
+// and none of it changes here. This block only controls which songs get
+// OFFERED as candidates and with what probability — never what a song is
+// worth once picked. See docs/ARCHITECTURE.md's "Candidate generation
+// rebalance" section for the full audit and rationale.
+// ---------------------------------------------------------------------------
+
+export const CANDIDATE_CONFIG = {
+  /**
+   * Live Frequency now drives offer PROBABILITY, not a score bonus. Higher
+   * number = more likely to be sampled into a hand. Essential/Frequent stay
+   * dominant; Mythic is a rare surprise, never something to chase.
+   */
+  liveTierCandidateWeight: {
+    Essential: 100, Frequent: 80, Occasional: 50, Rare: 24, Legendary: 10, Mythic: 4, Unclassified: 55,
+  } satisfies Record<LiveFrequencyTier, number>,
+
+  /**
+   * Track Type modifies offer probability multiplicatively, independent of
+   * eligibleHeadliner — this never hard-bans an eligible track, it just
+   * makes interludes/spoken word/sound collage/intro/outro compete far less
+   * often against four full songs in an ordinary hand.
+   */
+  trackTypeCandidateWeight: {
+    Song: 1.0, Instrumental: 1.0, Cover: 1.0, Live: 1.0, SuiteMovement: 1.0,
+    BonusTrack: 0.9, Remix: 0.6, Demo: 0.4, Special: 0.3,
+    Interlude: 0.15, Transition: 0.15,
+    SpokenWord: 0.1, SoundCollage: 0.08, Intro: 0.08, Outro: 0.08,
+  } satisfies Record<TrackType, number>,
+
+  // Contextual position boosts — an Intro is only "preferred" while nothing
+  // has played yet; an Outro only near the end of the show.
+  introOpeningBoost: 6,
+  introOpeningWindow: 1,     // "opening" = at most this many songs already played
+  outroEndingBoost: 6,
+  outroEndingProgress: 0.85, // "ending" = elapsedSeconds / showLengthBudgetSeconds at or beyond this
+
+  // Short, non-Song filler protection. Track Type is the primary signal —
+  // this is a secondary nudge, not proof of filler on its own.
+  shortTrackSeconds: 90,
+  shortTrackFillerPenalty: 0.5,
+
+  // Songs offered recently (whether picked or not) are softened so the same
+  // handful of tracks don't keep resurfacing hand after hand.
+  recentOfferedWindow: 8,
+  recentOfferedPenalty: 0.35,
+
+  // A song that's headliner-ineligible is still offerable in a small catalog
+  // (never hard-banned), but its offer probability is cut hard on top of the
+  // existing candidateValue penalty.
+  ineligibleAvailabilityMultiplier: 0.05,
+
+  // Rarity budget per hand — enforced by filtering the pool BEFORE sampling
+  // (buildWildcardPool), never by discarding an already-chosen pick.
+  maxRareOrHigherPerHand: 2,
+  maxMythicPerHand: 1,
+
+  // How many "best fit" songs (by the now rarity-free candidateValue) feed
+  // each slot's weighted-random draw. Keeps hands catalog-appropriate
+  // without ever making the top choice deterministic.
+  slotShortlistSize: 6,
+
+  // Wildcard slot: usually a genuine deep cut, but not guaranteed rare — the
+  // chance it draws from the common side of the pool instead.
+  wildcardCommonChance: 0.3,
+} as const;
 
 // ---------------------------------------------------------------------------
 // Deterministic PRNG — pure function of (seed, step). No mutable RNG object,
@@ -351,6 +433,8 @@ export function createInitialState(bundle: ShowBundle, seed: string): EngineStat
     phase: 'main',
     currentCandidateIds: [],
     history: [],
+    recentOfferedSongIds: [],
+    lastHandHadMythic: false,
   };
 }
 
@@ -402,7 +486,6 @@ function spectrumGapReduction(song: EngineSong, state: EngineState): number {
 function candidateValue(song: EngineSong, state: EngineState): number {
   const progress = Math.min(1, state.elapsedSeconds / state.bundle.showLengthBudgetSeconds);
   const fit = spectrumGapReduction(song, state) * TUNING.spectrumFitWeight;
-  const rarity = (TUNING.liveTierExcitement[song.liveTier] / 100) * TUNING.rarityWeight * 10;
   const axis = dominantAxis(song);
   const overrepresented = axis !== null && state.recentAxisWindow.filter((a) => a === axis).length >= 2;
   const variety = overrepresented ? -TUNING.varietyBonusWeight * 10 : TUNING.varietyBonusWeight * 5;
@@ -412,13 +495,191 @@ function candidateValue(song: EngineSong, state: EngineState): number {
   const actualTempo = song.tempoEnergy ?? 5;
   const pacing = -Math.abs(actualTempo - expected) * TUNING.pacingMismatchWeight;
   const eligibility = song.eligibleHeadliner ? 0 : -TUNING.headlinerIneligiblePenalty;
-  return fit + rarity + variety + clump + pacing + eligibility;
+  return fit + variety + clump + pacing + eligibility;
+}
+
+const RARE_OR_HIGHER_TIERS: readonly LiveFrequencyTier[] = ['Rare', 'Legendary', 'Mythic'];
+
+function isRareOrHigher(tier: LiveFrequencyTier): boolean {
+  return RARE_OR_HIGHER_TIERS.includes(tier);
 }
 
 /**
- * Generates the next candidate hand (2-4 songs). Deliberately excludes the
- * single highest-value song from the offered hand so the game never degenerates
- * into "always pick the top-scored song" — see CONCERT_ARCHITECT.md.
+ * Pure multiplicative offer-probability weight for one song against the
+ * current state — Live Frequency tier x Track Type x contextual position
+ * boosts x short-track filler penalty x recent-offer softening x eligibility
+ * softening. Floored at a small positive epsilon so nothing is ever
+ * literally impossible to offer, only very unlikely.
+ */
+function candidateAvailabilityWeight(song: EngineSong, state: EngineState): number {
+  let weight = CANDIDATE_CONFIG.liveTierCandidateWeight[song.liveTier]
+    * CANDIDATE_CONFIG.trackTypeCandidateWeight[song.trackType];
+
+  const isOpening = state.playedSongIds.length <= CANDIDATE_CONFIG.introOpeningWindow;
+  if (song.trackType === 'Intro' && isOpening) weight *= CANDIDATE_CONFIG.introOpeningBoost;
+
+  const progress = state.bundle.showLengthBudgetSeconds > 0
+    ? state.elapsedSeconds / state.bundle.showLengthBudgetSeconds
+    : 0;
+  if (song.trackType === 'Outro' && progress >= CANDIDATE_CONFIG.outroEndingProgress) {
+    weight *= CANDIDATE_CONFIG.outroEndingBoost;
+  }
+
+  const isShortNonSong = song.trackType !== 'Song'
+    && song.durationSeconds > 0 && song.durationSeconds < CANDIDATE_CONFIG.shortTrackSeconds;
+  if (isShortNonSong) weight *= CANDIDATE_CONFIG.shortTrackFillerPenalty;
+
+  if (state.recentOfferedSongIds.includes(song.id)) weight *= CANDIDATE_CONFIG.recentOfferedPenalty;
+
+  if (!song.eligibleHeadliner) weight *= CANDIDATE_CONFIG.ineligibleAvailabilityMultiplier;
+
+  return Math.max(weight, 0.0001);
+}
+
+/** Deterministic weighted-random index into `weights`. Falls back to a uniform pick if all weights are zero. */
+function weightedPickIndex(weights: number[], seed: string, step: number): number {
+  const total = weights.reduce((sum, w) => sum + w, 0);
+  if (total <= 0) return rngInt(seed, step, 0, Math.max(0, weights.length - 1));
+  const roll = rngFloat(seed, step) * total;
+  let acc = 0;
+  for (let i = 0; i < weights.length; i++) {
+    acc += weights[i]!;
+    if (roll < acc) return i;
+  }
+  return weights.length - 1;
+}
+
+/**
+ * Ranks `pool` by candidateValue (quality/fit, rarity-free) to a small
+ * shortlist, then weighted-samples within it by candidateAvailabilityWeight
+ * (tier/type/context/history probability). Combines "still a good fit for
+ * the show" with "probabilistically tier-and-type appropriate" — the core
+ * mechanism every slot below is built from.
+ */
+function pickWeighted(
+  pool: EngineSong[], state: EngineState, step: number,
+): { song: EngineSong; nextStep: number } | null {
+  if (pool.length === 0) return null;
+  const ranked = [...pool].sort((a, b) => candidateValue(b, state) - candidateValue(a, state));
+  const shortlist = ranked.slice(0, CANDIDATE_CONFIG.slotShortlistSize);
+  const weights = shortlist.map((song) => candidateAvailabilityWeight(song, state));
+  const idx = weightedPickIndex(weights, state.seed, step);
+  return { song: shortlist[idx]!, nextStep: step + 1 };
+}
+
+/**
+ * Rarity-budget filter, applied to EVERY slot's pool (not just Wildcard) so
+ * the budget is a hand-wide guarantee — constructive, not retry-based:
+ * filters Mythic and/or all Rare-or-higher songs OUT of the pool whenever
+ * the hand-so-far (plus last hand's Mythic memory) would otherwise exceed
+ * the configured budget, falling back to the unfiltered pool only if that
+ * would leave nothing to offer (the catalog genuinely forces a rare pick).
+ */
+function applyRarityBudget(pool: EngineSong[], chosenSoFar: EngineSong[], state: EngineState): EngineSong[] {
+  const rareCount = chosenSoFar.filter((s) => isRareOrHigher(s.liveTier)).length;
+  const mythicCount = chosenSoFar.filter((s) => s.liveTier === 'Mythic').length;
+
+  const blockMythic = state.lastHandHadMythic || mythicCount >= CANDIDATE_CONFIG.maxMythicPerHand;
+  const blockRareOrHigher = rareCount >= CANDIDATE_CONFIG.maxRareOrHigherPerHand;
+
+  let filtered = pool;
+  if (blockMythic) {
+    const withoutMythic = filtered.filter((s) => s.liveTier !== 'Mythic');
+    if (withoutMythic.length > 0) filtered = withoutMythic;
+  }
+  if (blockRareOrHigher) {
+    const withoutRare = filtered.filter((s) => !isRareOrHigher(s.liveTier));
+    if (withoutRare.length > 0) filtered = withoutRare;
+  }
+  return filtered;
+}
+
+// --- Slot roles (Phase Z.17.18) -------------------------------------------
+// Slot A Core/Reliable, Slot B Strategic Correction, Slot C Contrast/Variety,
+// Slot D Wildcard/Deep Cut — see docs/ARCHITECTURE.md for the full rationale.
+// None of these hardcode a song; every slot samples from the live pool.
+
+/** Slot A — Core/Reliable: prefers Essential/Frequent/Occasional, falls back to the full pool only if none remain. */
+function pickCoreSlot(
+  pool: EngineSong[], state: EngineState, step: number,
+): { song: EngineSong; nextStep: number } | null {
+  const corePool = pool.filter((s) => !isRareOrHigher(s.liveTier));
+  return pickWeighted(corePool.length > 0 ? corePool : pool, state, step);
+}
+
+/** Slot B — Strategic Correction: whatever best closes the current spectrum/pacing/variety gap, any tier. */
+function pickCorrectionSlot(
+  pool: EngineSong[], state: EngineState, step: number,
+): { song: EngineSong; nextStep: number } | null {
+  return pickWeighted(pool, state, step);
+}
+
+/** Slot C — Contrast/Variety: a different album and dominant axis than what's already in the hand. */
+function pickContrastSlot(
+  pool: EngineSong[], chosen: EngineSong[], state: EngineState, step: number,
+): { song: EngineSong; nextStep: number } | null {
+  const chosenAlbums = new Set(chosen.map((s) => s.albumId).filter((id): id is string => id !== null));
+  const chosenAxes = new Set(chosen.map((s) => dominantAxis(s)).filter((a): a is Axis => a !== null));
+  const contrastPool = pool.filter((s) => {
+    const axis = dominantAxis(s);
+    return (s.albumId === null || !chosenAlbums.has(s.albumId)) && (axis === null || !chosenAxes.has(axis));
+  });
+  return pickWeighted(contrastPool.length > 0 ? contrastPool : pool, state, step);
+}
+
+/**
+ * Slot D — Wildcard/Deep Cut: a chance of leaning common instead of rare.
+ * `pool` is expected to already be rarity-budget-filtered by the caller's
+ * `remaining()` (the budget applies to every slot, not just this one) —
+ * this only decides whether to lean toward the common or rare side of it.
+ */
+function pickWildcardSlot(
+  pool: EngineSong[], state: EngineState, step: number,
+): { song: EngineSong; nextStep: number } | null {
+  const preferCommon = rngFloat(state.seed, step) < CANDIDATE_CONFIG.wildcardCommonChance;
+  const nextStep = step + 1;
+  const commonOnly = pool.filter((s) => !isRareOrHigher(s.liveTier));
+  const rareLeaning = pool.filter((s) => isRareOrHigher(s.liveTier));
+  const finalPool = preferCommon
+    ? (commonOnly.length > 0 ? commonOnly : pool)
+    : (rareLeaning.length > 0 ? rareLeaning : pool);
+  return pickWeighted(finalPool, state, nextStep);
+}
+
+function finalizeHand(state: EngineState, chosen: EngineSong[], step: number): CandidateHand {
+  const recentOfferedSongIds = [...state.recentOfferedSongIds, ...chosen.map((s) => s.id)]
+    .slice(-CANDIDATE_CONFIG.recentOfferedWindow);
+  const lastHandHadMythic = chosen.some((s) => s.liveTier === 'Mythic');
+  return {
+    candidates: chosen,
+    state: {
+      ...state,
+      stepIndex: step,
+      currentCandidateIds: chosen.map((s) => s.id),
+      recentOfferedSongIds,
+      lastHandHadMythic,
+    },
+  };
+}
+
+/** Seeded Fisher-Yates shuffle — used only to randomize DISPLAY ORDER so slot position never telegraphs "the safe pick." */
+function shuffleInPlace(arr: EngineSong[], seed: string, step: number): number {
+  let s = step;
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = rngInt(seed, s++, 0, i);
+    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
+  }
+  return s;
+}
+
+/**
+ * Generates the next candidate hand (2-4 songs) from four slot roles — Core,
+ * Strategic Correction, Contrast, and Wildcard — instead of one undifferentiated
+ * rarity-leaning ranking. See CANDIDATE_CONFIG and docs/ARCHITECTURE.md's
+ * "Candidate generation rebalance" section for the full rationale. A small
+ * remaining pool (<= handSize) skips slot roles entirely and offers
+ * everything left, shuffled — slot roles are a preference, never a block on
+ * a valid hand.
  */
 export function generateCandidates(state: EngineState): CandidateHand {
   const played = new Set(state.playedSongIds);
@@ -428,29 +689,62 @@ export function generateCandidates(state: EngineState): CandidateHand {
     return { candidates: [], state };
   }
 
-  const ranked = pool
-    .map((song) => ({ song, value: candidateValue(song, state) }))
-    .sort((a, b) => b.value - a.value);
-
-  const cut = Math.min(TUNING.obviousCutCount, Math.max(0, ranked.length - TUNING.handSizeMin));
-  const shortlist = ranked.slice(cut, cut + TUNING.shortlistWindow);
-  const pickPool = shortlist.length >= TUNING.handSizeMin ? shortlist : ranked;
-
   let step = state.stepIndex;
   const handSize = Math.min(
-    pickPool.length,
+    pool.length,
     rngInt(state.seed, step++, TUNING.handSizeMin, TUNING.handSizeMax),
   );
 
-  const remaining = [...pickPool];
-  const chosen: EngineSong[] = [];
-  for (let i = 0; i < handSize && remaining.length > 0; i++) {
-    const idx = rngInt(state.seed, step++, 0, remaining.length - 1);
-    const picked = remaining.splice(idx, 1)[0];
-    if (picked) chosen.push(picked.song);
+  if (pool.length <= handSize) {
+    const chosen = [...pool];
+    step = shuffleInPlace(chosen, state.seed, step);
+    return finalizeHand(state, chosen, step);
   }
 
-  return { candidates: chosen, state: { ...state, stepIndex: step, currentCandidateIds: chosen.map((s) => s.id) } };
+  const chosen: EngineSong[] = [];
+  // Rarity budget applies to every slot's pool, not just Wildcard — a hand
+  // can't exceed maxRareOrHigherPerHand/maxMythicPerHand no matter which
+  // slot would otherwise have picked the excess rare song.
+  const remaining = () => applyRarityBudget(
+    pool.filter((s) => !chosen.some((c) => c.id === s.id)), chosen, state,
+  );
+
+  const corePick = pickCoreSlot(remaining(), state, step);
+  if (corePick) { chosen.push(corePick.song); step = corePick.nextStep; }
+
+  if (handSize >= 2) {
+    const correctionPick = pickCorrectionSlot(remaining(), state, step);
+    if (correctionPick) { chosen.push(correctionPick.song); step = correctionPick.nextStep; }
+  }
+
+  if (handSize === 3) {
+    const wantsContrast = rngFloat(state.seed, step++) < 0.5;
+    const pick = wantsContrast
+      ? pickContrastSlot(remaining(), chosen, state, step)
+      : pickWildcardSlot(remaining(), state, step);
+    if (pick) { chosen.push(pick.song); step = pick.nextStep; }
+  }
+
+  if (handSize >= 4) {
+    const contrastPick = pickContrastSlot(remaining(), chosen, state, step);
+    if (contrastPick) { chosen.push(contrastPick.song); step = contrastPick.nextStep; }
+
+    const wildcardPick = pickWildcardSlot(remaining(), state, step);
+    if (wildcardPick) { chosen.push(wildcardPick.song); step = wildcardPick.nextStep; }
+  }
+
+  while (chosen.length < handSize) {
+    const fillPool = remaining();
+    if (fillPool.length === 0) break;
+    const fillPick = pickWeighted(fillPool, state, step);
+    if (!fillPick) break;
+    chosen.push(fillPick.song);
+    step = fillPick.nextStep;
+  }
+
+  step = shuffleInPlace(chosen, state.seed, step);
+
+  return finalizeHand(state, chosen, step);
 }
 
 // ---------------------------------------------------------------------------
@@ -502,6 +796,62 @@ export function reactToSong(song: EngineSong, state: EngineState): PickResult['f
 
 function weightedCrowdEnergy(momentum: Record<FactionId, number>, factionShare: Record<FactionId, number>): number {
   return FACTIONS.reduce((sum, f) => sum + momentum[f.id] * factionShare[f.id], 0);
+}
+
+// ---------------------------------------------------------------------------
+// Candidate debugging (Phase Z.17.18) — admin/development-only. Never sent
+// to regular players; routes/headliner.ts gates this behind req.user.isAdmin.
+// ---------------------------------------------------------------------------
+
+export interface CandidateExplanation {
+  songId: string;
+  title: string;
+  liveTier: LiveFrequencyTier;
+  trackType: TrackType;
+  liveTierWeight: number;
+  trackTypeWeight: number;
+  spectrumFit: number;
+  pacingFit: number;
+  varietyModifier: number;
+  albumClumpModifier: number;
+  eligibilityModifier: number;
+  availabilityWeight: number;
+  qualityScore: number;
+}
+
+/**
+ * Breaks down exactly why `song` has the offer weight it does against the
+ * current state — recomputes the same pure functions generateCandidates
+ * already uses, so it can never drift from real behavior. `qualityScore` is
+ * the rarity-free candidateValue (used to build each slot's shortlist);
+ * `availabilityWeight` is the multiplicative tier/type/context/history
+ * weight used for the actual weighted sample within that shortlist. A song
+ * can satisfy more than one slot role, so this reports the scoring
+ * breakdown rather than a single assigned role.
+ */
+export function explainCandidate(song: EngineSong, state: EngineState): CandidateExplanation {
+  const progress = Math.min(1, state.elapsedSeconds / state.bundle.showLengthBudgetSeconds);
+  const axis = dominantAxis(song);
+  const overrepresented = axis !== null && state.recentAxisWindow.filter((a) => a === axis).length >= 2;
+  const expected = expectedEnergyAt(progress);
+  const actualTempo = song.tempoEnergy ?? 5;
+
+  return {
+    songId: song.id,
+    title: song.title,
+    liveTier: song.liveTier,
+    trackType: song.trackType,
+    liveTierWeight: CANDIDATE_CONFIG.liveTierCandidateWeight[song.liveTier],
+    trackTypeWeight: CANDIDATE_CONFIG.trackTypeCandidateWeight[song.trackType],
+    spectrumFit: spectrumGapReduction(song, state) * TUNING.spectrumFitWeight,
+    pacingFit: -Math.abs(actualTempo - expected) * TUNING.pacingMismatchWeight,
+    varietyModifier: overrepresented ? -TUNING.varietyBonusWeight * 10 : TUNING.varietyBonusWeight * 5,
+    albumClumpModifier: song.albumId !== null && state.recentAlbumWindow.filter((a) => a === song.albumId).length >= 2
+      ? -TUNING.albumClumpPenalty : 0,
+    eligibilityModifier: song.eligibleHeadliner ? 0 : -TUNING.headlinerIneligiblePenalty,
+    availabilityWeight: candidateAvailabilityWeight(song, state),
+    qualityScore: candidateValue(song, state),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -615,30 +965,43 @@ export function resolveEncoreEligibility(state: EngineState): EngineState {
   return { ...state, encoreEligible: energy >= state.bundle.rules.encoreEnergyThreshold, phase: 'encore' };
 }
 
-/** Generates the (smaller, rarity-leaning) encore candidate hand. */
+/**
+ * Generates the (smaller) encore candidate hand — one Strategic Correction
+ * slot plus Wildcard slots up to TUNING.encoreCandidateCount. Same shared
+ * slot machinery as generateCandidates; no longer carries its own separate
+ * (and previously much larger) flat rarity bonus.
+ */
 export function generateEncoreCandidates(state: EngineState): CandidateHand {
   const played = new Set(state.playedSongIds);
   const pool = state.bundle.songs.filter((s) => !played.has(s.id));
   if (pool.length === 0) return { candidates: [], state };
 
-  const ranked = pool
-    .map((song) => ({
-      song,
-      value: candidateValue(song, state) + (TUNING.liveTierExcitement[song.liveTier] / 100) * 40,
-    }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, TUNING.encoreCandidateCount + 2);
-
   let step = state.stepIndex;
-  const chosen: EngineSong[] = [];
-  const remaining = [...ranked];
-  const count = Math.min(TUNING.encoreCandidateCount, remaining.length);
-  for (let i = 0; i < count; i++) {
-    const idx = rngInt(state.seed, step++, 0, remaining.length - 1);
-    const picked = remaining.splice(idx, 1)[0];
-    if (picked) chosen.push(picked.song);
+
+  if (pool.length <= TUNING.encoreCandidateCount) {
+    const chosen = [...pool];
+    step = shuffleInPlace(chosen, state.seed, step);
+    return finalizeHand(state, chosen, step);
   }
-  return { candidates: chosen, state: { ...state, stepIndex: step, currentCandidateIds: chosen.map((s) => s.id) } };
+
+  const chosen: EngineSong[] = [];
+  const remaining = () => applyRarityBudget(
+    pool.filter((s) => !chosen.some((c) => c.id === s.id)), chosen, state,
+  );
+
+  const correctionPick = pickCorrectionSlot(remaining(), state, step);
+  if (correctionPick) { chosen.push(correctionPick.song); step = correctionPick.nextStep; }
+
+  while (chosen.length < TUNING.encoreCandidateCount) {
+    const wildcardPick = pickWildcardSlot(remaining(), state, step);
+    if (!wildcardPick) break;
+    chosen.push(wildcardPick.song);
+    step = wildcardPick.nextStep;
+  }
+
+  step = shuffleInPlace(chosen, state.seed, step);
+
+  return finalizeHand(state, chosen, step);
 }
 
 export function applyEncorePick(state: EngineState, songId: string): PickResult | null {

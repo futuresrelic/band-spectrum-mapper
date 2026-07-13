@@ -29,8 +29,8 @@ import {
 import {
   createInitialState, generateCandidates, applyPick, buildReport,
   isMainSetComplete, resolveEncoreEligibility, generateEncoreCandidates,
-  applyEncorePick, skipEncore, ENGINE_VERSION,
-  type EngineState, type ConcertReport, type ShowBundle,
+  applyEncorePick, skipEncore, ENGINE_VERSION, explainCandidate,
+  type EngineState, type ConcertReport, type ShowBundle, type EngineSong, type CandidateExplanation,
 } from '../services/concertEngine.js';
 import { buildReactionLogForSong } from '../services/liveReactionLog.js';
 import { computeConcertPulse } from '../services/concertPulse.js';
@@ -69,6 +69,18 @@ function ownerGuard() {
     const run = await loadRun(req.params['id']!);
     return run?.userId ?? null;
   });
+}
+
+/**
+ * Admin/development-only candidate scoring breakdown (Phase Z.17.18) — never
+ * sent to a non-admin player. Conditionally spread into a response so the
+ * field is entirely absent (not `undefined`) for everyone else.
+ */
+function candidateDebug(
+  candidates: EngineSong[], state: EngineState, isAdmin: boolean,
+): { candidateDebug: CandidateExplanation[] } | Record<string, never> {
+  if (!isAdmin) return {};
+  return { candidateDebug: candidates.map((song) => explainCandidate(song, state)) };
 }
 
 /** Runs Campaign scoring/progress/unlocks on finish. No-op for Quick Show/Daily runs. */
@@ -251,7 +263,10 @@ headlinerRouter.post('/runs', requireAuth, async (req, res, next) => {
       data: { stateJson: hand.state as object },
     });
 
-    res.json({ runId: run.id, state: hand.state, candidates: hand.candidates, isPractice });
+    res.json({
+      runId: run.id, state: hand.state, candidates: hand.candidates, isPractice,
+      ...candidateDebug(hand.candidates, hand.state, req.user!.isAdmin ?? false),
+    });
     return;
   } catch (e) { next(e); }
 });
@@ -317,7 +332,10 @@ headlinerRouter.post('/runs/:id/pick', requireAuth, ownerGuard(), async (req, re
           where: { id: run.id },
           data: { picksJson: picks, stateJson: nextState as object },
         });
-        res.json({ result, encoreCandidates: encoreHand.candidates, encoreEligible: true, reactionLog, pulse, metricsSnapshot, finished: false });
+        res.json({
+          result, encoreCandidates: encoreHand.candidates, encoreEligible: true, reactionLog, pulse, metricsSnapshot, finished: false,
+          ...candidateDebug(encoreHand.candidates, nextState, req.user!.isAdmin ?? false),
+        });
         return;
       }
       nextState = skipEncore(nextState);
@@ -346,7 +364,10 @@ headlinerRouter.post('/runs/:id/pick', requireAuth, ownerGuard(), async (req, re
       where: { id: run.id },
       data: { picksJson: picks, stateJson: hand.state as object },
     });
-    res.json({ result, candidates: hand.candidates, reactionLog, pulse, metricsSnapshot, finished: false });
+    res.json({
+      result, candidates: hand.candidates, reactionLog, pulse, metricsSnapshot, finished: false,
+      ...candidateDebug(hand.candidates, hand.state, req.user!.isAdmin ?? false),
+    });
     return;
   } catch (e) { next(e); }
 });

@@ -143,6 +143,7 @@ function makeState(playedSongIds: string[], songs: EngineSong[], encorePlayed = 
     crowdPeak: 0, recentAxisWindow: [], recentAlbumWindow: [], pacingPenaltyTotal: 0, fallbackSongCount: 0,
     encoreEligible: encorePlayed, encorePlayed, encoreMomentumSwing: encorePlayed ? 70 : null, phase: 'finished',
     currentCandidateIds: [], history: [],
+    recentOfferedSongIds: [], lastHandHadMythic: false,
   };
 }
 
