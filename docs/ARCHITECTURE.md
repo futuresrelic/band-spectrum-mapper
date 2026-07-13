@@ -1833,3 +1833,216 @@ project; every test here is of a pure function or data table.
   `audienceRetention`, the closest existing metric — a genuinely separate
   per-song attendance figure still doesn't exist in the engine (same
   honest gap Part B/C already documented) and isn't fabricated here.
+
+## Headliner candidate-generation rebalance (Phase Z.17.18, 2026-07-12)
+
+Live testing of the Concert Viewport surfaced a real gameplay bug: offered
+hands skewed heavily toward Rare/Legendary/Mythic songs (including short
+filler-type tracks like interludes and sound collages), while Essential/
+Frequent/Occasional material appeared far less than a real setlist would
+suggest. This phase is a focused audit and fix of *candidate generation
+only* — it does not touch post-pick scoring, the deterministic engine's
+math, Campaign progression, Daily verification, or canonical Live
+Frequency values. All of `TUNING` (scoring/momentum/report weights) is
+untouched.
+
+### Root cause
+
+`candidateValue()` summed a flat, always-positive, non-decaying rarity
+term into every candidate's ranking score:
+`(liveTierExcitement[tier] / 100) * rarityWeight * 10` — up to +6 for
+Mythic, +0 for Essential, with no downside and no context sensitivity.
+Meanwhile the spectrum-fit term (`spectrumGapReduction`) mathematically
+*shrinks* in magnitude as a show's running spectrum average stabilizes
+(it scales with roughly `1/(count+1)` sensitivity) — so the flat rarity
+bonus became relatively more dominant as a show progressed, not less.
+`generateCandidates()` ranked the entire remaining pool by this inflated
+score, excluded only the single top song, and sampled the offered hand
+from the next 6 best-ranked songs. In a real catalog, rare/one-off/filler
+tracks vastly outnumber "Essential" staples by sheer count, so that
+6-song shortlist became saturated with rarity, and the random sub-sample
+inherited the skew. `generateEncoreCandidates()` had its own, separate,
+even larger flat rarity bonus (up to +40), biasing encore offers toward
+rarity even harder. Track Type had **zero** influence on candidate
+generation — only the pre-existing, admin-opt-in `eligibleHeadliner` flag
+dampened anything, and only for songs an admin had manually flagged,
+which for a large real catalog is unlikely to cover every interlude,
+sound collage, or one-off oddity. Newly-classified filler Track Types
+(Interlude, SpokenWord, SoundCollage, Intro, Outro — almost all rare by
+nature, since they're rarely if ever played live) therefore compounded
+directly with the rarity bug.
+
+### `CANDIDATE_CONFIG` — a new, separate tuning block
+
+Deliberately not merged into `TUNING`, which keeps driving scoring,
+faction reactions, momentum, and the final report exactly as before.
+`CANDIDATE_CONFIG` (`concertEngine.ts`) controls only which songs get
+*offered* and with what probability:
+
+- `liveTierCandidateWeight` — Live Frequency now drives offer
+  **probability**, not an added score: `{ Essential: 100, Frequent: 80,
+  Occasional: 50, Rare: 24, Legendary: 10, Mythic: 4, Unclassified: 55 }`.
+  Higher weight = more likely to be sampled. The system still allows
+  Rare/Legendary/Mythic — they're meant to read as meaningful surprises,
+  not routine offerings.
+- `trackTypeCandidateWeight` — a per-TrackType multiplicative modifier,
+  independent of `eligibleHeadliner`: 1.0 for Song/Instrumental/Cover/
+  Live/SuiteMovement, 0.9 for BonusTrack, down through Remix (0.6), Demo
+  (0.4), Special (0.3), Interlude/Transition (0.15), to SpokenWord/
+  SoundCollage/Intro/Outro (0.08). This never hard-bans an eligible
+  track — it makes filler types compete far less often against four full
+  songs in an ordinary hand, via probability rather than exclusion.
+- Contextual position boosts: `introOpeningBoost`/`outroEndingBoost`
+  multiply an Intro's weight near the very start of a show, and an
+  Outro's weight near the very end (`outroEndingProgress: 0.85`) —
+  otherwise these types are heavily suppressed everywhere else.
+- `shortTrackSeconds`/`shortTrackFillerPenalty` — a secondary nudge (not
+  the primary signal — Track Type is) further softening very short
+  non-Song tracks, so a 45-second Mythic-tier interlude doesn't gain a
+  disproportionate advantage purely from being rare and short.
+- `recentOfferedWindow`/`recentOfferedPenalty` — songs offered recently
+  (whether picked or not) are softened so the same handful of tracks
+  don't keep resurfacing hand after hand.
+- `ineligibleAvailabilityMultiplier` — an additional, purely
+  probability-side dampener for `eligibleHeadliner: false` songs, on top
+  of `candidateValue`'s existing `headlinerIneligiblePenalty` (which
+  still applies too, unchanged).
+- `maxRareOrHigherPerHand: 2`, `maxMythicPerHand: 1` — the rarity budget
+  (see below).
+- `slotShortlistSize: 6` — how many best-fit songs (by the now
+  rarity-free `candidateValue`) feed each slot's weighted-random draw.
+- `wildcardCommonChance: 0.3` — the Wildcard slot isn't always rare; ~30%
+  of the time it deliberately leans toward the common side of its pool.
+
+### Four hand slot roles, replacing one ranking list
+
+`generateCandidates()` was rewritten around four named slots instead of
+ranking the whole pool by one (now rarity-biased) score and sampling from
+a shortlist:
+
+- **Slot A — Core/Reliable**: prefers Essential/Frequent/Occasional
+  (falls back to the full pool only if none remain in the pool).
+  Guarantees a hand almost always has at least one broadly-familiar
+  option.
+- **Slot B — Strategic Correction**: whatever best closes the current
+  spectrum/pacing/variety gap, any tier — this is `candidateValue`'s job,
+  now rarity-free, so it can't be gamed by picking something merely rare.
+- **Slot C — Contrast/Variety**: a different album and dominant axis than
+  what's already in the hand (falls back to the unfiltered pool if no
+  such song remains), so a hand isn't four songs from the same corner of
+  the catalog.
+- **Slot D — Wildcard/Deep Cut**: rarity-budget-filtered (see below), with
+  the `wildcardCommonChance` roll deciding whether it leans common or
+  rare within that filtered pool.
+
+A 2-song hand runs Core + Correction. A 3-song hand runs Core +
+Correction + (Contrast **or** Wildcard, decided by a seeded coinflip). A
+4-song hand runs all four. None of this hardcodes a specific song — every
+slot samples from whatever's actually left in the pool. A small remaining
+pool (`pool.length <= handSize`, e.g. late in a small Campaign recovered
+collection) skips slot roles entirely and offers everything left,
+shuffled — slot roles are a preference, never a block on a valid hand.
+
+`generateEncoreCandidates()` follows the same pattern, simplified: one
+Strategic Correction slot plus Wildcard slots up to
+`TUNING.encoreCandidateCount`, reusing the identical shared machinery —
+its previous, separate +40-max flat rarity bonus is gone entirely.
+
+### Rarity budget — hand-wide, not just the Wildcard slot
+
+`applyRarityBudget(pool, chosenSoFar, state)` filters Mythic and/or all
+Rare-or-higher songs **out** of a slot's candidate pool whenever the
+hand-so-far (plus `state.lastHandHadMythic`, memory of the previous hand)
+would otherwise exceed the configured budget — constructively, by
+filtering before sampling, never by discarding an already-made pick. It
+falls back to the unfiltered pool only if filtering would leave nothing
+to offer (the catalog genuinely forces a rare pick). Critically, this is
+applied inside the shared `remaining()` pool for **every** slot in
+`generateCandidates`/`generateEncoreCandidates`, not only Slot D — so the
+budget is a genuine hand-wide guarantee (with graceful small-catalog
+fallback) rather than something only the Wildcard slot happens to
+respect. Two new `EngineState` fields back this: `recentOfferedSongIds`
+(rolling offer-history window, also used for the recent-offer weight
+penalty) and `lastHandHadMythic` (drives the "no Mythic in two
+consecutive hands, unless the catalog forces it" rule).
+
+### Candidate debugging (admin/development-only)
+
+`explainCandidate(song, state): CandidateExplanation` recomputes the
+exact same pure functions `generateCandidates` uses — tier/type weights,
+spectrum/pacing fit, variety/clump modifiers, eligibility modifier,
+final availability weight, and rarity-free quality score — so it can
+never drift from real behavior. `routes/headliner.ts` conditionally
+spreads a `candidateDebug` field (one entry per offered candidate) into
+the `POST /runs` and `POST /runs/:id/pick` responses only when
+`req.user.isAdmin` is true; the field is entirely absent (not
+`undefined`) for a regular player. There is no dedicated admin UI panel
+consuming this yet — it's response data only, a known limitation below.
+
+### Engine version
+
+`ENGINE_VERSION` bumped `HEADLINER_ENGINE_V1` -> `HEADLINER_ENGINE_V2`,
+per the project's existing versioning contract (see Phase Z.17.11): this
+is a stored audit tag on new `ConcertRun`/`HeadlinerDailyChallenge` rows
+going forward, not a live code-branching mechanism. It does not
+retroactively affect already-persisted historical results — those remain
+immutable JSON in the database exactly as computed. `dailyChallengeService.ts`
+picks up the new version automatically for challenges created after this
+change; it never re-simulates a past challenge's candidates.
+
+### Reaction log fix (verified, not redesigned)
+
+Per the request's own instruction not to redesign the Live Reaction Log
+system in this pass, `liveReactionLog.ts` was checked for the specific
+concern raised: whether rare-song praise was gated on the audience
+actually supporting it. It wasn't — `isDeepCutSurprise` fired on Live
+Frequency tier alone. Fixed with a minimal, targeted gate: the deep-cut
+faction's own reaction score (affinity + rarity combined, the same number
+`explainReaction` already shows the player) must be net positive, and the
+pick can't have cost the room energy overall. Verified against every
+pre-existing reaction-log test (all pass unchanged under neutral-audience
+fixtures) plus a new regression test using a Legendary-tier song with an
+audience profile deep-cut fans dislike, confirming the line no longer
+fires in that case.
+
+### Testing
+
+`candidateBalance.test.ts` (14 tests) builds a synthetic, TOOL-shaped
+catalog — a large Essential/Frequent/Occasional base, a Rare tail, and a
+small Mythic tail deliberately weighted toward filler track types
+(Interlude/SpokenWord/SoundCollage/Intro/Outro), matching the exact bug
+scenario reported (rare, short, non-Song material dominating). Sampled
+across 2,000 independent seeded hands (a "many candidate slots" style
+sweep) plus full simulated shows. Verifies: Essential+Frequent
+substantially outnumber Mythic; Mythic remains possible but stays a small
+minority; nearly every hand has a core-tier option when the catalog has
+one; no hand exceeds the configured rarity budget; filler track types are
+strongly under-represented relative to their catalog share; an Intro's
+offer weight is genuinely boosted at the very start of a show and an
+Outro's near the end (checked directly via `explainCandidate`, not a
+noisy end-to-end sample); small pools degrade gracefully and never return
+an empty hand when songs remain; no two consecutive main-set hands both
+carry a Mythic song against a large catalog; and both single-call and
+full-show candidate generation replay identically for the same seed.
+Encore candidates get the same rarity-budget check. All existing
+determinism/regression tests (162 total across `apps/api`, 37 across
+`apps/web`) still pass unchanged.
+
+### Known limitations
+
+- The rarity budget and "no consecutive Mythic hands" safeguard are
+  strong, pool-filtering-based preferences with graceful small-catalog
+  fallback — not an absolute mathematical guarantee against every
+  possible unusual catalog shape.
+- The admin candidate-debug tool is API-response data only; there is no
+  dedicated admin UI panel visualizing it yet (a natural follow-up if the
+  owner wants to inspect hands interactively rather than via response
+  JSON).
+- No live-database distribution report was run against a real band's
+  full catalog in this pass — the balance tests use a synthetic,
+  TOOL-shaped fixture built specifically to reproduce the reported bug
+  scenario, not a live production data pull.
+- Track Type's candidate-weight table is a starting point, not a claim of
+  correctness for every band's catalog shape — like the Live Frequency
+  weights, it's centralized in `CANDIDATE_CONFIG` specifically so it can
+  be retuned later without touching the slot-role algorithm.
